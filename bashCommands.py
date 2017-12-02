@@ -25,5 +25,3 @@ def GetCommand(cameraID):
 		raise e
 	return ffmpegPath + ' -i rtsp://' + credentials.login() + ipAddress + ffmpegArgs + fileName
 		
-	
-print(GetCommand(1))
