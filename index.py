@@ -8,9 +8,11 @@ import bashCommands
 
 app = Flask(__name__)
 
+
 @app.route('/', methods=['GET'])
 def hello():
     return render_template('index.html')
+
 
 @app.route('/<cameraId>/<isRecording>', methods=['POST'])
 def toggle_camera_recording(cameraId, isRecording):
@@ -27,4 +29,4 @@ def toggle_camera_recording(cameraId, isRecording):
         return response
 
 
-#app.run(host= '0.0.0.0')
+app.run(host= '0.0.0.0')

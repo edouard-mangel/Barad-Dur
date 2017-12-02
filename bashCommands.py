@@ -28,9 +28,11 @@ def GetIPAddress(cameraID):
         raise Exception("Argument out of bounds")
     return strAddress
 
+
 def SetFileName():
-	global fileName
-	return fileName
+    global fileName
+    return fileName
+
 
 def GetRecordCommand(cameraID):
     try:
@@ -59,11 +61,10 @@ def ToggleRecord(cameraID):
         PlayVideo(fileName)
 
 def PlayVideo(fileName):
-	command = GetPlayCommand(fileName)
-	global playing
-	if playing is None:
+    command = GetPlayCommand(fileName)
+    global playing
+    if playing is None:
         playing = subprocess.Popen(command.split(" "))
     else:
         playing.terminate()
         playing = None
-
