@@ -17,16 +17,10 @@ def toggle_camera_recording(cameraId, isRecording):
     try:
         cameraId = int(cameraId[-1]) - 1
         isRecording = (isRecording == 'true')
-        body = jsonify({'id': cameraId, 'isRecording': isRecording, 'command': bashCommands.GetRecordCommand(cameraId)})
+        body = jsonify({'id': cameraId, 'isRecording': isRecording})
         response = body
         response.status_code = 200
-
-        if isRecording == True:
-            return response
-        elif isRecording == False:
-            return response
-        else:
-            raise Exception('Parsing error')
+        bashCommands.ToggleRecord()
     except Exception:
         response.status_code = 500
 
