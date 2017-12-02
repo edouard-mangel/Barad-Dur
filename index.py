@@ -21,6 +21,9 @@ def toggle_camera_recording(cameraId, isRecording):
         response = body
         response.status_code = 200
         bashCommands.ToggleRecord(cameraId)
+
+        if isRecording == False:
+            bashCommands.PlayVideo(fileName)
     except Exception:
         response.status_code = 500
     finally:

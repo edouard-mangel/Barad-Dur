@@ -57,8 +57,6 @@ def ToggleRecord(cameraID):
     else:
         recording.terminate()
         recording = None
-        time.sleep(1)
-        PlayVideo(fileName)
 
 def PlayVideo(fileName):
     command = GetPlayCommand(fileName)
