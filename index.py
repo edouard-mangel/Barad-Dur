@@ -20,7 +20,7 @@ def toggle_camera_recording(cameraId, isRecording):
         body = jsonify({'id': cameraId, 'isRecording': isRecording})
         response = body
         response.status_code = 200
-        bashCommands.ToggleRecord()
+        bashCommands.ToggleRecord(cameraId)
     except Exception:
         response.status_code = 500
 
