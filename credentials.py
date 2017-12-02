@@ -1,5 +1,3 @@
-
-
 loginName = 'admin'
 password = 'password'
 
