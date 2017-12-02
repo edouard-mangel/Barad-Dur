@@ -15,7 +15,7 @@ def hello():
 @app.route('/<cameraId>/<isRecording>', methods=['POST'])
 def toggle_camera_recording(cameraId, isRecording):
     try:
-        cameraId = int(cameraId[-1])
+        cameraId = int(cameraId[-1]) - 1
         isRecording = (isRecording == 'true')
         body = jsonify({'id': cameraId, 'isRecording': isRecording, 'command': bashCommands.GetRecordCommand(cameraId)})
         response = body
