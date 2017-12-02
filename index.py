@@ -6,12 +6,14 @@ import subprocess
 import credentials
 import bashCommands
 
-testVar = bashCommands.GetCommand(1)
 app = Flask(__name__)
+
+testVar = bashCommands.GetPlayCommand("FileName.avi")
+
 
 @app.route('/', methods=['GET'])
 def hello():
-    return render_template('index.html', title='bb')
+    return render_template('index.html', title=testVar)
 
 @app.route('/<cameraId>/<isRecording>', methods=['POST'])
 def toggle_camera_recording(cameraId, isRecording):
