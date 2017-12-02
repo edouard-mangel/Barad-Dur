@@ -1,9 +1,71 @@
 <!DOCTYPE html>
 <html lang="fr">
-<head>
-    <title>Panza Gym</title>
-</head>
-<body>
-  <h1>Hello {{ title }}</h1>
-</body>
+  <head>
+      <title>Panza Gym</title>
+      <link rel="stylesheet" href="{{ url_for('static', filename='bootstrap-3.3.7/dist/css/bootstrap.css') }}">
+  </head>
+  <body class="container-fluid">
+    <div class="row">
+      <div style="border:1px solid black; text-align:center; font-size:50vw;" class="col-xs-6" id="camera1" data-recording-status="false">
+        1
+      </div>
+      <div style="border:1px solid black; text-align:center; font-size:50vw;" class="col-xs-6" id="camera2" data-recording-status="false">
+        2
+      </div>
+    </div>
+    <div class="row">
+      <div style="border:1px solid black; text-align:center; font-size:50vw;" class="col-xs-6" id="camera3" data-recording-status="false">
+        3
+      </div>
+      <div style="border:1px solid black; text-align:center; font-size:50vw;" class="col-xs-6" id="camera4" data-recording-status="false">
+        4
+      </div>
+    </div>
+    <script type="text/javascript" src="{{ url_for('static', filename='jquery-3.2.1.min.js') }}"></script>
+    <script type="text/javascript" src="{{ url_for('static', filename='bootstrap-3.3.7/dist/js/bootstrap.js') }}"></script>
+    <script type="text/javascript">
+      $(document).ready(function() {
+        var setCameraBoxes = function() {
+          $('#camera1').height(window.innerHeight / 2);
+          $('#camera2').height(window.innerHeight / 2);
+          $('#camera3').height(window.innerHeight / 2);
+          $('#camera4').height(window.innerHeight / 2);
+        };
+        var toggleCameraBoxRecording = function(cameraId, cameraStatus) {
+          if(cameraStatus === true) {
+            $('#' + cameraId).data('recording-status', false);
+            $('#' + cameraId).css('background-color', 'white');
+          }
+
+          if(cameraStatus === false) {
+            $('#' + cameraId).data('recording-status', true);
+            $('#' + cameraId).css('background-color', 'red');
+          }
+        };
+
+        $(window).resize(function() {
+          setCameraBoxes()
+        });
+
+        $("div[id^='camera']").click(function() {
+          var cameraId = $(this).prop('id');
+          var cameraStatus = $(this).data('recording-status');
+          var serverUrl = '' + cameraId + '/' + !cameraStatus;
+
+          console.log('Clicked', cameraId, cameraStatus, serverUrl);
+
+          $.post(serverUrl)
+            .done(function(data) {
+              console.log('Success Response', data);
+              toggleCameraBoxRecording(cameraId, cameraStatus);
+            })
+            .fail(function(error) {
+              console.error('Error Response', error);
+            });
+        });
+
+        setCameraBoxes();
+      });
+    </script>
+  </body>
 </html>
