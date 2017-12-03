@@ -22,16 +22,11 @@ def toggle_camera_recording(cameraId, isRecording):
         body = jsonify({'id': cameraId, 'isRecording': isRecording})
         response = body
         response.status_code = 200
-        print("Go Toggle")
         bashCommands.ToggleRecord(0)
 
         print(bashCommands.fileName)
         if isRecording == False:
-            print("Play command: " +bashCommands.GetPlayCommand(bashCommands.fileName))
             bashCommands.PlayVideo(bashCommands.fileName)
-        else:
-            print("FFMPEG isRecording")
-
     except Exception:
         response.status_code = 500
     finally:

@@ -1,6 +1,8 @@
 import os
 import subprocess
 import credentials
+from datetime import datetime
+import re
 
 # IP Cameras related variables
 subDomain = '192.168.1.'
@@ -28,8 +30,12 @@ def GetIPAddress(cameraID):
     return strAddress
 
 
-def SetFileName():
+def SetFileName(extension="avi"):
     global fileName
+    fileName = str(datetime.date(datetime.now())) + \
+        str(datetime.time(datetime.now()))
+    fileName += "." + extension
+    fileName = re.sub('[:]', '_', fileName)
     return fileName
 
 
@@ -39,7 +45,7 @@ def GetRecordCommand(cameraID, override=False):
     except Exception as e:
         raise e
     command = ffmpegPath + ' -i rtsp://' + credentials.login() + ipAddress + \
-        ffmpegArgs + recordFolder + fileName
+        ffmpegArgs + recordFolder + SetFileName()
     if override == True:
         command += " -y"
     return command
@@ -49,20 +55,22 @@ def GetPlayCommand(fileName, loop=True):
     command = str.join(' ', (player, recordFolder + fileName))
     if loop == True:
         command += " --loop"
+    print(command)
     return command
 
 
 def ToggleRecord(cameraID):
-    try:
-        command = GetRecordCommand(cameraID, True)
-    except Exception as e:
-        raise e
-
     global recording
     global playing
     if recording is None:
-        recording = subprocess.Popen(command.split(" "))
-        playing = None
+        try:
+            command = GetRecordCommand(cameraID, True)
+            
+            recording = subprocess.Popen(command.split(" ") )
+        except Exception as e:
+            raise e
+        finally:
+            playing = None
     else:
         recording.send_signal(2)
         recording = None
@@ -71,16 +79,15 @@ def ToggleRecord(cameraID):
 
 
 def PlayVideo(fileName):
-    print("\nTestPrint: " + fileName )
     command = GetPlayCommand(fileName)
-    print("Commande de lecture: "+ command)
     global playing
     if playing is None:
-    	try:
-        	print("Command = " + command)
-        	playing = subprocess.Popen(command.split(" "))
-    	except Exception as e:
-    		raise e
+        try:
+            playing = subprocess.Popen(command.split(" "))
+        except Exception as e:
+            raise e
     else:
         playing.send_signal(2)
         playing = None
+        time.sleep(2)
+        return
