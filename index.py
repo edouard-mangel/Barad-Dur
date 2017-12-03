@@ -8,9 +8,11 @@ import bashCommands
 
 app = Flask(__name__)
 
+
 @app.route('/', methods=['GET'])
 def hello():
     return render_template('index.html')
+
 
 @app.route('/<cameraId>/<isRecording>', methods=['POST'])
 def toggle_camera_recording(cameraId, isRecording):
@@ -20,10 +22,16 @@ def toggle_camera_recording(cameraId, isRecording):
         body = jsonify({'id': cameraId, 'isRecording': isRecording})
         response = body
         response.status_code = 200
-        bashCommands.ToggleRecord(cameraId)
+        print("Go Toggle")
+        bashCommands.ToggleRecord(0)
 
+        print(bashCommands.fileName)
         if isRecording == False:
-            bashCommands.PlayVideo(fileName)
+            print("Play command: " +bashCommands.GetPlayCommand(bashCommands.fileName))
+            bashCommands.PlayVideo(bashCommands.fileName)
+        else:
+            print("FFMPEG isRecording")
+
     except Exception:
         response.status_code = 500
     finally:

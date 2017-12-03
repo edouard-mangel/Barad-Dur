@@ -12,8 +12,7 @@ camerasIPsuffix = [19, 20, 21, 22]
 
 # Video player related stuff
 player = "omxplayer"
-playerOptions = "-o local"
-recordFolder = "./Videos"
+recordFolder = "./Videos/"
 
 # Threads related processes
 recording = None
@@ -34,35 +33,54 @@ def SetFileName():
     return fileName
 
 
-def GetRecordCommand(cameraID):
+def GetRecordCommand(cameraID, override=False):
     try:
         ipAddress = GetIPAddress(cameraID)
     except Exception as e:
         raise e
-    return ffmpegPath + ' -i rtsp://' + credentials.login() + ipAddress + ffmpegArgs + fileName
+    command = ffmpegPath + ' -i rtsp://' + credentials.login() + ipAddress + \
+        ffmpegArgs + recordFolder + fileName
+    if override == True:
+        command += " -y"
+    return command
 
 
 def GetPlayCommand(fileName, loop=True):
-    command = str.join(' ', (player, playerOptions, recordFolder, fileName))
+    command = str.join(' ', (player, recordFolder + fileName))
     if loop == True:
         command += " --loop"
     return command
 
 
 def ToggleRecord(cameraID):
-    command = GetRecordCommand(cameraID)
+    try:
+        command = GetRecordCommand(cameraID, True)
+    except Exception as e:
+        raise e
+
     global recording
+    global playing
     if recording is None:
         recording = subprocess.Popen(command.split(" "))
+        playing = None
     else:
-        recording.terminate()
+        recording.send_signal(2)
         recording = None
+        playing = None
+        return
+
 
 def PlayVideo(fileName):
+    print("\nTestPrint: " + fileName )
     command = GetPlayCommand(fileName)
+    print("Commande de lecture: "+ command)
     global playing
     if playing is None:
-        playing = subprocess.Popen(command.split(" "))
+    	try:
+        	print("Command = " + command)
+        	playing = subprocess.Popen(command.split(" "))
+    	except Exception as e:
+    		raise e
     else:
-        playing.terminate()
+        playing.send_signal(2)
         playing = None
