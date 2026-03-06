@@ -1,0 +1,21 @@
+[package]
+name = "barad-dur"
+version = "0.1.0"
+edition = "2021"
+description = "The all-seeing repository analyzer"
+
+[dependencies]
+git2 = "0.19"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bincode = "1"
+chrono = { version = "0.4", features = ["serde"] }
+colored = "2"
+rayon = "1"
+indicatif = "0.17"
+anyhow = "1"
+
+[dev-dependencies]
+assert_cmd = "2"
+tempfile = "3"
