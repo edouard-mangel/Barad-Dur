@@ -1,6 +1,4 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
-
 use crate::metrics::{CategoryResult, MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
 
@@ -329,6 +327,7 @@ mod tests {
     use super::*;
     use crate::snapshot::*;
     use chrono::{Duration, Utc};
+    use std::path::PathBuf;
 
     #[test]
     fn knowledge_distribution_detects_concentration() {

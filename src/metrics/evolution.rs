@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use chrono::{Duration, Utc};
+use chrono::Utc;
 
 use crate::metrics::{CategoryResult, MetricValue, RawValue};
 use crate::snapshot::{ChangeType, RepoSnapshot};
@@ -266,6 +266,7 @@ fn commit_cadence(snapshot: &RepoSnapshot) -> MetricValue {
 mod tests {
     use super::*;
     use crate::snapshot::*;
+    use chrono::Duration;
     use std::path::PathBuf;
 
     #[test]

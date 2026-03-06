@@ -3,6 +3,7 @@ pub mod gitcli;
 
 use anyhow::{Context, Result};
 use chrono::Utc;
+use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -79,9 +80,47 @@ impl Collector {
 
     /// Build a complete RepoSnapshot with all data and derived indexes.
     pub fn collect_snapshot(&self) -> Result<RepoSnapshot> {
+        self.collect_snapshot_with_progress(false)
+    }
+
+    /// Build a complete RepoSnapshot, optionally showing progress indicators.
+    pub fn collect_snapshot_with_progress(&self, show_progress: bool) -> Result<RepoSnapshot> {
+        let spinner = if show_progress {
+            let sp = ProgressBar::new_spinner();
+            sp.set_style(
+                ProgressStyle::default_spinner()
+                    .template("  {spinner:.cyan} {msg}")
+                    .unwrap(),
+            );
+            sp.set_message("Walking commits...");
+            sp.enable_steady_tick(std::time::Duration::from_millis(80));
+            Some(sp)
+        } else {
+            None
+        };
+
         let collection = self.collect_commits()?;
+        if let Some(sp) = &spinner {
+            sp.set_message(format!(
+                "Found {} commits. Collecting file tree...",
+                collection.commits.len()
+            ));
+        }
+
         let files = self.collect_files()?;
+        if let Some(sp) = &spinner {
+            sp.set_message(format!(
+                "Found {} files. Running blame ({} non-binary)...",
+                files.len(),
+                files.iter().filter(|f| !f.is_binary).count()
+            ));
+        }
+
         let blame_map = self.collect_blame(&files, &collection.authors)?;
+        if let Some(sp) = &spinner {
+            sp.set_message("Building indexes...");
+        }
+
         let head = self.head_commit_hash()?;
 
         let mut snapshot = RepoSnapshot {
@@ -100,6 +139,11 @@ impl Collector {
             file_change_pairs: Vec::new(),
         };
         snapshot.build_indexes();
+
+        if let Some(sp) = spinner {
+            sp.finish_and_clear();
+        }
+
         Ok(snapshot)
     }
 
