@@ -1,9 +1,11 @@
 mod libgit;
+pub mod gitcli;
 
 use anyhow::{Context, Result};
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
-use crate::snapshot::{Author, Commit, FileEntry, TimeWindow};
+use crate::snapshot::{Author, BlameLine, Commit, FileEntry, TimeWindow};
 
 /// Result of collecting commits — includes deduplicated author list.
 pub struct CommitCollection {
@@ -58,6 +60,20 @@ impl Collector {
     /// Collect the current file tree from HEAD.
     pub fn collect_files(&self) -> Result<Vec<FileEntry>> {
         libgit::collect_files(&self.repo)
+    }
+
+    /// Collect blame data for all non-binary files.
+    pub fn collect_blame(
+        &self,
+        files: &[FileEntry],
+        authors: &[Author],
+    ) -> Result<HashMap<PathBuf, Vec<BlameLine>>> {
+        gitcli::collect_blame(self.repo_path(), files, authors)
+    }
+
+    /// Check if this is a shallow clone.
+    pub fn is_shallow(&self) -> bool {
+        gitcli::is_shallow_clone(self.repo_path())
     }
 
     pub fn repo_path(&self) -> &Path {

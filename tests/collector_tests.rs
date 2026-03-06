@@ -95,3 +95,52 @@ fn head_commit_hash_is_valid() {
         "Git hash should be hex"
     );
 }
+
+// --- Blame tests ---
+
+#[test]
+fn collect_blame_returns_data_for_cargo_toml() {
+    let collector =
+        Collector::open(std::path::Path::new("."), TimeWindow::full_history()).unwrap();
+    let collection = collector.collect_commits().unwrap();
+    let files = collector.collect_files().unwrap();
+    let blame_map = collector.collect_blame(&files, &collection.authors).unwrap();
+
+    let cargo_blame = blame_map.get(&PathBuf::from("Cargo.toml"));
+    assert!(
+        cargo_blame.is_some(),
+        "Expected blame data for Cargo.toml"
+    );
+    assert!(
+        !cargo_blame.unwrap().is_empty(),
+        "Cargo.toml blame should have lines"
+    );
+}
+
+#[test]
+fn blame_lines_have_valid_author_ids() {
+    let collector =
+        Collector::open(std::path::Path::new("."), TimeWindow::full_history()).unwrap();
+    let collection = collector.collect_commits().unwrap();
+    let files = collector.collect_files().unwrap();
+    let blame_map = collector.collect_blame(&files, &collection.authors).unwrap();
+
+    let max_author_id = collection.authors.len();
+    for (_path, lines) in &blame_map {
+        for line in lines {
+            assert!(
+                line.author_id < max_author_id,
+                "Blame line author_id {} should be < {}",
+                line.author_id,
+                max_author_id
+            );
+        }
+    }
+}
+
+#[test]
+fn shallow_clone_detection() {
+    let collector = Collector::open(std::path::Path::new("."), TimeWindow::default()).unwrap();
+    // This repo is not shallow
+    assert!(!collector.is_shallow());
+}
