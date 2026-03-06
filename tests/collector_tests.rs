@@ -144,3 +144,36 @@ fn shallow_clone_detection() {
     // This repo is not shallow
     assert!(!collector.is_shallow());
 }
+
+// --- Full snapshot tests ---
+
+#[test]
+fn collect_snapshot_returns_populated_snapshot() {
+    let collector =
+        Collector::open(std::path::Path::new("."), TimeWindow::full_history()).unwrap();
+    let snapshot = collector.collect_snapshot().unwrap();
+
+    assert!(!snapshot.commits.is_empty(), "Snapshot should have commits");
+    assert!(!snapshot.files.is_empty(), "Snapshot should have files");
+    assert!(!snapshot.authors.is_empty(), "Snapshot should have authors");
+    assert!(!snapshot.blame_map.is_empty(), "Snapshot should have blame data");
+    assert!(!snapshot.head_commit.is_empty(), "Snapshot should have HEAD hash");
+    assert_eq!(snapshot.head_commit.len(), 40);
+}
+
+#[test]
+fn collect_snapshot_has_derived_indexes() {
+    let collector =
+        Collector::open(std::path::Path::new("."), TimeWindow::full_history()).unwrap();
+    let snapshot = collector.collect_snapshot().unwrap();
+
+    assert!(
+        !snapshot.commits_by_author.is_empty(),
+        "commits_by_author should be populated"
+    );
+    assert!(
+        !snapshot.commits_by_file.is_empty(),
+        "commits_by_file should be populated"
+    );
+    // file_change_pairs may be empty if no files co-change >= 3 times yet
+}

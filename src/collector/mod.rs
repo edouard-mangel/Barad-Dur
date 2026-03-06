@@ -2,10 +2,11 @@ mod libgit;
 pub mod gitcli;
 
 use anyhow::{Context, Result};
+use chrono::Utc;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::snapshot::{Author, BlameLine, Commit, FileEntry, TimeWindow};
+use crate::snapshot::{Author, BlameLine, Commit, FileEntry, RepoSnapshot, TimeWindow};
 
 /// Result of collecting commits — includes deduplicated author list.
 pub struct CommitCollection {
@@ -74,6 +75,32 @@ impl Collector {
     /// Check if this is a shallow clone.
     pub fn is_shallow(&self) -> bool {
         gitcli::is_shallow_clone(self.repo_path())
+    }
+
+    /// Build a complete RepoSnapshot with all data and derived indexes.
+    pub fn collect_snapshot(&self) -> Result<RepoSnapshot> {
+        let collection = self.collect_commits()?;
+        let files = self.collect_files()?;
+        let blame_map = self.collect_blame(&files, &collection.authors)?;
+        let head = self.head_commit_hash()?;
+
+        let mut snapshot = RepoSnapshot {
+            path: self.repo_path().to_path_buf(),
+            name: self.repo_name(),
+            default_branch: self.default_branch(),
+            time_window: self.time_window.clone(),
+            head_commit: head,
+            created_at: Utc::now(),
+            commits: collection.commits,
+            files,
+            authors: collection.authors,
+            blame_map,
+            commits_by_author: HashMap::new(),
+            commits_by_file: HashMap::new(),
+            file_change_pairs: Vec::new(),
+        };
+        snapshot.build_indexes();
+        Ok(snapshot)
     }
 
     pub fn repo_path(&self) -> &Path {
