@@ -1,18 +1,50 @@
-# You can override the included template(s) by including variable overrides
-# SAST customization: https://docs.gitlab.com/ee/user/application_security/sast/#customizing-the-sast-settings
-# Secret Detection customization: https://docs.gitlab.com/user/application_security/secret_detection/pipeline/configure
-# Dependency Scanning customization: https://docs.gitlab.com/ee/user/application_security/dependency_scanning/#customizing-the-dependency-scanning-settings
-# Container Scanning customization: https://docs.gitlab.com/ee/user/application_security/container_scanning/#customizing-the-container-scanning-settings
-# Note that environment variables can be set in several places
-# See https://docs.gitlab.com/ee/ci/variables/#cicd-variable-precedence
 stages:
-- test
-- secret-detection
+  - build
+  - test
+  - secret-detection
+
+variables:
+  CARGO_HOME: ${CI_PROJECT_DIR}/.cargo
+  SECRET_DETECTION_ENABLED: 'true'
+
+# Cache Rust dependencies between jobs
+.rust-cache: &rust-cache
+  cache:
+    key: rust-${CI_COMMIT_REF_SLUG}
+    paths:
+      - .cargo/registry
+      - .cargo/git
+      - target/
+
+build:
+  stage: build
+  image: rust:1.85
+  <<: *rust-cache
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq cmake pkg-config libssl-dev
+  script:
+    - cargo build --release
+  artifacts:
+    paths:
+      - target/release/barad-dur
+    expire_in: 1 hour
+
+test:
+  stage: test
+  image: rust:1.85
+  <<: *rust-cache
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq cmake pkg-config libssl-dev
+  script:
+    - cargo test --lib
+    - cargo test --test collector_tests
+    - cargo test --test integration_tests
+
 sast:
   stage: test
+
 include:
-- template: Security/Secret-Detection.gitlab-ci.yml
-variables:
-  SECRET_DETECTION_ENABLED: 'true'
+  - template: Security/Secret-Detection.gitlab-ci.yml
+
 secret_detection:
   stage: secret-detection
