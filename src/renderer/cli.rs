@@ -31,6 +31,31 @@ pub fn render(report: &AnalysisReport, verbosity: u8) -> String {
             report.time_window_months
         ));
     }
+    if let Some(meta) = &report.remote_meta {
+        out.push_str(&format!(
+            "  {} {}\n",
+            "Source:".dimmed(),
+            meta.url.bold()
+        ));
+        let mut details = Vec::new();
+        if let Some(stars) = meta.stars {
+            details.push(format!("Stars: {}", stars));
+        }
+        if let Some(lang) = &meta.language {
+            details.push(format!("Language: {}", lang));
+        }
+        if let Some(issues) = meta.open_issues {
+            details.push(format!("Issues: {}", issues));
+        }
+        if !details.is_empty() {
+            out.push_str(&format!("  {}\n", details.join("   ").dimmed()));
+        }
+        if let Some(desc) = &meta.description {
+            if !desc.is_empty() {
+                out.push_str(&format!("  {}\n", desc.dimmed()));
+            }
+        }
+    }
 
     // Overall score
     out.push_str(&format!(
@@ -58,11 +83,19 @@ pub fn render(report: &AnalysisReport, verbosity: u8) -> String {
             for metric in &cat.metrics {
                 let score_indicator = format_score_dot(metric.score);
                 out.push_str(&format!(
-                    "    {} {} {}\n",
+                    "    {} {} {}  {}\n",
                     score_indicator,
                     metric.name,
+                    format_score_number(metric.score),
                     metric.description.dimmed()
                 ));
+                if verbosity > 1 {
+                    out.push_str(&format!(
+                        "      {} {}\n",
+                        "value:".dimmed(),
+                        metric.raw_value.to_string().bold()
+                    ));
+                }
             }
         }
     }
@@ -147,6 +180,7 @@ mod tests {
                 }],
             }],
             top_actions: vec!["[Health] Bus factor (score: 50) — Improve".into()],
+            remote_meta: None,
         }
     }
 
@@ -177,6 +211,15 @@ mod tests {
         let report = make_report();
         let output = render(&report, 1);
         assert!(output.contains("Bus factor"));
+        assert!(output.contains("50/100"));
+    }
+
+    #[test]
+    fn render_very_verbose_shows_raw_value() {
+        let report = make_report();
+        let output = render(&report, 2);
+        assert!(output.contains("value:"));
+        assert!(output.contains('2'));
     }
 
     #[test]

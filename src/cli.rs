@@ -16,9 +16,16 @@ pub enum Commands {
 
 #[derive(clap::Args, Debug)]
 pub struct AnalyzeArgs {
-    /// Path to the git repository (default: current directory)
+    /// Path or URL to the git repository (default: current directory).
+    /// Accepts local paths as well as remote URLs
+    /// (https://, http://, git@).
     #[arg(default_value = ".")]
-    pub path: PathBuf,
+    pub target: String,
+
+    /// GitHub personal access token for API enrichment (stars, description,
+    /// language). Only used when the target is a GitHub URL.
+    #[arg(long)]
+    pub token: Option<String>,
 
     /// Run health metrics
     #[arg(long)]
@@ -109,7 +116,7 @@ mod tests {
     #[test]
     fn default_args() {
         let args = parse(&["barad-dur", "analyze", "."]);
-        assert_eq!(args.path, PathBuf::from("."));
+        assert_eq!(args.target, ".");
         assert!(args.all_categories());
         assert!(!args.json);
         assert!(!args.no_cache);

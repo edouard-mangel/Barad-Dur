@@ -1,12 +1,14 @@
 use anyhow::{bail, Result};
 use clap::Parser;
+use std::path::PathBuf;
 
 use barad_dur::cache;
 use barad_dur::cli::{AnalyzeArgs, Cli, Commands};
 use barad_dur::collector::Collector;
 use barad_dur::metrics::{evolution, health, hygiene, team, CategoryResult};
+use barad_dur::remote;
 use barad_dur::renderer;
-use barad_dur::scorer;
+use barad_dur::scorer::{self, RemoteMeta};
 use barad_dur::snapshot::{RepoSnapshot, TimeWindow};
 
 fn main() -> Result<()> {
@@ -18,8 +20,43 @@ fn main() -> Result<()> {
 }
 
 fn run_analyze(args: AnalyzeArgs) -> Result<()> {
+    // Resolve target: URL → clone to temp dir, otherwise treat as local path.
+    // _temp_clone must stay alive until the end of the function so the dir
+    // isn't deleted before we finish analysis.
+    let _temp_clone: Option<remote::clone::TempClone>;
+    let (local_path, remote_meta): (PathBuf, Option<RemoteMeta>) =
+        if remote::is_url(&args.target) {
+            let clone = remote::clone::clone_remote(&args.target)?;
+            let gh_meta = args.token.as_deref().and_then(|t| {
+                if remote::github::is_github_url(&args.target) {
+                    match remote::github::fetch_meta(&args.target, t) {
+                        Ok(m) => Some(m),
+                        Err(e) => {
+                            eprintln!("Warning: GitHub API error: {}", e);
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            });
+            let path = clone.path.clone();
+            _temp_clone = Some(clone);
+            let meta = gh_meta.map(|m| RemoteMeta {
+                url: args.target.clone(),
+                stars: Some(m.stars),
+                description: m.description,
+                language: m.language,
+                open_issues: Some(m.open_issues),
+            });
+            (path, meta)
+        } else {
+            _temp_clone = None;
+            (PathBuf::from(&args.target), None)
+        };
+
     let time_window = build_time_window(&args);
-    let collector = Collector::open(&args.path, time_window)?;
+    let collector = Collector::open(&local_path, time_window)?;
 
     // Warn about shallow clones
     if collector.is_shallow() {
@@ -60,7 +97,7 @@ fn run_analyze(args: AnalyzeArgs) -> Result<()> {
     let categories = compute_selected_metrics(&snapshot, &args);
 
     // Score
-    let report = scorer::build_report(&snapshot, categories);
+    let report = scorer::build_report(&snapshot, categories, remote_meta);
 
     // Render
     let output = if args.json {

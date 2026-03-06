@@ -36,6 +36,7 @@ mod tests {
                 }],
             }],
             top_actions: vec!["Fix bus factor".into()],
+            remote_meta: None,
         }
     }
 

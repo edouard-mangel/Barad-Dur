@@ -11,6 +11,16 @@ const WEIGHTS: &[(&str, f64)] = &[
     ("Git Hygiene", 0.20),
 ];
 
+/// Metadata about the remote repository origin (populated when a URL is given).
+#[derive(Debug, Clone, Serialize)]
+pub struct RemoteMeta {
+    pub url: String,
+    pub stars: Option<u64>,
+    pub description: Option<String>,
+    pub language: Option<String>,
+    pub open_issues: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AnalysisReport {
     pub repo_name: String,
@@ -22,9 +32,14 @@ pub struct AnalysisReport {
     pub overall_score: u32,
     pub categories: Vec<CategoryResult>,
     pub top_actions: Vec<String>,
+    pub remote_meta: Option<RemoteMeta>,
 }
 
-pub fn build_report(snapshot: &RepoSnapshot, categories: Vec<CategoryResult>) -> AnalysisReport {
+pub fn build_report(
+    snapshot: &RepoSnapshot,
+    categories: Vec<CategoryResult>,
+    remote_meta: Option<RemoteMeta>,
+) -> AnalysisReport {
     let overall_score = compute_overall_score(&categories);
     let top_actions = generate_top_actions(&categories);
 
@@ -38,6 +53,7 @@ pub fn build_report(snapshot: &RepoSnapshot, categories: Vec<CategoryResult>) ->
         overall_score,
         categories,
         top_actions,
+        remote_meta,
     }
 }
 
@@ -217,7 +233,7 @@ mod tests {
         );
 
         let categories = vec![make_category("Health", 80)];
-        let report = build_report(&snapshot, categories);
+        let report = build_report(&snapshot, categories, None);
 
         assert_eq!(report.repo_name, "test-repo");
         assert_eq!(report.branch, "main");

@@ -13,7 +13,7 @@ fn open_repo_succeeds() {
 #[test]
 fn repo_name_is_correct() {
     let collector = Collector::open(std::path::Path::new("."), TimeWindow::default()).unwrap();
-    assert_eq!(collector.repo_name(), "myTool");
+    assert_eq!(collector.repo_name(), "barad-dur");
 }
 
 #[test]
