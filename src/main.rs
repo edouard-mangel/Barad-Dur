@@ -1,3 +1,11 @@
+use barad_dur::cli::{Cli, Commands};
+use clap::Parser;
+
 fn main() {
-    println!("Hello, world!");
+    let cli = Cli::parse();
+    match cli.command {
+        Commands::Analyze(args) => {
+            println!("{:?}", args);
+        }
+    }
 }
