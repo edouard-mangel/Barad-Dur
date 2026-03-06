@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use crate::metrics::{CategoryResult, MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
+use std::collections::HashMap;
 
 pub fn compute_team(snapshot: &RepoSnapshot) -> CategoryResult {
     let metrics = vec![
@@ -339,22 +339,46 @@ mod tests {
         );
 
         snapshot.authors = vec![
-            Author { id: 0, name: "Alice".into(), email: "a@t.com".into() },
-            Author { id: 1, name: "Bob".into(), email: "b@t.com".into() },
-            Author { id: 2, name: "Carol".into(), email: "c@t.com".into() },
+            Author {
+                id: 0,
+                name: "Alice".into(),
+                email: "a@t.com".into(),
+            },
+            Author {
+                id: 1,
+                name: "Bob".into(),
+                email: "b@t.com".into(),
+            },
+            Author {
+                id: 2,
+                name: "Carol".into(),
+                email: "c@t.com".into(),
+            },
         ];
 
         let now = Utc::now();
         // Alice owns 95 lines, Bob 4, Carol 1 → very high Gini
         let mut blame = Vec::new();
         for _ in 0..95 {
-            blame.push(BlameLine { author_id: 0, commit_id: "c1".into(), timestamp: now });
+            blame.push(BlameLine {
+                author_id: 0,
+                commit_id: "c1".into(),
+                timestamp: now,
+            });
         }
         for _ in 0..4 {
-            blame.push(BlameLine { author_id: 1, commit_id: "c2".into(), timestamp: now });
+            blame.push(BlameLine {
+                author_id: 1,
+                commit_id: "c2".into(),
+                timestamp: now,
+            });
         }
         for _ in 0..1 {
-            blame.push(BlameLine { author_id: 2, commit_id: "c3".into(), timestamp: now });
+            blame.push(BlameLine {
+                author_id: 2,
+                commit_id: "c3".into(),
+                timestamp: now,
+            });
         }
         snapshot.blame_map.insert(PathBuf::from("file.rs"), blame);
 
@@ -376,11 +400,31 @@ mod tests {
         );
 
         snapshot.authors = vec![
-            Author { id: 0, name: "Alice".into(), email: "a@t.com".into() },
-            Author { id: 1, name: "Bob".into(), email: "b@t.com".into() },
-            Author { id: 2, name: "Carol".into(), email: "c@t.com".into() },
-            Author { id: 3, name: "Dave".into(), email: "d@t.com".into() },
-            Author { id: 4, name: "Eve".into(), email: "e@t.com".into() },
+            Author {
+                id: 0,
+                name: "Alice".into(),
+                email: "a@t.com".into(),
+            },
+            Author {
+                id: 1,
+                name: "Bob".into(),
+                email: "b@t.com".into(),
+            },
+            Author {
+                id: 2,
+                name: "Carol".into(),
+                email: "c@t.com".into(),
+            },
+            Author {
+                id: 3,
+                name: "Dave".into(),
+                email: "d@t.com".into(),
+            },
+            Author {
+                id: 4,
+                name: "Eve".into(),
+                email: "e@t.com".into(),
+            },
         ];
 
         let now = Utc::now();
@@ -418,20 +462,36 @@ mod tests {
         // File 1: Alice 80%, Bob 20% → clear owner
         let mut blame1 = Vec::new();
         for _ in 0..80 {
-            blame1.push(BlameLine { author_id: 0, commit_id: "c1".into(), timestamp: now });
+            blame1.push(BlameLine {
+                author_id: 0,
+                commit_id: "c1".into(),
+                timestamp: now,
+            });
         }
         for _ in 0..20 {
-            blame1.push(BlameLine { author_id: 1, commit_id: "c2".into(), timestamp: now });
+            blame1.push(BlameLine {
+                author_id: 1,
+                commit_id: "c2".into(),
+                timestamp: now,
+            });
         }
         snapshot.blame_map.insert(PathBuf::from("f1.rs"), blame1);
 
         // File 2: 50/50 → no clear owner
         let mut blame2 = Vec::new();
         for _ in 0..50 {
-            blame2.push(BlameLine { author_id: 0, commit_id: "c1".into(), timestamp: now });
+            blame2.push(BlameLine {
+                author_id: 0,
+                commit_id: "c1".into(),
+                timestamp: now,
+            });
         }
         for _ in 0..50 {
-            blame2.push(BlameLine { author_id: 1, commit_id: "c2".into(), timestamp: now });
+            blame2.push(BlameLine {
+                author_id: 1,
+                commit_id: "c2".into(),
+                timestamp: now,
+            });
         }
         snapshot.blame_map.insert(PathBuf::from("f2.rs"), blame2);
 
@@ -456,19 +516,35 @@ mod tests {
         // "auth" directory: 100% Alice → silo
         let mut blame_auth = Vec::new();
         for _ in 0..100 {
-            blame_auth.push(BlameLine { author_id: 0, commit_id: "c1".into(), timestamp: now });
+            blame_auth.push(BlameLine {
+                author_id: 0,
+                commit_id: "c1".into(),
+                timestamp: now,
+            });
         }
-        snapshot.blame_map.insert(PathBuf::from("auth/login.rs"), blame_auth);
+        snapshot
+            .blame_map
+            .insert(PathBuf::from("auth/login.rs"), blame_auth);
 
         // "api" directory: 60/40 split → NOT a silo
         let mut blame_api = Vec::new();
         for _ in 0..60 {
-            blame_api.push(BlameLine { author_id: 0, commit_id: "c1".into(), timestamp: now });
+            blame_api.push(BlameLine {
+                author_id: 0,
+                commit_id: "c1".into(),
+                timestamp: now,
+            });
         }
         for _ in 0..40 {
-            blame_api.push(BlameLine { author_id: 1, commit_id: "c2".into(), timestamp: now });
+            blame_api.push(BlameLine {
+                author_id: 1,
+                commit_id: "c2".into(),
+                timestamp: now,
+            });
         }
-        snapshot.blame_map.insert(PathBuf::from("api/routes.rs"), blame_api);
+        snapshot
+            .blame_map
+            .insert(PathBuf::from("api/routes.rs"), blame_api);
 
         let result = collaboration_patterns(&snapshot);
         match result.raw_value {

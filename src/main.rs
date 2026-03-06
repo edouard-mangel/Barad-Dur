@@ -103,19 +103,31 @@ fn build_time_window(args: &AnalyzeArgs) -> TimeWindow {
     }
 }
 
-fn parse_time_spec(spec: &str, now: chrono::DateTime<chrono::Utc>) -> Option<chrono::DateTime<chrono::Utc>> {
+fn parse_time_spec(
+    spec: &str,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Option<chrono::DateTime<chrono::Utc>> {
     // Try relative format: "3months", "6months", "1year", "30days"
-    if let Some(months) = spec.strip_suffix("months").or_else(|| spec.strip_suffix("month")) {
+    if let Some(months) = spec
+        .strip_suffix("months")
+        .or_else(|| spec.strip_suffix("month"))
+    {
         if let Ok(m) = months.trim().parse::<i64>() {
             return Some(now - chrono::Duration::days(m * 30));
         }
     }
-    if let Some(days) = spec.strip_suffix("days").or_else(|| spec.strip_suffix("day")) {
+    if let Some(days) = spec
+        .strip_suffix("days")
+        .or_else(|| spec.strip_suffix("day"))
+    {
         if let Ok(d) = days.trim().parse::<i64>() {
             return Some(now - chrono::Duration::days(d));
         }
     }
-    if let Some(years) = spec.strip_suffix("years").or_else(|| spec.strip_suffix("year")) {
+    if let Some(years) = spec
+        .strip_suffix("years")
+        .or_else(|| spec.strip_suffix("year"))
+    {
         if let Ok(y) = years.trim().parse::<i64>() {
             return Some(now - chrono::Duration::days(y * 365));
         }
@@ -126,7 +138,10 @@ fn parse_time_spec(spec: &str, now: chrono::DateTime<chrono::Utc>) -> Option<chr
         return Some(date.and_hms_opt(0, 0, 0).unwrap().and_utc());
     }
 
-    eprintln!("Warning: Could not parse time spec '{}', using default.", spec);
+    eprintln!(
+        "Warning: Could not parse time spec '{}', using default.",
+        spec
+    );
     None
 }
 

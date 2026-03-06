@@ -34,7 +34,7 @@ fn bus_factor(snapshot: &RepoSnapshot) -> MetricValue {
 
     let mut min_bus_factor = usize::MAX;
 
-    for (_path, blame_lines) in &snapshot.blame_map {
+    for blame_lines in snapshot.blame_map.values() {
         if blame_lines.is_empty() {
             continue;
         }
@@ -122,10 +122,7 @@ fn churn_hotspots(snapshot: &RepoSnapshot) -> MetricValue {
         .collect();
 
     let total_changes: usize = file_counts.iter().map(|(_, c)| *c).sum();
-    let hotspot_changes: usize = file_counts[..threshold_idx]
-        .iter()
-        .map(|(_, c)| *c)
-        .sum();
+    let hotspot_changes: usize = file_counts[..threshold_idx].iter().map(|(_, c)| *c).sum();
 
     let concentration = if total_changes > 0 {
         (hotspot_changes as f64 / total_changes as f64) * 100.0
@@ -297,8 +294,16 @@ mod tests {
 
         // 2 authors
         snapshot.authors = vec![
-            Author { id: 0, name: "Alice".into(), email: "alice@test.com".into() },
-            Author { id: 1, name: "Bob".into(), email: "bob@test.com".into() },
+            Author {
+                id: 0,
+                name: "Alice".into(),
+                email: "alice@test.com".into(),
+            },
+            Author {
+                id: 1,
+                name: "Bob".into(),
+                email: "bob@test.com".into(),
+            },
         ];
 
         // Blame: file1 is 80% Alice, 20% Bob (bus factor = 1)
@@ -318,7 +323,9 @@ mod tests {
                 timestamp: now,
             });
         }
-        snapshot.blame_map.insert(PathBuf::from("file1.rs"), blame_file1);
+        snapshot
+            .blame_map
+            .insert(PathBuf::from("file1.rs"), blame_file1);
 
         snapshot
     }
@@ -372,9 +379,7 @@ mod tests {
         );
 
         // A and B co-change 9 times, A changes 10 times, B changes 10 times
-        snapshot.file_change_pairs = vec![
-            (PathBuf::from("a.rs"), PathBuf::from("b.rs"), 9),
-        ];
+        snapshot.file_change_pairs = vec![(PathBuf::from("a.rs"), PathBuf::from("b.rs"), 9)];
         snapshot.commits_by_file.insert(
             PathBuf::from("a.rs"),
             (0..10).map(|i| format!("c{}", i)).collect(),
@@ -412,10 +417,9 @@ mod tests {
 
         // Only 3 files have recent commits
         for i in 0..3 {
-            snapshot.commits_by_file.insert(
-                PathBuf::from(format!("f{}.rs", i)),
-                vec![format!("c{}", i)],
-            );
+            snapshot
+                .commits_by_file
+                .insert(PathBuf::from(format!("f{}.rs", i)), vec![format!("c{}", i)]);
             snapshot.commits.push(Commit {
                 id: format!("c{}", i),
                 author: 0,
@@ -444,9 +448,24 @@ mod tests {
         );
 
         snapshot.files = vec![
-            FileEntry { path: "big.rs".into(), size_bytes: 100_000, is_binary: false, depth: 1 },
-            FileEntry { path: "deep/a/b/c/d/e/f.rs".into(), size_bytes: 100, is_binary: false, depth: 7 },
-            FileEntry { path: "normal.rs".into(), size_bytes: 500, is_binary: false, depth: 1 },
+            FileEntry {
+                path: "big.rs".into(),
+                size_bytes: 100_000,
+                is_binary: false,
+                depth: 1,
+            },
+            FileEntry {
+                path: "deep/a/b/c/d/e/f.rs".into(),
+                size_bytes: 100,
+                is_binary: false,
+                depth: 7,
+            },
+            FileEntry {
+                path: "normal.rs".into(),
+                size_bytes: 500,
+                is_binary: false,
+                depth: 1,
+            },
         ];
 
         let result = file_complexity(&snapshot);

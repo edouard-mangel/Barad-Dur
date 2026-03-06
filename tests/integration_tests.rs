@@ -1,6 +1,7 @@
 use assert_cmd::Command;
 
 fn barad_dur() -> Command {
+    #[allow(deprecated)]
     Command::cargo_bin("barad-dur").unwrap()
 }
 
@@ -23,7 +24,8 @@ fn analyze_json_is_valid() {
         .stdout
         .clone();
 
-    let json: serde_json::Value = serde_json::from_slice(&output).expect("Output should be valid JSON");
+    let json: serde_json::Value =
+        serde_json::from_slice(&output).expect("Output should be valid JSON");
     assert!(json["overall_score"].is_number());
     assert!(json["categories"].is_array());
     assert!(json["top_actions"].is_array());
@@ -108,6 +110,7 @@ fn analyze_output_to_file() {
         .success();
 
     let content = std::fs::read_to_string(&output_path).unwrap();
-    let json: serde_json::Value = serde_json::from_str(&content).expect("File should contain valid JSON");
+    let json: serde_json::Value =
+        serde_json::from_str(&content).expect("File should contain valid JSON");
     assert!(json["overall_score"].is_number());
 }

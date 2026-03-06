@@ -135,7 +135,13 @@ mod tests {
     #[test]
     fn date_range_flags() {
         let args = parse(&[
-            "barad-dur", "analyze", ".", "--since", "2024-01-01", "--until", "2024-06-30",
+            "barad-dur",
+            "analyze",
+            ".",
+            "--since",
+            "2024-01-01",
+            "--until",
+            "2024-06-30",
         ]);
         assert_eq!(args.since, Some("2024-01-01".to_string()));
         assert_eq!(args.until, Some("2024-06-30".to_string()));

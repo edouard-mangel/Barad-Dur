@@ -17,9 +17,28 @@ pub fn compute_hygiene(snapshot: &RepoSnapshot) -> CategoryResult {
 }
 
 const CONVENTIONAL_PREFIXES: &[&str] = &[
-    "feat:", "fix:", "docs:", "style:", "refactor:", "perf:", "test:", "chore:", "ci:", "build:",
-    "revert:", "feat(", "fix(", "docs(", "style(", "refactor(", "perf(", "test(", "chore(",
-    "ci(", "build(", "revert(",
+    "feat:",
+    "fix:",
+    "docs:",
+    "style:",
+    "refactor:",
+    "perf:",
+    "test:",
+    "chore:",
+    "ci:",
+    "build:",
+    "revert:",
+    "feat(",
+    "fix(",
+    "docs(",
+    "style(",
+    "refactor(",
+    "perf(",
+    "test(",
+    "chore(",
+    "ci(",
+    "build(",
+    "revert(",
 ];
 
 /// Evaluate commit message quality.
@@ -197,9 +216,9 @@ fn gitignore_coverage(snapshot: &RepoSnapshot) -> MetricValue {
                 .map(|n| n.to_string_lossy().to_lowercase())
                 .unwrap_or_default();
 
-            SUSPICIOUS_PATTERNS.iter().any(|pat| {
-                path_str.contains(pat) || file_name.ends_with(pat) || file_name == *pat
-            })
+            SUSPICIOUS_PATTERNS
+                .iter()
+                .any(|pat| path_str.contains(pat) || file_name.ends_with(pat) || file_name == *pat)
         })
         .map(|f| f.path.display().to_string())
         .collect();
@@ -246,11 +265,11 @@ mod tests {
         );
 
         let now = Utc::now();
-        let messages = vec![
+        let messages = [
             "Add login feature with OAuth support",  // good
-            "fix",                                     // bad (too short)
-            "Update README with installation steps",   // good
-            "wip",                                     // bad
+            "fix",                                   // bad (too short)
+            "Update README with installation steps", // good
+            "wip",                                   // bad
         ];
 
         for (i, msg) in messages.iter().enumerate() {
@@ -330,16 +349,40 @@ mod tests {
         );
 
         snapshot.files = vec![
-            FileEntry { path: ".env".into(), size_bytes: 50, is_binary: false, depth: 0 },
-            FileEntry { path: "node_modules/package.json".into(), size_bytes: 100, is_binary: false, depth: 1 },
-            FileEntry { path: "app.log".into(), size_bytes: 1000, is_binary: false, depth: 0 },
-            FileEntry { path: "src/main.rs".into(), size_bytes: 200, is_binary: false, depth: 1 },
+            FileEntry {
+                path: ".env".into(),
+                size_bytes: 50,
+                is_binary: false,
+                depth: 0,
+            },
+            FileEntry {
+                path: "node_modules/package.json".into(),
+                size_bytes: 100,
+                is_binary: false,
+                depth: 1,
+            },
+            FileEntry {
+                path: "app.log".into(),
+                size_bytes: 1000,
+                is_binary: false,
+                depth: 0,
+            },
+            FileEntry {
+                path: "src/main.rs".into(),
+                size_bytes: 200,
+                is_binary: false,
+                depth: 1,
+            },
         ];
 
         let result = gitignore_coverage(&snapshot);
         // .env and node_modules/ should be flagged
         match &result.raw_value {
-            RawValue::List(items) => assert!(items.len() >= 2, "Expected at least 2 suspicious files, got {:?}", items),
+            RawValue::List(items) => assert!(
+                items.len() >= 2,
+                "Expected at least 2 suspicious files, got {:?}",
+                items
+            ),
             _ => panic!("Expected List"),
         }
         assert!(result.score < 100);

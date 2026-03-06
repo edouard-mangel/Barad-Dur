@@ -4,9 +4,7 @@ use git2::{DiffOptions, Repository, Sort};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::snapshot::{
-    Author, AuthorId, ChangeType, Commit, FileChange, FileEntry, TimeWindow,
-};
+use crate::snapshot::{Author, AuthorId, ChangeType, Commit, FileChange, FileEntry, TimeWindow};
 
 use super::CommitCollection;
 
@@ -29,9 +27,7 @@ pub fn collect_commits(repo: &Repository, time_window: &TimeWindow) -> Result<Co
 
     for oid_result in revwalk {
         let oid = oid_result.context("Failed to get commit oid")?;
-        let commit = repo
-            .find_commit(oid)
-            .context("Failed to find commit")?;
+        let commit = repo.find_commit(oid).context("Failed to find commit")?;
 
         let timestamp = git_time_to_chrono(&commit.time());
 
@@ -49,10 +45,7 @@ pub fn collect_commits(repo: &Repository, time_window: &TimeWindow) -> Result<Co
 
         // Deduplicate author by email
         let author_sig = commit.author();
-        let email = author_sig
-            .email()
-            .unwrap_or("unknown")
-            .to_lowercase();
+        let email = author_sig.email().unwrap_or("unknown").to_lowercase();
         let name = author_sig.name().unwrap_or("Unknown").to_string();
 
         let author_id = if let Some(&id) = email_to_id.get(&email) {
@@ -86,10 +79,7 @@ pub fn collect_commits(repo: &Repository, time_window: &TimeWindow) -> Result<Co
     Ok(CommitCollection { commits, authors })
 }
 
-fn collect_file_changes(
-    repo: &Repository,
-    commit: &git2::Commit,
-) -> Result<Vec<FileChange>> {
+fn collect_file_changes(repo: &Repository, commit: &git2::Commit) -> Result<Vec<FileChange>> {
     let tree = commit.tree().context("Failed to get commit tree")?;
 
     let parent_tree = if commit.parent_count() > 0 {
@@ -181,9 +171,7 @@ fn collect_file_changes(
 
 pub fn collect_files(repo: &Repository) -> Result<Vec<FileEntry>> {
     let head = repo.head().context("Failed to get HEAD")?;
-    let tree = head
-        .peel_to_tree()
-        .context("Failed to peel HEAD to tree")?;
+    let tree = head.peel_to_tree().context("Failed to peel HEAD to tree")?;
 
     let mut files = Vec::new();
 

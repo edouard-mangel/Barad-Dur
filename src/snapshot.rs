@@ -321,14 +321,8 @@ mod tests {
         ];
         snapshot.build_indexes();
 
-        assert_eq!(
-            snapshot.commits_by_file[&PathBuf::from("a.rs")].len(),
-            2
-        );
-        assert_eq!(
-            snapshot.commits_by_file[&PathBuf::from("b.rs")].len(),
-            1
-        );
+        assert_eq!(snapshot.commits_by_file[&PathBuf::from("a.rs")].len(), 2);
+        assert_eq!(snapshot.commits_by_file[&PathBuf::from("b.rs")].len(), 1);
     }
 
     #[test]
@@ -350,25 +344,22 @@ mod tests {
         snapshot.build_indexes();
 
         // a.rs + b.rs should appear as a coupled pair (5 co-changes >= 3)
-        let ab_pair = snapshot
-            .file_change_pairs
-            .iter()
-            .find(|(a, b, _)| {
-                (a == &PathBuf::from("a.rs") && b == &PathBuf::from("b.rs"))
-                    || (a == &PathBuf::from("b.rs") && b == &PathBuf::from("a.rs"))
-            });
+        let ab_pair = snapshot.file_change_pairs.iter().find(|(a, b, _)| {
+            (a == &PathBuf::from("a.rs") && b == &PathBuf::from("b.rs"))
+                || (a == &PathBuf::from("b.rs") && b == &PathBuf::from("a.rs"))
+        });
         assert!(ab_pair.is_some(), "a.rs and b.rs should be coupled");
         assert_eq!(ab_pair.unwrap().2, 5);
 
         // a.rs + c.rs only co-changed once, should NOT appear (threshold is 3)
-        let ac_pair = snapshot
-            .file_change_pairs
-            .iter()
-            .find(|(a, b, _)| {
-                (a == &PathBuf::from("a.rs") && b == &PathBuf::from("c.rs"))
-                    || (a == &PathBuf::from("c.rs") && b == &PathBuf::from("a.rs"))
-            });
-        assert!(ac_pair.is_none(), "a.rs and c.rs should NOT be coupled (only 1 co-change)");
+        let ac_pair = snapshot.file_change_pairs.iter().find(|(a, b, _)| {
+            (a == &PathBuf::from("a.rs") && b == &PathBuf::from("c.rs"))
+                || (a == &PathBuf::from("c.rs") && b == &PathBuf::from("a.rs"))
+        });
+        assert!(
+            ac_pair.is_none(),
+            "a.rs and c.rs should NOT be coupled (only 1 co-change)"
+        );
     }
 
     #[test]
@@ -380,8 +371,7 @@ mod tests {
             TimeWindow::default(),
         );
         let encoded = bincode::serialize(&snapshot).expect("Failed to serialize");
-        let decoded: RepoSnapshot =
-            bincode::deserialize(&encoded).expect("Failed to deserialize");
+        let decoded: RepoSnapshot = bincode::deserialize(&encoded).expect("Failed to deserialize");
         assert_eq!(decoded.name, snapshot.name);
         assert_eq!(decoded.default_branch, snapshot.default_branch);
         assert_eq!(decoded.path, snapshot.path);

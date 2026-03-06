@@ -73,10 +73,7 @@ fn growth_trend(snapshot: &RepoSnapshot) -> MetricValue {
 
     MetricValue {
         name: "Growth trend".to_string(),
-        description: format!(
-            "{:+} files, {:+} lines in window",
-            net_files, net_lines
-        ),
+        description: format!("{:+} files, {:+} lines in window", net_files, net_lines),
         raw_value: RawValue::Integer(net_files),
         score,
     }
@@ -253,10 +250,7 @@ fn commit_cadence(snapshot: &RepoSnapshot) -> MetricValue {
 
     MetricValue {
         name: "Commit cadence".to_string(),
-        description: format!(
-            "{:.1} commits/day, {} pattern",
-            commits_per_day, regularity
-        ),
+        description: format!("{:.1} commits/day, {} pattern", commits_per_day, regularity),
         raw_value: RawValue::Float(commits_per_day),
         score,
     }
@@ -389,7 +383,11 @@ mod tests {
         let result = code_age(&snapshot);
         match result.raw_value {
             RawValue::Float(months) => {
-                assert!(months > 7.0 && months < 9.0, "Expected ~8 months, got {}", months)
+                assert!(
+                    months > 7.0 && months < 9.0,
+                    "Expected ~8 months, got {}",
+                    months
+                )
             }
             _ => panic!("Expected Float"),
         }

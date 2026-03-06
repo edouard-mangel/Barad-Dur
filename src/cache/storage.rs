@@ -46,9 +46,7 @@ fn ensure_gitignore(repo_path: &Path) -> Result<()> {
         if content.lines().any(|line| line.trim() == entry) {
             return Ok(());
         }
-        let mut file = fs::OpenOptions::new()
-            .append(true)
-            .open(&gitignore_path)?;
+        let mut file = fs::OpenOptions::new().append(true).open(&gitignore_path)?;
         writeln!(file, "{}", entry)?;
     } else {
         fs::write(&gitignore_path, format!("{}\n", entry))?;
@@ -131,7 +129,10 @@ mod tests {
         ensure_gitignore(dir.path()).unwrap();
 
         let content = fs::read_to_string(dir.path().join(".gitignore")).unwrap();
-        let count = content.lines().filter(|l| l.trim() == ".barad-dur/").count();
+        let count = content
+            .lines()
+            .filter(|l| l.trim() == ".barad-dur/")
+            .count();
         assert_eq!(count, 1, "Should not duplicate .barad-dur/ entry");
     }
 }

@@ -113,7 +113,9 @@ fn suggest_action(metric_name: &str) -> &'static str {
         "Code age" => "Plan modernization of oldest code sections",
         "Commit cadence" => "Establish regular commit patterns and avoid large batches",
         "Commit message quality" => "Adopt conventional commits or enforce message guidelines",
-        "History cleanliness" => "Clean up merge strategy and enforce linear history where possible",
+        "History cleanliness" => {
+            "Clean up merge strategy and enforce linear history where possible"
+        }
         "Gitignore coverage" => "Add suspicious files to .gitignore and remove from tracking",
         _ => "Review and improve this metric",
     }
@@ -123,8 +125,8 @@ fn suggest_action(metric_name: &str) -> &'static str {
 mod tests {
     use super::*;
     use crate::metrics::MetricValue;
-    use crate::snapshot::TimeWindow;
     use crate::metrics::RawValue;
+    use crate::snapshot::TimeWindow;
 
     fn make_category(name: &str, score: u32) -> CategoryResult {
         CategoryResult {

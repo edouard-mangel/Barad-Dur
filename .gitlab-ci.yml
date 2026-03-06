@@ -1,7 +1,10 @@
 stages:
+  - lint
   - build
   - test
+  - analysis
   - secret-detection
+  - release
 
 variables:
   CARGO_HOME: ${CI_PROJECT_DIR}/.cargo
@@ -16,35 +19,132 @@ variables:
       - .cargo/git
       - target/
 
-build:
-  stage: build
+# Shared base for Rust jobs
+.rust-base: &rust-base
   image: rust:1.85
   <<: *rust-cache
   before_script:
     - apt-get update -qq && apt-get install -y -qq cmake pkg-config libssl-dev
+
+# ── Lint ──────────────────────────────────────
+
+fmt-check:
+  stage: lint
+  <<: *rust-base
+  script:
+    - rustup component add rustfmt
+    - cargo fmt -- --check
+
+clippy:
+  stage: lint
+  <<: *rust-base
+  script:
+    - rustup component add clippy
+    - cargo clippy --all-targets -- -D warnings
+
+# ── Build ─────────────────────────────────────
+
+build:
+  stage: build
+  <<: *rust-base
   script:
     - cargo build --release
   artifacts:
     paths:
       - target/release/barad-dur
-    expire_in: 1 hour
+    expire_in: 1 week
+
+# ── Test ──────────────────────────────────────
 
 test:
   stage: test
-  image: rust:1.85
-  <<: *rust-cache
-  before_script:
-    - apt-get update -qq && apt-get install -y -qq cmake pkg-config libssl-dev
+  <<: *rust-base
   script:
     - cargo test --lib
     - cargo test --test collector_tests
     - cargo test --test integration_tests
 
+coverage:
+  stage: test
+  <<: *rust-base
+  script:
+    - cargo install cargo-tarpaulin --locked
+    - cargo tarpaulin --out xml --output-dir coverage/
+  coverage: '/^\d+.\d+% coverage/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage/cobertura.xml
+    expire_in: 1 week
+
 sast:
   stage: test
+
+# ── Analysis ──────────────────────────────────
+
+audit:
+  stage: analysis
+  <<: *rust-base
+  script:
+    - cargo install cargo-audit --locked
+    - cargo audit
+  allow_failure: true
+
+deny:
+  stage: analysis
+  <<: *rust-base
+  script:
+    - cargo install cargo-deny --locked
+    - cargo deny check
+  allow_failure: true
+
+semver-check:
+  stage: analysis
+  <<: *rust-base
+  script:
+    - cargo install cargo-semver-checks --locked
+    - cargo semver-checks check-release
+  allow_failure: true
+
+self-analysis:
+  stage: analysis
+  <<: *rust-base
+  needs:
+    - build
+  script:
+    - ./target/release/barad-dur analyze . -v
+    - ./target/release/barad-dur analyze . --json --pretty > barad-dur-report.json
+  artifacts:
+    paths:
+      - barad-dur-report.json
+    expire_in: 1 month
+
+# ── Security ──────────────────────────────────
 
 include:
   - template: Security/Secret-Detection.gitlab-ci.yml
 
 secret_detection:
   stage: secret-detection
+
+# ── Release ───────────────────────────────────
+
+release:
+  stage: release
+  <<: *rust-base
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+  script:
+    - cargo build --release
+  artifacts:
+    paths:
+      - target/release/barad-dur
+    expire_in: never
+  release:
+    tag_name: $CI_COMMIT_TAG
+    description: "Release $CI_COMMIT_TAG"
+    assets:
+      links:
+        - name: barad-dur-linux-x86_64
+          url: "${CI_PROJECT_URL}/-/jobs/${CI_JOB_ID}/artifacts/file/target/release/barad-dur"

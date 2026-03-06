@@ -13,10 +13,8 @@ pub fn collect_blame(
     files: &[FileEntry],
     authors: &[Author],
 ) -> Result<HashMap<PathBuf, Vec<BlameLine>>> {
-    let email_to_id: HashMap<&str, AuthorId> = authors
-        .iter()
-        .map(|a| (a.email.as_str(), a.id))
-        .collect();
+    let email_to_id: HashMap<&str, AuthorId> =
+        authors.iter().map(|a| (a.email.as_str(), a.id)).collect();
 
     let results: Vec<(PathBuf, Vec<BlameLine>)> = files
         .par_iter()
@@ -79,10 +77,7 @@ fn parse_porcelain_blame(
             if let (Some(commit_id), Some(email), Some(timestamp)) =
                 (&current_commit, &current_email, &current_timestamp)
             {
-                let author_id = email_to_id
-                    .get(email.as_str())
-                    .copied()
-                    .unwrap_or(0); // Fall back to first author if unknown
+                let author_id = email_to_id.get(email.as_str()).copied().unwrap_or(0); // Fall back to first author if unknown
 
                 lines.push(BlameLine {
                     author_id,
@@ -127,13 +122,15 @@ summary Test commit
 filename test.rs
 \tlet x = 1;
 ";
-        let email_to_id: HashMap<&str, AuthorId> =
-            [("test@example.com", 0)].into_iter().collect();
+        let email_to_id: HashMap<&str, AuthorId> = [("test@example.com", 0)].into_iter().collect();
 
         let lines = parse_porcelain_blame(porcelain, &email_to_id).unwrap();
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].author_id, 0);
-        assert_eq!(lines[0].commit_id, "abc1234567890123456789012345678901234567");
+        assert_eq!(
+            lines[0].commit_id,
+            "abc1234567890123456789012345678901234567"
+        );
     }
 
     #[test]
@@ -154,8 +151,7 @@ filename f.rs
 abc1234567890123456789012345678901234567 2 2
 \tline 2
 ";
-        let email_to_id: HashMap<&str, AuthorId> =
-            [("a@b.com", 0)].into_iter().collect();
+        let email_to_id: HashMap<&str, AuthorId> = [("a@b.com", 0)].into_iter().collect();
 
         let lines = parse_porcelain_blame(porcelain, &email_to_id).unwrap();
         assert_eq!(lines.len(), 2);

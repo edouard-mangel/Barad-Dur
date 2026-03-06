@@ -1,5 +1,5 @@
-mod libgit;
 pub mod gitcli;
+mod libgit;
 
 use anyhow::{Context, Result};
 use chrono::Utc;
