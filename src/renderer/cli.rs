@@ -181,6 +181,10 @@ mod tests {
             }],
             top_actions: vec!["[Health] Bus factor (score: 50) — Improve".into()],
             remote_meta: None,
+            file_hotspots: vec![],
+            coupling_pairs: vec![],
+            author_ownership: vec![],
+            file_ages: vec![],
         }
     }
 

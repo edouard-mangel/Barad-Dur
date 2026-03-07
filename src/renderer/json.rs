@@ -37,6 +37,10 @@ mod tests {
             }],
             top_actions: vec!["Fix bus factor".into()],
             remote_meta: None,
+            file_hotspots: vec![],
+            coupling_pairs: vec![],
+            author_ownership: vec![],
+            file_ages: vec![],
         }
     }
 
