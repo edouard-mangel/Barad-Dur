@@ -1,2 +1,5 @@
 target/
 .barad-dur/
+other
+dashboard/node_modules/
+dashboard/dist/

@@ -79,7 +79,45 @@ fn growth_trend(snapshot: &RepoSnapshot) -> MetricValue {
     }
 }
 
-/// Ratio of commits that modify existing code vs add new code.
+const STRUCTURAL_KEYWORDS: &[&str] = &[
+    "refactor",
+    "restructur",
+    "reorganiz",
+    "extract",
+    "tidy",
+    "clean up",
+    "simplif",
+    "consolidat",
+    "rename",
+    "move",
+    "dedup",
+    "remove dead",
+    "dead code",
+];
+
+fn is_structural_investment(commit: &crate::snapshot::Commit) -> bool {
+    let msg = commit.message.to_lowercase();
+    if STRUCTURAL_KEYWORDS.iter().any(|kw| msg.contains(kw)) {
+        return true;
+    }
+    let total_del: u32 = commit.files_changed.iter().map(|fc| fc.deletions).sum();
+    let total_add: u32 = commit.files_changed.iter().map(|fc| fc.additions).sum();
+    for fc in &commit.files_changed {
+        match fc.change_type {
+            ChangeType::Renamed | ChangeType::Deleted => return true,
+            _ => {}
+        }
+    }
+    if total_del > 50 {
+        let denom = total_add + total_del;
+        if denom > 0 && (total_del as f64 / denom as f64) > 0.40 {
+            return true;
+        }
+    }
+    false
+}
+
+/// Ratio of commits that invest in structural maintenance (refactoring, cleanup, reorganization).
 fn refactoring_ratio(snapshot: &RepoSnapshot) -> MetricValue {
     if snapshot.commits.is_empty() {
         return MetricValue {
@@ -93,7 +131,7 @@ fn refactoring_ratio(snapshot: &RepoSnapshot) -> MetricValue {
     let window_commits: Vec<_> = snapshot
         .commits
         .iter()
-        .filter(|c| snapshot.time_window.contains(&c.timestamp))
+        .filter(|c| snapshot.time_window.contains(&c.timestamp) && !c.is_merge)
         .collect();
 
     if window_commits.is_empty() {
@@ -106,37 +144,30 @@ fn refactoring_ratio(snapshot: &RepoSnapshot) -> MetricValue {
     }
 
     let total = window_commits.len();
-    let addition_only = window_commits
+    let n_structural = window_commits
         .iter()
-        .filter(|c| {
-            !c.files_changed.is_empty()
-                && c.files_changed
-                    .iter()
-                    .all(|fc| fc.change_type == ChangeType::Added)
-        })
+        .filter(|c| is_structural_investment(c))
         .count();
 
-    let modification_commits = total - addition_only;
-    let ratio = modification_commits as f64 / total as f64;
+    let ratio = n_structural as f64 / total as f64;
+    let pct = ratio * 100.0;
 
-    // A healthy ratio is 0.4-0.7 (some refactoring, some new features)
-    let score = if ratio > 0.9 {
-        60 // Almost all modifications, not much new
-    } else if ratio > 0.6 {
-        90 // Healthy balance
-    } else if ratio > 0.3 {
-        75
+    // More structural investment is always better — directional scoring.
+    let score = if ratio < 0.05 {
+        25 // structural debt accumulating
+    } else if ratio < 0.15 {
+        55 // low investment
+    } else if ratio < 0.30 {
+        80 // healthy investment
     } else {
-        50 // Almost all new code, no refactoring
+        92 // strong investment
     };
 
     MetricValue {
         name: "Refactoring ratio".to_string(),
         description: format!(
-            "{:.0}% of commits modify existing code ({}/{})",
-            ratio * 100.0,
-            modification_commits,
-            total
+            "{} of {} commits invest in structure ({:.0}%)",
+            n_structural, total, pct
         ),
         raw_value: RawValue::Float(ratio),
         score,
@@ -307,26 +338,137 @@ mod tests {
         }
     }
 
-    #[test]
-    fn refactoring_ratio_classifies_commits() {
-        let mut snapshot = RepoSnapshot::new(
+    fn make_snapshot() -> RepoSnapshot {
+        RepoSnapshot::new(
             PathBuf::from("/tmp"),
             "test".into(),
             "main".into(),
             TimeWindow::default(),
-        );
+        )
+    }
 
+    fn plain_commit(id: &str, msg: &str, ts: chrono::DateTime<Utc>) -> Commit {
+        Commit {
+            id: id.into(),
+            author: 0,
+            timestamp: ts,
+            message: msg.into(),
+            files_changed: vec![FileChange {
+                path: PathBuf::from("src/lib.rs"),
+                additions: 5,
+                deletions: 3,
+                change_type: ChangeType::Modified,
+            }],
+            is_merge: false,
+            parent_count: 1,
+        }
+    }
+
+    #[test]
+    fn structural_investment_keyword_commits() {
+        // 3 "refactor" commits out of 10 total → ratio 0.30 → score 92
+        let mut snapshot = make_snapshot();
         let now = Utc::now();
-        // 15 addition-only commits
-        for i in 0..15 {
+        for i in 0..7 {
+            snapshot
+                .commits
+                .push(plain_commit(&format!("p{}", i), "add feature", now - Duration::days(i + 1)));
+        }
+        for i in 0..3 {
+            snapshot.commits.push(plain_commit(
+                &format!("r{}", i),
+                "refactor module layout",
+                now - Duration::days(i + 8),
+            ));
+        }
+        let result = refactoring_ratio(&snapshot);
+        match result.raw_value {
+            RawValue::Float(r) => assert!((r - 0.30).abs() < 0.01, "Expected ~0.30, got {}", r),
+            _ => panic!("Expected Float"),
+        }
+        assert_eq!(result.score, 92);
+    }
+
+    #[test]
+    fn structural_investment_rename_commits() {
+        // commits with ChangeType::Renamed are counted as structural
+        let mut snapshot = make_snapshot();
+        let now = Utc::now();
+        for i in 0..8 {
+            snapshot
+                .commits
+                .push(plain_commit(&format!("p{}", i), "fix bug", now - Duration::days(i + 1)));
+        }
+        for i in 0..2 {
+            snapshot.commits.push(Commit {
+                id: format!("rn{}", i),
+                author: 0,
+                timestamp: now - Duration::days(i as i64 + 9),
+                message: "update path".into(),
+                files_changed: vec![FileChange {
+                    path: PathBuf::from("old.rs"),
+                    additions: 0,
+                    deletions: 0,
+                    change_type: ChangeType::Renamed,
+                }],
+                is_merge: false,
+                parent_count: 1,
+            });
+        }
+        let result = refactoring_ratio(&snapshot);
+        match result.raw_value {
+            RawValue::Float(r) => assert!((r - 0.20).abs() < 0.01, "Expected ~0.20, got {}", r),
+            _ => panic!("Expected Float"),
+        }
+        assert!(result.score >= 80);
+    }
+
+    #[test]
+    fn structural_investment_deletion_commits() {
+        // commits with ChangeType::Deleted files are counted as structural
+        let mut snapshot = make_snapshot();
+        let now = Utc::now();
+        for i in 0..9 {
+            snapshot
+                .commits
+                .push(plain_commit(&format!("p{}", i), "add stuff", now - Duration::days(i + 1)));
+        }
+        snapshot.commits.push(Commit {
+            id: "del1".into(),
+            author: 0,
+            timestamp: now - Duration::days(10),
+            message: "remove unused module".into(),
+            files_changed: vec![FileChange {
+                path: PathBuf::from("old_module.rs"),
+                additions: 0,
+                deletions: 200,
+                change_type: ChangeType::Deleted,
+            }],
+            is_merge: false,
+            parent_count: 1,
+        });
+        let result = refactoring_ratio(&snapshot);
+        match result.raw_value {
+            RawValue::Float(r) => assert!((r - 0.10).abs() < 0.01, "Expected ~0.10, got {}", r),
+            _ => panic!("Expected Float"),
+        }
+        assert_eq!(result.score, 55);
+    }
+
+    #[test]
+    fn structural_investment_none_scores_low() {
+        // all ChangeType::Added commits → ratio 0.0 → score 25
+        let mut snapshot = make_snapshot();
+        let now = Utc::now();
+        for i in 0..10 {
             snapshot.commits.push(Commit {
                 id: format!("a{}", i),
                 author: 0,
                 timestamp: now - Duration::days(i + 1),
-                message: "add".into(),
+                message: "add new file".into(),
                 files_changed: vec![FileChange {
                     path: PathBuf::from(format!("new{}.rs", i)),
-                    additions: 10,
+                    additions: 20,
                     deletions: 0,
                     change_type: ChangeType::Added,
                 }],
@@ -334,29 +476,12 @@ mod tests {
                 parent_count: 1,
             });
         }
-        // 35 modification commits
-        for i in 0..35 {
-            snapshot.commits.push(Commit {
-                id: format!("m{}", i),
-                author: 0,
-                timestamp: now - Duration::days(i + 1),
-                message: "fix".into(),
-                files_changed: vec![FileChange {
-                    path: PathBuf::from("existing.rs"),
-                    additions: 5,
-                    deletions: 3,
-                    change_type: ChangeType::Modified,
-                }],
-                is_merge: false,
-                parent_count: 1,
-            });
-        }
-
         let result = refactoring_ratio(&snapshot);
         match result.raw_value {
-            RawValue::Float(r) => assert!((r - 0.70).abs() < 0.01, "Expected ~0.70, got {}", r),
+            RawValue::Float(r) => assert_eq!(r, 0.0),
             _ => panic!("Expected Float"),
         }
+        assert_eq!(result.score, 25);
     }
 
     #[test]
