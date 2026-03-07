@@ -59,6 +59,10 @@ pub struct AnalyzeArgs {
     #[arg(long)]
     pub json: bool,
 
+    /// Output as self-contained HTML report
+    #[arg(long)]
+    pub html: bool,
+
     /// Pretty-print JSON output
     #[arg(long)]
     pub pretty: bool,
@@ -164,6 +168,13 @@ mod tests {
     fn json_flag() {
         let args = parse(&["barad-dur", "analyze", ".", "--json"]);
         assert!(args.json);
+    }
+
+    #[test]
+    fn html_flag() {
+        let args = parse(&["barad-dur", "analyze", ".", "--html"]);
+        assert!(args.html);
+        assert!(!args.json);
     }
 
     #[test]

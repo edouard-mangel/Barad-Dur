@@ -63,8 +63,8 @@ fn run_analyze(args: AnalyzeArgs) -> Result<()> {
         eprintln!("Warning: This is a shallow clone. Metrics may be incomplete.");
     }
 
-    // Show progress in interactive (non-JSON) mode
-    let show_progress = !args.json;
+    // Show progress in interactive (non-JSON, non-HTML) mode
+    let show_progress = !args.json && !args.html;
 
     // Cache logic
     let current_head = collector.head_commit_hash()?;
@@ -102,6 +102,8 @@ fn run_analyze(args: AnalyzeArgs) -> Result<()> {
     // Render
     let output = if args.json {
         renderer::json::render(&report, args.pretty)?
+    } else if args.html {
+        renderer::html::render(&report)?
     } else {
         renderer::cli::render(&report, args.verbose)
     };
