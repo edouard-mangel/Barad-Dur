@@ -7,7 +7,8 @@ use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::snapshot::{Author, BlameLine, Commit, FileEntry, RepoSnapshot, TimeWindow};
+use crate::metrics::complexity;
+use crate::snapshot::{Author, BlameLine, Commit, FileComplexity, FileEntry, RepoSnapshot, TimeWindow};
 
 /// Result of collecting commits — includes deduplicated author list.
 pub struct CommitCollection {
@@ -78,6 +79,26 @@ impl Collector {
         gitcli::is_shallow_clone(self.repo_path())
     }
 
+    /// Analyse working-tree files for static complexity metrics.
+    pub fn collect_file_metrics(
+        &self,
+        files: &[FileEntry],
+    ) -> HashMap<PathBuf, FileComplexity> {
+        let root = self.repo_path();
+        let mut map = HashMap::new();
+        for entry in files {
+            if entry.is_binary {
+                continue;
+            }
+            let abs_path = root.join(&entry.path);
+            if let Ok(content) = std::fs::read_to_string(&abs_path) {
+                let metrics = complexity::analyse_file(&entry.path, &content);
+                map.insert(entry.path.clone(), metrics);
+            }
+        }
+        map
+    }
+
     /// Build a complete RepoSnapshot with all data and derived indexes.
     pub fn collect_snapshot(&self) -> Result<RepoSnapshot> {
         self.collect_snapshot_with_progress(false)
@@ -118,6 +139,11 @@ impl Collector {
 
         let blame_map = self.collect_blame(&files, &collection.authors)?;
         if let Some(sp) = &spinner {
+            sp.set_message("Analysing file complexity...");
+        }
+
+        let file_metrics = self.collect_file_metrics(&files);
+        if let Some(sp) = &spinner {
             sp.set_message("Building indexes...");
         }
 
@@ -137,7 +163,7 @@ impl Collector {
             commits_by_author: HashMap::new(),
             commits_by_file: HashMap::new(),
             file_change_pairs: Vec::new(),
-            file_metrics: HashMap::new(),
+            file_metrics,
         };
         snapshot.build_indexes();
 
@@ -150,5 +176,25 @@ impl Collector {
 
     pub fn repo_path(&self) -> &Path {
         self.repo.workdir().unwrap_or_else(|| self.repo.path())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::snapshot::TimeWindow;
+
+    #[test]
+    fn collect_file_metrics_does_not_panic_on_real_repo() {
+        let collector =
+            Collector::open(std::path::Path::new("."), TimeWindow::default())
+                .expect("should open repo");
+        let files = collector.collect_files().expect("should collect files");
+        let metrics = collector.collect_file_metrics(&files);
+        assert!(!metrics.is_empty());
+        let rs_file = metrics
+            .keys()
+            .find(|p| p.extension().and_then(|e| e.to_str()) == Some("rs"));
+        assert!(rs_file.is_some(), "expected at least one .rs file");
     }
 }
