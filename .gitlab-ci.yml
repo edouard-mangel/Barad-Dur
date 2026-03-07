@@ -115,9 +115,11 @@ self-analysis:
   script:
     - ./target/release/barad-dur analyze . -v
     - ./target/release/barad-dur analyze . --json --pretty > barad-dur-report.json
+    - ./target/release/barad-dur analyze . --html -o barad-dur-report.html
   artifacts:
     paths:
       - barad-dur-report.json
+      - barad-dur-report.html
     expire_in: 1 month
 
 # ── Security ──────────────────────────────────
