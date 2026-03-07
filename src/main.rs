@@ -20,6 +20,10 @@ fn main() -> Result<()> {
 }
 
 fn run_analyze(args: AnalyzeArgs) -> Result<()> {
+    if args.json && args.html {
+        bail!("--json and --html are mutually exclusive");
+    }
+
     // Resolve target: URL → clone to temp dir, otherwise treat as local path.
     // _temp_clone must stay alive until the end of the function so the dir
     // isn't deleted before we finish analysis.
@@ -111,7 +115,7 @@ fn run_analyze(args: AnalyzeArgs) -> Result<()> {
     // Write output
     if let Some(path) = &args.output {
         std::fs::write(path, &output)?;
-        if !args.json {
+        if !args.json && !args.html {
             eprintln!("Report written to {}", path.display());
         }
     } else {
