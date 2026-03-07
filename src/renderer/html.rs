@@ -5,6 +5,7 @@ use crate::scorer::AnalysisReport;
 /// All CSS, JS, and data are inlined. No external dependencies.
 pub fn render(report: &AnalysisReport) -> Result<String> {
     let json = serde_json::to_string(report)?;
+    let json = json.replace("</", "<\\/");
     let title = format!("{} — Barad-dûr Report", report.repo_name);
 
     let html = format!(
@@ -22,8 +23,7 @@ pub fn render(report: &AnalysisReport) -> Result<String> {
     Ok(html)
 }
 
-#[allow(dead_code)]
-pub(crate) fn score_color(score: u32) -> &'static str {
+fn score_color(score: u32) -> &'static str {
     if score >= 71 { "#10b981" } else if score >= 41 { "#f59e0b" } else { "#ef4444" }
 }
 
@@ -423,7 +423,7 @@ fn build_js() -> String {
     var color = scoreColor(score);
 
     var svg = svgEl('svg', {
-      className: 'gauge',
+      class: 'gauge',
       viewBox: '0 0 180 140',
       width: '180',
       height: '140',
@@ -465,7 +465,7 @@ fn build_js() -> String {
   function buildRadar(cats) {
     if (!cats || cats.length === 0) return el('div', { className: 'no-data' }, 'No categories');
     var size = 220, cx = 110, cy = 110, maxR = 85;
-    var svg = svgEl('svg', { className: 'radar', viewBox: '0 0 220 220', width: '220', height: '220' });
+    var svg = svgEl('svg', { class: 'radar', viewBox: '0 0 220 220', width: '220', height: '220' });
     var n = cats.length;
 
     function point(i, val) {
@@ -685,7 +685,7 @@ fn build_js() -> String {
 
     var svgW = 340, svgH = 220, pad = 36;
     var scatter = svgEl('svg', {
-      className: 'scatter',
+      class: 'scatter',
       viewBox: '0 0 ' + svgW + ' ' + svgH,
       preserveAspectRatio: 'xMidYMid meet'
     });
