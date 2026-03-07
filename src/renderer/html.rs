@@ -23,6 +23,7 @@ pub fn render(report: &AnalysisReport) -> Result<String> {
     Ok(html)
 }
 
+#[cfg(test)]
 fn score_color(score: u32) -> &'static str {
     if score >= 71 { "#10b981" } else if score >= 41 { "#f59e0b" } else { "#ef4444" }
 }

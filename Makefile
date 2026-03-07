@@ -1,0 +1,40 @@
+# Barad-dûr — convenience targets
+#
+# Usage:
+#   make analyze              analyze current directory → dashboard/report.json
+#   make analyze TARGET=~/my-repo
+#   make dashboard            start dashboard dev server
+#   make report               analyze + start dashboard (open browser manually)
+#   make report TARGET=~/my-repo
+#   make build                release build of CLI
+#   make install              install barad-dur to ~/.cargo/bin
+
+TARGET      ?= .
+OUTPUT      ?= dashboard/report.json
+OUTPUT_HTML ?= report.html
+BROWSER     ?= xdg-open
+
+.PHONY: analyze dashboard report html-report build install
+
+analyze:
+	cargo run --release -- analyze $(TARGET) --json > $(OUTPUT)
+	@echo "Report written to $(OUTPUT)"
+
+## Generate self-contained HTML report (TARGET=. OUTPUT_HTML=report.html)
+html-report:
+	cargo run --release -- analyze $(TARGET) --html -o $(OUTPUT_HTML)
+	@echo "Report written to $(OUTPUT_HTML)"
+
+dashboard:
+	cd dashboard && pnpm run dev
+
+report: analyze
+	@echo "Opening dashboard…"
+	cd dashboard && pnpm run dev &
+	@sleep 2 && $(BROWSER) http://localhost:5173 2>/dev/null || true
+
+build:
+	cargo build --release
+
+install:
+	cargo install --path .
