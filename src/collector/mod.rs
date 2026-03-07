@@ -137,6 +137,7 @@ impl Collector {
             commits_by_author: HashMap::new(),
             commits_by_file: HashMap::new(),
             file_change_pairs: Vec::new(),
+            file_metrics: HashMap::new(),
         };
         snapshot.build_indexes();
 

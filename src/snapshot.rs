@@ -55,6 +55,15 @@ pub struct BlameLine {
     pub timestamp: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct FileComplexity {
+    pub total_lines: usize,
+    pub loc: usize,
+    pub cyclomatic_complexity: u32,
+    pub public_methods: u32,
+    pub properties: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimeWindow {
     pub since: Option<DateTime<Utc>>,
@@ -114,6 +123,7 @@ pub struct RepoSnapshot {
     pub commits_by_author: HashMap<AuthorId, Vec<CommitId>>,
     pub commits_by_file: HashMap<PathBuf, Vec<CommitId>>,
     pub file_change_pairs: Vec<(PathBuf, PathBuf, usize)>,
+    pub file_metrics: HashMap<PathBuf, FileComplexity>,
 }
 
 impl RepoSnapshot {
@@ -132,6 +142,7 @@ impl RepoSnapshot {
             commits_by_author: HashMap::new(),
             commits_by_file: HashMap::new(),
             file_change_pairs: Vec::new(),
+            file_metrics: HashMap::new(),
         }
     }
 
@@ -266,6 +277,18 @@ mod tests {
         assert!(snapshot.files.is_empty());
         assert!(snapshot.authors.is_empty());
         assert!(snapshot.blame_map.is_empty());
+        assert!(snapshot.file_metrics.is_empty());
+    }
+
+    #[test]
+    fn file_metrics_starts_empty() {
+        let snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp/test"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        assert!(snapshot.file_metrics.is_empty());
     }
 
     fn make_commit(id: &str, author: AuthorId, files: Vec<&str>) -> Commit {
