@@ -22,7 +22,7 @@ variables:
 
 # Shared base for Rust jobs
 .rust-base: &rust-base
-  image: rust:1.85
+  image: rust:stable
   <<: *rust-cache
   before_script:
     - apt-get update -qq && apt-get install -y -qq cmake pkg-config libssl-dev
