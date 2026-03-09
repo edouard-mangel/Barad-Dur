@@ -22,7 +22,7 @@ variables:
 
 # Shared base for Rust jobs
 .rust-base: &rust-base
-  image: rust:1.85
+  image: rust:1.94
   <<: *rust-cache
   before_script:
     - apt-get update -qq && apt-get install -y -qq cmake pkg-config libssl-dev
@@ -69,7 +69,7 @@ coverage:
   stage: test
   <<: *rust-base
   script:
-    - cargo install cargo-tarpaulin@0.31.2 --locked
+    - cargo install cargo-tarpaulin --locked
     - cargo tarpaulin --out xml --output-dir coverage/
   coverage: '/^\d+.\d+% coverage/'
   artifacts:
@@ -104,7 +104,7 @@ semver-check:
   stage: analysis
   <<: *rust-base
   script:
-    - cargo install cargo-semver-checks@0.42.0 --locked
+    - cargo install cargo-semver-checks --locked
     - cargo semver-checks check-release
   allow_failure: true
 
