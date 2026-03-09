@@ -9,6 +9,7 @@ stages:
 variables:
   CARGO_HOME: ${CI_PROJECT_DIR}/.cargo
   SECRET_DETECTION_ENABLED: 'true'
+  GIT_DEPTH: "0"
 
 # Cache Rust dependencies between jobs
 .rust-cache: &rust-cache
