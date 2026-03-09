@@ -1,5 +1,5 @@
-use anyhow::Result;
 use crate::scorer::AnalysisReport;
+use anyhow::Result;
 
 /// Render the analysis report as a self-contained HTML file.
 /// All CSS, JS, and data are inlined. No external dependencies.
@@ -25,7 +25,13 @@ pub fn render(report: &AnalysisReport) -> Result<String> {
 
 #[cfg(test)]
 fn score_color(score: u32) -> &'static str {
-    if score >= 71 { "#10b981" } else if score >= 41 { "#f59e0b" } else { "#ef4444" }
+    if score >= 71 {
+        "#10b981"
+    } else if score >= 41 {
+        "#f59e0b"
+    } else {
+        "#ef4444"
+    }
 }
 
 const CSS: &str = r#"
@@ -1224,6 +1230,6 @@ mod tests {
         assert_eq!(score_color(70), "#f59e0b");
         assert_eq!(score_color(41), "#f59e0b");
         assert_eq!(score_color(40), "#ef4444");
-        assert_eq!(score_color(0),  "#ef4444");
+        assert_eq!(score_color(0), "#ef4444");
     }
 }

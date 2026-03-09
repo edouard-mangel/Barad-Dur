@@ -32,11 +32,7 @@ pub fn render(report: &AnalysisReport, verbosity: u8) -> String {
         ));
     }
     if let Some(meta) = &report.remote_meta {
-        out.push_str(&format!(
-            "  {} {}\n",
-            "Source:".dimmed(),
-            meta.url.bold()
-        ));
+        out.push_str(&format!("  {} {}\n", "Source:".dimmed(), meta.url.bold()));
         let mut details = Vec::new();
         if let Some(stars) = meta.stars {
             details.push(format!("Stars: {}", stars));

@@ -8,7 +8,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::metrics::complexity;
-use crate::snapshot::{Author, BlameLine, Commit, FileComplexity, FileEntry, RepoSnapshot, TimeWindow};
+use crate::snapshot::{
+    Author, BlameLine, Commit, FileComplexity, FileEntry, RepoSnapshot, TimeWindow,
+};
 
 /// Result of collecting commits — includes deduplicated author list.
 pub struct CommitCollection {
@@ -80,10 +82,7 @@ impl Collector {
     }
 
     /// Analyse working-tree files for static complexity metrics.
-    pub fn collect_file_metrics(
-        &self,
-        files: &[FileEntry],
-    ) -> HashMap<PathBuf, FileComplexity> {
+    pub fn collect_file_metrics(&self, files: &[FileEntry]) -> HashMap<PathBuf, FileComplexity> {
         let root = self.repo_path();
         let mut map = HashMap::new();
         for entry in files {
@@ -186,9 +185,8 @@ mod tests {
 
     #[test]
     fn collect_file_metrics_does_not_panic_on_real_repo() {
-        let collector =
-            Collector::open(std::path::Path::new("."), TimeWindow::default())
-                .expect("should open repo");
+        let collector = Collector::open(std::path::Path::new("."), TimeWindow::default())
+            .expect("should open repo");
         let files = collector.collect_files().expect("should collect files");
         let metrics = collector.collect_file_metrics(&files);
         assert!(!metrics.is_empty());

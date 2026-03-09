@@ -69,10 +69,8 @@ fn is_comment_line(trimmed: &str, lang: Language) -> bool {
 
 fn count_complexity(content: &str) -> u32 {
     let keywords = [
-        " if ", "\tif ", "(if ", "else if", "elif ",
-        " for ", "\tfor ", " while ", "\twhile ",
-        " match ", " switch ", " case ", " catch ", " except ",
-        " loop ", "&&", "||", " ?? ",
+        " if ", "\tif ", "(if ", "else if", "elif ", " for ", "\tfor ", " while ", "\twhile ",
+        " match ", " switch ", " case ", " catch ", " except ", " loop ", "&&", "||", " ?? ",
     ];
     let mut count = 0u32;
     for kw in &keywords {
@@ -277,8 +275,7 @@ mod tests {
 
     #[test]
     fn cyclomatic_complexity_counts_decision_points() {
-        let content =
-            " if x { } else if y { } for i in v { } while z { } match a { _ => {} }";
+        let content = " if x { } else if y { } for i in v { } while z { } match a { _ => {} }";
         let result = analyse_content(content, Language::Rust);
         // if, else if, for, while, match = at least 5
         assert!(result.cyclomatic_complexity >= 5);
@@ -293,8 +290,7 @@ mod tests {
 
     #[test]
     fn public_methods_typescript() {
-        let content =
-            "export function foo() {}\nfunction bar() {}\nexport const baz = () => {}\n";
+        let content = "export function foo() {}\nfunction bar() {}\nexport const baz = () => {}\n";
         let result = analyse_content(content, Language::JsTs);
         assert_eq!(result.public_methods, 2);
     }

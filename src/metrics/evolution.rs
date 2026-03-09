@@ -370,9 +370,11 @@ mod tests {
         let mut snapshot = make_snapshot();
         let now = Utc::now();
         for i in 0..7 {
-            snapshot
-                .commits
-                .push(plain_commit(&format!("p{}", i), "add feature", now - Duration::days(i + 1)));
+            snapshot.commits.push(plain_commit(
+                &format!("p{}", i),
+                "add feature",
+                now - Duration::days(i + 1),
+            ));
         }
         for i in 0..3 {
             snapshot.commits.push(plain_commit(
@@ -395,9 +397,11 @@ mod tests {
         let mut snapshot = make_snapshot();
         let now = Utc::now();
         for i in 0..8 {
-            snapshot
-                .commits
-                .push(plain_commit(&format!("p{}", i), "fix bug", now - Duration::days(i + 1)));
+            snapshot.commits.push(plain_commit(
+                &format!("p{}", i),
+                "fix bug",
+                now - Duration::days(i + 1),
+            ));
         }
         for i in 0..2 {
             snapshot.commits.push(Commit {
@@ -429,9 +433,11 @@ mod tests {
         let mut snapshot = make_snapshot();
         let now = Utc::now();
         for i in 0..9 {
-            snapshot
-                .commits
-                .push(plain_commit(&format!("p{}", i), "add stuff", now - Duration::days(i + 1)));
+            snapshot.commits.push(plain_commit(
+                &format!("p{}", i),
+                "add stuff",
+                now - Duration::days(i + 1),
+            ));
         }
         snapshot.commits.push(Commit {
             id: "del1".into(),

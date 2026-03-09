@@ -104,24 +104,21 @@ mod tests {
 
     #[test]
     fn parse_https_url() {
-        let (owner, repo) =
-            parse_owner_repo("https://github.com/BurntSushi/ripgrep").unwrap();
+        let (owner, repo) = parse_owner_repo("https://github.com/BurntSushi/ripgrep").unwrap();
         assert_eq!(owner, "BurntSushi");
         assert_eq!(repo, "ripgrep");
     }
 
     #[test]
     fn parse_https_url_with_git_suffix() {
-        let (owner, repo) =
-            parse_owner_repo("https://github.com/BurntSushi/ripgrep.git").unwrap();
+        let (owner, repo) = parse_owner_repo("https://github.com/BurntSushi/ripgrep.git").unwrap();
         assert_eq!(owner, "BurntSushi");
         assert_eq!(repo, "ripgrep");
     }
 
     #[test]
     fn parse_ssh_url() {
-        let (owner, repo) =
-            parse_owner_repo("git@github.com:BurntSushi/ripgrep.git").unwrap();
+        let (owner, repo) = parse_owner_repo("git@github.com:BurntSushi/ripgrep.git").unwrap();
         assert_eq!(owner, "BurntSushi");
         assert_eq!(repo, "ripgrep");
     }

@@ -143,7 +143,12 @@ fn build_hotspots(snapshot: &RepoSnapshot) -> Vec<HotspotFile> {
         return files;
     }
 
-    let max_churn = files.iter().map(|f| f.churn_count).max().unwrap_or(1).max(1);
+    let max_churn = files
+        .iter()
+        .map(|f| f.churn_count)
+        .max()
+        .unwrap_or(1)
+        .max(1);
     let max_cc = files
         .iter()
         .map(|f| f.cyclomatic_complexity as usize)
@@ -466,9 +471,10 @@ mod tests {
                 depth: 1,
             },
         ];
-        snapshot
-            .commits_by_file
-            .insert("hot.rs".into(), (0..10).map(|i| format!("c{}", i)).collect());
+        snapshot.commits_by_file.insert(
+            "hot.rs".into(),
+            (0..10).map(|i| format!("c{}", i)).collect(),
+        );
         snapshot
             .commits_by_file
             .insert("cold.rs".into(), vec!["c0".into()]);
