@@ -104,7 +104,7 @@ semver-check:
   stage: analysis
   <<: *rust-base
   script:
-    - cargo install cargo-semver-checks --locked
+    - cargo install cargo-semver-checks@0.42.0 --locked
     - cargo semver-checks check-release
   allow_failure: true
 
