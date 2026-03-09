@@ -1,0 +1,30 @@
+[advisories]
+version = 2
+ignore = [
+    # bincode 1.x is unmaintained (RUSTSEC-2025-0141); 1.3.3 is considered
+    # feature-complete — no security issue, tracking for future migration
+    "RUSTSEC-2025-0141",
+    # number_prefix (pulled in by indicatif) is unmaintained (RUSTSEC-2025-0119);
+    # no safe upgrade available upstream
+    "RUSTSEC-2025-0119",
+]
+
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Zlib",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "warn"
+unknown-git = "warn"
