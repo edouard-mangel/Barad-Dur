@@ -22,7 +22,7 @@ variables:
 
 # Shared base for Rust jobs
 .rust-base: &rust-base
-  image: rust:stable
+  image: rust:1.85
   <<: *rust-cache
   before_script:
     - apt-get update -qq && apt-get install -y -qq cmake pkg-config libssl-dev
@@ -69,7 +69,7 @@ coverage:
   stage: test
   <<: *rust-base
   script:
-    - cargo install cargo-tarpaulin --locked
+    - cargo install cargo-tarpaulin@0.31.2 --locked
     - cargo tarpaulin --out xml --output-dir coverage/
   coverage: '/^\d+.\d+% coverage/'
   artifacts:
