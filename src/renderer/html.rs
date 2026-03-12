@@ -336,9 +336,14 @@ svg.radar { display: block; margin: 0 auto; }
   grid-template-columns: 1fr 1fr;
   gap: 16px;
 }
+.hotspot-wrap .tab-info { grid-column: 1 / -1; }
 @media (max-width: 900px) {
   .hotspot-wrap { grid-template-columns: 1fr; }
 }
+.hs-scatter-dot { cursor: pointer; transition: opacity 0.15s, stroke-width 0.15s; }
+.hs-scatter-dot:hover { opacity: 1 !important; }
+.hs-scatter-dot.active { stroke: #f59e0b; stroke-width: 3; opacity: 1 !important; }
+.hs-row-highlight { background: #1e293b !important; outline: 2px solid #f59e0b; outline-offset: -2px; }
 .tm-controls {
   display: flex;
   align-items: center;
@@ -932,7 +937,8 @@ fn build_js() -> String {
       var color = scoreColor(Math.round(100 - f.hotspot_score));
       var circle = svgEl('circle', {
         cx: String(cx), cy: String(cy), r: String(r),
-        fill: color, opacity: '0.7'
+        fill: color, opacity: '0.7',
+        class: 'hs-scatter-dot', 'data-path': f.path
       });
       var titleEl = svgEl('title');
       titleEl.append(txt(fileParts(f.path).name + ' (CC:' + f.cyclomatic_complexity + ', churn:' + f.churn_count + ', LOC:' + f.loc + ')'));
@@ -986,7 +992,7 @@ fn build_js() -> String {
       var tbody = el('tbody');
       sorted.slice(0, 50).forEach(function(f) {
         var parts = fileParts(f.path);
-        var row = el('tr');
+        var row = el('tr', { 'data-path': f.path });
         var fileCell = el('td');
         var dirSpan = el('span', { className: 'file-dir' });
         dirSpan.append(txt(parts.dir));
@@ -1019,6 +1025,45 @@ fn build_js() -> String {
     tableWrap.append(buildTable());
     tableCard.append(tableWrap);
     wrap.append(tableCard);
+
+    // Click scatter dot → highlight matching table row
+    var selectedDot = null;
+    scatter.addEventListener('click', function(e) {
+      var dot = e.target;
+      // Walk up for SVG elements (closest() unreliable on SVG)
+      while (dot && dot !== scatter) {
+        if (dot.classList && dot.classList.contains('hs-scatter-dot')) break;
+        dot = dot.parentNode;
+      }
+      if (!dot || dot === scatter) return;
+      var path = dot.getAttribute('data-path');
+
+      // Clear previous
+      scatter.querySelectorAll('.hs-scatter-dot').forEach(function(d) {
+        d.setAttribute('class', 'hs-scatter-dot');
+      });
+      tableWrap.querySelectorAll('.hs-row-highlight').forEach(function(r) {
+        r.classList.remove('hs-row-highlight');
+      });
+
+      // Toggle off if same dot clicked
+      if (selectedDot === path) {
+        selectedDot = null;
+        return;
+      }
+      selectedDot = path;
+
+      // Highlight dot
+      dot.setAttribute('class', 'hs-scatter-dot active');
+
+      // Highlight and scroll to table row
+      var row = tableWrap.querySelector('tr[data-path="' + CSS.escape(path) + '"]');
+      if (row) {
+        row.classList.add('hs-row-highlight');
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    });
+
     return wrap;
   }
 
@@ -2539,6 +2584,19 @@ mod tests {
         assert!(
             html.contains("days since"),
             "Age tab should explain file age measurement"
+        );
+    }
+
+    #[test]
+    fn html_hotspot_scatter_is_clickable() {
+        let html = render(&make_treemap_report()).unwrap();
+        assert!(
+            html.contains("hs-scatter-dot"),
+            "Scatter plot circles should have hs-scatter-dot class for click targeting"
+        );
+        assert!(
+            html.contains("hs-row-highlight"),
+            "Should have CSS class for highlighting table rows"
         );
     }
 }
