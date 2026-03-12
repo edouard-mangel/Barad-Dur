@@ -2,7 +2,27 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = "barad-dur", about = "The all-seeing repository analyzer")]
+#[command(
+    name = "barad-dur",
+    version,
+    about = "The all-seeing repository analyzer",
+    long_about = "The all-seeing repository analyzer.\n\n\
+        Barad-dur analyzes git metadata (commits, blame, file tree) and source code \
+        complexity to produce a scored report across 4 categories: Health, Team, \
+        Evolution, and Git Hygiene. Each metric scores 0-100 and the report includes \
+        actionable recommendations from the lowest-scoring metrics.\n\n\
+        Supports local paths and remote URLs. When given a URL, the repository is \
+        cloned into a temporary directory and cleaned up after analysis.",
+    after_long_help = "EXAMPLES:\n    \
+        barad-dur analyze .                              # analyze current repo\n    \
+        barad-dur analyze . -v                           # show individual metrics\n    \
+        barad-dur analyze . --json --pretty -o report.json\n    \
+        barad-dur analyze . --html -o report.html\n    \
+        barad-dur analyze . --open                       # analyze + open in browser\n    \
+        barad-dur analyze . --health --team              # specific categories\n    \
+        barad-dur analyze . --since 3months\n    \
+        barad-dur analyze https://github.com/user/repo --token ghp_xxx"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -15,72 +35,125 @@ pub enum Commands {
 }
 
 #[derive(clap::Args, Debug)]
+#[command(
+    about = "Analyze a git repository",
+    long_about = "Analyze a git repository for health, team dynamics, evolution patterns, \
+        and git hygiene.\n\n\
+        By default, all 4 categories are computed over the last 6 months. Use category \
+        flags to run a subset, and --since/--until/--all to control the time window.\n\n\
+        Output defaults to a colored CLI report. Use --json for machine consumption \
+        or --html for an interactive single-file report with charts and tables.",
+    after_long_help = "\
+METRICS:\n\
+  Health (30%)      Bus factor, churn hotspots, temporal coupling, stale code, file complexity\n\
+  Team (30%)        Knowledge distribution (Gini), contributor activity, ownership, silos, merges\n\
+  Evolution (20%)   Growth trend, refactoring ratio, code age, commit cadence\n\
+  Git Hygiene (20%) Commit message quality, history cleanliness, gitignore coverage\n\
+\n\
+TIME WINDOW FORMATS:\n\
+  Relative:  3months, 6months, 30days, 1year\n\
+  Absolute:  2024-01-01 (ISO 8601 date)\n\
+\n\
+EXAMPLES:\n    \
+  barad-dur analyze .                                 # all categories, last 6 months\n    \
+  barad-dur analyze . -v                              # show per-metric scores\n    \
+  barad-dur analyze . -vv                             # also show raw values\n    \
+  barad-dur analyze . --json --pretty                 # pretty-printed JSON\n    \
+  barad-dur analyze . --html -o report.html           # interactive HTML report\n    \
+  barad-dur analyze . --health --team                 # only Health + Team\n    \
+  barad-dur analyze . --since 3months                 # custom time window\n    \
+  barad-dur analyze . --since 2024-01-01 --until 2024-12-31\n    \
+  barad-dur analyze . --all                           # full history\n    \
+  barad-dur analyze https://github.com/user/repo      # remote repository\n    \
+  barad-dur analyze https://github.com/user/repo --token ghp_xxx  # with GitHub API data"
+)]
 pub struct AnalyzeArgs {
-    /// Path or URL to the git repository (default: current directory).
-    /// Accepts local paths as well as remote URLs
-    /// (https://, http://, git@).
+    /// Path or URL to the git repository
+    ///
+    /// Accepts local paths and remote URLs (https://, http://, git@).
+    /// Remote repositories are cloned to a temp directory and cleaned up
+    /// after analysis.
     #[arg(default_value = ".")]
     pub target: String,
 
-    /// GitHub personal access token for API enrichment (stars, description,
-    /// language). Only used when the target is a GitHub URL.
-    #[arg(long)]
+    /// GitHub personal access token for API enrichment
+    ///
+    /// When the target is a GitHub URL, enriches the report with stars,
+    /// description, primary language, and open issues count.
+    /// Requires at least public_repo scope (or repo for private repos).
+    #[arg(long, help_heading = "Remote")]
     pub token: Option<String>,
 
-    /// Run health metrics
-    #[arg(long)]
+    /// Run only the Health category (bus factor, churn, coupling, staleness, complexity)
+    #[arg(long, help_heading = "Category Filters")]
     pub health: bool,
 
-    /// Run team metrics
-    #[arg(long)]
+    /// Run only the Team category (knowledge distribution, activity, ownership, silos, merges)
+    #[arg(long, help_heading = "Category Filters")]
     pub team: bool,
 
-    /// Run evolution metrics
-    #[arg(long)]
+    /// Run only the Evolution category (growth, refactoring ratio, code age, cadence)
+    #[arg(long, help_heading = "Category Filters")]
     pub evolution: bool,
 
-    /// Run git hygiene metrics
-    #[arg(long)]
+    /// Run only the Git Hygiene category (message quality, history cleanliness, gitignore)
+    #[arg(long, help_heading = "Category Filters")]
     pub hygiene: bool,
 
-    /// Start of analysis window (e.g., '3months', '2024-01-01')
-    #[arg(long)]
+    /// Start of analysis window [default: 6 months ago]
+    ///
+    /// Accepts relative durations (3months, 30days, 1year) or
+    /// ISO dates (2024-01-01).
+    #[arg(long, help_heading = "Time Window")]
     pub since: Option<String>,
 
-    /// End of analysis window (e.g., '2024-06-30')
-    #[arg(long)]
+    /// End of analysis window [default: now]
+    ///
+    /// Accepts relative durations or ISO dates.
+    #[arg(long, help_heading = "Time Window")]
     pub until: Option<String>,
 
-    /// Analyze full history
-    #[arg(long)]
+    /// Analyze the full commit history (ignore time window)
+    #[arg(long, help_heading = "Time Window")]
     pub all: bool,
 
-    /// Output as JSON
-    #[arg(long)]
+    /// Output as JSON (mutually exclusive with --html)
+    #[arg(long, help_heading = "Output Format")]
     pub json: bool,
 
-    /// Output as self-contained HTML report
-    #[arg(long)]
+    /// Output as a self-contained HTML report with interactive charts
+    ///
+    /// Generates a single-file HTML page with Overview, Hotspots, Coupling,
+    /// Ownership, and Age tabs. No external dependencies — works offline.
+    /// Mutually exclusive with --json.
+    #[arg(long, help_heading = "Output Format")]
     pub html: bool,
 
-    /// Pretty-print JSON output
-    #[arg(long)]
+    /// Generate an HTML report and open it in the default browser
+    ///
+    /// Implies --html. If no -o path is given, writes to a temporary file.
+    /// Equivalent to: barad-dur analyze . --html -o report.html && xdg-open report.html
+    #[arg(long, help_heading = "Output Format")]
+    pub open: bool,
+
+    /// Pretty-print JSON output (only effective with --json)
+    #[arg(long, help_heading = "Output Format")]
     pub pretty: bool,
 
-    /// Write output to file
-    #[arg(short, long)]
+    /// Write output to a file instead of stdout
+    #[arg(short, long, help_heading = "Output Format")]
     pub output: Option<PathBuf>,
 
-    /// Increase verbosity (-v, -vv)
-    #[arg(short, long, action = clap::ArgAction::Count)]
+    /// Increase verbosity (-v shows metrics, -vv shows raw values)
+    #[arg(short, long, action = clap::ArgAction::Count, help_heading = "Output Format")]
     pub verbose: u8,
 
-    /// Skip cache, force full re-collection
-    #[arg(long)]
+    /// Skip cache and force full re-collection from git
+    #[arg(long, help_heading = "Cache")]
     pub no_cache: bool,
 
-    /// Only use cache, fail if none exists
-    #[arg(long)]
+    /// Only use cached data; fail if no cache exists
+    #[arg(long, help_heading = "Cache")]
     pub cache_only: bool,
 }
 
@@ -212,6 +285,19 @@ mod tests {
     fn cache_only_flag() {
         let args = parse(&["barad-dur", "analyze", ".", "--cache-only"]);
         assert!(args.cache_only);
+    }
+
+    #[test]
+    fn open_flag() {
+        let args = parse(&["barad-dur", "analyze", ".", "--open"]);
+        assert!(args.open);
+    }
+
+    #[test]
+    fn open_with_output() {
+        let args = parse(&["barad-dur", "analyze", ".", "--open", "-o", "report.html"]);
+        assert!(args.open);
+        assert_eq!(args.output, Some(PathBuf::from("report.html")));
     }
 
     #[test]

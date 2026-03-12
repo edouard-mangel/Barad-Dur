@@ -19,7 +19,12 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn run_analyze(args: AnalyzeArgs) -> Result<()> {
+fn run_analyze(mut args: AnalyzeArgs) -> Result<()> {
+    // --open implies --html
+    if args.open {
+        args.html = true;
+    }
+
     if args.json && args.html {
         bail!("--json and --html are mutually exclusive");
     }
@@ -112,16 +117,67 @@ fn run_analyze(args: AnalyzeArgs) -> Result<()> {
     };
 
     // Write output
-    if let Some(path) = &args.output {
+    if args.open {
+        let path = if let Some(ref p) = args.output {
+            std::fs::write(p, &output)?;
+            p.clone()
+        } else {
+            let dir = local_path.join(cache::CACHE_DIR);
+            std::fs::create_dir_all(&dir)?;
+            let path = dir.join("report.html");
+            std::fs::write(&path, &output)?;
+            path
+        };
+        eprintln!("Opening {}", path.display());
+        open_in_browser(&path)?;
+    } else if let Some(path) = &args.output {
         std::fs::write(path, &output)?;
         if !args.json && !args.html {
             eprintln!("Report written to {}", path.display());
         }
+    } else if args.html {
+        let path = local_path.join("barad-dur-report.html");
+        std::fs::write(&path, &output)?;
+        eprintln!("Report written to {}", path.display());
     } else {
         print!("{}", output);
     }
 
     Ok(())
+}
+
+fn open_in_browser(path: &std::path::Path) -> Result<()> {
+    let path_str = path.to_string_lossy();
+
+    #[cfg(target_os = "linux")]
+    let result = std::process::Command::new("xdg-open")
+        .arg(path_str.as_ref())
+        .spawn();
+
+    #[cfg(target_os = "macos")]
+    let result = std::process::Command::new("open")
+        .arg(path_str.as_ref())
+        .spawn();
+
+    #[cfg(target_os = "windows")]
+    let result = std::process::Command::new("cmd")
+        .args(["/C", "start", "", &path_str])
+        .spawn();
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    let result: std::io::Result<std::process::Child> = Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "Cannot detect platform for browser open",
+    ));
+
+    match result {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            eprintln!("Warning: Could not open browser: {}", e);
+            eprintln!("Report saved to: {}", path.display());
+            Ok(())
+        }
+    }
 }
 
 fn build_time_window(args: &AnalyzeArgs) -> TimeWindow {
