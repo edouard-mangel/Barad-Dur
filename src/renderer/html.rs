@@ -427,6 +427,25 @@ svg.radar { display: block; margin: 0 auto; }
   padding: 4px 0;
   text-align: center;
 }
+.tm-layout-toggle {
+  display: flex;
+  gap: 0;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.tm-layout-btn {
+  background: #0d1117;
+  color: #64748b;
+  border: none;
+  padding: 5px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.tm-layout-btn:not(:last-child) { border-right: 1px solid #1e293b; }
+.tm-layout-btn:hover { color: #e2e8f0; }
+.tm-layout-btn.active { background: #1e293b; color: #f59e0b; }
 "#;
 
 fn build_js() -> String {
@@ -1316,6 +1335,94 @@ fn build_js() -> String {
     return results;
   }
 
+  function circlePack(items, cx, cy, r) {
+    if (items.length === 0) return [];
+    var sorted = items.slice().sort(function(a, b) { return b.size - a.size; });
+    var totalSize = 0;
+    sorted.forEach(function(it) { totalSize += it.size; });
+    if (totalSize <= 0) return [];
+
+    // Assign radii proportional to sqrt(size) so area ~ size
+    var radii = [];
+    var sumR2 = 0;
+    sorted.forEach(function(it) {
+      var ri = Math.sqrt(it.size / totalSize);
+      radii.push(ri);
+      sumR2 += ri * ri;
+    });
+    // Scale so circles fit inside parent radius with padding
+    var scale = r * 0.85 / Math.sqrt(sumR2);
+    radii = radii.map(function(ri) { return ri * scale; });
+
+    // Place circles using simple greedy front-chain approach
+    var placed = [];
+    for (var i = 0; i < sorted.length; i++) {
+      var ri = Math.max(radii[i], 2);
+      if (i === 0) {
+        placed.push({ cx: cx, cy: cy, r: ri, data: sorted[i].data });
+      } else if (i === 1) {
+        placed.push({ cx: cx + placed[0].r + ri + 1, cy: cy, r: ri, data: sorted[i].data });
+      } else {
+        // Find position that doesn't overlap existing circles, closest to center
+        var bestX = cx, bestY = cy, bestDist = Infinity;
+        for (var j = 0; j < placed.length; j++) {
+          for (var k = j + 1; k < placed.length; k++) {
+            // Try placing tangent to circles j and k
+            var candidates = tangentPositions(placed[j], placed[k], ri);
+            for (var c = 0; c < candidates.length; c++) {
+              var px = candidates[c].x, py = candidates[c].y;
+              var dist = Math.sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy));
+              if (dist + ri > r * 0.95) continue; // outside parent
+              var overlaps = false;
+              for (var m = 0; m < placed.length; m++) {
+                var dx = px - placed[m].cx, dy = py - placed[m].cy;
+                if (Math.sqrt(dx * dx + dy * dy) < ri + placed[m].r - 0.5) {
+                  overlaps = true;
+                  break;
+                }
+              }
+              if (!overlaps && dist < bestDist) {
+                bestDist = dist;
+                bestX = px;
+                bestY = py;
+              }
+            }
+          }
+        }
+        placed.push({ cx: bestX, cy: bestY, r: ri, data: sorted[i].data });
+      }
+    }
+
+    // Center the packed circles within the parent
+    if (placed.length > 0) {
+      var avgX = 0, avgY = 0;
+      placed.forEach(function(p) { avgX += p.cx; avgY += p.cy; });
+      avgX /= placed.length;
+      avgY /= placed.length;
+      var shiftX = cx - avgX, shiftY = cy - avgY;
+      placed.forEach(function(p) { p.cx += shiftX; p.cy += shiftY; });
+    }
+
+    return placed;
+  }
+
+  function tangentPositions(c1, c2, r) {
+    var dx = c2.cx - c1.cx, dy = c2.cy - c1.cy;
+    var d = Math.sqrt(dx * dx + dy * dy);
+    if (d < 0.001) return [{ x: c1.cx + c1.r + r, y: c1.cy }];
+    var d1 = c1.r + r, d2 = c2.r + r;
+    if (d > d1 + d2) return [];
+    var a = (d1 * d1 - d2 * d2 + d * d) / (2 * d);
+    var h2 = d1 * d1 - a * a;
+    if (h2 < 0) h2 = 0;
+    var h = Math.sqrt(h2);
+    var mx = c1.cx + a * dx / d, my = c1.cy + a * dy / d;
+    return [
+      { x: mx + h * dy / d, y: my - h * dx / d },
+      { x: mx - h * dy / d, y: my + h * dx / d }
+    ];
+  }
+
   var metricScales = {
     hotspot: {
       label: 'Hotspot Score',
@@ -1454,7 +1561,26 @@ fn build_js() -> String {
       select.append(opt);
     });
     var breadcrumb = el('div', { className: 'tm-breadcrumb', id: 'tm-breadcrumb' });
-    controls.append(selectLabel, select, breadcrumb);
+    // Layout toggle
+    var layoutMode = 'rect';
+    var layoutToggle = el('div', { className: 'tm-layout-toggle', id: 'tm-layout-toggle' });
+    var btnRect = el('button', { className: 'tm-layout-btn active', 'data-mode': 'rect' });
+    btnRect.append(txt('\u25a6 Rectangles'));
+    var btnCircle = el('button', { className: 'tm-layout-btn', 'data-mode': 'circle' });
+    btnCircle.append(txt('\u25cb Circles'));
+    layoutToggle.append(btnRect, btnCircle);
+
+    function setLayoutMode(mode) {
+      layoutMode = mode;
+      layoutToggle.querySelectorAll('.tm-layout-btn').forEach(function(b) {
+        b.className = 'tm-layout-btn' + (b.getAttribute('data-mode') === mode ? ' active' : '');
+      });
+      animateTransition();
+    }
+    btnRect.addEventListener('click', function() { setLayoutMode('rect'); });
+    btnCircle.addEventListener('click', function() { setLayoutMode('circle'); });
+
+    controls.append(selectLabel, select, layoutToggle, breadcrumb);
     container.append(controls);
 
     if (capped) {
@@ -1731,12 +1857,105 @@ fn build_js() -> String {
       });
     }
 
+    function renderCircleNode(svgNode, node, cx, cy, r, depth) {
+      if (r < 2) return;
+
+      // Draw parent circle for directories
+      if (depth > 0) {
+        var bg = svgEl('circle', {
+          cx: String(cx), cy: String(cy), r: String(r),
+          fill: '#0d1117', stroke: '#1e293b', 'stroke-width': '1',
+          class: 'tm-dir-bg', 'data-dir': node.name,
+          style: 'cursor:pointer;'
+        });
+        svgNode.append(bg);
+        // Label at top of circle
+        if (r > 25) {
+          var label = svgEl('text', {
+            x: String(cx), y: String(cy - r + 14),
+            fill: '#94a3b8', 'font-size': '10', 'font-weight': '600', 'font-family': 'monospace',
+            'text-anchor': 'middle',
+            class: 'tm-dir-label', 'data-dir': node.name,
+            style: 'cursor:pointer;pointer-events:auto;'
+          });
+          var maxChars = Math.floor((r * 2 - 12) / 6);
+          var dirLabel = node.name;
+          if (dirLabel.length > maxChars) dirLabel = dirLabel.slice(0, maxChars - 1) + '\u2026';
+          label.append(txt(dirLabel));
+          svgNode.append(label);
+        }
+      }
+
+      // Collect children
+      var items = [];
+      var dirKeys = Object.keys(node.children);
+      dirKeys.forEach(function(k) {
+        var child = node.children[k];
+        if (child.totalLoc > 0) {
+          items.push({ size: child.totalLoc, data: { type: 'dir', node: child, name: k } });
+        }
+      });
+      node.files.forEach(function(f) {
+        if (f.loc > 0) {
+          items.push({ size: f.loc, data: { type: 'file', file: f } });
+        }
+      });
+
+      if (items.length === 0) return;
+      var innerR = depth > 0 ? r * 0.88 : r;
+      var circles = circlePack(items, cx, cy, innerR);
+
+      circles.forEach(function(c) {
+        if (c.data.type === 'file') {
+          var fData = fileMap[c.data.file.path];
+          var color = fData ? colorForFile(fData) : '#334155';
+          var circ = svgEl('circle', {
+            cx: String(c.cx), cy: String(c.cy), r: String(Math.max(0, c.r - 0.5)),
+            fill: color, class: 'tm-file', 'data-path': c.data.file.path,
+            style: 'cursor:pointer;transition:opacity 0.15s;'
+          });
+          circ.addEventListener('mouseenter', function() { circ.setAttribute('opacity', '1'); });
+          circ.addEventListener('mouseleave', function() { circ.setAttribute('opacity', '0.88'); });
+          circ.setAttribute('opacity', '0.88');
+          svgNode.append(circ);
+          // Label if circle big enough
+          if (c.r > 20) {
+            var textEl = svgEl('text', {
+              x: String(c.cx), y: String(c.cy + 1),
+              fill: '#e2e8f0', 'font-size': '9', 'font-family': 'monospace',
+              'pointer-events': 'none', 'text-anchor': 'middle', opacity: '0.85'
+            });
+            var maxC = Math.floor((c.r * 2 - 8) / 5.5);
+            var lbl = c.data.file.name;
+            if (lbl.length > maxC) lbl = lbl.slice(0, maxC - 1) + '\u2026';
+            textEl.append(txt(lbl));
+            svgNode.append(textEl);
+          }
+          if (c.r > 30) {
+            var locEl = svgEl('text', {
+              x: String(c.cx), y: String(c.cy + 12),
+              fill: '#94a3b8', 'font-size': '8', 'font-family': 'monospace',
+              'pointer-events': 'none', 'text-anchor': 'middle', opacity: '0.7'
+            });
+            locEl.append(txt(c.data.file.loc + ' loc'));
+            svgNode.append(locEl);
+          }
+        } else {
+          renderCircleNode(svgNode, c.data.node, c.cx, c.cy, c.r, depth + 1);
+        }
+      });
+    }
+
     function renderTreemap() {
       while (svg.firstChild) svg.removeChild(svg.firstChild);
-      renderTreeNode(svg, currentRoot, 0, 0, svgW, svgH, 0);
+      if (layoutMode === 'circle') {
+        var cr = Math.min(svgW, svgH) / 2;
+        renderCircleNode(svg, currentRoot, svgW / 2, svgH / 2, cr, 0);
+      } else {
+        renderTreeNode(svg, currentRoot, 0, 0, svgW, svgH, 0);
+      }
       updateBreadcrumb();
       updateLegend();
-      // Restore highlight if detail panel is open
       if (selectedPath) highlightFile(selectedPath);
     }
 
@@ -2153,6 +2372,24 @@ mod tests {
         assert!(
             html.contains("animateTransition"),
             "Should contain animated transition function"
+        );
+    }
+
+    #[test]
+    fn html_treemap_has_circle_pack() {
+        let html = render(&make_treemap_report()).unwrap();
+        assert!(
+            html.contains("circlePack"),
+            "Should contain circlePack layout function"
+        );
+    }
+
+    #[test]
+    fn html_treemap_has_layout_toggle() {
+        let html = render(&make_treemap_report()).unwrap();
+        assert!(
+            html.contains("tm-layout-toggle"),
+            "Should contain layout toggle control"
         );
     }
 }

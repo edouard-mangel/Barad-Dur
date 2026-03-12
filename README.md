@@ -139,22 +139,11 @@ barad-dur analyze https://github.com/BurntSushi/ripgrep --token ghp_xxxxxxxxxxxx
 
 When a `--token` is provided and the target is a GitHub URL, the report is enriched with metadata from the GitHub API (stars, primary language, description, open issues count). The token needs at least `public_repo` scope (or `repo` for private repositories).
 
-### Cache
+### Operational notes
 
-Barad-dur caches the repository snapshot at `.barad-dur/snapshot.bin` (automatically added to `.gitignore`). Subsequent runs are instant if HEAD hasn't changed. Use `--no-cache` to force a fresh collection.
-
-### Progress indicators
-
-In interactive mode (non-JSON, non-HTML), Barad-dur shows a progress spinner while collecting data: walking commits, collecting the file tree, running parallel blame, analysing file complexity, and building indexes.
-
-### Shallow clone detection
-
-Barad-dur detects shallow clones and prints a warning:
-```
-Warning: This is a shallow clone. Metrics may be incomplete.
-```
-
-For accurate results in CI/CD, ensure a full clone (e.g., `GIT_DEPTH=0` in GitLab CI).
+- **Cache**: Snapshots are cached at `.ncrunch/snapshot.bin` (auto-added to `.gitignore`). Subsequent runs are instant if HEAD hasn't changed. Use `--no-cache` to force re-collection, `--cache-only` to fail if no cache exists.
+- **Progress**: In interactive mode (non-JSON, non-HTML), a progress spinner shows collection stages (commits, file tree, blame, complexity, indexes).
+- **Shallow clones**: Detected automatically with a warning. For accurate CI/CD results, ensure a full clone (`GIT_DEPTH=0` in GitLab CI).
 
 ## CI/CD Integration
 
@@ -182,19 +171,7 @@ if [ "$SCORE" -lt 50 ]; then
 fi
 ```
 
-Generate an HTML report as a CI artifact:
-
-```yaml
-barad-dur-report:
-  stage: analysis
-  variables:
-    GIT_DEPTH: 0
-  script:
-    - barad-dur analyze . --html -o report.html
-  artifacts:
-    paths:
-      - report.html
-```
+Use `--html -o report.html` instead of `--json` to generate an HTML artifact.
 
 ## JSON output schema
 
@@ -211,7 +188,7 @@ The JSON output includes these top-level fields:
 | `overall_score` | number | Weighted score (0-100) |
 | `categories` | array | Per-category scores and metrics |
 | `top_actions` | array | Suggested improvements |
-| `remote_meta` | object \| null | GitHub API data (when `--token` used) |
+| `remote_meta` | object \| null | Remote repo metadata (populated for URL targets; enriched with GitHub API data when `--token` is provided) |
 | `file_hotspots` | array | Files ranked by hotspot score (churn x complexity x LOC) |
 | `coupling_pairs` | array | Temporally coupled file pairs with coupling percentage |
 | `author_ownership` | array | Per-file ownership breakdown from blame |
@@ -236,7 +213,7 @@ See [Architecture Decision Record](docs/adr/001-architecture-decisions.md) for d
 ## Development
 
 ```bash
-# Run all tests (108 tests)
+# Run all tests (116 tests)
 cargo test
 
 # Lint
@@ -246,6 +223,7 @@ cargo clippy --all-targets -- -D warnings
 # Run specific test suites
 cargo test --lib                    # 94 unit tests
 cargo test --test collector_tests   # 14 integration tests
+cargo test --test integration_tests # 8 end-to-end tests
 
 # Dogfood
 cargo run -- analyze . -v

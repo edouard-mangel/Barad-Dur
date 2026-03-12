@@ -49,7 +49,7 @@
 
 ## ADR-001.4: Bincode for Snapshot Cache
 
-**Decision:** Use `bincode` binary serialization for the snapshot cache stored at `.barad-dur/snapshot.bin`.
+**Decision:** Use `bincode` binary serialization for the snapshot cache stored at `.ncrunch/snapshot.bin`.
 
 **Rationale:**
 - Much faster than JSON for large snapshots (commits × files × blame lines)
@@ -133,14 +133,16 @@
 
 ## ADR-001.8: Output Modes
 
-**Decision:** Two output modes: colored CLI (default) and JSON (via `--json`).
+**Decision:** Three output modes: colored CLI (default), JSON (`--json`), and self-contained HTML (`--html`).
 
 **Rationale:**
 - CLI output with colored score bars for human consumption
 - JSON for CI/CD integration and programmatic consumption
+- HTML for shareable, interactive reports (single file, no dependencies, dark theme)
 - `--pretty` flag for human-readable JSON (debugging/exploration)
-- `-o` flag for file output (both modes)
-- Verbosity levels: default (categories only), `-v` (with metric details)
+- `-o` flag for file output (all modes)
+- Verbosity levels: default (categories only), `-v` (with metric details), `-vv` (with raw values)
+- `--json` and `--html` are mutually exclusive
 
 ---
 
@@ -156,15 +158,16 @@
 
 ---
 
-## ADR-001.10: No AST Analysis in v1
+## ADR-001.10: Line-Based Static Analysis (v1), AST via Tree-sitter (v2)
 
-**Decision:** v1 uses only git metadata (commits, blame, file tree). No source code parsing.
+**Decision:** v1 uses git metadata plus line-based heuristic parsing for static complexity analysis. v2 will upgrade to tree-sitter for proper AST-based analysis.
 
 **Rationale:**
-- Git metadata is language-agnostic — works for any project
-- Keeps scope manageable for initial release
-- File complexity uses size and depth as proxies (surprisingly effective)
-- v2 will add tree-sitter for language-aware metrics (cyclomatic complexity, coupling, etc.)
+- Git metadata (commits, blame, file tree) forms the foundation — language-agnostic, works for any project
+- Line-based heuristics (keyword matching, pattern scanning) provide useful complexity metrics (LOC, cyclomatic complexity, public methods, properties) with zero external dependencies
+- Language-aware parsing currently covers Rust, JS/TS, Python, Go, and JVM (Java/Kotlin/C#)
+- Trade-off: heuristics miscount keywords in strings/comments and miss multi-line constructs. Acceptable for v1 scoring
+- v2 will add tree-sitter for accurate AST parsing, enabling precise cyclomatic complexity, function length, and import graph analysis
 
 ---
 
@@ -172,20 +175,23 @@
 
 | Module | Unit Tests | Integration Tests |
 |--------|-----------|------------------|
-| snapshot | 10 | — |
-| cli | 13 | — |
-| collector (libgit) | — | 14 |
+| snapshot | 11 | — |
+| cli | 14 | — |
+| collector (mod) | 1 | 14 |
 | collector (gitcli) | 2 | — |
-| cache | 8 | — |
+| cache (staleness + storage) | 8 | — |
 | metrics/health | 5 | — |
 | metrics/team | 5 | — |
-| metrics/evolution | 4 | — |
+| metrics/evolution | 7 | — |
 | metrics/hygiene | 3 | — |
-| scorer | 5 | — |
-| renderer/cli | 5 | — |
+| metrics/complexity | 10 | — |
+| scorer | 8 | — |
+| renderer/cli | 6 | — |
 | renderer/json | 4 | — |
+| renderer/html | 5 | — |
+| remote/github | 5 | — |
 | end-to-end | — | 8 |
-| **Total** | **64** | **22** |
+| **Total** | **94** | **22** |
 
 ---
 

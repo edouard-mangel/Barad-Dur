@@ -1,5 +1,5 @@
 target/
-.barad-dur/
+.ncrunch/
 other
 dashboard/node_modules/
 dashboard/dist/
