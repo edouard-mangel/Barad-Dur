@@ -6,6 +6,7 @@ use chrono::Utc;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use crate::metrics::complexity;
 use crate::snapshot::{
@@ -72,8 +73,9 @@ impl Collector {
         &self,
         files: &[FileEntry],
         authors: &[Author],
+        progress: Option<&ProgressBar>,
     ) -> Result<HashMap<PathBuf, Vec<BlameLine>>> {
-        gitcli::collect_blame(self.repo_path(), files, authors)
+        gitcli::collect_blame(self.repo_path(), files, authors, progress)
     }
 
     /// Check if this is a shallow clone.
@@ -83,6 +85,14 @@ impl Collector {
 
     /// Analyse working-tree files for static complexity metrics.
     pub fn collect_file_metrics(&self, files: &[FileEntry]) -> HashMap<PathBuf, FileComplexity> {
+        self.collect_file_metrics_with_progress(files, None)
+    }
+
+    fn collect_file_metrics_with_progress(
+        &self,
+        files: &[FileEntry],
+        progress: Option<&ProgressBar>,
+    ) -> HashMap<PathBuf, FileComplexity> {
         let root = self.repo_path();
         let mut map = HashMap::new();
         for entry in files {
@@ -94,6 +104,9 @@ impl Collector {
                 let metrics = complexity::analyse_file(&entry.path, &content);
                 map.insert(entry.path.clone(), metrics);
             }
+            if let Some(pb) = progress {
+                pb.inc(1);
+            }
         }
         map
     }
@@ -104,48 +117,107 @@ impl Collector {
     }
 
     /// Build a complete RepoSnapshot, optionally showing progress indicators.
-    pub fn collect_snapshot_with_progress(&self, show_progress: bool) -> Result<RepoSnapshot> {
-        let spinner = if show_progress {
+    /// If `verbose` is true, phase timings are printed to stderr.
+    pub fn collect_snapshot_with_progress(
+        &self,
+        show_progress: bool,
+    ) -> Result<RepoSnapshot> {
+        self.collect_snapshot_inner(show_progress, false)
+    }
+
+    /// Build a complete RepoSnapshot with optional progress and verbose timing.
+    pub fn collect_snapshot_verbose(
+        &self,
+        show_progress: bool,
+        verbose: bool,
+    ) -> Result<RepoSnapshot> {
+        self.collect_snapshot_inner(show_progress, verbose)
+    }
+
+    fn collect_snapshot_inner(
+        &self,
+        show_progress: bool,
+        verbose: bool,
+    ) -> Result<RepoSnapshot> {
+        let make_spinner = |msg: &str| -> Option<ProgressBar> {
+            if !show_progress {
+                return None;
+            }
             let sp = ProgressBar::new_spinner();
             sp.set_style(
                 ProgressStyle::default_spinner()
                     .template("  {spinner:.cyan} {msg}")
                     .unwrap(),
             );
-            sp.set_message("Walking commits...");
+            sp.set_message(msg.to_string());
             sp.enable_steady_tick(std::time::Duration::from_millis(80));
             Some(sp)
+        };
+
+        let bar_style = ProgressStyle::default_bar()
+            .template("  {spinner:.cyan} {msg} [{bar:30.cyan/dim}] {pos}/{len} ({eta})")
+            .unwrap()
+            .progress_chars("━╸─");
+
+        // Phase 1: commits (fast, spinner only)
+        let sp = make_spinner("Walking commits...");
+        let t = Instant::now();
+        let collection = self.collect_commits()?;
+        let commits_ms = t.elapsed().as_millis();
+        if let Some(s) = sp {
+            s.finish_and_clear();
+        }
+
+        // Phase 2: file tree (fast, spinner only)
+        let sp = make_spinner(&format!(
+            "Found {} commits. Collecting file tree...",
+            collection.commits.len()
+        ));
+        let t = Instant::now();
+        let files = self.collect_files()?;
+        let files_ms = t.elapsed().as_millis();
+        if let Some(s) = sp {
+            s.finish_and_clear();
+        }
+
+        // Phase 3: blame (slow — real progress bar)
+        let non_binary: u64 = files.iter().filter(|f| !f.is_binary).count() as u64;
+        let blame_bar = if show_progress {
+            let pb = ProgressBar::new(non_binary);
+            pb.set_style(bar_style.clone());
+            pb.set_message("Blaming files");
+            pb.enable_steady_tick(std::time::Duration::from_millis(80));
+            Some(pb)
         } else {
             None
         };
-
-        let collection = self.collect_commits()?;
-        if let Some(sp) = &spinner {
-            sp.set_message(format!(
-                "Found {} commits. Collecting file tree...",
-                collection.commits.len()
-            ));
+        let t = Instant::now();
+        let blame_map = self.collect_blame(&files, &collection.authors, blame_bar.as_ref())?;
+        let blame_ms = t.elapsed().as_millis();
+        if let Some(pb) = blame_bar {
+            pb.finish_and_clear();
         }
 
-        let files = self.collect_files()?;
-        if let Some(sp) = &spinner {
-            sp.set_message(format!(
-                "Found {} files. Running blame ({} non-binary)...",
-                files.len(),
-                files.iter().filter(|f| !f.is_binary).count()
-            ));
+        // Phase 4: complexity (can be slow on large repos — progress bar)
+        let complexity_bar = if show_progress {
+            let pb = ProgressBar::new(non_binary);
+            pb.set_style(bar_style);
+            pb.set_message("Analysing complexity");
+            pb.enable_steady_tick(std::time::Duration::from_millis(80));
+            Some(pb)
+        } else {
+            None
+        };
+        let t = Instant::now();
+        let file_metrics = self.collect_file_metrics_with_progress(&files, complexity_bar.as_ref());
+        let complexity_ms = t.elapsed().as_millis();
+        if let Some(pb) = complexity_bar {
+            pb.finish_and_clear();
         }
 
-        let blame_map = self.collect_blame(&files, &collection.authors)?;
-        if let Some(sp) = &spinner {
-            sp.set_message("Analysing file complexity...");
-        }
-
-        let file_metrics = self.collect_file_metrics(&files);
-        if let Some(sp) = &spinner {
-            sp.set_message("Building indexes...");
-        }
-
+        // Phase 5: indexes (fast, spinner only)
+        let sp = make_spinner("Building indexes...");
+        let t = Instant::now();
         let head = self.head_commit_hash()?;
 
         let mut snapshot = RepoSnapshot {
@@ -165,9 +237,17 @@ impl Collector {
             file_metrics,
         };
         snapshot.build_indexes();
+        let indexes_ms = t.elapsed().as_millis();
 
-        if let Some(sp) = spinner {
-            sp.finish_and_clear();
+        if let Some(s) = sp {
+            s.finish_and_clear();
+        }
+
+        if verbose {
+            eprintln!(
+                "  Timings: commits {}ms, files {}ms, blame {}ms, complexity {}ms, indexes {}ms",
+                commits_ms, files_ms, blame_ms, complexity_ms, indexes_ms
+            );
         }
 
         Ok(snapshot)

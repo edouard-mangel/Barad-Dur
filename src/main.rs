@@ -1,5 +1,6 @@
 use anyhow::{bail, Result};
 use clap::Parser;
+use std::io::IsTerminal;
 use std::path::PathBuf;
 
 use barad_dur::cache;
@@ -71,13 +72,14 @@ fn run_analyze(mut args: AnalyzeArgs) -> Result<()> {
         eprintln!("Warning: This is a shallow clone. Metrics may be incomplete.");
     }
 
-    // Show progress in interactive (non-JSON, non-HTML) mode
-    let show_progress = !args.json && !args.html;
+    // Show progress whenever stderr is a terminal (progress goes to stderr,
+    // so it never interferes with JSON/HTML output on stdout or -o file).
+    let show_progress = std::io::stderr().is_terminal();
 
     // Cache logic
     let current_head = collector.head_commit_hash()?;
     let snapshot = if args.no_cache {
-        collect_and_cache(&collector, show_progress)?
+        collect_and_cache(&collector, show_progress, args.verbose > 0)?
     } else if let Some(cached) = cache::load(collector.repo_path())? {
         if !cache::is_stale(&cached, &current_head) {
             if args.verbose > 0 {
@@ -88,12 +90,12 @@ fn run_analyze(mut args: AnalyzeArgs) -> Result<()> {
             if args.verbose > 0 {
                 eprintln!("Cache stale, re-collecting...");
             }
-            collect_and_cache(&collector, show_progress)?
+            collect_and_cache(&collector, show_progress, args.verbose > 0)?
         }
     } else if args.cache_only {
         bail!("No cache found. Run without --cache-only first.");
     } else {
-        collect_and_cache(&collector, show_progress)?
+        collect_and_cache(&collector, show_progress, args.verbose > 0)?
     };
 
     // Check for empty data
@@ -102,12 +104,21 @@ fn run_analyze(mut args: AnalyzeArgs) -> Result<()> {
     }
 
     // Compute selected metrics
+    let t = std::time::Instant::now();
     let categories = compute_selected_metrics(&snapshot, &args);
+    if args.verbose > 0 {
+        eprintln!("  Metrics: {}ms", t.elapsed().as_millis());
+    }
 
     // Score
+    let t = std::time::Instant::now();
     let report = scorer::build_report(&snapshot, categories, remote_meta);
+    if args.verbose > 0 {
+        eprintln!("  Scoring: {}ms", t.elapsed().as_millis());
+    }
 
     // Render
+    let t = std::time::Instant::now();
     let output = if args.json {
         renderer::json::render(&report, args.pretty)?
     } else if args.html {
@@ -115,6 +126,9 @@ fn run_analyze(mut args: AnalyzeArgs) -> Result<()> {
     } else {
         renderer::cli::render(&report, args.verbose)
     };
+    if args.verbose > 0 {
+        eprintln!("  Render: {}ms", t.elapsed().as_millis());
+    }
 
     // Write output
     if args.open {
@@ -245,8 +259,12 @@ fn parse_time_spec(
     None
 }
 
-fn collect_and_cache(collector: &Collector, show_progress: bool) -> Result<RepoSnapshot> {
-    let snapshot = collector.collect_snapshot_with_progress(show_progress)?;
+fn collect_and_cache(
+    collector: &Collector,
+    show_progress: bool,
+    verbose: bool,
+) -> Result<RepoSnapshot> {
+    let snapshot = collector.collect_snapshot_verbose(show_progress, verbose)?;
     if let Err(e) = cache::save(&snapshot, collector.repo_path()) {
         eprintln!("Warning: Failed to save cache: {}", e);
     }

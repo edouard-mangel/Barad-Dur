@@ -171,6 +171,50 @@
 
 ---
 
+## ADR-001.11: Progress Reporting and Performance Profile
+
+**Status:** Accepted
+**Date:** 2026-03-12
+
+**Decision:** Show progress bars on stderr during analysis, gated on `stderr.is_terminal()`. Phase timings are printed when progress is enabled.
+
+### Progress Strategy
+
+| Phase | Indicator | Rationale |
+|-------|-----------|-----------|
+| Commits | Spinner | Fast (<4s), count unknown upfront |
+| File tree | Spinner | Fast (<1s) |
+| Blame | Progress bar with ETA | Slowest phase, per-file granularity |
+| Complexity | Progress bar with ETA | Per-file, can be slow on large repos |
+| Indexes | Spinner | Fast (<1s) |
+
+Progress writes to stderr, so it never interferes with JSON/HTML output on stdout or `-o file`. The `indicatif::ProgressBar` is `Send + Sync`, allowing safe concurrent updates from rayon's parallel blame loop.
+
+### Performance Profile (measured on FW.Runtime — 8,329 files, 6,091 commits)
+
+| Phase | Time | Share | Notes |
+|-------|------|-------|-------|
+| **Blame** | **85.0s** | **94.9%** | 1 `git blame --porcelain` per non-binary file via rayon |
+| Commits | 3.2s | 3.6% | libgit2 commit walk with diff-based file change extraction |
+| Indexes | 0.5s | 0.6% | Build commits-by-file, commits-by-author, file-change-pairs |
+| Complexity | 0.4s | 0.5% | Line-based heuristic parsing of all source files |
+| Files | 0.3s | 0.3% | libgit2 HEAD tree walk |
+| Metrics + Scoring + Render | 0.1s | 0.1% | Pure computation on in-memory data |
+
+**Key finding:** Blame dominates at 95% of runtime. Each file spawns a `git blame --porcelain` subprocess. Even with all CPU cores saturated (rayon parallelism), the fork/exec overhead for ~8k processes is the bottleneck.
+
+**Mitigating factor:** The snapshot cache (bincode) makes second runs instant (0.3s). Cache is invalidated only when HEAD changes.
+
+### Future Optimization Paths
+
+1. **Per-blob blame cache** — Store blame output keyed by blob OID (git object hash). A file's blame only changes when its content changes. On incremental runs, only re-blame files whose blob OID differs from the cached version. Could reduce blame from 85s to <10s on typical incremental updates.
+
+2. **libgit2 blame API** — Avoid fork/exec overhead by using in-process blame. Trade-off: libgit2's blame can be slower per-file for files with long histories, but eliminates ~8k process spawns.
+
+3. **Selective blame** — For metrics that only need ownership of recently-changed code (e.g., churn hotspots), blame only files modified in the time window. Full blame remains needed for bus factor and knowledge distribution.
+
+---
+
 ## Test Coverage Summary
 
 | Module | Unit Tests | Integration Tests |

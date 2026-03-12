@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, TimeZone, Utc};
+use indicatif::ProgressBar;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -12,6 +13,7 @@ pub fn collect_blame(
     repo_path: &Path,
     files: &[FileEntry],
     authors: &[Author],
+    progress: Option<&ProgressBar>,
 ) -> Result<HashMap<PathBuf, Vec<BlameLine>>> {
     let email_to_id: HashMap<&str, AuthorId> =
         authors.iter().map(|a| (a.email.as_str(), a.id)).collect();
@@ -20,11 +22,15 @@ pub fn collect_blame(
         .par_iter()
         .filter(|f| !f.is_binary)
         .filter_map(|f| {
-            match blame_file(repo_path, &f.path, &email_to_id) {
+            let result = match blame_file(repo_path, &f.path, &email_to_id) {
                 Ok(lines) if !lines.is_empty() => Some((f.path.clone(), lines)),
                 Ok(_) => None,
                 Err(_) => None, // Skip files that fail to blame (e.g., submodules)
+            };
+            if let Some(pb) = progress {
+                pb.inc(1);
             }
+            result
         })
         .collect();
 
