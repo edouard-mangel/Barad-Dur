@@ -64,7 +64,8 @@
       "Bash(glab pipeline list 2>&1 | head -20)",
       "Bash(glab auth status 2>&1)",
       "Bash(glab auth login --hostname lab.frogg.it 2>&1 | head -5 || echo \"interactive login not possible\")",
-      "Bash(env | grep -i \"gitlab\\\\|frogg\\\\|token\\\\|GL_\" | grep -v \"SECRET\" | head -10)"
+      "Bash(env | grep -i \"gitlab\\\\|frogg\\\\|token\\\\|GL_\" | grep -v \"SECRET\" | head -10)",
+      "Bash(cargo build:*)"
     ]
   },
   "hooks": {

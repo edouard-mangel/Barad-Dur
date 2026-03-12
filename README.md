@@ -1,12 +1,12 @@
 # Barad-dur
 
-The all-seeing repository analyzer. Get health metrics, team insights, and actionable recommendations for any git repository.
+The all-seeing repository analyzer. Get health metrics, team insights, and actionable recommendations for any git repository — local or remote.
 
 Named after the Dark Tower of Mordor — because nothing escapes its gaze.
 
 ## What it does
 
-Barad-dur analyzes git metadata (commits, blame, file tree) and produces a scored report across 4 categories:
+Barad-dur analyzes git metadata (commits, blame, file tree) and source code complexity, then produces a scored report across 4 categories:
 
 | Category | Metrics | Weight |
 |----------|---------|--------|
@@ -17,7 +17,23 @@ Barad-dur analyzes git metadata (commits, blame, file tree) and produces a score
 
 Each metric scores 0-100. Category scores are averages. The overall score is a weighted average. The report includes **Top Actions** — concrete suggestions from the lowest-scoring metrics.
 
+### File-level analysis
+
+Beyond git metadata, Barad-dur performs **static complexity analysis** on source files with language-aware parsing:
+
+| Language | Extensions | What's measured |
+|----------|-----------|-----------------|
+| Rust | `.rs` | `pub fn` / `pub async fn`, public struct fields, cyclomatic complexity |
+| JavaScript/TypeScript | `.js`, `.ts`, `.jsx`, `.tsx`, `.mjs`, `.cjs` | Exports, public class members, properties |
+| Python | `.py` | Public defs, `self.*` properties |
+| Go | `.go` | Exported functions (uppercase), exported struct fields |
+| JVM (Java/Kotlin/C#) | `.java`, `.kt`, `.kts`, `.cs` | Public methods, field declarations |
+
+This produces per-file metrics: **LOC** (excluding blanks/comments), **cyclomatic complexity** (decision points), **public methods**, and **properties**. These feed into the hotspot analysis (churn x complexity x size).
+
 ## Example output
+
+### CLI (default)
 
 ```
 ━━━ Barad-dur ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -38,6 +54,18 @@ Each metric scores 0-100. Category scores are averages. The overall score is a w
   3. [Evolution] Growth trend (score: 40) — Monitor growth rate
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
+
+### HTML report (`--html`)
+
+A self-contained single-file HTML report with:
+
+- **Overview tab** — score gauge, radar chart, expandable category cards, top recommendations
+- **Hotspots tab** — scatter plot (complexity vs churn, radius = LOC) + sortable table
+- **Coupling tab** — temporal coupling pairs ranked by coupling percentage
+- **Ownership tab** — per-file ownership bars derived from blame, with author legend
+- **Age tab** — file staleness with age bands (Fresh / > 3mo / > 6mo / > 1y)
+
+No external dependencies — all CSS, JS, and data are inlined. Works offline. Dark theme.
 
 ## Installation
 
@@ -67,10 +95,15 @@ barad-dur analyze .
 
 # Verbose output (show individual metrics)
 barad-dur analyze . -v
+barad-dur analyze . -vv   # also show raw values
 
 # JSON output (for CI/CD integration)
 barad-dur analyze . --json
 barad-dur analyze . --json --pretty
+
+# HTML report (self-contained, open in browser)
+barad-dur analyze . --html
+barad-dur analyze . --html -o report.html
 
 # Single category
 barad-dur analyze . --health
@@ -91,9 +124,37 @@ barad-dur analyze . --no-cache     # force re-collection
 barad-dur analyze . --cache-only   # fail if no cache
 ```
 
+### Remote repository analysis
+
+Barad-dur can analyze any remote repository by URL — it clones into a temp directory, runs analysis, and cleans up automatically:
+
+```bash
+# Analyze a remote repo (HTTPS or SSH)
+barad-dur analyze https://github.com/BurntSushi/ripgrep
+barad-dur analyze git@github.com:BurntSushi/ripgrep.git
+
+# With GitHub API enrichment (stars, description, language, open issues)
+barad-dur analyze https://github.com/BurntSushi/ripgrep --token ghp_xxxxxxxxxxxx
+```
+
+When a `--token` is provided and the target is a GitHub URL, the report is enriched with metadata from the GitHub API (stars, primary language, description, open issues count). The token needs at least `public_repo` scope (or `repo` for private repositories).
+
 ### Cache
 
 Barad-dur caches the repository snapshot at `.barad-dur/snapshot.bin` (automatically added to `.gitignore`). Subsequent runs are instant if HEAD hasn't changed. Use `--no-cache` to force a fresh collection.
+
+### Progress indicators
+
+In interactive mode (non-JSON, non-HTML), Barad-dur shows a progress spinner while collecting data: walking commits, collecting the file tree, running parallel blame, analysing file complexity, and building indexes.
+
+### Shallow clone detection
+
+Barad-dur detects shallow clones and prints a warning:
+```
+Warning: This is a shallow clone. Metrics may be incomplete.
+```
+
+For accurate results in CI/CD, ensure a full clone (e.g., `GIT_DEPTH=0` in GitLab CI).
 
 ## CI/CD Integration
 
@@ -102,6 +163,8 @@ The JSON output is designed for pipeline consumption:
 ```yaml
 barad-dur:
   stage: analysis
+  variables:
+    GIT_DEPTH: 0  # full clone for accurate metrics
   script:
     - barad-dur analyze . --json -o report.json
   artifacts:
@@ -119,26 +182,61 @@ if [ "$SCORE" -lt 50 ]; then
 fi
 ```
 
+Generate an HTML report as a CI artifact:
+
+```yaml
+barad-dur-report:
+  stage: analysis
+  variables:
+    GIT_DEPTH: 0
+  script:
+    - barad-dur analyze . --html -o report.html
+  artifacts:
+    paths:
+      - report.html
+```
+
+## JSON output schema
+
+The JSON output includes these top-level fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `repo_name` | string | Repository name |
+| `branch` | string | Current branch |
+| `time_window_months` | number | Analysis window (0 = full history) |
+| `total_commits` | number | Commits in window |
+| `total_authors` | number | Unique authors |
+| `total_files` | number | Files in tree |
+| `overall_score` | number | Weighted score (0-100) |
+| `categories` | array | Per-category scores and metrics |
+| `top_actions` | array | Suggested improvements |
+| `remote_meta` | object \| null | GitHub API data (when `--token` used) |
+| `file_hotspots` | array | Files ranked by hotspot score (churn x complexity x LOC) |
+| `coupling_pairs` | array | Temporally coupled file pairs with coupling percentage |
+| `author_ownership` | array | Per-file ownership breakdown from blame |
+| `file_ages` | array | File staleness (days since last modification) |
+
 ## Architecture
 
 ```
 CLI (clap) → Collector (git2 + git CLI) → RepoSnapshot → Metrics → Scorer → Renderer
-                                              ↕
-                                        Cache (bincode)
+                                              ↕                         ↓
+                                        Cache (bincode)          CLI / JSON / HTML
 ```
 
-- **Collector**: git2 for commits/files, `git blame --porcelain` (parallel via rayon) for blame
-- **RepoSnapshot**: shared data model with derived indexes (commits by author/file, change pairs)
+- **Collector**: git2 for commits/files, `git blame --porcelain` (parallel via rayon) for blame, static file analysis for complexity
+- **RepoSnapshot**: shared data model with derived indexes (commits by author/file, change pairs, file metrics)
 - **Metrics**: pure functions `(snapshot) → MetricValue`, independently testable
-- **Scorer**: weighted category scores + top action suggestions
-- **Renderer**: colored CLI or JSON output
+- **Scorer**: weighted category scores + top action suggestions + file-level analysis (hotspots, coupling, ownership, ages)
+- **Renderer**: colored CLI, JSON, or self-contained HTML output
 
 See [Architecture Decision Record](docs/adr/001-architecture-decisions.md) for detailed design rationale.
 
 ## Development
 
 ```bash
-# Run all tests (86 tests)
+# Run all tests (108 tests)
 cargo test
 
 # Lint
@@ -146,9 +244,8 @@ cargo fmt -- --check
 cargo clippy --all-targets -- -D warnings
 
 # Run specific test suites
-cargo test --lib                    # 64 unit tests
+cargo test --lib                    # 94 unit tests
 cargo test --test collector_tests   # 14 integration tests
-cargo test --test integration_tests # 8 end-to-end tests
 
 # Dogfood
 cargo run -- analyze . -v
@@ -156,11 +253,12 @@ cargo run -- analyze . -v
 
 ## Roadmap (v2)
 
-- AST analysis via tree-sitter (cyclomatic complexity, function length)
+- AST analysis via tree-sitter (replace current line-based heuristics with proper syntax-tree parsing for more accurate complexity, method, and property detection)
 - PR/merge request analysis (review turnaround, approval patterns)
 - Historical trend tracking (score over time)
 - Configuration file (`.barad-dur.toml`) for custom thresholds
 - GitHub/GitLab API integration for PR data
+- Interactive config editor (see [backlog](docs/BACKLOG.md))
 
 ## License
 
