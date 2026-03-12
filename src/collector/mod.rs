@@ -13,6 +13,25 @@ use crate::snapshot::{
     Author, BlameLine, Commit, FileComplexity, FileEntry, RepoSnapshot, TimeWindow,
 };
 
+/// Trait for reporting progress during collection phases.
+/// Implemented by `ProgressBar` for real display and `NoProgress` for silent operation.
+pub trait Progress: Send + Sync {
+    fn inc(&self, delta: u64);
+}
+
+impl Progress for ProgressBar {
+    fn inc(&self, delta: u64) {
+        ProgressBar::inc(self, delta);
+    }
+}
+
+/// No-op progress reporter — used in tests and when progress display is disabled.
+pub struct NoProgress;
+
+impl Progress for NoProgress {
+    fn inc(&self, _delta: u64) {}
+}
+
 /// Result of collecting commits — includes deduplicated author list.
 pub struct CommitCollection {
     pub commits: Vec<Commit>,
@@ -73,7 +92,7 @@ impl Collector {
         &self,
         files: &[FileEntry],
         authors: &[Author],
-        progress: Option<&ProgressBar>,
+        progress: &dyn Progress,
     ) -> Result<HashMap<PathBuf, Vec<BlameLine>>> {
         gitcli::collect_blame(self.repo_path(), files, authors, progress)
     }
@@ -85,13 +104,13 @@ impl Collector {
 
     /// Analyse working-tree files for static complexity metrics.
     pub fn collect_file_metrics(&self, files: &[FileEntry]) -> HashMap<PathBuf, FileComplexity> {
-        self.collect_file_metrics_with_progress(files, None)
+        self.collect_file_metrics_with_progress(files, &NoProgress)
     }
 
     fn collect_file_metrics_with_progress(
         &self,
         files: &[FileEntry],
-        progress: Option<&ProgressBar>,
+        progress: &dyn Progress,
     ) -> HashMap<PathBuf, FileComplexity> {
         let root = self.repo_path();
         let mut map = HashMap::new();
@@ -104,9 +123,7 @@ impl Collector {
                 let metrics = complexity::analyse_file(&entry.path, &content);
                 map.insert(entry.path.clone(), metrics);
             }
-            if let Some(pb) = progress {
-                pb.inc(1);
-            }
+            progress.inc(1);
         }
         map
     }
@@ -185,7 +202,11 @@ impl Collector {
             None
         };
         let t = Instant::now();
-        let blame_map = self.collect_blame(&files, &collection.authors, blame_bar.as_ref())?;
+        let blame_progress: &dyn Progress = match &blame_bar {
+            Some(pb) => pb,
+            None => &NoProgress,
+        };
+        let blame_map = self.collect_blame(&files, &collection.authors, blame_progress)?;
         let blame_ms = t.elapsed().as_millis();
         if let Some(pb) = blame_bar {
             pb.finish_and_clear();
@@ -202,7 +223,11 @@ impl Collector {
             None
         };
         let t = Instant::now();
-        let file_metrics = self.collect_file_metrics_with_progress(&files, complexity_bar.as_ref());
+        let complexity_progress: &dyn Progress = match &complexity_bar {
+            Some(pb) => pb,
+            None => &NoProgress,
+        };
+        let file_metrics = self.collect_file_metrics_with_progress(&files, complexity_progress);
         let complexity_ms = t.elapsed().as_millis();
         if let Some(pb) = complexity_bar {
             pb.finish_and_clear();

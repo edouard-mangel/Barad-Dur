@@ -1,11 +1,11 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, TimeZone, Utc};
-use indicatif::ProgressBar;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use super::Progress;
 use crate::snapshot::{Author, AuthorId, BlameLine, FileEntry};
 
 /// Collect blame data for all non-binary files in parallel using git CLI.
@@ -13,7 +13,7 @@ pub fn collect_blame(
     repo_path: &Path,
     files: &[FileEntry],
     authors: &[Author],
-    progress: Option<&ProgressBar>,
+    progress: &dyn Progress,
 ) -> Result<HashMap<PathBuf, Vec<BlameLine>>> {
     let email_to_id: HashMap<&str, AuthorId> =
         authors.iter().map(|a| (a.email.as_str(), a.id)).collect();
@@ -27,9 +27,7 @@ pub fn collect_blame(
                 Ok(_) => None,
                 Err(_) => None, // Skip files that fail to blame (e.g., submodules)
             };
-            if let Some(pb) = progress {
-                pb.inc(1);
-            }
+            progress.inc(1);
             result
         })
         .collect();
