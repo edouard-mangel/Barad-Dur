@@ -116,6 +116,40 @@ header {
 .tab.active { color: #f59e0b; border-bottom-color: #f59e0b; }
 .tab-content { display: none; padding: 24px; }
 .tab-content.active { display: block; }
+.tab-info {
+  background: #111827;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin-bottom: 20px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #94a3b8;
+}
+.tab-info-title {
+  color: #e2e8f0;
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+.tab-info .score-hint {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #1e293b;
+  font-size: 12px;
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.tab-info .score-hint span { white-space: nowrap; }
+.tab-info .dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+}
 .overview-grid {
   display: grid;
   grid-template-columns: 1fr 280px;
@@ -805,6 +839,34 @@ fn build_js() -> String {
     return card;
   }
 
+  /* ---- Tab info banners ---- */
+  function buildTabInfo(title, description, scoreHints) {
+    var info = el('div', { className: 'tab-info' });
+    var t = el('div', { className: 'tab-info-title' });
+    t.append(txt(title));
+    info.append(t);
+    var d = el('div');
+    d.append(txt(description));
+    info.append(d);
+    if (scoreHints && scoreHints.length > 0) {
+      var hints = el('div', { className: 'score-hint' });
+      scoreHints.forEach(function(h) {
+        var s = el('span');
+        var dot = el('span', { className: 'dot', style: { background: h.color } });
+        s.append(dot, txt(h.label));
+        hints.append(s);
+      });
+      info.append(hints);
+    }
+    return info;
+  }
+
+  var defaultScoreHints = [
+    { color: '#ef4444', label: '0\u201339 Critical' },
+    { color: '#f59e0b', label: '40\u201369 Needs work' },
+    { color: '#22c55e', label: '70\u2013100 Healthy' }
+  ];
+
   /* ---- Hotspots tab ---- */
   function buildHotspotsTab() {
     var files = R.file_hotspots || [];
@@ -815,6 +877,15 @@ fn build_js() -> String {
     }
 
     var wrap = el('div', { className: 'hotspot-wrap' });
+    wrap.append(buildTabInfo(
+      'Hotspot Score \u2014 Where risk concentrates',
+      'Files are ranked by a composite Hotspot Score combining cyclomatic complexity (code branching), churn count (how often the file changes), and lines of code. High-churn, high-complexity files are the most likely sources of bugs and the hardest to review. Focus refactoring efforts on the top-right corner of the scatter plot.',
+      [
+        { color: '#22c55e', label: 'Low risk \u2014 simple + rarely changed' },
+        { color: '#f59e0b', label: 'Medium \u2014 monitor these files' },
+        { color: '#ef4444', label: 'High risk \u2014 complex + frequently changed' }
+      ]
+    ));
 
     // Scatter plot
     var plotCard = el('div', { className: 'view-card', style: { padding: '16px' } });
@@ -963,6 +1034,16 @@ fn build_js() -> String {
       return d;
     }
 
+    var container = el('div');
+    container.append(buildTabInfo(
+      'Temporal Coupling \u2014 Files that change together',
+      'Temporal coupling measures how often two files are modified in the same commit. A high percentage means the files are implicitly linked \u2014 changing one almost always requires changing the other. This can indicate hidden dependencies, duplicated logic, or missing abstractions. Consider extracting shared interfaces or merging tightly coupled files.',
+      [
+        { color: '#22c55e', label: '<30% \u2014 Normal co-change' },
+        { color: '#f59e0b', label: '30\u201360% \u2014 Worth investigating' },
+        { color: '#ef4444', label: '>60% \u2014 Strongly coupled, refactor candidate' }
+      ]
+    ));
     var card = el('div', { className: 'view-card' });
     var tableWrap = el('div', { style: { overflowX: 'auto' } });
     var table = el('table');
@@ -1013,7 +1094,8 @@ fn build_js() -> String {
     table.append(tbody);
     tableWrap.append(table);
     card.append(tableWrap);
-    return card;
+    container.append(card);
+    return container;
   }
 
   /* ---- Ownership tab ---- */
@@ -1024,6 +1106,17 @@ fn build_js() -> String {
       d.append(txt('No ownership data available.'));
       return d;
     }
+
+    var container = el('div');
+    container.append(buildTabInfo(
+      'Code Ownership \u2014 Who knows what',
+      'Ownership is derived from git blame: each file shows the percentage of lines last modified by each contributor. This reveals knowledge distribution \u2014 files dominated by a single author are "knowledge silos" (bus factor risk), while evenly distributed files have shared understanding. The Gini coefficient (0=perfectly equal, 1=one person owns everything) summarizes overall balance.',
+      [
+        { color: '#22c55e', label: 'Shared \u2014 multiple contributors, low bus-factor risk' },
+        { color: '#f59e0b', label: 'Concentrated \u2014 one author >70%, knowledge silo risk' },
+        { color: '#ef4444', label: 'Sole owner \u2014 single author >90%, critical bus-factor' }
+      ]
+    ));
 
     // Collect all unique authors for legend
     var authorSet = [];
@@ -1109,7 +1202,8 @@ fn build_js() -> String {
       card.append(legend);
     }
 
-    return card;
+    container.append(card);
+    return container;
   }
 
   /* ---- Age tab ---- */
@@ -1123,6 +1217,18 @@ fn build_js() -> String {
       d.append(txt('No file age data available.'));
       return d;
     }
+
+    var container = el('div');
+    container.append(buildTabInfo(
+      'Code Age \u2014 Freshness of the codebase',
+      'Each file\u2019s age is the number of days since its last modification (based on the most recent commit that touched it). Old, untouched files may indicate stable, battle-tested code \u2014 or forgotten, potentially brittle code that nobody dares change. Cross-reference with ownership and complexity to distinguish the two.',
+      [
+        { color: '#10b981', label: 'Fresh (<90 days) \u2014 actively maintained' },
+        { color: '#eab308', label: '3\u20136 months \u2014 aging, review periodically' },
+        { color: '#f59e0b', label: '6\u201312 months \u2014 stale, check if still relevant' },
+        { color: '#ef4444', label: '>1 year \u2014 potentially abandoned' }
+      ]
+    ));
 
     function ageBand(days) {
       if (days > 365) return { color: '#ef4444', label: '> 1y' };
@@ -1175,11 +1281,18 @@ fn build_js() -> String {
     table.append(tbody);
     tableWrap.append(table);
     card.append(tableWrap);
-    return card;
+    container.append(card);
+    return container;
   }
 
   /* ---- Overview tab ---- */
   function buildOverviewTab() {
+    var wrapper = el('div');
+    wrapper.append(buildTabInfo(
+      'Overview \u2014 Repository health at a glance',
+      'The overall score (0\u2013100) is a weighted average of four categories: Health (30%), Team (30%), Evolution (20%), and Git Hygiene (20%). Each category aggregates several metrics scored individually. The radar chart shows balance across categories \u2014 a lopsided shape reveals areas needing attention. Recommendations below target the lowest-scoring metrics.',
+      defaultScoreHints
+    ));
     var div = el('div', { className: 'overview-grid' });
 
     // Left column
@@ -1216,7 +1329,8 @@ fn build_js() -> String {
     if (remoteMeta) right.append(remoteMeta);
 
     div.append(left, right);
-    return div;
+    wrapper.append(div);
+    return wrapper;
   }
 
   /* ---- Treemap tab ---- */
@@ -1548,6 +1662,15 @@ fn build_js() -> String {
     var selectedPath = null;
 
     var container = el('div');
+    container.append(buildTabInfo(
+      'Treemap \u2014 Spatial view of the codebase',
+      'Each rectangle (or circle) represents a file \u2014 size is proportional to lines of code, color reflects the selected metric. Directories are nested containers you can click to drill into. Use the dropdown to switch between hotspot score, complexity, churn, file age, or top contributor coloring. This view helps you spot large, problematic files at a glance.',
+      [
+        { color: '#22c55e', label: 'Green \u2014 low metric value (good)' },
+        { color: '#f59e0b', label: 'Yellow \u2014 moderate (watch)' },
+        { color: '#ef4444', label: 'Red \u2014 high metric value (act)' }
+      ]
+    ));
 
     // Controls
     var controls = el('div', { className: 'tm-controls' });
@@ -2390,6 +2513,32 @@ mod tests {
         assert!(
             html.contains("tm-layout-toggle"),
             "Should contain layout toggle control"
+        );
+    }
+
+    #[test]
+    fn html_tabs_have_info_banners() {
+        let html = render(&make_treemap_report()).unwrap();
+        assert!(
+            html.contains("tab-info"),
+            "Should contain tab info banner CSS class"
+        );
+        // Each tab should have a description explaining the metric
+        assert!(
+            html.contains("Hotspot Score"),
+            "Hotspots tab should explain hotspot scoring"
+        );
+        assert!(
+            html.contains("temporal coupling"),
+            "Coupling tab should explain temporal coupling"
+        );
+        assert!(
+            html.contains("knowledge distribution"),
+            "Ownership tab should explain knowledge distribution"
+        );
+        assert!(
+            html.contains("days since"),
+            "Age tab should explain file age measurement"
         );
     }
 }
