@@ -136,7 +136,9 @@ fn run_analyze(mut args: AnalyzeArgs) -> Result<()> {
             eprintln!("Report written to {}", path.display());
         }
     } else if args.html {
-        let path = local_path.join("barad-dur-report.html");
+        let dir = local_path.join(cache::CACHE_DIR);
+        std::fs::create_dir_all(&dir)?;
+        let path = dir.join("report.html");
         std::fs::write(&path, &output)?;
         eprintln!("Report written to {}", path.display());
     } else {

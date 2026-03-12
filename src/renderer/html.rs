@@ -371,6 +371,62 @@ svg.radar { display: block; margin: 0 auto; }
   border-radius: 3px;
   flex-shrink: 0;
 }
+.tm-wrap {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  background: #080a0f;
+}
+.tm-detail {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 280px;
+  height: 100%;
+  background: #0d1117;
+  border-left: 1px solid #1e293b;
+  padding: 16px;
+  font-size: 12px;
+  overflow-y: auto;
+  transform: translateX(100%);
+  transition: transform 0.25s ease;
+  z-index: 10;
+}
+.tm-detail.open { transform: translateX(0); }
+.tm-detail-title {
+  font-family: monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: #93c5fd;
+  word-break: break-all;
+  margin-bottom: 12px;
+}
+.tm-detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 0;
+  border-bottom: 1px solid #0f172a;
+  color: #cbd5e1;
+}
+.tm-detail-row span:last-child { font-weight: 600; font-family: monospace; }
+.tm-detail-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  background: none;
+  border: none;
+  color: #64748b;
+  font-size: 16px;
+  cursor: pointer;
+}
+.tm-detail-close:hover { color: #e2e8f0; }
+.tm-hint {
+  color: #475569;
+  font-size: 11px;
+  padding: 4px 0;
+  text-align: center;
+}
 "#;
 
 fn build_js() -> String {
@@ -1382,9 +1438,11 @@ fn build_js() -> String {
     var tree = buildFileTree(files);
     var currentRoot = tree;
     var navStack = [];
+    var selectedPath = null;
 
     var container = el('div');
 
+    // Controls
     var controls = el('div', { className: 'tm-controls' });
     var selectLabel = el('span', { className: 'label' });
     selectLabel.append(txt('Color by'));
@@ -1405,13 +1463,38 @@ fn build_js() -> String {
       container.append(note);
     }
 
+    // SVG + detail panel wrapper
     var svgW = 960, svgH = 600;
-    var svg = svgEl('svg', { id: 'tm-svg', viewBox: '0 0 ' + svgW + ' ' + svgH, width: '100%', style: 'display:block;background:#080a0f;border:1px solid #1e293b;border-radius:8px;' });
-    container.append(svg);
+    var tmWrap = el('div', { className: 'tm-wrap', style: { height: svgH + 'px' } });
+    var svg = svgEl('svg', { id: 'tm-svg', viewBox: '0 0 ' + svgW + ' ' + svgH, width: '100%', height: '100%', preserveAspectRatio: 'xMidYMid meet', style: 'display:block;' });
+    tmWrap.append(svg);
 
+    // Detail panel (slides in from right on file click)
+    var detail = el('div', { className: 'tm-detail' });
+    var detailClose = el('button', { className: 'tm-detail-close' });
+    detailClose.append(txt('\u00d7'));
+    detail.append(detailClose);
+    var detailBody = el('div');
+    detail.append(detailBody);
+    tmWrap.append(detail);
+    container.append(tmWrap);
+
+    detailClose.addEventListener('click', function() {
+      detail.classList.remove('open');
+      selectedPath = null;
+      clearHighlight();
+    });
+
+    // Tooltip
     var tooltip = el('div', { className: 'tm-tooltip' });
     container.append(tooltip);
 
+    // Hint
+    var hint = el('div', { className: 'tm-hint' });
+    hint.append(txt('Click a directory to zoom in \u00b7 Click a file for details \u00b7 Use breadcrumbs to navigate back'));
+    container.append(hint);
+
+    // Legend
     var legendDiv = el('div', { className: 'tm-legend' });
     container.append(legendDiv);
 
@@ -1429,9 +1512,9 @@ fn build_js() -> String {
       items.forEach(function(it) {
         var item = el('div', { className: 'tm-legend-item' });
         var swatch = el('div', { className: 'tm-legend-swatch', style: { background: it.color } });
-        var label = el('span');
-        label.append(txt(it.label));
-        item.append(swatch, label);
+        var lbl = el('span');
+        lbl.append(txt(it.label));
+        item.append(swatch, lbl);
         legendDiv.append(item);
       });
     }
@@ -1439,16 +1522,16 @@ fn build_js() -> String {
     function updateBreadcrumb() {
       breadcrumb.replaceChildren();
       var rootCrumb = el('span');
-      rootCrumb.append(txt('/'));
+      rootCrumb.append(txt('\ud83d\udcc1 /'));
       rootCrumb.addEventListener('click', function() {
         currentRoot = tree;
         navStack = [];
-        renderTreemap();
+        animateTransition();
       });
       breadcrumb.append(rootCrumb);
       navStack.forEach(function(entry, i) {
         var sep = el('span', { className: 'tm-sep' });
-        sep.append(txt('/'));
+        sep.append(txt('\u203a'));
         breadcrumb.append(sep);
         var crumb = el('span');
         crumb.append(txt(entry.name));
@@ -1456,37 +1539,133 @@ fn build_js() -> String {
           return function() {
             currentRoot = navStack[idx].node;
             navStack = navStack.slice(0, idx + 1);
-            renderTreemap();
+            animateTransition();
           };
         })(i));
         breadcrumb.append(crumb);
       });
     }
 
+    // Animated transition: fade out, re-layout, fade in
+    function animateTransition() {
+      svg.style.opacity = '0.3';
+      svg.style.transition = 'opacity 0.15s ease';
+      setTimeout(function() {
+        renderTreemap();
+        svg.style.opacity = '1';
+      }, 150);
+    }
+
+    function clearHighlight() {
+      svg.querySelectorAll('.tm-file').forEach(function(r) {
+        r.setAttribute('stroke', 'none');
+        r.setAttribute('stroke-width', '0');
+      });
+    }
+
+    function highlightFile(path) {
+      clearHighlight();
+      svg.querySelectorAll('.tm-file').forEach(function(r) {
+        if (r.getAttribute('data-path') === path) {
+          r.setAttribute('stroke', '#f59e0b');
+          r.setAttribute('stroke-width', '2');
+        }
+      });
+    }
+
+    function showDetail(f) {
+      selectedPath = f.path;
+      highlightFile(f.path);
+      detailBody.replaceChildren();
+      var title = el('div', { className: 'tm-detail-title' });
+      title.append(txt(f.path));
+      detailBody.append(title);
+
+      function row(label, value) {
+        var r = el('div', { className: 'tm-detail-row' });
+        var l = el('span');
+        l.append(txt(label));
+        var v = el('span');
+        v.append(txt(String(value)));
+        r.append(l, v);
+        detailBody.append(r);
+      }
+
+      row('Lines of code', f.loc);
+      row('Cyclomatic complexity', f.cyclomatic_complexity);
+      row('Churn count', f.churn_count);
+      row('Hotspot score', f.hotspot_score.toFixed(1));
+      row('Public methods', f.public_methods);
+      row('Properties', f.properties);
+
+      var age = ageMap[f.path];
+      if (age) {
+        row('Days since modified', age.days_since_modified);
+        if (age.last_modified) {
+          row('Last modified', String(age.last_modified).slice(0, 10));
+        }
+      }
+
+      var own = ownerMap[f.path];
+      if (own && own.authors) {
+        var ownerTitle = el('div', { style: { marginTop: '12px', marginBottom: '6px', color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em' } });
+        ownerTitle.append(txt('Ownership'));
+        detailBody.append(ownerTitle);
+        own.authors.slice(0, 5).forEach(function(a) {
+          var idx = authorIndex[a.name] != null ? authorIndex[a.name] % PALETTE.length : 0;
+          var r = el('div', { className: 'tm-detail-row' });
+          var nameWrap = el('span', { style: { display: 'flex', alignItems: 'center', gap: '6px' } });
+          var dot = el('span', { style: { display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: PALETTE[idx], flexShrink: '0' } });
+          var nameTxt = el('span');
+          nameTxt.append(txt(a.name));
+          nameWrap.append(dot, nameTxt);
+          var v = el('span');
+          v.append(txt(a.pct.toFixed(0) + '%'));
+          r.append(nameWrap, v);
+          detailBody.append(r);
+        });
+      }
+
+      detail.classList.add('open');
+    }
+
     function renderTreeNode(svgNode, node, x, y, w, h, depth) {
       if (w < 1 || h < 1) return;
-      var headerH = depth > 0 ? 16 : 0;
-      var innerY = y + headerH;
-      var innerH = h - headerH;
-      if (innerH < 1) return;
+      var pad = 2;
+      var headerH = depth > 0 ? 18 : 0;
+      var innerX = x + pad;
+      var innerY = y + headerH + pad;
+      var innerW = w - pad * 2;
+      var innerH = h - headerH - pad * 2;
+      if (innerW < 1 || innerH < 1) return;
 
       if (depth > 0) {
-        svgNode.append(svgEl('rect', {
+        // Directory background — clickable
+        var dirBg = svgEl('rect', {
           x: String(x), y: String(y), width: String(w), height: String(h),
           fill: '#0d1117', stroke: '#1e293b', 'stroke-width': '1',
-          class: 'tm-dir-bg', 'data-dir': node.name
-        }));
+          rx: '3',
+          class: 'tm-dir-bg', 'data-dir': node.name,
+          style: 'cursor:pointer;'
+        });
+        svgNode.append(dirBg);
+        // Directory label — also clickable
         if (w > 40) {
           var label = svgEl('text', {
-            x: String(x + 4), y: String(y + 12),
-            fill: '#64748b', 'font-size': '10', 'font-family': 'monospace',
-            class: 'tm-dir-label'
+            x: String(x + 6), y: String(y + 13),
+            fill: '#94a3b8', 'font-size': '10', 'font-weight': '600', 'font-family': 'monospace',
+            class: 'tm-dir-label', 'data-dir': node.name,
+            style: 'cursor:pointer;pointer-events:auto;'
           });
-          label.append(txt(node.name));
+          var maxLabelChars = Math.floor((w - 12) / 6);
+          var dirLabel = node.name;
+          if (dirLabel.length > maxLabelChars) dirLabel = dirLabel.slice(0, maxLabelChars - 1) + '\u2026';
+          label.append(txt(dirLabel));
           svgNode.append(label);
         }
       }
 
+      // Collect children
       var items = [];
       var dirKeys = Object.keys(node.children);
       dirKeys.forEach(function(k) {
@@ -1502,33 +1681,49 @@ fn build_js() -> String {
       });
 
       if (items.length === 0) return;
-      var rects = squarify(items, x, innerY, w, innerH);
+      var rects = squarify(items, innerX, innerY, innerW, innerH);
 
       rects.forEach(function(r) {
         if (r.data.type === 'file') {
           var fData = fileMap[r.data.file.path];
           var color = fData ? colorForFile(fData) : '#334155';
+          var gap = 1;
+          var rw = Math.max(0, r.w - gap);
+          var rh = Math.max(0, r.h - gap);
+          if (rw < 1 || rh < 1) return;
           var rect = svgEl('rect', {
             x: String(r.x), y: String(r.y),
-            width: String(Math.max(0, r.w - 1)), height: String(Math.max(0, r.h - 1)),
+            width: String(rw), height: String(rh),
             fill: color, class: 'tm-file', 'data-path': r.data.file.path,
-            rx: '2', opacity: '0.9'
+            rx: '2',
+            style: 'cursor:pointer;transition:opacity 0.15s;'
           });
-          var titleEl = svgEl('title');
-          titleEl.append(txt(r.data.file.path + ' (' + r.data.file.loc + ' LOC)'));
-          rect.append(titleEl);
+          rect.addEventListener('mouseenter', function() { rect.setAttribute('opacity', '1'); });
+          rect.addEventListener('mouseleave', function() { rect.setAttribute('opacity', '0.88'); });
+          rect.setAttribute('opacity', '0.88');
           svgNode.append(rect);
-          if (r.w > 40 && r.h > 14) {
+          // File name label
+          if (rw > 36 && rh > 14) {
             var textEl = svgEl('text', {
               x: String(r.x + 3), y: String(r.y + 12),
               fill: '#e2e8f0', 'font-size': '9', 'font-family': 'monospace',
-              'pointer-events': 'none', opacity: '0.8'
+              'pointer-events': 'none', opacity: '0.85'
             });
-            var maxChars = Math.floor((r.w - 6) / 5.5);
+            var maxChars = Math.floor((rw - 6) / 5.5);
             var lbl = r.data.file.name;
             if (lbl.length > maxChars) lbl = lbl.slice(0, maxChars - 1) + '\u2026';
             textEl.append(txt(lbl));
             svgNode.append(textEl);
+          }
+          // LOC label on larger rects
+          if (rw > 50 && rh > 26) {
+            var locEl = svgEl('text', {
+              x: String(r.x + 3), y: String(r.y + 23),
+              fill: '#94a3b8', 'font-size': '8', 'font-family': 'monospace',
+              'pointer-events': 'none', opacity: '0.7'
+            });
+            locEl.append(txt(r.data.file.loc + ' loc'));
+            svgNode.append(locEl);
           }
         } else {
           renderTreeNode(svgNode, r.data.node, r.x, r.y, r.w, r.h, depth + 1);
@@ -1541,22 +1736,30 @@ fn build_js() -> String {
       renderTreeNode(svg, currentRoot, 0, 0, svgW, svgH, 0);
       updateBreadcrumb();
       updateLegend();
+      // Restore highlight if detail panel is open
+      if (selectedPath) highlightFile(selectedPath);
     }
 
+    // Metric change — recolor without re-layout
     select.addEventListener('change', function() {
-      var allFiles = svg.querySelectorAll('.tm-file');
-      allFiles.forEach(function(rect) {
+      svg.querySelectorAll('.tm-file').forEach(function(rect) {
         var path = rect.getAttribute('data-path');
         var f = fileMap[path];
         if (f) rect.setAttribute('fill', colorForFile(f));
       });
       updateLegend();
+      // Update detail panel color context
+      if (selectedPath && fileMap[selectedPath]) showDetail(fileMap[selectedPath]);
     });
 
+    // Click: directory = zoom in, file = show detail, label = zoom in
     svg.addEventListener('click', function(e) {
       var target = e.target;
-      if (target.classList && target.classList.contains('tm-dir-bg')) {
-        var dirName = target.getAttribute('data-dir');
+      var dirName = target.getAttribute('data-dir');
+      var filePath = target.getAttribute('data-path');
+
+      if (dirName) {
+        // Clicked a directory bg or label — drill down
         function findDir(node, name) {
           var keys = Object.keys(node.children);
           for (var i = 0; i < keys.length; i++) {
@@ -1570,11 +1773,16 @@ fn build_js() -> String {
         if (dirNode) {
           navStack.push({ name: dirNode.name, node: dirNode });
           currentRoot = dirNode;
-          renderTreemap();
+          animateTransition();
         }
+      } else if (filePath) {
+        // Clicked a file — show detail panel
+        var f = fileMap[filePath];
+        if (f) showDetail(f);
       }
     });
 
+    // Hover tooltip
     svg.addEventListener('mousemove', function(e) {
       var target = e.target;
       if (target.classList && target.classList.contains('tm-file')) {
@@ -1582,19 +1790,21 @@ fn build_js() -> String {
         var f = fileMap[path];
         if (f) {
           tooltip.replaceChildren();
-          tooltip.append(el('div', { style: { fontWeight: '600', marginBottom: '4px' } }, f.path));
-          tooltip.append(el('div', null, 'LOC: ' + f.loc + '  CC: ' + f.cyclomatic_complexity));
-          tooltip.append(el('div', null, 'Churn: ' + f.churn_count + '  Score: ' + f.hotspot_score.toFixed(1)));
-          var age = ageMap[f.path];
-          if (age) tooltip.append(el('div', null, 'Age: ' + age.days_since_modified + ' days'));
-          var own = ownerMap[f.path];
-          if (own && own.authors && own.authors[0]) {
-            tooltip.append(el('div', null, 'Owner: ' + own.authors[0].name + ' (' + own.authors[0].pct.toFixed(0) + '%)'));
-          }
+          tooltip.append(el('div', { style: { fontWeight: '600', marginBottom: '4px', color: '#93c5fd' } }, f.path));
+          tooltip.append(el('div', null, 'LOC: ' + f.loc + '  CC: ' + f.cyclomatic_complexity + '  Churn: ' + f.churn_count));
+          tooltip.append(el('div', null, 'Hotspot: ' + f.hotspot_score.toFixed(1)));
           tooltip.style.display = 'block';
-          tooltip.style.left = (e.clientX + 12) + 'px';
-          tooltip.style.top = (e.clientY + 12) + 'px';
+          tooltip.style.left = (e.clientX + 14) + 'px';
+          tooltip.style.top = (e.clientY + 14) + 'px';
         }
+      } else if (target.getAttribute('data-dir')) {
+        var dn = target.getAttribute('data-dir');
+        tooltip.replaceChildren();
+        tooltip.append(el('div', { style: { fontWeight: '600', color: '#94a3b8' } }, '\ud83d\udcc1 ' + dn));
+        tooltip.append(el('div', null, 'Click to zoom in'));
+        tooltip.style.display = 'block';
+        tooltip.style.left = (e.clientX + 14) + 'px';
+        tooltip.style.top = (e.clientY + 14) + 'px';
       } else {
         tooltip.style.display = 'none';
       }
@@ -1928,6 +2138,21 @@ mod tests {
         assert!(
             html.contains("tm-breadcrumb"),
             "Should contain tm-breadcrumb navigation"
+        );
+    }
+
+    #[test]
+    fn html_treemap_has_detail_panel() {
+        let html = render(&make_treemap_report()).unwrap();
+        assert!(html.contains("tm-detail"), "Should contain tm-detail panel");
+    }
+
+    #[test]
+    fn html_treemap_has_animated_transition() {
+        let html = render(&make_treemap_report()).unwrap();
+        assert!(
+            html.contains("animateTransition"),
+            "Should contain animated transition function"
         );
     }
 }
