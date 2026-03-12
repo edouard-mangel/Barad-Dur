@@ -1,0 +1,15 @@
+#!/bin/sh
+# Pre-push hook: mirrors CI lint/format checks (fmt-check + clippy jobs)
+
+set -e
+
+echo "pre-push: running cargo fmt --check..."
+cargo fmt -- --check
+
+echo "pre-push: running cargo clippy..."
+cargo clippy --all-targets -- -D warnings
+
+echo "pre-push: all checks passed."
+
+echo "pre-push: installing latest binary..."
+cargo install --path . --quiet || echo "pre-push: warning: install failed (non-blocking)"

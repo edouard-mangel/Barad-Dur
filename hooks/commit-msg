@@ -1,0 +1,31 @@
+#!/bin/sh
+# commit-msg hook: enforce Conventional Commits format
+# https://www.conventionalcommits.org/
+#
+# Valid types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
+# Format:  type[(scope)][!]: description
+# Example: feat(treemap): add circle packing layout
+# Example: fix!: correct cache invalidation (BREAKING CHANGE)
+
+MSG_FILE="$1"
+MSG=$(head -1 "$MSG_FILE")
+
+# Allow merge commits and revert commits
+if echo "$MSG" | grep -qE "^Merge |^Revert "; then
+  exit 0
+fi
+
+# Conventional commit pattern: type[(scope)][!]: description
+PATTERN="^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9_-]+\))?\!?: .+"
+
+if ! echo "$MSG" | grep -qE "$PATTERN"; then
+  echo "commit-msg: ERROR — commit message does not follow Conventional Commits format."
+  echo ""
+  echo "  Expected: <type>[(scope)][!]: <description>"
+  echo ""
+  echo "  Types: feat fix docs style refactor perf test build ci chore revert"
+  echo "  Breaking: add ! before colon, e.g. feat!: remove old API"
+  echo ""
+  echo "  Your message: $MSG"
+  exit 1
+fi

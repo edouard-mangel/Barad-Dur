@@ -14,7 +14,7 @@ OUTPUT      ?= dashboard/report.json
 OUTPUT_HTML ?= report.html
 BROWSER     ?= xdg-open
 
-.PHONY: analyze dashboard report html-report build install
+.PHONY: analyze dashboard report html-report build install setup version-bump
 
 analyze:
 	cargo run --release -- analyze $(TARGET) --json > $(OUTPUT)
@@ -38,3 +38,10 @@ build:
 
 install:
 	cargo install --path .
+
+setup:
+	git config core.hooksPath hooks
+	@echo "Git hooks configured (commit-msg + pre-push)."
+
+version-bump:
+	./scripts/version-bump.sh
