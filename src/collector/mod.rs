@@ -200,7 +200,10 @@ impl Collector {
         let t = Instant::now();
         let blame_map = if skip_blame {
             if show_progress {
-                eprintln!("  Skipping blame ({} files) — use without --skip-blame for full analysis", non_binary);
+                eprintln!(
+                    "  Skipping blame ({} files) — use without --skip-blame for full analysis",
+                    non_binary
+                );
             }
             HashMap::new()
         } else {
