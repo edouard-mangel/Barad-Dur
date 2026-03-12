@@ -118,10 +118,7 @@ impl Collector {
 
     /// Build a complete RepoSnapshot, optionally showing progress indicators.
     /// If `verbose` is true, phase timings are printed to stderr.
-    pub fn collect_snapshot_with_progress(
-        &self,
-        show_progress: bool,
-    ) -> Result<RepoSnapshot> {
+    pub fn collect_snapshot_with_progress(&self, show_progress: bool) -> Result<RepoSnapshot> {
         self.collect_snapshot_inner(show_progress, false)
     }
 
@@ -134,11 +131,7 @@ impl Collector {
         self.collect_snapshot_inner(show_progress, verbose)
     }
 
-    fn collect_snapshot_inner(
-        &self,
-        show_progress: bool,
-        verbose: bool,
-    ) -> Result<RepoSnapshot> {
+    fn collect_snapshot_inner(&self, show_progress: bool, verbose: bool) -> Result<RepoSnapshot> {
         let make_spinner = |msg: &str| -> Option<ProgressBar> {
             if !show_progress {
                 return None;
