@@ -109,7 +109,7 @@ fn collect_blame_returns_data_for_cargo_toml() {
     let collection = collector.collect_commits().unwrap();
     let files = collector.collect_files().unwrap();
     let blame_map = collector
-        .collect_blame(&files, &collection.authors)
+        .collect_blame(&files, &collection.authors, None)
         .unwrap();
 
     let cargo_blame = blame_map.get(&PathBuf::from("Cargo.toml"));
@@ -126,7 +126,7 @@ fn blame_lines_have_valid_author_ids() {
     let collection = collector.collect_commits().unwrap();
     let files = collector.collect_files().unwrap();
     let blame_map = collector
-        .collect_blame(&files, &collection.authors)
+        .collect_blame(&files, &collection.authors, None)
         .unwrap();
 
     let max_author_id = collection.authors.len();
