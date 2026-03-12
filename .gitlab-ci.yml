@@ -4,6 +4,7 @@ stages:
   - test
   - analysis
   - secret-detection
+  - deploy
   - release
 
 variables:
@@ -122,6 +123,22 @@ self-analysis:
       - barad-dur-report.json
       - barad-dur-report.html
     expire_in: 1 month
+
+# ── Deploy ───────────────────────────────────
+
+pages:
+  stage: deploy
+  needs:
+    - self-analysis
+  script:
+    - mkdir -p public
+    - cp barad-dur-report.html public/index.html
+    - cp barad-dur-report.json public/report.json
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 # ── Security ──────────────────────────────────
 

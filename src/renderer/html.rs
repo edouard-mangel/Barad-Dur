@@ -1767,7 +1767,7 @@ mod tests {
     // ---- Treemap tests ----
 
     fn make_treemap_report() -> AnalysisReport {
-        use crate::scorer::{FileAge, FileOwnership, AuthorShare, HotspotFile};
+        use crate::scorer::{AuthorShare, FileAge, FileOwnership, HotspotFile};
         use chrono::Utc;
 
         let mut report = make_report();
@@ -1814,26 +1814,68 @@ mod tests {
             },
         ];
         report.file_ages = vec![
-            FileAge { path: "src/main.rs".into(), last_modified: Utc::now(), days_since_modified: 5 },
-            FileAge { path: "src/lib.rs".into(), last_modified: Utc::now(), days_since_modified: 30 },
-            FileAge { path: "tests/test_a.rs".into(), last_modified: Utc::now(), days_since_modified: 90 },
-            FileAge { path: "tests/test_b.rs".into(), last_modified: Utc::now(), days_since_modified: 200 },
+            FileAge {
+                path: "src/main.rs".into(),
+                last_modified: Utc::now(),
+                days_since_modified: 5,
+            },
+            FileAge {
+                path: "src/lib.rs".into(),
+                last_modified: Utc::now(),
+                days_since_modified: 30,
+            },
+            FileAge {
+                path: "tests/test_a.rs".into(),
+                last_modified: Utc::now(),
+                days_since_modified: 90,
+            },
+            FileAge {
+                path: "tests/test_b.rs".into(),
+                last_modified: Utc::now(),
+                days_since_modified: 200,
+            },
         ];
         report.author_ownership = vec![
-            FileOwnership { path: "src/main.rs".into(), authors: vec![
-                AuthorShare { name: "Alice".into(), pct: 70.0 },
-                AuthorShare { name: "Bob".into(), pct: 30.0 },
-            ]},
-            FileOwnership { path: "src/lib.rs".into(), authors: vec![
-                AuthorShare { name: "Bob".into(), pct: 60.0 },
-                AuthorShare { name: "Alice".into(), pct: 40.0 },
-            ]},
-            FileOwnership { path: "tests/test_a.rs".into(), authors: vec![
-                AuthorShare { name: "Alice".into(), pct: 100.0 },
-            ]},
-            FileOwnership { path: "tests/test_b.rs".into(), authors: vec![
-                AuthorShare { name: "Bob".into(), pct: 100.0 },
-            ]},
+            FileOwnership {
+                path: "src/main.rs".into(),
+                authors: vec![
+                    AuthorShare {
+                        name: "Alice".into(),
+                        pct: 70.0,
+                    },
+                    AuthorShare {
+                        name: "Bob".into(),
+                        pct: 30.0,
+                    },
+                ],
+            },
+            FileOwnership {
+                path: "src/lib.rs".into(),
+                authors: vec![
+                    AuthorShare {
+                        name: "Bob".into(),
+                        pct: 60.0,
+                    },
+                    AuthorShare {
+                        name: "Alice".into(),
+                        pct: 40.0,
+                    },
+                ],
+            },
+            FileOwnership {
+                path: "tests/test_a.rs".into(),
+                authors: vec![AuthorShare {
+                    name: "Alice".into(),
+                    pct: 100.0,
+                }],
+            },
+            FileOwnership {
+                path: "tests/test_b.rs".into(),
+                authors: vec![AuthorShare {
+                    name: "Bob".into(),
+                    pct: 100.0,
+                }],
+            },
         ];
         report
     }
@@ -1847,30 +1889,45 @@ mod tests {
     #[test]
     fn html_treemap_has_svg() {
         let html = render(&make_treemap_report()).unwrap();
-        assert!(html.contains("tm-svg"), "Should contain tm-svg container id");
+        assert!(
+            html.contains("tm-svg"),
+            "Should contain tm-svg container id"
+        );
     }
 
     #[test]
     fn html_treemap_has_metric_select() {
         let html = render(&make_treemap_report()).unwrap();
-        assert!(html.contains("tm-metric-select"), "Should contain tm-metric-select dropdown id");
+        assert!(
+            html.contains("tm-metric-select"),
+            "Should contain tm-metric-select dropdown id"
+        );
     }
 
     #[test]
     fn html_treemap_has_squarify() {
         let html = render(&make_treemap_report()).unwrap();
-        assert!(html.contains("squarify"), "Should contain squarify layout function");
+        assert!(
+            html.contains("squarify"),
+            "Should contain squarify layout function"
+        );
     }
 
     #[test]
     fn html_treemap_has_color_scales() {
         let html = render(&make_treemap_report()).unwrap();
-        assert!(html.contains("metricScales"), "Should contain metricScales color scale object");
+        assert!(
+            html.contains("metricScales"),
+            "Should contain metricScales color scale object"
+        );
     }
 
     #[test]
     fn html_treemap_has_breadcrumb() {
         let html = render(&make_treemap_report()).unwrap();
-        assert!(html.contains("tm-breadcrumb"), "Should contain tm-breadcrumb navigation");
+        assert!(
+            html.contains("tm-breadcrumb"),
+            "Should contain tm-breadcrumb navigation"
+        );
     }
 }
