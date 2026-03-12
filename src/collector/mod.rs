@@ -134,21 +134,26 @@ impl Collector {
     }
 
     /// Build a complete RepoSnapshot, optionally showing progress indicators.
-    /// If `verbose` is true, phase timings are printed to stderr.
     pub fn collect_snapshot_with_progress(&self, show_progress: bool) -> Result<RepoSnapshot> {
-        self.collect_snapshot_inner(show_progress, false)
+        self.collect_snapshot_inner(show_progress, false, false)
     }
 
-    /// Build a complete RepoSnapshot with optional progress and verbose timing.
+    /// Build a complete RepoSnapshot with full control over display and phases.
     pub fn collect_snapshot_verbose(
         &self,
         show_progress: bool,
         verbose: bool,
+        skip_blame: bool,
     ) -> Result<RepoSnapshot> {
-        self.collect_snapshot_inner(show_progress, verbose)
+        self.collect_snapshot_inner(show_progress, verbose, skip_blame)
     }
 
-    fn collect_snapshot_inner(&self, show_progress: bool, verbose: bool) -> Result<RepoSnapshot> {
+    fn collect_snapshot_inner(
+        &self,
+        show_progress: bool,
+        verbose: bool,
+        skip_blame: bool,
+    ) -> Result<RepoSnapshot> {
         let make_spinner = |msg: &str| -> Option<ProgressBar> {
             if !show_progress {
                 return None;
@@ -190,27 +195,35 @@ impl Collector {
             s.finish_and_clear();
         }
 
-        // Phase 3: blame (slow — real progress bar)
+        // Phase 3: blame (slow — real progress bar, skippable)
         let non_binary: u64 = files.iter().filter(|f| !f.is_binary).count() as u64;
-        let blame_bar = if show_progress {
-            let pb = ProgressBar::new(non_binary);
-            pb.set_style(bar_style.clone());
-            pb.set_message("Blaming files");
-            pb.enable_steady_tick(std::time::Duration::from_millis(80));
-            Some(pb)
-        } else {
-            None
-        };
         let t = Instant::now();
-        let blame_progress: &dyn Progress = match &blame_bar {
-            Some(pb) => pb,
-            None => &NoProgress,
+        let blame_map = if skip_blame {
+            if show_progress {
+                eprintln!("  Skipping blame ({} files) — use without --skip-blame for full analysis", non_binary);
+            }
+            HashMap::new()
+        } else {
+            let blame_bar = if show_progress {
+                let pb = ProgressBar::new(non_binary);
+                pb.set_style(bar_style.clone());
+                pb.set_message("Blaming files");
+                pb.enable_steady_tick(std::time::Duration::from_millis(80));
+                Some(pb)
+            } else {
+                None
+            };
+            let blame_progress: &dyn Progress = match &blame_bar {
+                Some(pb) => pb,
+                None => &NoProgress,
+            };
+            let result = self.collect_blame(&files, &collection.authors, blame_progress)?;
+            if let Some(pb) = blame_bar {
+                pb.finish_and_clear();
+            }
+            result
         };
-        let blame_map = self.collect_blame(&files, &collection.authors, blame_progress)?;
         let blame_ms = t.elapsed().as_millis();
-        if let Some(pb) = blame_bar {
-            pb.finish_and_clear();
-        }
 
         // Phase 4: complexity (can be slow on large repos — progress bar)
         let complexity_bar = if show_progress {

@@ -148,6 +148,14 @@ pub struct AnalyzeArgs {
     #[arg(short, long, action = clap::ArgAction::Count, help_heading = "Output Format")]
     pub verbose: u8,
 
+    /// Skip git blame (the slowest phase) for a faster partial analysis
+    ///
+    /// Blame-dependent metrics (bus factor, knowledge distribution, ownership,
+    /// collaboration patterns, code age) will show default scores.
+    /// Run again without this flag to get the full report.
+    #[arg(long, help_heading = "Performance")]
+    pub skip_blame: bool,
+
     /// Skip cache and force full re-collection from git
     #[arg(long, help_heading = "Cache")]
     pub no_cache: bool,
@@ -298,6 +306,12 @@ mod tests {
         let args = parse(&["barad-dur", "analyze", ".", "--open", "-o", "report.html"]);
         assert!(args.open);
         assert_eq!(args.output, Some(PathBuf::from("report.html")));
+    }
+
+    #[test]
+    fn skip_blame_flag() {
+        let args = parse(&["barad-dur", "analyze", ".", "--skip-blame"]);
+        assert!(args.skip_blame);
     }
 
     #[test]

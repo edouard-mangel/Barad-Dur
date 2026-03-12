@@ -79,7 +79,7 @@ fn run_analyze(mut args: AnalyzeArgs) -> Result<()> {
     // Cache logic
     let current_head = collector.head_commit_hash()?;
     let snapshot = if args.no_cache {
-        collect_and_cache(&collector, show_progress, args.verbose > 0)?
+        collect_and_cache(&collector, show_progress, args.verbose > 0, args.skip_blame)?
     } else if let Some(cached) = cache::load(collector.repo_path())? {
         if !cache::is_stale(&cached, &current_head) {
             if args.verbose > 0 {
@@ -90,12 +90,12 @@ fn run_analyze(mut args: AnalyzeArgs) -> Result<()> {
             if args.verbose > 0 {
                 eprintln!("Cache stale, re-collecting...");
             }
-            collect_and_cache(&collector, show_progress, args.verbose > 0)?
+            collect_and_cache(&collector, show_progress, args.verbose > 0, args.skip_blame)?
         }
     } else if args.cache_only {
         bail!("No cache found. Run without --cache-only first.");
     } else {
-        collect_and_cache(&collector, show_progress, args.verbose > 0)?
+        collect_and_cache(&collector, show_progress, args.verbose > 0, args.skip_blame)?
     };
 
     // Check for empty data
@@ -263,8 +263,9 @@ fn collect_and_cache(
     collector: &Collector,
     show_progress: bool,
     verbose: bool,
+    skip_blame: bool,
 ) -> Result<RepoSnapshot> {
-    let snapshot = collector.collect_snapshot_verbose(show_progress, verbose)?;
+    let snapshot = collector.collect_snapshot_verbose(show_progress, verbose, skip_blame)?;
     if let Err(e) = cache::save(&snapshot, collector.repo_path()) {
         eprintln!("Warning: Failed to save cache: {}", e);
     }
