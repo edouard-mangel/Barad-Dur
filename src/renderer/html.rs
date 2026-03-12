@@ -305,6 +305,72 @@ svg.radar { display: block; margin: 0 auto; }
 @media (max-width: 900px) {
   .hotspot-wrap { grid-template-columns: 1fr; }
 }
+.tm-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  flex-wrap: wrap;
+}
+.tm-select {
+  background: #0d1117;
+  color: #e2e8f0;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.tm-select:focus { outline: 1px solid #f59e0b; }
+.tm-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+.tm-breadcrumb span {
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.tm-breadcrumb span:hover { background: #1e293b; color: #e2e8f0; }
+.tm-breadcrumb .tm-sep { cursor: default; color: #334155; }
+.tm-breadcrumb .tm-sep:hover { background: none; color: #334155; }
+.tm-tooltip {
+  position: fixed;
+  background: #0d1117;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: #e2e8f0;
+  pointer-events: none;
+  z-index: 1000;
+  display: none;
+  max-width: 320px;
+  line-height: 1.6;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+.tm-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 10px 0;
+  font-size: 11px;
+  color: #94a3b8;
+}
+.tm-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.tm-legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
 "#;
 
 fn build_js() -> String {
@@ -1078,6 +1144,470 @@ fn build_js() -> String {
     return div;
   }
 
+  /* ---- Treemap tab ---- */
+
+  function buildFileTree(files) {
+    var root = { name: '/', children: {}, files: [], totalLoc: 0 };
+    files.forEach(function(f) {
+      var parts = f.path.split('/');
+      var fname = parts.pop();
+      var node = root;
+      parts.forEach(function(p) {
+        if (!node.children[p]) {
+          node.children[p] = { name: p, children: {}, files: [], totalLoc: 0 };
+        }
+        node = node.children[p];
+      });
+      node.files.push({ name: fname, path: f.path, loc: f.loc });
+    });
+    function computeLoc(node) {
+      var sum = 0;
+      node.files.forEach(function(f) { sum += f.loc; });
+      var keys = Object.keys(node.children);
+      keys.forEach(function(k) { sum += computeLoc(node.children[k]); });
+      node.totalLoc = sum;
+      return sum;
+    }
+    computeLoc(root);
+    function squashSingle(node) {
+      var keys = Object.keys(node.children);
+      keys.forEach(function(k) { squashSingle(node.children[k]); });
+      keys = Object.keys(node.children);
+      if (keys.length === 1 && node.files.length === 0 && node.name !== '/') {
+        var child = node.children[keys[0]];
+        node.name = node.name + '/' + child.name;
+        node.children = child.children;
+        node.files = child.files;
+      }
+    }
+    squashSingle(root);
+    return root;
+  }
+
+  function squarify(items, x, y, w, h) {
+    if (items.length === 0) return [];
+    var results = [];
+    var remaining = items.slice().sort(function(a, b) { return b.size - a.size; });
+    var totalArea = w * h;
+    var totalSize = 0;
+    remaining.forEach(function(it) { totalSize += it.size; });
+    if (totalSize <= 0) return [];
+
+    function layoutRow(row, rowSize, rx, ry, rw, rh) {
+      var short = Math.min(rw, rh);
+      var rowArea = (rowSize / totalSize) * totalArea;
+      var rowLen = short > 0 ? rowArea / short : 0;
+      var offset = 0;
+      var horizontal = rw >= rh;
+      row.forEach(function(it) {
+        var frac = rowSize > 0 ? it.size / rowSize : 0;
+        var itemLen = frac * short;
+        if (horizontal) {
+          results.push({ x: rx, y: ry + offset, w: rowLen, h: itemLen, data: it.data });
+        } else {
+          results.push({ x: rx + offset, y: ry, w: itemLen, h: rowLen, data: it.data });
+        }
+        offset += itemLen;
+      });
+      if (horizontal) {
+        return { x: rx + rowLen, y: ry, w: rw - rowLen, h: rh };
+      } else {
+        return { x: rx, y: ry + rowLen, w: rw, h: rh - rowLen };
+      }
+    }
+
+    function worstRatio(row, rowSize, short) {
+      if (row.length === 0 || short <= 0) return Infinity;
+      var rowArea = (rowSize / totalSize) * totalArea;
+      var worst = 0;
+      row.forEach(function(it) {
+        var frac = it.size / rowSize;
+        var itemArea = frac * rowArea;
+        var itemLen = short > 0 ? frac * short : 0;
+        var itemWidth = itemLen > 0 ? itemArea / itemLen : 0;
+        var r = itemWidth > itemLen ? itemWidth / itemLen : itemLen / itemWidth;
+        if (r > worst) worst = r;
+      });
+      return worst;
+    }
+
+    var rx = x, ry = y, rw = w, rh = h;
+    while (remaining.length > 0) {
+      var short = Math.min(rw, rh);
+      if (short <= 0) break;
+      var row = [remaining[0]];
+      var rowSize = remaining[0].size;
+      remaining.splice(0, 1);
+      var currentWorst = worstRatio(row, rowSize, short);
+
+      while (remaining.length > 0) {
+        var next = remaining[0];
+        var newSize = rowSize + next.size;
+        var newRow = row.concat([next]);
+        var newWorst = worstRatio(newRow, newSize, short);
+        if (newWorst <= currentWorst) {
+          row = newRow;
+          rowSize = newSize;
+          currentWorst = newWorst;
+          remaining.splice(0, 1);
+        } else {
+          break;
+        }
+      }
+      var rest = layoutRow(row, rowSize, rx, ry, rw, rh);
+      rx = rest.x; ry = rest.y; rw = rest.w; rh = rest.h;
+    }
+    return results;
+  }
+
+  var metricScales = {
+    hotspot: {
+      label: 'Hotspot Score',
+      color: function(f) {
+        var s = f.hotspot_score || 0;
+        var t = Math.min(s, 100) / 100;
+        var h = (1 - t) * 120;
+        return 'hsl(' + h + ',80%,' + (35 + t * 15) + '%)';
+      },
+      legend: function() {
+        return [
+          { label: 'Low', color: 'hsl(120,80%,35%)' },
+          { label: 'Medium', color: 'hsl(60,80%,42%)' },
+          { label: 'High', color: 'hsl(0,80%,50%)' }
+        ];
+      }
+    },
+    complexity: {
+      label: 'Cyclomatic Complexity',
+      color: function(f, maxCC) {
+        var t = maxCC > 0 ? Math.min(f.cyclomatic_complexity || 0, maxCC) / maxCC : 0;
+        return 'hsl(0,70%,' + (75 - t * 40) + '%)';
+      },
+      legend: function() {
+        return [
+          { label: 'Low', color: 'hsl(0,70%,75%)' },
+          { label: 'High', color: 'hsl(0,70%,35%)' }
+        ];
+      }
+    },
+    churn: {
+      label: 'Churn Count',
+      color: function(f, _mc, maxChurn) {
+        var t = maxChurn > 0 ? Math.min(f.churn_count || 0, maxChurn) / maxChurn : 0;
+        return 'hsl(30,80%,' + (75 - t * 40) + '%)';
+      },
+      legend: function() {
+        return [
+          { label: 'Low', color: 'hsl(30,80%,75%)' },
+          { label: 'High', color: 'hsl(30,80%,35%)' }
+        ];
+      }
+    },
+    age: {
+      label: 'File Age (days)',
+      color: function(f, _mc, _mch, ageMap, maxAge) {
+        var a = ageMap[f.path];
+        var days = a ? a.days_since_modified : 0;
+        var t = maxAge > 0 ? Math.min(days, maxAge) / maxAge : 0;
+        return 'hsl(220,70%,' + (75 - t * 40) + '%)';
+      },
+      legend: function() {
+        return [
+          { label: 'Recent', color: 'hsl(220,70%,75%)' },
+          { label: 'Old', color: 'hsl(220,70%,35%)' }
+        ];
+      }
+    },
+    owner: {
+      label: 'Top Contributor',
+      color: function(f, _mc, _mch, _am, _ma, ownerMap, authorIndex) {
+        var own = ownerMap[f.path];
+        if (own && own.authors && own.authors[0]) {
+          var idx = authorIndex[own.authors[0].name];
+          return PALETTE[idx != null ? idx % PALETTE.length : 0];
+        }
+        return '#334155';
+      },
+      legend: function(authorIndex) {
+        var items = [];
+        for (var name in authorIndex) {
+          items.push({ label: name, color: PALETTE[authorIndex[name] % PALETTE.length] });
+        }
+        return items;
+      }
+    }
+  };
+
+  function buildTreemapTab() {
+    var files = (R.file_hotspots || []).filter(function(f) { return f.loc >= 5; });
+    if (files.length === 0) {
+      var d = el('div', { className: 'no-data' });
+      d.append(txt('No file data available for treemap.'));
+      return d;
+    }
+
+    var capped = false;
+    if (files.length > 2000) {
+      files = files.slice().sort(function(a, b) { return b.loc - a.loc; }).slice(0, 2000);
+      capped = true;
+    }
+
+    var fileMap = {};
+    var maxCC = 0, maxChurn = 0;
+    files.forEach(function(f) {
+      fileMap[f.path] = f;
+      if (f.cyclomatic_complexity > maxCC) maxCC = f.cyclomatic_complexity;
+      if (f.churn_count > maxChurn) maxChurn = f.churn_count;
+    });
+
+    var ageMap = {};
+    var maxAge = 0;
+    (R.file_ages || []).forEach(function(a) {
+      ageMap[a.path] = a;
+      if (a.days_since_modified > maxAge) maxAge = a.days_since_modified;
+    });
+
+    var ownerMap = {};
+    var authorIndex = {};
+    var authorCount = 0;
+    (R.author_ownership || []).forEach(function(o) {
+      ownerMap[o.path] = o;
+      (o.authors || []).forEach(function(a) {
+        if (!(a.name in authorIndex)) {
+          authorIndex[a.name] = authorCount++;
+        }
+      });
+    });
+
+    var tree = buildFileTree(files);
+    var currentRoot = tree;
+    var navStack = [];
+
+    var container = el('div');
+
+    var controls = el('div', { className: 'tm-controls' });
+    var selectLabel = el('span', { className: 'label' });
+    selectLabel.append(txt('Color by'));
+    var select = el('select', { className: 'tm-select', id: 'tm-metric-select' });
+    var metricKeys = ['hotspot', 'complexity', 'churn', 'age', 'owner'];
+    metricKeys.forEach(function(k) {
+      var opt = el('option', { value: k });
+      opt.append(txt(metricScales[k].label));
+      select.append(opt);
+    });
+    var breadcrumb = el('div', { className: 'tm-breadcrumb', id: 'tm-breadcrumb' });
+    controls.append(selectLabel, select, breadcrumb);
+    container.append(controls);
+
+    if (capped) {
+      var note = el('div', { style: { color: '#f59e0b', fontSize: '12px', padding: '4px 0' } });
+      note.append(txt('Showing top 2000 files by LOC.'));
+      container.append(note);
+    }
+
+    var svgW = 960, svgH = 600;
+    var svg = svgEl('svg', { id: 'tm-svg', viewBox: '0 0 ' + svgW + ' ' + svgH, width: '100%', style: 'display:block;background:#080a0f;border:1px solid #1e293b;border-radius:8px;' });
+    container.append(svg);
+
+    var tooltip = el('div', { className: 'tm-tooltip' });
+    container.append(tooltip);
+
+    var legendDiv = el('div', { className: 'tm-legend' });
+    container.append(legendDiv);
+
+    function getMetric() { return select.value || 'hotspot'; }
+
+    function colorForFile(f) {
+      var scale = metricScales[getMetric()];
+      return scale.color(f, maxCC, maxChurn, ageMap, maxAge, ownerMap, authorIndex);
+    }
+
+    function updateLegend() {
+      legendDiv.replaceChildren();
+      var scale = metricScales[getMetric()];
+      var items = getMetric() === 'owner' ? scale.legend(authorIndex) : scale.legend();
+      items.forEach(function(it) {
+        var item = el('div', { className: 'tm-legend-item' });
+        var swatch = el('div', { className: 'tm-legend-swatch', style: { background: it.color } });
+        var label = el('span');
+        label.append(txt(it.label));
+        item.append(swatch, label);
+        legendDiv.append(item);
+      });
+    }
+
+    function updateBreadcrumb() {
+      breadcrumb.replaceChildren();
+      var rootCrumb = el('span');
+      rootCrumb.append(txt('/'));
+      rootCrumb.addEventListener('click', function() {
+        currentRoot = tree;
+        navStack = [];
+        renderTreemap();
+      });
+      breadcrumb.append(rootCrumb);
+      navStack.forEach(function(entry, i) {
+        var sep = el('span', { className: 'tm-sep' });
+        sep.append(txt('/'));
+        breadcrumb.append(sep);
+        var crumb = el('span');
+        crumb.append(txt(entry.name));
+        crumb.addEventListener('click', (function(idx) {
+          return function() {
+            currentRoot = navStack[idx].node;
+            navStack = navStack.slice(0, idx + 1);
+            renderTreemap();
+          };
+        })(i));
+        breadcrumb.append(crumb);
+      });
+    }
+
+    function renderTreeNode(svgNode, node, x, y, w, h, depth) {
+      if (w < 1 || h < 1) return;
+      var headerH = depth > 0 ? 16 : 0;
+      var innerY = y + headerH;
+      var innerH = h - headerH;
+      if (innerH < 1) return;
+
+      if (depth > 0) {
+        svgNode.append(svgEl('rect', {
+          x: String(x), y: String(y), width: String(w), height: String(h),
+          fill: '#0d1117', stroke: '#1e293b', 'stroke-width': '1',
+          class: 'tm-dir-bg', 'data-dir': node.name
+        }));
+        if (w > 40) {
+          var label = svgEl('text', {
+            x: String(x + 4), y: String(y + 12),
+            fill: '#64748b', 'font-size': '10', 'font-family': 'monospace',
+            class: 'tm-dir-label'
+          });
+          label.append(txt(node.name));
+          svgNode.append(label);
+        }
+      }
+
+      var items = [];
+      var dirKeys = Object.keys(node.children);
+      dirKeys.forEach(function(k) {
+        var child = node.children[k];
+        if (child.totalLoc > 0) {
+          items.push({ size: child.totalLoc, data: { type: 'dir', node: child, name: k } });
+        }
+      });
+      node.files.forEach(function(f) {
+        if (f.loc > 0) {
+          items.push({ size: f.loc, data: { type: 'file', file: f } });
+        }
+      });
+
+      if (items.length === 0) return;
+      var rects = squarify(items, x, innerY, w, innerH);
+
+      rects.forEach(function(r) {
+        if (r.data.type === 'file') {
+          var fData = fileMap[r.data.file.path];
+          var color = fData ? colorForFile(fData) : '#334155';
+          var rect = svgEl('rect', {
+            x: String(r.x), y: String(r.y),
+            width: String(Math.max(0, r.w - 1)), height: String(Math.max(0, r.h - 1)),
+            fill: color, class: 'tm-file', 'data-path': r.data.file.path,
+            rx: '2', opacity: '0.9'
+          });
+          var titleEl = svgEl('title');
+          titleEl.append(txt(r.data.file.path + ' (' + r.data.file.loc + ' LOC)'));
+          rect.append(titleEl);
+          svgNode.append(rect);
+          if (r.w > 40 && r.h > 14) {
+            var textEl = svgEl('text', {
+              x: String(r.x + 3), y: String(r.y + 12),
+              fill: '#e2e8f0', 'font-size': '9', 'font-family': 'monospace',
+              'pointer-events': 'none', opacity: '0.8'
+            });
+            var maxChars = Math.floor((r.w - 6) / 5.5);
+            var lbl = r.data.file.name;
+            if (lbl.length > maxChars) lbl = lbl.slice(0, maxChars - 1) + '\u2026';
+            textEl.append(txt(lbl));
+            svgNode.append(textEl);
+          }
+        } else {
+          renderTreeNode(svgNode, r.data.node, r.x, r.y, r.w, r.h, depth + 1);
+        }
+      });
+    }
+
+    function renderTreemap() {
+      while (svg.firstChild) svg.removeChild(svg.firstChild);
+      renderTreeNode(svg, currentRoot, 0, 0, svgW, svgH, 0);
+      updateBreadcrumb();
+      updateLegend();
+    }
+
+    select.addEventListener('change', function() {
+      var allFiles = svg.querySelectorAll('.tm-file');
+      allFiles.forEach(function(rect) {
+        var path = rect.getAttribute('data-path');
+        var f = fileMap[path];
+        if (f) rect.setAttribute('fill', colorForFile(f));
+      });
+      updateLegend();
+    });
+
+    svg.addEventListener('click', function(e) {
+      var target = e.target;
+      if (target.classList && target.classList.contains('tm-dir-bg')) {
+        var dirName = target.getAttribute('data-dir');
+        function findDir(node, name) {
+          var keys = Object.keys(node.children);
+          for (var i = 0; i < keys.length; i++) {
+            if (node.children[keys[i]].name === name) return node.children[keys[i]];
+            var found = findDir(node.children[keys[i]], name);
+            if (found) return found;
+          }
+          return null;
+        }
+        var dirNode = findDir(currentRoot, dirName);
+        if (dirNode) {
+          navStack.push({ name: dirNode.name, node: dirNode });
+          currentRoot = dirNode;
+          renderTreemap();
+        }
+      }
+    });
+
+    svg.addEventListener('mousemove', function(e) {
+      var target = e.target;
+      if (target.classList && target.classList.contains('tm-file')) {
+        var path = target.getAttribute('data-path');
+        var f = fileMap[path];
+        if (f) {
+          tooltip.replaceChildren();
+          tooltip.append(el('div', { style: { fontWeight: '600', marginBottom: '4px' } }, f.path));
+          tooltip.append(el('div', null, 'LOC: ' + f.loc + '  CC: ' + f.cyclomatic_complexity));
+          tooltip.append(el('div', null, 'Churn: ' + f.churn_count + '  Score: ' + f.hotspot_score.toFixed(1)));
+          var age = ageMap[f.path];
+          if (age) tooltip.append(el('div', null, 'Age: ' + age.days_since_modified + ' days'));
+          var own = ownerMap[f.path];
+          if (own && own.authors && own.authors[0]) {
+            tooltip.append(el('div', null, 'Owner: ' + own.authors[0].name + ' (' + own.authors[0].pct.toFixed(0) + '%)'));
+          }
+          tooltip.style.display = 'block';
+          tooltip.style.left = (e.clientX + 12) + 'px';
+          tooltip.style.top = (e.clientY + 12) + 'px';
+        }
+      } else {
+        tooltip.style.display = 'none';
+      }
+    });
+
+    svg.addEventListener('mouseleave', function() {
+      tooltip.style.display = 'none';
+    });
+
+    renderTreemap();
+    return container;
+  }
+
   /* ---- Main render ---- */
   function renderApp() {
     var app = document.getElementById('app');
@@ -1106,13 +1636,14 @@ fn build_js() -> String {
     header.append(headerRow);
 
     // Tabs
-    var tabNames = ['Overview', 'Hotspots', 'Coupling', 'Ownership', 'Age'];
+    var tabNames = ['Overview', 'Hotspots', 'Coupling', 'Ownership', 'Age', 'Treemap'];
     var tabContents = [
       buildOverviewTab,
       buildHotspotsTab,
       buildCouplingTab,
       buildOwnershipTab,
-      buildAgeTab
+      buildAgeTab,
+      buildTreemapTab
     ];
 
     var tabs = el('div', { className: 'tabs' });
@@ -1231,5 +1762,115 @@ mod tests {
         assert_eq!(score_color(41), "#f59e0b");
         assert_eq!(score_color(40), "#ef4444");
         assert_eq!(score_color(0), "#ef4444");
+    }
+
+    // ---- Treemap tests ----
+
+    fn make_treemap_report() -> AnalysisReport {
+        use crate::scorer::{FileAge, FileOwnership, AuthorShare, HotspotFile};
+        use chrono::Utc;
+
+        let mut report = make_report();
+        report.file_hotspots = vec![
+            HotspotFile {
+                path: "src/main.rs".into(),
+                churn_count: 12,
+                loc: 200,
+                total_lines: 210,
+                cyclomatic_complexity: 15,
+                public_methods: 3,
+                properties: 1,
+                hotspot_score: 72.0,
+            },
+            HotspotFile {
+                path: "src/lib.rs".into(),
+                churn_count: 8,
+                loc: 150,
+                total_lines: 160,
+                cyclomatic_complexity: 10,
+                public_methods: 5,
+                properties: 2,
+                hotspot_score: 45.0,
+            },
+            HotspotFile {
+                path: "tests/test_a.rs".into(),
+                churn_count: 3,
+                loc: 80,
+                total_lines: 85,
+                cyclomatic_complexity: 4,
+                public_methods: 2,
+                properties: 0,
+                hotspot_score: 20.0,
+            },
+            HotspotFile {
+                path: "tests/test_b.rs".into(),
+                churn_count: 1,
+                loc: 60,
+                total_lines: 65,
+                cyclomatic_complexity: 2,
+                public_methods: 1,
+                properties: 0,
+                hotspot_score: 10.0,
+            },
+        ];
+        report.file_ages = vec![
+            FileAge { path: "src/main.rs".into(), last_modified: Utc::now(), days_since_modified: 5 },
+            FileAge { path: "src/lib.rs".into(), last_modified: Utc::now(), days_since_modified: 30 },
+            FileAge { path: "tests/test_a.rs".into(), last_modified: Utc::now(), days_since_modified: 90 },
+            FileAge { path: "tests/test_b.rs".into(), last_modified: Utc::now(), days_since_modified: 200 },
+        ];
+        report.author_ownership = vec![
+            FileOwnership { path: "src/main.rs".into(), authors: vec![
+                AuthorShare { name: "Alice".into(), pct: 70.0 },
+                AuthorShare { name: "Bob".into(), pct: 30.0 },
+            ]},
+            FileOwnership { path: "src/lib.rs".into(), authors: vec![
+                AuthorShare { name: "Bob".into(), pct: 60.0 },
+                AuthorShare { name: "Alice".into(), pct: 40.0 },
+            ]},
+            FileOwnership { path: "tests/test_a.rs".into(), authors: vec![
+                AuthorShare { name: "Alice".into(), pct: 100.0 },
+            ]},
+            FileOwnership { path: "tests/test_b.rs".into(), authors: vec![
+                AuthorShare { name: "Bob".into(), pct: 100.0 },
+            ]},
+        ];
+        report
+    }
+
+    #[test]
+    fn html_contains_treemap_tab() {
+        let html = render(&make_treemap_report()).unwrap();
+        assert!(html.contains("Treemap"), "Should contain Treemap tab name");
+    }
+
+    #[test]
+    fn html_treemap_has_svg() {
+        let html = render(&make_treemap_report()).unwrap();
+        assert!(html.contains("tm-svg"), "Should contain tm-svg container id");
+    }
+
+    #[test]
+    fn html_treemap_has_metric_select() {
+        let html = render(&make_treemap_report()).unwrap();
+        assert!(html.contains("tm-metric-select"), "Should contain tm-metric-select dropdown id");
+    }
+
+    #[test]
+    fn html_treemap_has_squarify() {
+        let html = render(&make_treemap_report()).unwrap();
+        assert!(html.contains("squarify"), "Should contain squarify layout function");
+    }
+
+    #[test]
+    fn html_treemap_has_color_scales() {
+        let html = render(&make_treemap_report()).unwrap();
+        assert!(html.contains("metricScales"), "Should contain metricScales color scale object");
+    }
+
+    #[test]
+    fn html_treemap_has_breadcrumb() {
+        let html = render(&make_treemap_report()).unwrap();
+        assert!(html.contains("tm-breadcrumb"), "Should contain tm-breadcrumb navigation");
     }
 }
