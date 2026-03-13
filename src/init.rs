@@ -48,7 +48,7 @@ pub fn detect_exclude_patterns(file_paths: &[&str]) -> Vec<String> {
             }
         }
     }
-    for (ext, _count) in &ext_counts {
+    for ext in ext_counts.keys() {
         let pattern = format!("*.{}", ext);
         if seen.insert(pattern.clone()) {
             patterns.push(pattern);

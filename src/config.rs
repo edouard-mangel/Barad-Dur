@@ -7,18 +7,13 @@ use crate::cache::storage::CACHE_DIR;
 const CONFIG_FILE: &str = "barad-dur.toml";
 
 /// Output format for the report.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum OutputFormat {
+    #[default]
     Cli,
     Html,
     Json,
-}
-
-impl Default for OutputFormat {
-    fn default() -> Self {
-        OutputFormat::Cli
-    }
 }
 
 /// Category weights for overall score (must sum to 100).
