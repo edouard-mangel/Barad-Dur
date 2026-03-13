@@ -17,6 +17,10 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Commands::Analyze(args) => run_analyze(args)?,
+        Commands::Init(args) => {
+            let target = std::path::PathBuf::from(&args.target);
+            barad_dur::init::run_init(&target, args.force, args.interactive)?;
+        }
     }
     Ok(())
 }

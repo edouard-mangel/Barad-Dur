@@ -32,6 +32,30 @@ pub struct Cli {
 pub enum Commands {
     /// Analyze a git repository
     Analyze(AnalyzeArgs),
+    /// Generate a .ncrunch/barad-dur.toml configuration file
+    Init(InitArgs),
+}
+
+#[derive(clap::Args, Debug)]
+#[command(
+    about = "Generate a .ncrunch/barad-dur.toml config file with smart defaults",
+    long_about = "Scans the repository to detect translation files, generated code, \
+        vendored dependencies, and team patterns, then generates a commented config file \
+        with recommended settings.\n\n\
+        Use --interactive for a guided wizard that walks through each setting."
+)]
+pub struct InitArgs {
+    /// Path to the git repository
+    #[arg(default_value = ".")]
+    pub target: String,
+
+    /// Run interactive wizard instead of auto-detecting
+    #[arg(short, long)]
+    pub interactive: bool,
+
+    /// Overwrite existing config file
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(clap::Args, Debug)]
@@ -210,6 +234,7 @@ mod tests {
         let cli = Cli::parse_from(args);
         match cli.command {
             Commands::Analyze(a) => a,
+            _ => panic!("expected Analyze command"),
         }
     }
 
@@ -369,5 +394,29 @@ mod tests {
         assert!(args.should_run("team"));
         assert!(args.should_run("evolution"));
         assert!(args.should_run("hygiene"));
+    }
+
+    #[test]
+    fn init_subcommand() {
+        let cli = Cli::parse_from(["barad-dur", "init"]);
+        assert!(matches!(cli.command, Commands::Init(_)));
+    }
+
+    #[test]
+    fn init_interactive_flag() {
+        let cli = Cli::parse_from(["barad-dur", "init", "-i"]);
+        match cli.command {
+            Commands::Init(args) => assert!(args.interactive),
+            _ => panic!("expected Init"),
+        }
+    }
+
+    #[test]
+    fn init_force_flag() {
+        let cli = Cli::parse_from(["barad-dur", "init", "--force"]);
+        match cli.command {
+            Commands::Init(args) => assert!(args.force),
+            _ => panic!("expected Init"),
+        }
     }
 }

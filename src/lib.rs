@@ -1,7 +1,8 @@
 pub mod cache;
 pub mod cli;
-pub mod config;
 pub mod collector;
+pub mod config;
+pub mod init;
 pub mod metrics;
 pub mod remote;
 pub mod renderer;
