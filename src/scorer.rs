@@ -463,12 +463,14 @@ mod tests {
                 size_bytes: 5000,
                 is_binary: false,
                 depth: 1,
+                blob_oid: String::new(),
             },
             FileEntry {
                 path: "cold.rs".into(),
                 size_bytes: 100,
                 is_binary: false,
                 depth: 1,
+                blob_oid: String::new(),
             },
         ];
         snapshot.commits_by_file.insert(
@@ -521,12 +523,14 @@ mod tests {
                 size_bytes: 100,
                 is_binary: false,
                 depth: 1,
+                blob_oid: String::new(),
             },
             FileEntry {
                 path: "old.rs".into(),
                 size_bytes: 100,
                 is_binary: false,
                 depth: 1,
+                blob_oid: String::new(),
             },
         ];
         snapshot.commits = vec![

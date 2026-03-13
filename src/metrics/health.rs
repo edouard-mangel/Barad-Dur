@@ -412,6 +412,7 @@ mod tests {
                 size_bytes: 100,
                 is_binary: false,
                 depth: 1,
+                blob_oid: String::new(),
             })
             .collect();
 
@@ -453,18 +454,21 @@ mod tests {
                 size_bytes: 100_000,
                 is_binary: false,
                 depth: 1,
+                blob_oid: String::new(),
             },
             FileEntry {
                 path: "deep/a/b/c/d/e/f.rs".into(),
                 size_bytes: 100,
                 is_binary: false,
                 depth: 7,
+                blob_oid: String::new(),
             },
             FileEntry {
                 path: "normal.rs".into(),
                 size_bytes: 500,
                 is_binary: false,
                 depth: 1,
+                blob_oid: String::new(),
             },
         ];
 

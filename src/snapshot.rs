@@ -39,6 +39,8 @@ pub struct FileEntry {
     pub size_bytes: u64,
     pub is_binary: bool,
     pub depth: usize,
+    /// Git blob OID (40-char hex). Content-addressed — same content = same OID.
+    pub blob_oid: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

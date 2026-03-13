@@ -298,6 +298,22 @@ mod tests {
     use crate::snapshot::TimeWindow;
 
     #[test]
+    fn collect_files_populates_blob_oid() {
+        let collector = Collector::open(std::path::Path::new("."), TimeWindow::default())
+            .expect("should open repo");
+        let files = collector.collect_files().expect("should collect files");
+        assert!(!files.is_empty());
+        for f in &files {
+            assert!(
+                !f.blob_oid.is_empty(),
+                "blob_oid should be populated for {}",
+                f.path.display()
+            );
+            assert_eq!(f.blob_oid.len(), 40, "blob_oid should be 40 hex chars");
+        }
+    }
+
+    #[test]
     fn collect_file_metrics_does_not_panic_on_real_repo() {
         let collector = Collector::open(std::path::Path::new("."), TimeWindow::default())
             .expect("should open repo");

@@ -203,6 +203,7 @@ pub fn collect_files(repo: &Repository) -> Result<Vec<FileEntry>> {
                 size_bytes,
                 is_binary,
                 depth,
+                blob_oid: entry.id().to_string(),
             });
         }
         git2::TreeWalkResult::Ok

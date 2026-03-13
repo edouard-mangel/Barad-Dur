@@ -310,6 +310,7 @@ mod tests {
                 size_bytes: 100,
                 is_binary: false,
                 depth: 1,
+                blob_oid: String::new(),
             })
             .collect();
 

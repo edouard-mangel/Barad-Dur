@@ -354,24 +354,28 @@ mod tests {
                 size_bytes: 50,
                 is_binary: false,
                 depth: 0,
+                blob_oid: String::new(),
             },
             FileEntry {
                 path: "node_modules/package.json".into(),
                 size_bytes: 100,
                 is_binary: false,
                 depth: 1,
+                blob_oid: String::new(),
             },
             FileEntry {
                 path: "app.log".into(),
                 size_bytes: 1000,
                 is_binary: false,
                 depth: 0,
+                blob_oid: String::new(),
             },
             FileEntry {
                 path: "src/main.rs".into(),
                 size_bytes: 200,
                 is_binary: false,
                 depth: 1,
+                blob_oid: String::new(),
             },
         ];
 
