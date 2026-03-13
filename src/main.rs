@@ -79,14 +79,14 @@ fn run_analyze(mut args: AnalyzeArgs) -> Result<()> {
     // Cache logic
     let current_head = collector.head_commit_hash()?;
     let exclude_patterns = &args.exclude;
-    let use_default_excludes = !args.no_default_excludes;
+    let use_default_excludes = !args.no_default_excludes.unwrap_or(false);
 
     let snapshot = if args.no_cache {
         collect_and_cache(
             &collector,
             show_progress,
             args.verbose > 0,
-            args.skip_blame,
+            args.skip_blame.unwrap_or(false),
             true,
             exclude_patterns,
             use_default_excludes,
@@ -105,7 +105,7 @@ fn run_analyze(mut args: AnalyzeArgs) -> Result<()> {
                 &collector,
                 show_progress,
                 args.verbose > 0,
-                args.skip_blame,
+                args.skip_blame.unwrap_or(false),
                 false,
                 exclude_patterns,
                 use_default_excludes,
@@ -118,7 +118,7 @@ fn run_analyze(mut args: AnalyzeArgs) -> Result<()> {
             &collector,
             show_progress,
             args.verbose > 0,
-            args.skip_blame,
+            args.skip_blame.unwrap_or(false),
             false,
             exclude_patterns,
             use_default_excludes,

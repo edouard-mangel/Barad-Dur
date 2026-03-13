@@ -160,16 +160,16 @@ pub struct AnalyzeArgs {
     ///
     /// By default, files matching common translation patterns are excluded:
     /// *.resx, *.po, *.pot, *.xlf, *.xliff, *.strings, *.arb, *.lproj
-    #[arg(long, help_heading = "Filtering")]
-    pub no_default_excludes: bool,
+    #[arg(long, help_heading = "Filtering", num_args = 0..=1, default_missing_value = "true")]
+    pub no_default_excludes: Option<bool>,
 
     /// Skip git blame (the slowest phase) for a faster partial analysis
     ///
     /// Blame-dependent metrics (bus factor, knowledge distribution, ownership,
     /// collaboration patterns, code age) will show default scores.
     /// Run again without this flag to get the full report.
-    #[arg(long, help_heading = "Performance")]
-    pub skip_blame: bool,
+    #[arg(long, help_heading = "Performance", num_args = 0..=1, default_missing_value = "true")]
+    pub skip_blame: Option<bool>,
 
     /// Skip cache and force full re-collection from git
     #[arg(long, help_heading = "Cache")]
@@ -326,14 +326,20 @@ mod tests {
     #[test]
     fn skip_blame_flag() {
         let args = parse(&["barad-dur", "analyze", ".", "--skip-blame"]);
-        assert!(args.skip_blame);
+        assert_eq!(args.skip_blame, Some(true));
+    }
+
+    #[test]
+    fn skip_blame_absent() {
+        let args = parse(&["barad-dur", "analyze", "."]);
+        assert_eq!(args.skip_blame, None);
     }
 
     #[test]
     fn exclude_flag_single() {
         let args = parse(&["barad-dur", "analyze", ".", "--exclude", "*.resx"]);
         assert_eq!(args.exclude, vec!["*.resx"]);
-        assert!(!args.no_default_excludes);
+        assert_eq!(args.no_default_excludes, None);
     }
 
     #[test]
@@ -353,7 +359,7 @@ mod tests {
     #[test]
     fn no_default_excludes_flag() {
         let args = parse(&["barad-dur", "analyze", ".", "--no-default-excludes"]);
-        assert!(args.no_default_excludes);
+        assert_eq!(args.no_default_excludes, Some(true));
     }
 
     #[test]

@@ -1,5 +1,6 @@
 pub mod cache;
 pub mod cli;
+pub mod config;
 pub mod collector;
 pub mod metrics;
 pub mod remote;
