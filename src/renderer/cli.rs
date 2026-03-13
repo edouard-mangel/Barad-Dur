@@ -181,6 +181,7 @@ mod tests {
             coupling_pairs: vec![],
             author_ownership: vec![],
             file_ages: vec![],
+            history: vec![],
         }
     }
 

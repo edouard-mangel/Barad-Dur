@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::metrics::CategoryResult;
 use crate::snapshot::RepoSnapshot;
@@ -78,6 +78,49 @@ pub struct AnalysisReport {
     pub coupling_pairs: Vec<CouplingPair>,
     pub author_ownership: Vec<FileOwnership>,
     pub file_ages: Vec<FileAge>,
+    pub history: Vec<HistoryEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HistoryCounts {
+    pub commits: usize,
+    pub files: usize,
+    pub authors: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HistoryEntry {
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub head: String,
+    pub overall_score: u32,
+    pub categories: HashMap<String, u32>,
+    pub metrics: HashMap<String, u32>,
+    pub counts: HistoryCounts,
+}
+
+pub fn build_history_entry(report: &AnalysisReport, head: &str) -> HistoryEntry {
+    let mut categories = HashMap::new();
+    let mut metrics = HashMap::new();
+
+    for cat in &report.categories {
+        categories.insert(cat.name.clone(), cat.score);
+        for m in &cat.metrics {
+            metrics.insert(m.name.clone(), m.score);
+        }
+    }
+
+    HistoryEntry {
+        timestamp: chrono::Utc::now(),
+        head: head.to_string(),
+        overall_score: report.overall_score,
+        categories,
+        metrics,
+        counts: HistoryCounts {
+            commits: report.total_commits,
+            files: report.total_files,
+            authors: report.total_authors,
+        },
+    }
 }
 
 pub fn build_report(
@@ -107,6 +150,7 @@ pub fn build_report(
         coupling_pairs,
         author_ownership,
         file_ages,
+        history: Vec::new(),
     }
 }
 
@@ -562,5 +606,25 @@ mod tests {
         let ages = build_file_ages(&snapshot);
         assert_eq!(ages[0].path, "old.rs");
         assert!(ages[0].days_since_modified > ages[1].days_since_modified);
+    }
+
+    #[test]
+    fn build_history_entry_contains_all_fields() {
+        let snapshot = RepoSnapshot::new(
+            std::path::PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        let categories = vec![make_category("Health", 80)];
+        let report = build_report(&snapshot, categories, None);
+        let entry = build_history_entry(&report, "abc123");
+
+        assert_eq!(entry.head, "abc123");
+        assert_eq!(entry.overall_score, report.overall_score);
+        assert!(entry.categories.contains_key("Health"));
+        assert_eq!(entry.counts.commits, 0);
+        assert_eq!(entry.counts.files, 0);
+        assert_eq!(entry.counts.authors, 0);
     }
 }

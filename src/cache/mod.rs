@@ -1,4 +1,5 @@
 pub mod blame;
+pub mod history;
 pub mod staleness;
 pub mod storage;
 
