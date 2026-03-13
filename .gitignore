@@ -3,3 +3,5 @@ target/
 other
 dashboard/node_modules/
 dashboard/dist/
+.playwright-mcp/
+*.png

@@ -25,7 +25,10 @@ pub fn compute_evolution(
 }
 
 /// Net file count change over the time window.
-fn growth_trend(snapshot: &RepoSnapshot, _thresholds: &crate::config::EvolutionThresholds) -> MetricValue {
+fn growth_trend(
+    snapshot: &RepoSnapshot,
+    _thresholds: &crate::config::EvolutionThresholds,
+) -> MetricValue {
     if snapshot.commits.is_empty() {
         return MetricValue {
             name: "Growth trend".to_string(),
@@ -121,7 +124,10 @@ fn is_structural_investment(commit: &crate::snapshot::Commit) -> bool {
 }
 
 /// Ratio of commits that invest in structural maintenance (refactoring, cleanup, reorganization).
-fn refactoring_ratio(snapshot: &RepoSnapshot, _thresholds: &crate::config::EvolutionThresholds) -> MetricValue {
+fn refactoring_ratio(
+    snapshot: &RepoSnapshot,
+    _thresholds: &crate::config::EvolutionThresholds,
+) -> MetricValue {
     if snapshot.commits.is_empty() {
         return MetricValue {
             name: "Refactoring ratio".to_string(),
@@ -178,7 +184,10 @@ fn refactoring_ratio(snapshot: &RepoSnapshot, _thresholds: &crate::config::Evolu
 }
 
 /// Median age of code based on blame timestamps.
-fn code_age(snapshot: &RepoSnapshot, _thresholds: &crate::config::EvolutionThresholds) -> MetricValue {
+fn code_age(
+    snapshot: &RepoSnapshot,
+    _thresholds: &crate::config::EvolutionThresholds,
+) -> MetricValue {
     let mut timestamps: Vec<_> = snapshot
         .blame_map
         .values()
@@ -226,7 +235,10 @@ fn code_age(snapshot: &RepoSnapshot, _thresholds: &crate::config::EvolutionThres
 }
 
 /// Commit frequency and regularity.
-fn commit_cadence(snapshot: &RepoSnapshot, _thresholds: &crate::config::EvolutionThresholds) -> MetricValue {
+fn commit_cadence(
+    snapshot: &RepoSnapshot,
+    _thresholds: &crate::config::EvolutionThresholds,
+) -> MetricValue {
     let window_commits: Vec<_> = snapshot
         .commits
         .iter()

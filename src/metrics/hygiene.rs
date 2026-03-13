@@ -1,7 +1,10 @@
 use crate::metrics::{CategoryResult, MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
 
-pub fn compute_hygiene(snapshot: &RepoSnapshot, thresholds: &crate::config::HygieneThresholds) -> CategoryResult {
+pub fn compute_hygiene(
+    snapshot: &RepoSnapshot,
+    thresholds: &crate::config::HygieneThresholds,
+) -> CategoryResult {
     let metrics = vec![
         commit_message_quality(snapshot, thresholds),
         history_cleanliness(snapshot, thresholds),
@@ -42,7 +45,10 @@ const CONVENTIONAL_PREFIXES: &[&str] = &[
 ];
 
 /// Evaluate commit message quality.
-fn commit_message_quality(snapshot: &RepoSnapshot, _thresholds: &crate::config::HygieneThresholds) -> MetricValue {
+fn commit_message_quality(
+    snapshot: &RepoSnapshot,
+    _thresholds: &crate::config::HygieneThresholds,
+) -> MetricValue {
     if snapshot.commits.is_empty() {
         return MetricValue {
             name: "Commit message quality".to_string(),
@@ -133,7 +139,10 @@ fn is_conventional_commit(msg: &str) -> bool {
 }
 
 /// History cleanliness based on merge hygiene.
-fn history_cleanliness(snapshot: &RepoSnapshot, _thresholds: &crate::config::HygieneThresholds) -> MetricValue {
+fn history_cleanliness(
+    snapshot: &RepoSnapshot,
+    _thresholds: &crate::config::HygieneThresholds,
+) -> MetricValue {
     if snapshot.commits.is_empty() {
         return MetricValue {
             name: "History cleanliness".to_string(),
@@ -204,7 +213,10 @@ const SUSPICIOUS_PATTERNS: &[&str] = &[
 ];
 
 /// Check tracked files for suspicious patterns that should be in .gitignore.
-fn gitignore_coverage(snapshot: &RepoSnapshot, _thresholds: &crate::config::HygieneThresholds) -> MetricValue {
+fn gitignore_coverage(
+    snapshot: &RepoSnapshot,
+    _thresholds: &crate::config::HygieneThresholds,
+) -> MetricValue {
     let suspicious: Vec<String> = snapshot
         .files
         .iter()
@@ -284,7 +296,8 @@ mod tests {
             });
         }
 
-        let result = commit_message_quality(&snapshot, &crate::config::HygieneThresholds::default());
+        let result =
+            commit_message_quality(&snapshot, &crate::config::HygieneThresholds::default());
         match result.raw_value {
             RawValue::Percentage(p) => assert!((p - 50.0).abs() < 1.0, "Expected ~50%, got {}", p),
             _ => panic!("Expected Percentage"),

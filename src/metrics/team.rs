@@ -2,7 +2,10 @@ use crate::metrics::{CategoryResult, MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
 use std::collections::HashMap;
 
-pub fn compute_team(snapshot: &RepoSnapshot, thresholds: &crate::config::TeamThresholds) -> CategoryResult {
+pub fn compute_team(
+    snapshot: &RepoSnapshot,
+    thresholds: &crate::config::TeamThresholds,
+) -> CategoryResult {
     let metrics = vec![
         knowledge_distribution(snapshot, thresholds),
         contributor_activity(snapshot, thresholds),
@@ -20,7 +23,10 @@ pub fn compute_team(snapshot: &RepoSnapshot, thresholds: &crate::config::TeamThr
 }
 
 /// Gini coefficient of code ownership across authors.
-fn knowledge_distribution(snapshot: &RepoSnapshot, _thresholds: &crate::config::TeamThresholds) -> MetricValue {
+fn knowledge_distribution(
+    snapshot: &RepoSnapshot,
+    _thresholds: &crate::config::TeamThresholds,
+) -> MetricValue {
     if snapshot.blame_map.is_empty() || snapshot.authors.is_empty() {
         return MetricValue {
             name: "Knowledge distribution".to_string(),
@@ -92,7 +98,10 @@ fn knowledge_distribution(snapshot: &RepoSnapshot, _thresholds: &crate::config::
 }
 
 /// Percentage of known authors with commits in the time window.
-fn contributor_activity(snapshot: &RepoSnapshot, _thresholds: &crate::config::TeamThresholds) -> MetricValue {
+fn contributor_activity(
+    snapshot: &RepoSnapshot,
+    _thresholds: &crate::config::TeamThresholds,
+) -> MetricValue {
     if snapshot.authors.is_empty() {
         return MetricValue {
             name: "Contributor activity".to_string(),
@@ -146,7 +155,10 @@ fn contributor_activity(snapshot: &RepoSnapshot, _thresholds: &crate::config::Te
 }
 
 /// Percentage of files with a clear owner (>50% blame to one author).
-fn ownership_clarity(snapshot: &RepoSnapshot, _thresholds: &crate::config::TeamThresholds) -> MetricValue {
+fn ownership_clarity(
+    snapshot: &RepoSnapshot,
+    _thresholds: &crate::config::TeamThresholds,
+) -> MetricValue {
     if snapshot.blame_map.is_empty() {
         return MetricValue {
             name: "Ownership clarity".to_string(),
@@ -200,7 +212,10 @@ fn ownership_clarity(snapshot: &RepoSnapshot, _thresholds: &crate::config::TeamT
 }
 
 /// Detect directory silos where one author dominates.
-fn collaboration_patterns(snapshot: &RepoSnapshot, _thresholds: &crate::config::TeamThresholds) -> MetricValue {
+fn collaboration_patterns(
+    snapshot: &RepoSnapshot,
+    _thresholds: &crate::config::TeamThresholds,
+) -> MetricValue {
     if snapshot.blame_map.is_empty() {
         return MetricValue {
             name: "Collaboration patterns".to_string(),
@@ -262,7 +277,10 @@ fn collaboration_patterns(snapshot: &RepoSnapshot, _thresholds: &crate::config::
 }
 
 /// Merge commit frequency and estimated branch lifetime.
-fn merge_patterns(snapshot: &RepoSnapshot, _thresholds: &crate::config::TeamThresholds) -> MetricValue {
+fn merge_patterns(
+    snapshot: &RepoSnapshot,
+    _thresholds: &crate::config::TeamThresholds,
+) -> MetricValue {
     if snapshot.commits.is_empty() {
         return MetricValue {
             name: "Merge patterns".to_string(),
