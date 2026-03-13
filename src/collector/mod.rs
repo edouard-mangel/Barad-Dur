@@ -13,6 +13,37 @@ use crate::snapshot::{
     Author, BlameLine, Commit, FileComplexity, FileEntry, RepoSnapshot, TimeWindow,
 };
 
+/// Default file extensions excluded from analysis (translation/resource files).
+/// These files change together by definition and inflate coupling/churn metrics.
+const DEFAULT_EXCLUDE_EXTENSIONS: &[&str] = &[
+    "resx", "po", "pot", "xlf", "xliff", "strings", "arb", "lproj",
+];
+
+/// Returns true if the file should be excluded based on the given glob patterns
+/// and (optionally) the built-in default extension list.
+pub fn is_excluded(path: &Path, patterns: &[String], use_defaults: bool) -> bool {
+    let path_str = path.to_string_lossy();
+
+    // Check built-in defaults (by extension)
+    if use_defaults {
+        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+            let ext_lower = ext.to_lowercase();
+            if DEFAULT_EXCLUDE_EXTENSIONS.iter().any(|&e| e == ext_lower) {
+                return true;
+            }
+        }
+    }
+
+    // Check user-provided glob patterns
+    for pattern in patterns {
+        if glob_match::glob_match(pattern, &path_str) {
+            return true;
+        }
+    }
+
+    false
+}
+
 /// Trait for reporting progress during collection phases.
 /// Implemented by `ProgressBar` for real display and `NoProgress` for silent operation.
 pub trait Progress: Send + Sync {
@@ -150,7 +181,7 @@ impl Collector {
 
     /// Build a complete RepoSnapshot, optionally showing progress indicators.
     pub fn collect_snapshot_with_progress(&self, show_progress: bool) -> Result<RepoSnapshot> {
-        self.collect_snapshot_inner(show_progress, false, false, false)
+        self.collect_snapshot_inner(show_progress, false, false, false, &[], true)
     }
 
     /// Build a complete RepoSnapshot with full control over display and phases.
@@ -160,8 +191,17 @@ impl Collector {
         verbose: bool,
         skip_blame: bool,
         no_cache: bool,
+        exclude_patterns: &[String],
+        use_default_excludes: bool,
     ) -> Result<RepoSnapshot> {
-        self.collect_snapshot_inner(show_progress, verbose, skip_blame, no_cache)
+        self.collect_snapshot_inner(
+            show_progress,
+            verbose,
+            skip_blame,
+            no_cache,
+            exclude_patterns,
+            use_default_excludes,
+        )
     }
 
     fn collect_snapshot_inner(
@@ -170,6 +210,8 @@ impl Collector {
         verbose: bool,
         skip_blame: bool,
         no_cache: bool,
+        exclude_patterns: &[String],
+        use_default_excludes: bool,
     ) -> Result<RepoSnapshot> {
         let make_spinner = |msg: &str| -> Option<ProgressBar> {
             if !show_progress {
@@ -206,10 +248,29 @@ impl Collector {
             collection.commits.len()
         ));
         let t = Instant::now();
-        let files = self.collect_files()?;
+        let all_files = self.collect_files()?;
+        let has_excludes = !exclude_patterns.is_empty() || use_default_excludes;
+        let (files, excluded_count) = if has_excludes {
+            let before = all_files.len();
+            let filtered: Vec<FileEntry> = all_files
+                .into_iter()
+                .filter(|f| !is_excluded(&f.path, exclude_patterns, use_default_excludes))
+                .collect();
+            let after = filtered.len();
+            (filtered, before - after)
+        } else {
+            (all_files, 0)
+        };
         let files_ms = t.elapsed().as_millis();
         if let Some(s) = sp {
             s.finish_and_clear();
+        }
+        if show_progress && excluded_count > 0 {
+            eprintln!(
+                "  Excluded {} files ({} remaining)",
+                excluded_count,
+                files.len()
+            );
         }
 
         // Phase 3: blame (slow — real progress bar, skippable, with per-blob cache)
@@ -393,5 +454,47 @@ mod tests {
             .keys()
             .find(|p| p.extension().and_then(|e| e.to_str()) == Some("rs"));
         assert!(rs_file.is_some(), "expected at least one .rs file");
+    }
+
+    #[test]
+    fn is_excluded_matches_default_extensions() {
+        let p = Path::new("src/Resources/Strings.resx");
+        assert!(is_excluded(p, &[], true));
+        assert!(!is_excluded(p, &[], false));
+    }
+
+    #[test]
+    fn is_excluded_matches_po_files() {
+        assert!(is_excluded(Path::new("locale/fr/messages.po"), &[], true));
+        assert!(is_excluded(Path::new("lang/en.pot"), &[], true));
+        assert!(is_excluded(Path::new("i18n/strings.xlf"), &[], true));
+    }
+
+    #[test]
+    fn is_excluded_matches_user_globs() {
+        let patterns = vec!["**/i18n/**".to_string()];
+        assert!(is_excluded(
+            Path::new("src/assets/i18n/sfk-messages/fr-FR.ts"),
+            &patterns,
+            false
+        ));
+        assert!(!is_excluded(Path::new("src/main.rs"), &patterns, false));
+    }
+
+    #[test]
+    fn is_excluded_combines_defaults_and_user_patterns() {
+        let patterns = vec!["**/i18n/**".to_string()];
+        // Matched by default extension
+        assert!(is_excluded(Path::new("foo.resx"), &patterns, true));
+        // Matched by user pattern
+        assert!(is_excluded(Path::new("src/i18n/en.ts"), &patterns, true));
+        // Not matched by either
+        assert!(!is_excluded(Path::new("src/main.rs"), &patterns, true));
+    }
+
+    #[test]
+    fn is_excluded_case_insensitive_extension() {
+        assert!(is_excluded(Path::new("Strings.RESX"), &[], true));
+        assert!(is_excluded(Path::new("lang.Resx"), &[], true));
     }
 }

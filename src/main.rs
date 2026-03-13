@@ -78,6 +78,9 @@ fn run_analyze(mut args: AnalyzeArgs) -> Result<()> {
 
     // Cache logic
     let current_head = collector.head_commit_hash()?;
+    let exclude_patterns = &args.exclude;
+    let use_default_excludes = !args.no_default_excludes;
+
     let snapshot = if args.no_cache {
         collect_and_cache(
             &collector,
@@ -85,6 +88,8 @@ fn run_analyze(mut args: AnalyzeArgs) -> Result<()> {
             args.verbose > 0,
             args.skip_blame,
             true,
+            exclude_patterns,
+            use_default_excludes,
         )?
     } else if let Some(cached) = cache::load(collector.repo_path())? {
         if !cache::is_stale(&cached, &current_head) {
@@ -102,6 +107,8 @@ fn run_analyze(mut args: AnalyzeArgs) -> Result<()> {
                 args.verbose > 0,
                 args.skip_blame,
                 false,
+                exclude_patterns,
+                use_default_excludes,
             )?
         }
     } else if args.cache_only {
@@ -113,6 +120,8 @@ fn run_analyze(mut args: AnalyzeArgs) -> Result<()> {
             args.verbose > 0,
             args.skip_blame,
             false,
+            exclude_patterns,
+            use_default_excludes,
         )?
     };
 
@@ -292,9 +301,17 @@ fn collect_and_cache(
     verbose: bool,
     skip_blame: bool,
     no_cache: bool,
+    exclude_patterns: &[String],
+    use_default_excludes: bool,
 ) -> Result<RepoSnapshot> {
-    let snapshot =
-        collector.collect_snapshot_verbose(show_progress, verbose, skip_blame, no_cache)?;
+    let snapshot = collector.collect_snapshot_verbose(
+        show_progress,
+        verbose,
+        skip_blame,
+        no_cache,
+        exclude_patterns,
+        use_default_excludes,
+    )?;
     if let Err(e) = cache::save(&snapshot, collector.repo_path()) {
         eprintln!("Warning: Failed to save cache: {}", e);
     }

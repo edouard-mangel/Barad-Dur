@@ -148,6 +148,21 @@ pub struct AnalyzeArgs {
     #[arg(short, long, action = clap::ArgAction::Count, help_heading = "Output Format")]
     pub verbose: u8,
 
+    /// Exclude files matching glob patterns from analysis
+    ///
+    /// Accepts one or more glob patterns. Files matching any pattern are
+    /// excluded from all phases (blame, coupling, hotspots, complexity).
+    /// Can be repeated: --exclude '*.resx' --exclude 'i18n/**'
+    #[arg(long, help_heading = "Filtering", action = clap::ArgAction::Append)]
+    pub exclude: Vec<String>,
+
+    /// Disable built-in exclusion of translation/resource files
+    ///
+    /// By default, files matching common translation patterns are excluded:
+    /// *.resx, *.po, *.pot, *.xlf, *.xliff, *.strings, *.arb, *.lproj
+    #[arg(long, help_heading = "Filtering")]
+    pub no_default_excludes: bool,
+
     /// Skip git blame (the slowest phase) for a faster partial analysis
     ///
     /// Blame-dependent metrics (bus factor, knowledge distribution, ownership,
@@ -312,6 +327,33 @@ mod tests {
     fn skip_blame_flag() {
         let args = parse(&["barad-dur", "analyze", ".", "--skip-blame"]);
         assert!(args.skip_blame);
+    }
+
+    #[test]
+    fn exclude_flag_single() {
+        let args = parse(&["barad-dur", "analyze", ".", "--exclude", "*.resx"]);
+        assert_eq!(args.exclude, vec!["*.resx"]);
+        assert!(!args.no_default_excludes);
+    }
+
+    #[test]
+    fn exclude_flag_multiple() {
+        let args = parse(&[
+            "barad-dur",
+            "analyze",
+            ".",
+            "--exclude",
+            "*.resx",
+            "--exclude",
+            "**/i18n/**",
+        ]);
+        assert_eq!(args.exclude, vec!["*.resx", "**/i18n/**"]);
+    }
+
+    #[test]
+    fn no_default_excludes_flag() {
+        let args = parse(&["barad-dur", "analyze", ".", "--no-default-excludes"]);
+        assert!(args.no_default_excludes);
     }
 
     #[test]
