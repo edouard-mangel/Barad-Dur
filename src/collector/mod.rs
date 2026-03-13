@@ -97,6 +97,18 @@ impl Collector {
         gitcli::collect_blame(self.repo_path(), files, authors, progress)
     }
 
+    /// Collect blame data, reusing cached entries for unchanged blobs.
+    /// Returns (blame_map, updated_cache).
+    pub fn collect_blame_cached(
+        &self,
+        files: &[FileEntry],
+        authors: &[Author],
+        cache: &crate::cache::blame::BlameCache,
+        progress: &dyn Progress,
+    ) -> Result<(HashMap<PathBuf, Vec<BlameLine>>, crate::cache::blame::BlameCache)> {
+        gitcli::collect_blame_cached(self.repo_path(), files, authors, cache, progress)
+    }
+
     /// Check if this is a shallow clone.
     pub fn is_shallow(&self) -> bool {
         gitcli::is_shallow_clone(self.repo_path())
@@ -135,7 +147,7 @@ impl Collector {
 
     /// Build a complete RepoSnapshot, optionally showing progress indicators.
     pub fn collect_snapshot_with_progress(&self, show_progress: bool) -> Result<RepoSnapshot> {
-        self.collect_snapshot_inner(show_progress, false, false)
+        self.collect_snapshot_inner(show_progress, false, false, false)
     }
 
     /// Build a complete RepoSnapshot with full control over display and phases.
@@ -144,8 +156,9 @@ impl Collector {
         show_progress: bool,
         verbose: bool,
         skip_blame: bool,
+        no_cache: bool,
     ) -> Result<RepoSnapshot> {
-        self.collect_snapshot_inner(show_progress, verbose, skip_blame)
+        self.collect_snapshot_inner(show_progress, verbose, skip_blame, no_cache)
     }
 
     fn collect_snapshot_inner(
@@ -153,6 +166,7 @@ impl Collector {
         show_progress: bool,
         verbose: bool,
         skip_blame: bool,
+        no_cache: bool,
     ) -> Result<RepoSnapshot> {
         let make_spinner = |msg: &str| -> Option<ProgressBar> {
             if !show_progress {
@@ -195,7 +209,7 @@ impl Collector {
             s.finish_and_clear();
         }
 
-        // Phase 3: blame (slow — real progress bar, skippable)
+        // Phase 3: blame (slow — real progress bar, skippable, with per-blob cache)
         let non_binary: u64 = files.iter().filter(|f| !f.is_binary).count() as u64;
         let t = Instant::now();
         let blame_map = if skip_blame {
@@ -207,6 +221,21 @@ impl Collector {
             }
             HashMap::new()
         } else {
+            let blame_cache = if no_cache {
+                crate::cache::blame::BlameCache::default()
+            } else {
+                crate::cache::blame::load(self.repo_path()).unwrap_or_default()
+            };
+            let cached_count = files
+                .iter()
+                .filter(|f| !f.is_binary && blame_cache.entries.contains_key(&f.blob_oid))
+                .count();
+            if show_progress && cached_count > 0 {
+                eprintln!(
+                    "  Blame cache: {}/{} files cached",
+                    cached_count, non_binary
+                );
+            }
             let blame_bar = if show_progress {
                 let pb = ProgressBar::new(non_binary);
                 pb.set_style(bar_style.clone());
@@ -220,11 +249,24 @@ impl Collector {
                 Some(pb) => pb,
                 None => &NoProgress,
             };
-            let result = self.collect_blame(&files, &collection.authors, blame_progress)?;
+            let (map, mut updated_cache) = self.collect_blame_cached(
+                &files,
+                &collection.authors,
+                &blame_cache,
+                blame_progress,
+            )?;
             if let Some(pb) = blame_bar {
                 pb.finish_and_clear();
             }
-            result
+            // Prune stale entries
+            let current_oids: std::collections::HashSet<String> =
+                files.iter().map(|f| f.blob_oid.clone()).collect();
+            updated_cache.prune(&current_oids);
+            // Save blame cache
+            if let Err(e) = crate::cache::blame::save(&updated_cache, self.repo_path()) {
+                eprintln!("Warning: Failed to save blame cache: {}", e);
+            }
+            map
         };
         let blame_ms = t.elapsed().as_millis();
 
@@ -311,6 +353,30 @@ mod tests {
             );
             assert_eq!(f.blob_oid.len(), 40, "blob_oid should be 40 hex chars");
         }
+    }
+
+    #[test]
+    fn collect_blame_uses_cache_for_known_blobs() {
+        let collector = Collector::open(std::path::Path::new("."), TimeWindow::default())
+            .expect("should open repo");
+        let files = collector.collect_files().expect("should collect files");
+        let collection = collector.collect_commits().expect("should collect commits");
+
+        // First run: no cache
+        let blame_cache = crate::cache::blame::BlameCache::default();
+        let (blame_map, new_cache) = collector
+            .collect_blame_cached(&files, &collection.authors, &blame_cache, &NoProgress)
+            .expect("should collect blame");
+
+        assert!(!blame_map.is_empty());
+        assert!(!new_cache.entries.is_empty());
+
+        // Second run: all blobs cached — should produce identical results
+        let (blame_map2, _) = collector
+            .collect_blame_cached(&files, &collection.authors, &new_cache, &NoProgress)
+            .expect("should collect blame from cache");
+
+        assert_eq!(blame_map.len(), blame_map2.len());
     }
 
     #[test]

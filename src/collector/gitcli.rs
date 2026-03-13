@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::Progress;
+use crate::cache::blame::BlameCache;
 use crate::snapshot::{Author, AuthorId, BlameLine, FileEntry};
 
 /// Collect blame data for all non-binary files in parallel using git CLI.
@@ -33,6 +34,48 @@ pub fn collect_blame(
         .collect();
 
     Ok(results.into_iter().collect())
+}
+
+/// Collect blame, reusing cached entries where blob OID matches.
+pub fn collect_blame_cached(
+    repo_path: &Path,
+    files: &[FileEntry],
+    authors: &[Author],
+    cache: &BlameCache,
+    progress: &(dyn Progress),
+) -> Result<(HashMap<PathBuf, Vec<BlameLine>>, BlameCache)> {
+    let email_to_id: HashMap<&str, AuthorId> =
+        authors.iter().map(|a| (a.email.as_str(), a.id)).collect();
+
+    let results: Vec<(PathBuf, Vec<BlameLine>, String)> = files
+        .par_iter()
+        .filter(|f| !f.is_binary)
+        .filter_map(|f| {
+            let lines = if let Some(cached) = cache.entries.get(&f.blob_oid) {
+                cached.clone()
+            } else {
+                match blame_file(repo_path, &f.path, &email_to_id) {
+                    Ok(lines) => lines,
+                    Err(_) => Vec::new(),
+                }
+            };
+            progress.inc(1);
+            if lines.is_empty() {
+                None
+            } else {
+                Some((f.path.clone(), lines, f.blob_oid.clone()))
+            }
+        })
+        .collect();
+
+    let mut new_cache = BlameCache::default();
+    let mut blame_map = HashMap::new();
+    for (path, lines, oid) in results {
+        new_cache.entries.insert(oid, lines.clone());
+        blame_map.insert(path, lines);
+    }
+
+    Ok((blame_map, new_cache))
 }
 
 fn blame_file(
