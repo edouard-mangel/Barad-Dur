@@ -2,13 +2,13 @@ use crate::metrics::{CategoryResult, MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
 use std::collections::HashMap;
 
-pub fn compute_team(snapshot: &RepoSnapshot) -> CategoryResult {
+pub fn compute_team(snapshot: &RepoSnapshot, thresholds: &crate::config::TeamThresholds) -> CategoryResult {
     let metrics = vec![
-        knowledge_distribution(snapshot),
-        contributor_activity(snapshot),
-        ownership_clarity(snapshot),
-        collaboration_patterns(snapshot),
-        merge_patterns(snapshot),
+        knowledge_distribution(snapshot, thresholds),
+        contributor_activity(snapshot, thresholds),
+        ownership_clarity(snapshot, thresholds),
+        collaboration_patterns(snapshot, thresholds),
+        merge_patterns(snapshot, thresholds),
     ];
 
     CategoryResult {
@@ -20,7 +20,7 @@ pub fn compute_team(snapshot: &RepoSnapshot) -> CategoryResult {
 }
 
 /// Gini coefficient of code ownership across authors.
-fn knowledge_distribution(snapshot: &RepoSnapshot) -> MetricValue {
+fn knowledge_distribution(snapshot: &RepoSnapshot, _thresholds: &crate::config::TeamThresholds) -> MetricValue {
     if snapshot.blame_map.is_empty() || snapshot.authors.is_empty() {
         return MetricValue {
             name: "Knowledge distribution".to_string(),
@@ -92,7 +92,7 @@ fn knowledge_distribution(snapshot: &RepoSnapshot) -> MetricValue {
 }
 
 /// Percentage of known authors with commits in the time window.
-fn contributor_activity(snapshot: &RepoSnapshot) -> MetricValue {
+fn contributor_activity(snapshot: &RepoSnapshot, _thresholds: &crate::config::TeamThresholds) -> MetricValue {
     if snapshot.authors.is_empty() {
         return MetricValue {
             name: "Contributor activity".to_string(),
@@ -146,7 +146,7 @@ fn contributor_activity(snapshot: &RepoSnapshot) -> MetricValue {
 }
 
 /// Percentage of files with a clear owner (>50% blame to one author).
-fn ownership_clarity(snapshot: &RepoSnapshot) -> MetricValue {
+fn ownership_clarity(snapshot: &RepoSnapshot, _thresholds: &crate::config::TeamThresholds) -> MetricValue {
     if snapshot.blame_map.is_empty() {
         return MetricValue {
             name: "Ownership clarity".to_string(),
@@ -200,7 +200,7 @@ fn ownership_clarity(snapshot: &RepoSnapshot) -> MetricValue {
 }
 
 /// Detect directory silos where one author dominates.
-fn collaboration_patterns(snapshot: &RepoSnapshot) -> MetricValue {
+fn collaboration_patterns(snapshot: &RepoSnapshot, _thresholds: &crate::config::TeamThresholds) -> MetricValue {
     if snapshot.blame_map.is_empty() {
         return MetricValue {
             name: "Collaboration patterns".to_string(),
@@ -262,7 +262,7 @@ fn collaboration_patterns(snapshot: &RepoSnapshot) -> MetricValue {
 }
 
 /// Merge commit frequency and estimated branch lifetime.
-fn merge_patterns(snapshot: &RepoSnapshot) -> MetricValue {
+fn merge_patterns(snapshot: &RepoSnapshot, _thresholds: &crate::config::TeamThresholds) -> MetricValue {
     if snapshot.commits.is_empty() {
         return MetricValue {
             name: "Merge patterns".to_string(),
@@ -382,7 +382,7 @@ mod tests {
         }
         snapshot.blame_map.insert(PathBuf::from("file.rs"), blame);
 
-        let result = knowledge_distribution(&snapshot);
+        let result = knowledge_distribution(&snapshot, &crate::config::TeamThresholds::default());
         match result.raw_value {
             RawValue::Float(gini) => assert!(gini >= 0.5, "Expected Gini >= 0.5, got {}", gini),
             _ => panic!("Expected Float"),
@@ -442,7 +442,7 @@ mod tests {
         }
         snapshot.build_indexes();
 
-        let result = contributor_activity(&snapshot);
+        let result = contributor_activity(&snapshot, &crate::config::TeamThresholds::default());
         match result.raw_value {
             RawValue::Percentage(p) => assert!((p - 60.0).abs() < 1.0, "Expected ~60%, got {}", p),
             _ => panic!("Expected Percentage"),
@@ -495,7 +495,7 @@ mod tests {
         }
         snapshot.blame_map.insert(PathBuf::from("f2.rs"), blame2);
 
-        let result = ownership_clarity(&snapshot);
+        let result = ownership_clarity(&snapshot, &crate::config::TeamThresholds::default());
         // 1 out of 2 files has clear owner = 50%
         match result.raw_value {
             RawValue::Percentage(p) => assert!((p - 50.0).abs() < 1.0),
@@ -546,7 +546,7 @@ mod tests {
             .blame_map
             .insert(PathBuf::from("api/routes.rs"), blame_api);
 
-        let result = collaboration_patterns(&snapshot);
+        let result = collaboration_patterns(&snapshot, &crate::config::TeamThresholds::default());
         match result.raw_value {
             RawValue::Count(c) => assert_eq!(c, 1, "Should detect 1 silo (auth)"),
             _ => panic!("Expected Count"),
@@ -575,7 +575,7 @@ mod tests {
             });
         }
 
-        let result = merge_patterns(&snapshot);
+        let result = merge_patterns(&snapshot, &crate::config::TeamThresholds::default());
         match result.raw_value {
             RawValue::Count(c) => assert_eq!(c, 5),
             _ => panic!("Expected Count"),

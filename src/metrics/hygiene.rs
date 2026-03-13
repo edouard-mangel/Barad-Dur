@@ -1,11 +1,11 @@
 use crate::metrics::{CategoryResult, MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
 
-pub fn compute_hygiene(snapshot: &RepoSnapshot) -> CategoryResult {
+pub fn compute_hygiene(snapshot: &RepoSnapshot, thresholds: &crate::config::HygieneThresholds) -> CategoryResult {
     let metrics = vec![
-        commit_message_quality(snapshot),
-        history_cleanliness(snapshot),
-        gitignore_coverage(snapshot),
+        commit_message_quality(snapshot, thresholds),
+        history_cleanliness(snapshot, thresholds),
+        gitignore_coverage(snapshot, thresholds),
     ];
 
     CategoryResult {
@@ -42,7 +42,7 @@ const CONVENTIONAL_PREFIXES: &[&str] = &[
 ];
 
 /// Evaluate commit message quality.
-fn commit_message_quality(snapshot: &RepoSnapshot) -> MetricValue {
+fn commit_message_quality(snapshot: &RepoSnapshot, _thresholds: &crate::config::HygieneThresholds) -> MetricValue {
     if snapshot.commits.is_empty() {
         return MetricValue {
             name: "Commit message quality".to_string(),
@@ -133,7 +133,7 @@ fn is_conventional_commit(msg: &str) -> bool {
 }
 
 /// History cleanliness based on merge hygiene.
-fn history_cleanliness(snapshot: &RepoSnapshot) -> MetricValue {
+fn history_cleanliness(snapshot: &RepoSnapshot, _thresholds: &crate::config::HygieneThresholds) -> MetricValue {
     if snapshot.commits.is_empty() {
         return MetricValue {
             name: "History cleanliness".to_string(),
@@ -204,7 +204,7 @@ const SUSPICIOUS_PATTERNS: &[&str] = &[
 ];
 
 /// Check tracked files for suspicious patterns that should be in .gitignore.
-fn gitignore_coverage(snapshot: &RepoSnapshot) -> MetricValue {
+fn gitignore_coverage(snapshot: &RepoSnapshot, _thresholds: &crate::config::HygieneThresholds) -> MetricValue {
     let suspicious: Vec<String> = snapshot
         .files
         .iter()
@@ -284,7 +284,7 @@ mod tests {
             });
         }
 
-        let result = commit_message_quality(&snapshot);
+        let result = commit_message_quality(&snapshot, &crate::config::HygieneThresholds::default());
         match result.raw_value {
             RawValue::Percentage(p) => assert!((p - 50.0).abs() < 1.0, "Expected ~50%, got {}", p),
             _ => panic!("Expected Percentage"),
@@ -332,7 +332,7 @@ mod tests {
             },
         ];
 
-        let result = history_cleanliness(&snapshot);
+        let result = history_cleanliness(&snapshot, &crate::config::HygieneThresholds::default());
         match result.raw_value {
             RawValue::Count(c) => assert_eq!(c, 2, "1 octopus + 1 empty = 2 issues"),
             _ => panic!("Expected Count"),
@@ -379,7 +379,7 @@ mod tests {
             },
         ];
 
-        let result = gitignore_coverage(&snapshot);
+        let result = gitignore_coverage(&snapshot, &crate::config::HygieneThresholds::default());
         // .env and node_modules/ should be flagged
         match &result.raw_value {
             RawValue::List(items) => assert!(

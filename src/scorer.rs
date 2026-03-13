@@ -127,8 +127,9 @@ pub fn build_report(
     snapshot: &RepoSnapshot,
     categories: Vec<CategoryResult>,
     remote_meta: Option<RemoteMeta>,
+    weights: &[(&str, f64)],
 ) -> AnalysisReport {
-    let overall_score = compute_overall_score(&categories);
+    let overall_score = compute_overall_score_with_weights(&categories, weights);
     let top_actions = generate_top_actions(&categories);
     let file_hotspots = build_hotspots(snapshot);
     let coupling_pairs = build_coupling_pairs(snapshot);
@@ -303,7 +304,10 @@ fn build_file_ages(snapshot: &RepoSnapshot) -> Vec<FileAge> {
     ages
 }
 
-fn compute_overall_score(categories: &[CategoryResult]) -> u32 {
+pub fn compute_overall_score_with_weights(
+    categories: &[CategoryResult],
+    weights: &[(&str, f64)],
+) -> u32 {
     if categories.is_empty() {
         return 0;
     }
@@ -312,11 +316,11 @@ fn compute_overall_score(categories: &[CategoryResult]) -> u32 {
     let mut total_weight = 0.0;
 
     for cat in categories {
-        let weight = WEIGHTS
+        let weight = weights
             .iter()
             .find(|(name, _)| *name == cat.name)
             .map(|(_, w)| *w)
-            .unwrap_or(0.25); // Default weight for unknown categories
+            .unwrap_or(0.25);
 
         weighted_sum += cat.score as f64 * weight;
         total_weight += weight;
@@ -327,6 +331,10 @@ fn compute_overall_score(categories: &[CategoryResult]) -> u32 {
     } else {
         0
     }
+}
+
+fn compute_overall_score(categories: &[CategoryResult]) -> u32 {
+    compute_overall_score_with_weights(categories, WEIGHTS)
 }
 
 fn generate_top_actions(categories: &[CategoryResult]) -> Vec<String> {
@@ -431,6 +439,24 @@ mod tests {
     }
 
     #[test]
+    fn overall_score_custom_weights() {
+        let categories = vec![
+            make_category("Health", 100),
+            make_category("Team", 0),
+            make_category("Evolution", 0),
+            make_category("Git Hygiene", 0),
+        ];
+        let weights = vec![
+            ("Health", 1.0),
+            ("Team", 0.0),
+            ("Evolution", 0.0),
+            ("Git Hygiene", 0.0),
+        ];
+        let score = compute_overall_score_with_weights(&categories, &weights);
+        assert_eq!(score, 100);
+    }
+
+    #[test]
     fn top_actions_picks_worst() {
         let categories = vec![
             CategoryResult {
@@ -479,7 +505,7 @@ mod tests {
         );
 
         let categories = vec![make_category("Health", 80)];
-        let report = build_report(&snapshot, categories, None);
+        let report = build_report(&snapshot, categories, None, WEIGHTS);
 
         assert_eq!(report.repo_name, "test-repo");
         assert_eq!(report.branch, "main");
@@ -617,7 +643,7 @@ mod tests {
             TimeWindow::default(),
         );
         let categories = vec![make_category("Health", 80)];
-        let report = build_report(&snapshot, categories, None);
+        let report = build_report(&snapshot, categories, None, WEIGHTS);
         let entry = build_history_entry(&report, "abc123");
 
         assert_eq!(entry.head, "abc123");

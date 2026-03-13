@@ -5,12 +5,15 @@ use chrono::Utc;
 use crate::metrics::{CategoryResult, MetricValue, RawValue};
 use crate::snapshot::{ChangeType, RepoSnapshot};
 
-pub fn compute_evolution(snapshot: &RepoSnapshot) -> CategoryResult {
+pub fn compute_evolution(
+    snapshot: &RepoSnapshot,
+    thresholds: &crate::config::EvolutionThresholds,
+) -> CategoryResult {
     let metrics = vec![
-        growth_trend(snapshot),
-        refactoring_ratio(snapshot),
-        code_age(snapshot),
-        commit_cadence(snapshot),
+        growth_trend(snapshot, thresholds),
+        refactoring_ratio(snapshot, thresholds),
+        code_age(snapshot, thresholds),
+        commit_cadence(snapshot, thresholds),
     ];
 
     CategoryResult {
@@ -22,7 +25,7 @@ pub fn compute_evolution(snapshot: &RepoSnapshot) -> CategoryResult {
 }
 
 /// Net file count change over the time window.
-fn growth_trend(snapshot: &RepoSnapshot) -> MetricValue {
+fn growth_trend(snapshot: &RepoSnapshot, _thresholds: &crate::config::EvolutionThresholds) -> MetricValue {
     if snapshot.commits.is_empty() {
         return MetricValue {
             name: "Growth trend".to_string(),
@@ -118,7 +121,7 @@ fn is_structural_investment(commit: &crate::snapshot::Commit) -> bool {
 }
 
 /// Ratio of commits that invest in structural maintenance (refactoring, cleanup, reorganization).
-fn refactoring_ratio(snapshot: &RepoSnapshot) -> MetricValue {
+fn refactoring_ratio(snapshot: &RepoSnapshot, _thresholds: &crate::config::EvolutionThresholds) -> MetricValue {
     if snapshot.commits.is_empty() {
         return MetricValue {
             name: "Refactoring ratio".to_string(),
@@ -175,7 +178,7 @@ fn refactoring_ratio(snapshot: &RepoSnapshot) -> MetricValue {
 }
 
 /// Median age of code based on blame timestamps.
-fn code_age(snapshot: &RepoSnapshot) -> MetricValue {
+fn code_age(snapshot: &RepoSnapshot, _thresholds: &crate::config::EvolutionThresholds) -> MetricValue {
     let mut timestamps: Vec<_> = snapshot
         .blame_map
         .values()
@@ -223,7 +226,7 @@ fn code_age(snapshot: &RepoSnapshot) -> MetricValue {
 }
 
 /// Commit frequency and regularity.
-fn commit_cadence(snapshot: &RepoSnapshot) -> MetricValue {
+fn commit_cadence(snapshot: &RepoSnapshot, _thresholds: &crate::config::EvolutionThresholds) -> MetricValue {
     let window_commits: Vec<_> = snapshot
         .commits
         .iter()
@@ -332,7 +335,7 @@ mod tests {
             parent_count: 1,
         });
 
-        let result = growth_trend(&snapshot);
+        let result = growth_trend(&snapshot, &crate::config::EvolutionThresholds::default());
         match result.raw_value {
             RawValue::Integer(v) => assert_eq!(v, 15),
             _ => panic!("Expected Integer"),
@@ -384,7 +387,7 @@ mod tests {
                 now - Duration::days(i + 8),
             ));
         }
-        let result = refactoring_ratio(&snapshot);
+        let result = refactoring_ratio(&snapshot, &crate::config::EvolutionThresholds::default());
         match result.raw_value {
             RawValue::Float(r) => assert!((r - 0.30).abs() < 0.01, "Expected ~0.30, got {}", r),
             _ => panic!("Expected Float"),
@@ -420,7 +423,7 @@ mod tests {
                 parent_count: 1,
             });
         }
-        let result = refactoring_ratio(&snapshot);
+        let result = refactoring_ratio(&snapshot, &crate::config::EvolutionThresholds::default());
         match result.raw_value {
             RawValue::Float(r) => assert!((r - 0.20).abs() < 0.01, "Expected ~0.20, got {}", r),
             _ => panic!("Expected Float"),
@@ -454,7 +457,7 @@ mod tests {
             is_merge: false,
             parent_count: 1,
         });
-        let result = refactoring_ratio(&snapshot);
+        let result = refactoring_ratio(&snapshot, &crate::config::EvolutionThresholds::default());
         match result.raw_value {
             RawValue::Float(r) => assert!((r - 0.10).abs() < 0.01, "Expected ~0.10, got {}", r),
             _ => panic!("Expected Float"),
@@ -483,7 +486,7 @@ mod tests {
                 parent_count: 1,
             });
         }
-        let result = refactoring_ratio(&snapshot);
+        let result = refactoring_ratio(&snapshot, &crate::config::EvolutionThresholds::default());
         match result.raw_value {
             RawValue::Float(r) => assert_eq!(r, 0.0),
             _ => panic!("Expected Float"),
@@ -512,7 +515,7 @@ mod tests {
         }
         snapshot.blame_map.insert(PathBuf::from("f.rs"), blame);
 
-        let result = code_age(&snapshot);
+        let result = code_age(&snapshot, &crate::config::EvolutionThresholds::default());
         match result.raw_value {
             RawValue::Float(months) => {
                 assert!(
@@ -550,7 +553,7 @@ mod tests {
             }
         }
 
-        let result = commit_cadence(&snapshot);
+        let result = commit_cadence(&snapshot, &crate::config::EvolutionThresholds::default());
         assert!(result.description.contains("regular") || result.description.contains("moderate"));
         assert!(result.score >= 70);
     }

@@ -1,16 +1,17 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use crate::config::HealthThresholds;
 use crate::metrics::{CategoryResult, MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
 
-pub fn compute_health(snapshot: &RepoSnapshot) -> CategoryResult {
+pub fn compute_health(snapshot: &RepoSnapshot, thresholds: &HealthThresholds) -> CategoryResult {
     let metrics = vec![
-        bus_factor(snapshot),
-        churn_hotspots(snapshot),
-        temporal_coupling(snapshot),
+        bus_factor(snapshot, thresholds),
+        churn_hotspots(snapshot, thresholds),
+        temporal_coupling(snapshot, thresholds),
         stale_code(snapshot),
-        file_complexity(snapshot),
+        file_complexity(snapshot, thresholds),
     ];
 
     CategoryResult {
@@ -22,7 +23,7 @@ pub fn compute_health(snapshot: &RepoSnapshot) -> CategoryResult {
 }
 
 /// Minimum number of authors needed to cover 50% of code knowledge.
-fn bus_factor(snapshot: &RepoSnapshot) -> MetricValue {
+fn bus_factor(snapshot: &RepoSnapshot, _thresholds: &HealthThresholds) -> MetricValue {
     if snapshot.blame_map.is_empty() {
         return MetricValue {
             name: "Bus factor".to_string(),
@@ -94,7 +95,7 @@ fn bus_factor(snapshot: &RepoSnapshot) -> MetricValue {
 }
 
 /// Files with highest change frequency.
-fn churn_hotspots(snapshot: &RepoSnapshot) -> MetricValue {
+fn churn_hotspots(snapshot: &RepoSnapshot, _thresholds: &HealthThresholds) -> MetricValue {
     if snapshot.commits_by_file.is_empty() {
         return MetricValue {
             name: "Churn hotspots".to_string(),
@@ -151,7 +152,7 @@ fn churn_hotspots(snapshot: &RepoSnapshot) -> MetricValue {
 }
 
 /// File pairs that change together suspiciously often.
-fn temporal_coupling(snapshot: &RepoSnapshot) -> MetricValue {
+fn temporal_coupling(snapshot: &RepoSnapshot, _thresholds: &HealthThresholds) -> MetricValue {
     let suspicious: Vec<String> = snapshot
         .file_change_pairs
         .iter()
@@ -248,7 +249,7 @@ fn stale_code(snapshot: &RepoSnapshot) -> MetricValue {
 }
 
 /// File size distribution and directory nesting depth.
-fn file_complexity(snapshot: &RepoSnapshot) -> MetricValue {
+fn file_complexity(snapshot: &RepoSnapshot, _thresholds: &HealthThresholds) -> MetricValue {
     let large_files = snapshot
         .files
         .iter()
@@ -333,7 +334,7 @@ mod tests {
     #[test]
     fn bus_factor_detects_single_author_dominance() {
         let snapshot = make_snapshot_with_blame();
-        let result = bus_factor(&snapshot);
+        let result = bus_factor(&snapshot, &HealthThresholds::default());
         // Alice owns 80% → bus factor = 1
         assert_eq!(result.score, 20);
         match result.raw_value {
@@ -365,7 +366,7 @@ mod tests {
         }
         snapshot.commits_by_file = commits_by_file;
 
-        let result = churn_hotspots(&snapshot);
+        let result = churn_hotspots(&snapshot, &HealthThresholds::default());
         assert!(result.score <= 60, "High concentration should lower score");
     }
 
@@ -389,7 +390,7 @@ mod tests {
             (0..10).map(|i| format!("c{}", i)).collect(),
         );
 
-        let result = temporal_coupling(&snapshot);
+        let result = temporal_coupling(&snapshot, &HealthThresholds::default());
         match result.raw_value {
             RawValue::Count(c) => assert_eq!(c, 1),
             _ => panic!("Expected Count"),
@@ -472,7 +473,7 @@ mod tests {
             },
         ];
 
-        let result = file_complexity(&snapshot);
+        let result = file_complexity(&snapshot, &HealthThresholds::default());
         match result.raw_value {
             RawValue::Count(c) => assert_eq!(c, 2, "1 large + 1 deep = 2"),
             _ => panic!("Expected Count"),

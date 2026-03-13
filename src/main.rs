@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use barad_dur::cache;
 use barad_dur::cli::{AnalyzeArgs, Cli, Commands};
 use barad_dur::collector::Collector;
+use barad_dur::config::{self, RepoConfig};
 use barad_dur::metrics::{evolution, health, hygiene, team, CategoryResult};
 use barad_dur::remote;
 use barad_dur::renderer;
@@ -20,12 +21,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn run_analyze(mut args: AnalyzeArgs) -> Result<()> {
-    // --open implies --html
-    if args.open {
-        args.html = true;
-    }
-
+fn run_analyze(args: AnalyzeArgs) -> Result<()> {
     if args.json && args.html {
         bail!("--json and --html are mutually exclusive");
     }
@@ -64,7 +60,12 @@ fn run_analyze(mut args: AnalyzeArgs) -> Result<()> {
         (PathBuf::from(&args.target), None)
     };
 
-    let time_window = build_time_window(&args);
+    // Load and merge config (.ncrunch/barad-dur.toml + CLI flags)
+    let cfg = config::load(&local_path)?;
+    let cfg = config::merge_with_cli(cfg, &args);
+    config::validate(&cfg)?;
+
+    let time_window = build_time_window_from_config(&cfg, &args);
     let collector = Collector::open(&local_path, time_window)?;
 
     // Warn about shallow clones
@@ -78,15 +79,15 @@ fn run_analyze(mut args: AnalyzeArgs) -> Result<()> {
 
     // Cache logic
     let current_head = collector.head_commit_hash()?;
-    let exclude_patterns = &args.exclude;
-    let use_default_excludes = !args.no_default_excludes.unwrap_or(false);
+    let exclude_patterns = &cfg.exclude_patterns;
+    let use_default_excludes = cfg.exclude_use_defaults;
 
     let snapshot = if args.no_cache {
         collect_and_cache(
             &collector,
             show_progress,
             args.verbose > 0,
-            args.skip_blame.unwrap_or(false),
+            cfg.skip_blame,
             true,
             exclude_patterns,
             use_default_excludes,
@@ -105,7 +106,7 @@ fn run_analyze(mut args: AnalyzeArgs) -> Result<()> {
                 &collector,
                 show_progress,
                 args.verbose > 0,
-                args.skip_blame.unwrap_or(false),
+                cfg.skip_blame,
                 false,
                 exclude_patterns,
                 use_default_excludes,
@@ -118,7 +119,7 @@ fn run_analyze(mut args: AnalyzeArgs) -> Result<()> {
             &collector,
             show_progress,
             args.verbose > 0,
-            args.skip_blame.unwrap_or(false),
+            cfg.skip_blame,
             false,
             exclude_patterns,
             use_default_excludes,
@@ -132,14 +133,15 @@ fn run_analyze(mut args: AnalyzeArgs) -> Result<()> {
 
     // Compute selected metrics
     let t = std::time::Instant::now();
-    let categories = compute_selected_metrics(&snapshot, &args);
+    let categories = compute_selected_metrics(&snapshot, &args, &cfg);
     if args.verbose > 0 {
         eprintln!("  Metrics: {}ms", t.elapsed().as_millis());
     }
 
     // Score
     let t = std::time::Instant::now();
-    let mut report = scorer::build_report(&snapshot, categories, remote_meta);
+    let weight_pairs = cfg.weights.as_weight_pairs();
+    let mut report = scorer::build_report(&snapshot, categories, remote_meta, &weight_pairs);
     if args.verbose > 0 {
         eprintln!("  Scoring: {}ms", t.elapsed().as_millis());
     }
@@ -155,19 +157,19 @@ fn run_analyze(mut args: AnalyzeArgs) -> Result<()> {
 
     // Render
     let t = std::time::Instant::now();
-    let output = if args.json {
-        renderer::json::render(&report, args.pretty)?
-    } else if args.html {
-        renderer::html::render(&report)?
-    } else {
-        renderer::cli::render(&report, args.verbose)
+    let is_html = matches!(cfg.output_format, config::OutputFormat::Html);
+    let output = match cfg.output_format {
+        config::OutputFormat::Json => renderer::json::render(&report, args.pretty)?,
+        config::OutputFormat::Html => renderer::html::render(&report)?,
+        config::OutputFormat::Cli => renderer::cli::render(&report, args.verbose),
     };
     if args.verbose > 0 {
         eprintln!("  Render: {}ms", t.elapsed().as_millis());
     }
 
     // Write output
-    if args.open {
+    let should_open = cfg.auto_open && is_html;
+    if should_open {
         let path = if let Some(ref p) = args.output {
             std::fs::write(p, &output)?;
             p.clone()
@@ -182,10 +184,10 @@ fn run_analyze(mut args: AnalyzeArgs) -> Result<()> {
         open_in_browser(&path)?;
     } else if let Some(path) = &args.output {
         std::fs::write(path, &output)?;
-        if !args.json && !args.html {
+        if matches!(cfg.output_format, config::OutputFormat::Cli) {
             eprintln!("Report written to {}", path.display());
         }
-    } else if args.html {
+    } else if is_html {
         let dir = local_path.join(cache::CACHE_DIR);
         std::fs::create_dir_all(&dir)?;
         let path = dir.join("report.html");
@@ -232,14 +234,15 @@ fn open_in_browser(path: &std::path::Path) -> Result<()> {
     }
 }
 
-fn build_time_window(args: &AnalyzeArgs) -> TimeWindow {
+fn build_time_window_from_config(cfg: &RepoConfig, args: &AnalyzeArgs) -> TimeWindow {
     if args.all {
         return TimeWindow::full_history();
     }
 
     let now = chrono::Utc::now();
 
-    let since = args.since.as_ref().and_then(|s| parse_time_spec(s, now));
+    // config.since already has the merged value (TOML + CLI override)
+    let since = cfg.since.as_ref().and_then(|s| parse_time_spec(s, now));
     let until = args.until.as_ref().and_then(|s| parse_time_spec(s, now));
 
     if since.is_some() || until.is_some() {
@@ -318,20 +321,27 @@ fn collect_and_cache(
     Ok(snapshot)
 }
 
-fn compute_selected_metrics(snapshot: &RepoSnapshot, args: &AnalyzeArgs) -> Vec<CategoryResult> {
+fn compute_selected_metrics(
+    snapshot: &RepoSnapshot,
+    args: &AnalyzeArgs,
+    cfg: &RepoConfig,
+) -> Vec<CategoryResult> {
     let mut categories = Vec::new();
 
     if args.should_run("health") {
-        categories.push(health::compute_health(snapshot));
+        categories.push(health::compute_health(snapshot, &cfg.thresholds.health));
     }
     if args.should_run("team") {
-        categories.push(team::compute_team(snapshot));
+        categories.push(team::compute_team(snapshot, &cfg.thresholds.team));
     }
     if args.should_run("evolution") {
-        categories.push(evolution::compute_evolution(snapshot));
+        categories.push(evolution::compute_evolution(
+            snapshot,
+            &cfg.thresholds.evolution,
+        ));
     }
     if args.should_run("hygiene") {
-        categories.push(hygiene::compute_hygiene(snapshot));
+        categories.push(hygiene::compute_hygiene(snapshot, &cfg.thresholds.hygiene));
     }
 
     categories
