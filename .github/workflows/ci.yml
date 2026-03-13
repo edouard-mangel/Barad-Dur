@@ -62,8 +62,20 @@ jobs:
       - name: Build barad-dur
         run: cargo build --release
 
+      - name: Restore analysis cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .ncrunch/blame_cache.bin
+            .ncrunch/history.json
+          key: barad-dur-analysis
+          restore-keys: |
+            barad-dur-analysis
+
       - name: Analyze repository
-        run: ./target/release/barad-dur analyze . --html -o barad-dur-report.html
+        run: |
+          ./target/release/barad-dur analyze . -v
+          ./target/release/barad-dur analyze . --html -o barad-dur-report.html
 
       - name: Upload report artifact
         uses: actions/upload-artifact@v4

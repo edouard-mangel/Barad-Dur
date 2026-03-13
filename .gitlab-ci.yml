@@ -114,6 +114,16 @@ self-analysis:
   <<: *rust-base
   needs:
     - build
+  cache:
+    - key: rust-${CI_COMMIT_REF_SLUG}
+      paths:
+        - .cargo/registry
+        - .cargo/git
+        - target/
+    - key: barad-dur-analysis
+      paths:
+        - .ncrunch/blame_cache.bin
+        - .ncrunch/history.json
   script:
     - ./target/release/barad-dur analyze . -v
     - ./target/release/barad-dur analyze . --json --pretty > barad-dur-report.json
