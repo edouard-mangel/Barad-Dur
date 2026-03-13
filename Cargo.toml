@@ -19,6 +19,7 @@ glob-match = "0.2"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 url = "2"
 tempfile = "3"
+toml = "0.8"
 
 [dev-dependencies]
 assert_cmd = "2"
