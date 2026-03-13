@@ -526,6 +526,16 @@ svg.radar { display: block; margin: 0 auto; }
 .tm-layout-btn:not(:last-child) { border-right: 1px solid #1e293b; }
 .tm-layout-btn:hover { color: #e2e8f0; }
 .tm-layout-btn.active { background: #1e293b; color: #f59e0b; }
+.tr-controls { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; }
+.tr-select { background: #0d1117; color: #c9d1d9; border: 1px solid #1e293b;
+  border-radius: 6px; padding: 6px 12px; font-size: 14px; }
+.tr-chart { width: 100%; background: #161b22; border-radius: 8px; padding: 16px; }
+.tr-dot { cursor: pointer; }
+.tr-dot:hover { r: 5; }
+.tr-tooltip { position: fixed; background: #1e293b; color: #c9d1d9;
+  padding: 8px 12px; border-radius: 6px; font-size: 12px;
+  pointer-events: none; z-index: 1000; display: none; white-space: pre-line; }
+.tr-empty { text-align: center; color: #8b949e; padding: 60px 20px; font-size: 16px; }
 "#;
 
 fn build_js() -> String {
@@ -2353,6 +2363,156 @@ fn build_js() -> String {
     return container;
   }
 
+  /* ---- Trends tab ---- */
+  function buildTrendsTab() {
+    var container = document.createDocumentFragment();
+    var history = R.history || [];
+
+    var info = buildTabInfo(
+      'Score Trends',
+      'Track how your repository scores change over time. Each data point represents an analysis run at a unique commit.'
+    );
+    container.append(info);
+
+    if (history.length < 2) {
+      var empty = el('div', { className: 'tr-empty' });
+      empty.append(txt('Trends appear after multiple analysis runs on different commits. Run barad-dur analyze again after making commits to start tracking.'));
+      container.append(empty);
+      return container;
+    }
+
+    // Build metric options from first entry
+    var metricNames = ['Overall Score'];
+    var catKeys = Object.keys(history[0].categories || {}).sort();
+    catKeys.forEach(function(k) { metricNames.push(k); });
+    var mKeys = Object.keys(history[0].metrics || {}).sort();
+    mKeys.forEach(function(k) { metricNames.push(k); });
+
+    // Controls row
+    var controls = el('div', { className: 'tr-controls' });
+    var label = el('label');
+    label.append(txt('Metric: '));
+    var select = el('select', { className: 'tr-select' });
+    select.id = 'tr-metric-select';
+    metricNames.forEach(function(name) {
+      var opt = el('option');
+      opt.value = name;
+      opt.append(txt(name));
+      select.append(opt);
+    });
+    label.append(select);
+    controls.append(label);
+    container.append(controls);
+
+    // Chart container
+    var chartDiv = el('div', { className: 'tr-chart' });
+    chartDiv.id = 'tr-chart';
+    container.append(chartDiv);
+
+    // Tooltip
+    var tooltip = el('div', { className: 'tr-tooltip' });
+    container.append(tooltip);
+
+    function getScore(entry, metric) {
+      if (metric === 'Overall Score') return entry.overall_score;
+      if (entry.categories && entry.categories[metric] !== undefined) return entry.categories[metric];
+      if (entry.metrics && entry.metrics[metric] !== undefined) return entry.metrics[metric];
+      return 0;
+    }
+
+    function scoreColor(s) {
+      if (s >= 71) return '#10b981';
+      if (s >= 41) return '#f59e0b';
+      return '#ef4444';
+    }
+
+    function renderChart() {
+      var metric = select.value;
+      var W = 900, H = 350;
+      var pad = { top: 20, right: 30, bottom: 40, left: 45 };
+      var cw = W - pad.left - pad.right;
+      var ch = H - pad.top - pad.bottom;
+
+      var scores = history.map(function(e) { return getScore(e, metric); });
+      var dates = history.map(function(e) { return new Date(e.timestamp); });
+
+      var minT = dates[0].getTime();
+      var maxT = dates[dates.length - 1].getTime();
+      var rangeT = maxT - minT || 1;
+
+      function x(i) { return pad.left + (dates[i].getTime() - minT) / rangeT * cw; }
+      function y(s) { return pad.top + (1 - s / 100) * ch; }
+
+      var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto">';
+
+      // Grid lines and Y labels (avoid literal quote-hash in SVG attr values)
+      var h = String.fromCharCode(35);
+      var gridCol = h + '1e293b';
+      var labelCol = h + '8b949e';
+      var bgCol = h + '0d1117';
+      [0, 25, 50, 75, 100].forEach(function(v) {
+        var yy = y(v);
+        svg += '<line x1="' + pad.left + '" y1="' + yy + '" x2="' + (W - pad.right) + '" y2="' + yy + '" stroke="' + gridCol + '" stroke-width="1"/>';
+        svg += '<text x="' + (pad.left - 8) + '" y="' + (yy + 4) + '" text-anchor="end" fill="' + labelCol + '" font-size="11">' + v + '</text>';
+      });
+
+      // X-axis date labels
+      var labelCount = Math.min(history.length, 8);
+      var step = Math.max(1, Math.floor(history.length / labelCount));
+      for (var li = 0; li < history.length; li += step) {
+        var dx = x(li);
+        var d = dates[li];
+        var dateStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+        svg += '<text x="' + dx + '" y="' + (H - 5) + '" text-anchor="middle" fill="' + labelCol + '" font-size="10">' + dateStr + '</text>';
+      }
+
+      // Line
+      var lastScore = scores[scores.length - 1];
+      var lineColor = scoreColor(lastScore);
+      var points = history.map(function(_, i) { return x(i) + ',' + y(scores[i]); }).join(' ');
+      svg += '<polyline points="' + points + '" fill="none" stroke="' + lineColor + '" stroke-width="2" stroke-linejoin="round"/>';
+
+      // Dots
+      history.forEach(function(entry, i) {
+        var cx = x(i);
+        var cy = y(scores[i]);
+        svg += '<circle class="tr-dot" cx="' + cx + '" cy="' + cy + '" r="4" fill="' + lineColor + '" '
+          + 'data-idx="' + i + '" stroke="' + bgCol + '" stroke-width="1.5"/>';
+      });
+
+      svg += '</svg>';
+      chartDiv.innerHTML = svg;
+
+      // Wire dot hover events
+      chartDiv.querySelectorAll('.tr-dot').forEach(function(dot) {
+        dot.addEventListener('mouseenter', function(e) {
+          var idx = parseInt(dot.getAttribute('data-idx'), 10);
+          var entry = history[idx];
+          var d = new Date(entry.timestamp);
+          var dateStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+          var head7 = entry.head.substring(0, 7);
+          var lines = dateStr + ' (' + head7 + ')\n'
+            + metric + ': ' + getScore(entry, metric) + '\n'
+            + entry.counts.commits + ' commits, '
+            + entry.counts.files + ' files, '
+            + entry.counts.authors + ' authors';
+          tooltip.textContent = lines;
+          tooltip.style.display = 'block';
+          tooltip.style.left = (e.clientX + 14) + 'px';
+          tooltip.style.top = (e.clientY + 14) + 'px';
+        });
+        dot.addEventListener('mouseleave', function() {
+          tooltip.style.display = 'none';
+        });
+      });
+    }
+
+    select.addEventListener('change', renderChart);
+    setTimeout(renderChart, 0);
+
+    return container;
+  }
+
   /* ---- Main render ---- */
   function renderApp() {
     var app = document.getElementById('app');
@@ -2381,14 +2541,15 @@ fn build_js() -> String {
     header.append(headerRow);
 
     // Tabs
-    var tabNames = ['Overview', 'Hotspots', 'Coupling', 'Ownership', 'Age', 'Treemap'];
+    var tabNames = ['Overview', 'Hotspots', 'Coupling', 'Ownership', 'Age', 'Treemap', 'Trends'];
     var tabContents = [
       buildOverviewTab,
       buildHotspotsTab,
       buildCouplingTab,
       buildOwnershipTab,
       buildAgeTab,
-      buildTreemapTab
+      buildTreemapTab,
+      buildTrendsTab
     ];
 
     var tabs = el('div', { className: 'tabs' });
@@ -2764,6 +2925,32 @@ mod tests {
         assert!(
             html.contains("cp-dismiss"),
             "Coupling tab rows should have dismiss buttons"
+        );
+    }
+
+    // ---- Trends tab tests ----
+
+    #[test]
+    fn html_contains_trends_tab() {
+        let html = render(&make_report()).unwrap();
+        assert!(html.contains("Trends"), "Should have Trends tab");
+    }
+
+    #[test]
+    fn html_trends_has_metric_select() {
+        let html = render(&make_report()).unwrap();
+        assert!(
+            html.contains("tr-metric-select"),
+            "Should have metric selector dropdown"
+        );
+    }
+
+    #[test]
+    fn html_trends_has_chart() {
+        let html = render(&make_report()).unwrap();
+        assert!(
+            html.contains("tr-chart"),
+            "Should have trends chart container"
         );
     }
 }

@@ -42,7 +42,7 @@ pub fn collect_blame_cached(
     files: &[FileEntry],
     authors: &[Author],
     cache: &BlameCache,
-    progress: &(dyn Progress),
+    progress: &dyn Progress,
 ) -> Result<(HashMap<PathBuf, Vec<BlameLine>>, BlameCache)> {
     let email_to_id: HashMap<&str, AuthorId> =
         authors.iter().map(|a| (a.email.as_str(), a.id)).collect();
