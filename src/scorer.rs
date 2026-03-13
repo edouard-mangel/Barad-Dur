@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use crate::metrics::CategoryResult;
 use crate::snapshot::RepoSnapshot;
 
-/// Category weights for overall score computation.
+/// Default category weights for overall score computation.
+#[cfg(test)]
 const WEIGHTS: &[(&str, f64)] = &[
     ("Health", 0.30),
     ("Team", 0.30),
@@ -333,6 +334,7 @@ pub fn compute_overall_score_with_weights(
     }
 }
 
+#[cfg(test)]
 fn compute_overall_score(categories: &[CategoryResult]) -> u32 {
     compute_overall_score_with_weights(categories, WEIGHTS)
 }
