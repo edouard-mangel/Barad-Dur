@@ -130,10 +130,19 @@ fn run_analyze(mut args: AnalyzeArgs) -> Result<()> {
 
     // Score
     let t = std::time::Instant::now();
-    let report = scorer::build_report(&snapshot, categories, remote_meta);
+    let mut report = scorer::build_report(&snapshot, categories, remote_meta);
     if args.verbose > 0 {
         eprintln!("  Scoring: {}ms", t.elapsed().as_millis());
     }
+
+    // Record history entry (deduplicated by HEAD)
+    let history_entry = scorer::build_history_entry(&report, &current_head);
+    if let Err(e) = cache::history::append_if_new_head(&history_entry, &local_path) {
+        eprintln!("Warning: Failed to record history: {}", e);
+    }
+
+    // Load history for report (used by HTML Trends tab)
+    report.history = cache::history::load_history(&local_path).unwrap_or_default();
 
     // Render
     let t = std::time::Instant::now();
