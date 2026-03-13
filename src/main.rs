@@ -293,7 +293,8 @@ fn collect_and_cache(
     skip_blame: bool,
     no_cache: bool,
 ) -> Result<RepoSnapshot> {
-    let snapshot = collector.collect_snapshot_verbose(show_progress, verbose, skip_blame, no_cache)?;
+    let snapshot =
+        collector.collect_snapshot_verbose(show_progress, verbose, skip_blame, no_cache)?;
     if let Err(e) = cache::save(&snapshot, collector.repo_path()) {
         eprintln!("Warning: Failed to save cache: {}", e);
     }

@@ -105,7 +105,10 @@ impl Collector {
         authors: &[Author],
         cache: &crate::cache::blame::BlameCache,
         progress: &dyn Progress,
-    ) -> Result<(HashMap<PathBuf, Vec<BlameLine>>, crate::cache::blame::BlameCache)> {
+    ) -> Result<(
+        HashMap<PathBuf, Vec<BlameLine>>,
+        crate::cache::blame::BlameCache,
+    )> {
         gitcli::collect_blame_cached(self.repo_path(), files, authors, cache, progress)
     }
 

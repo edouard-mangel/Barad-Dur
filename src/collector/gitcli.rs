@@ -54,10 +54,7 @@ pub fn collect_blame_cached(
             let lines = if let Some(cached) = cache.entries.get(&f.blob_oid) {
                 cached.clone()
             } else {
-                match blame_file(repo_path, &f.path, &email_to_id) {
-                    Ok(lines) => lines,
-                    Err(_) => Vec::new(),
-                }
+                blame_file(repo_path, &f.path, &email_to_id).unwrap_or_default()
             };
             progress.inc(1);
             if lines.is_empty() {
