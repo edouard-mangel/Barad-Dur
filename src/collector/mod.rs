@@ -19,18 +19,51 @@ const DEFAULT_EXCLUDE_EXTENSIONS: &[&str] = &[
     "resx", "po", "pot", "xlf", "xliff", "strings", "arb", "lproj",
 ];
 
+/// Default path patterns excluded from analysis (tooling config, lockfiles).
+/// Lockfiles inflate churn/coupling metrics without reflecting real code changes.
+const DEFAULT_EXCLUDE_PATTERNS: &[&str] = &[
+    // Lockfiles
+    "pnpm-lock.yaml",
+    "package-lock.json",
+    "yarn.lock",
+    "Cargo.lock",
+    "Gemfile.lock",
+    "poetry.lock",
+    "composer.lock",
+    "go.sum",
+    "flake.lock",
+    // Tooling directories
+    ".claude/**",
+    ".cursor/**",
+    ".idea/**",
+    ".vscode/**",
+    // ORM migrations / generated schemas (auto-generated, inflate churn)
+    "**/Migrations/*.Designer.cs",
+    "**/Migrations/*ModelSnapshot.cs",
+    "**/migrations/*.py",
+    "db/schema.rb",
+    "prisma/migrations/**",
+    "alembic/versions/**",
+];
+
 /// Returns true if the file should be excluded based on the given glob patterns
 /// and (optionally) the built-in default extension list.
 pub fn is_excluded(path: &Path, patterns: &[String], use_defaults: bool) -> bool {
     let path_str = path.to_string_lossy();
 
-    // Check built-in defaults (by extension)
+    // Check built-in defaults (by extension and path pattern)
     if use_defaults {
         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
             let ext_lower = ext.to_lowercase();
             if DEFAULT_EXCLUDE_EXTENSIONS.iter().any(|&e| e == ext_lower) {
                 return true;
             }
+        }
+        if DEFAULT_EXCLUDE_PATTERNS
+            .iter()
+            .any(|p| glob_match::glob_match(p, &path_str))
+        {
+            return true;
         }
     }
 
@@ -496,5 +529,58 @@ mod tests {
     fn is_excluded_case_insensitive_extension() {
         assert!(is_excluded(Path::new("Strings.RESX"), &[], true));
         assert!(is_excluded(Path::new("lang.Resx"), &[], true));
+    }
+
+    #[test]
+    fn is_excluded_matches_default_lockfiles() {
+        assert!(is_excluded(Path::new("pnpm-lock.yaml"), &[], true));
+        assert!(is_excluded(Path::new("package-lock.json"), &[], true));
+        assert!(is_excluded(Path::new("yarn.lock"), &[], true));
+        assert!(is_excluded(Path::new("Cargo.lock"), &[], true));
+        assert!(is_excluded(Path::new("go.sum"), &[], true));
+        assert!(is_excluded(Path::new("poetry.lock"), &[], true));
+        // Not excluded when defaults disabled
+        assert!(!is_excluded(Path::new("pnpm-lock.yaml"), &[], false));
+    }
+
+    #[test]
+    fn is_excluded_matches_orm_generated_files() {
+        // EF Core
+        assert!(is_excluded(
+            Path::new("Data/Migrations/20240101_Init.Designer.cs"),
+            &[],
+            true
+        ));
+        assert!(is_excluded(
+            Path::new("Data/Migrations/AppDbContextModelSnapshot.cs"),
+            &[],
+            true
+        ));
+        // Django
+        assert!(is_excluded(
+            Path::new("myapp/migrations/0001_initial.py"),
+            &[],
+            true
+        ));
+        // Rails
+        assert!(is_excluded(Path::new("db/schema.rb"), &[], true));
+        // Prisma
+        assert!(is_excluded(
+            Path::new("prisma/migrations/20240101/migration.sql"),
+            &[],
+            true
+        ));
+        // Regular source should not match
+        assert!(!is_excluded(Path::new("src/Models/User.cs"), &[], true));
+    }
+
+    #[test]
+    fn is_excluded_matches_default_tooling_dirs() {
+        assert!(is_excluded(Path::new(".claude/settings.json"), &[], true));
+        assert!(is_excluded(Path::new(".cursor/rules/my-rule"), &[], true));
+        assert!(is_excluded(Path::new(".idea/workspace.xml"), &[], true));
+        assert!(is_excluded(Path::new(".vscode/settings.json"), &[], true));
+        // Not excluded when defaults disabled
+        assert!(!is_excluded(Path::new(".claude/settings.json"), &[], false));
     }
 }
