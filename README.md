@@ -87,6 +87,38 @@ cargo build --release
 
 The binary is at `target/release/barad-dur`.
 
+### Docker
+
+Build a minimal (~31MB) container image from scratch:
+
+```bash
+docker build -t barad-dur .
+```
+
+Run it by mounting a repository into `/repo`:
+
+```bash
+docker run --rm -v /path/to/repo:/repo barad-dur                          # CLI summary
+docker run --rm -v /path/to/repo:/repo barad-dur analyze . -v             # verbose
+docker run --rm -v /path/to/repo:/repo barad-dur analyze . --json         # JSON
+docker run --rm -v /path/to/repo:/repo -v $(pwd):/output \
+  barad-dur analyze . --html -o /output/report.html                       # HTML report
+```
+
+#### Distributing as a tarball
+
+Export the image for sharing without a registry:
+
+```bash
+docker save barad-dur:latest | gzip > barad-dur.tar.gz
+```
+
+Load it on another machine:
+
+```bash
+docker load < barad-dur.tar.gz
+```
+
 ## Usage
 
 ```bash
