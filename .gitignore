@@ -5,3 +5,6 @@ dashboard/node_modules/
 dashboard/dist/
 .playwright-mcp/
 *.png
+*.tar.gz
+report.html
+results_init.txt

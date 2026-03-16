@@ -1,0 +1,13 @@
+target/
+.ncrunch/
+.git/
+.claude/
+.github/
+dashboard/
+docs/
+tests/
+other/
+*.png
+*.html
+*.md
+*.tar.gz
