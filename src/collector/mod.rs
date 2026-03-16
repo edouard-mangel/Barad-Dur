@@ -307,13 +307,29 @@ impl Collector {
         }
 
         // Phase 3: blame (slow — real progress bar, skippable, with per-blob cache)
-        let non_binary: u64 = files.iter().filter(|f| !f.is_binary).count() as u64;
+        //
+        // Selective blame: only blame files modified in the time window.
+        // Files untouched in the window don't affect churn, coupling, or recent
+        // ownership metrics. For bus factor / knowledge distribution the cached
+        // blame from previous runs covers the rest.
+        let changed_paths: std::collections::HashSet<PathBuf> = collection
+            .commits
+            .iter()
+            .flat_map(|c| c.files_changed.iter().map(|fc| fc.path.clone()))
+            .collect();
+        let blame_files: Vec<FileEntry> = files
+            .iter()
+            .filter(|f| !f.is_binary && changed_paths.contains(&f.path))
+            .cloned()
+            .collect();
+        let non_binary_changed: u64 = blame_files.len() as u64;
+        let non_binary_total: u64 = files.iter().filter(|f| !f.is_binary).count() as u64;
         let t = Instant::now();
         let blame_map = if skip_blame {
             if show_progress {
                 eprintln!(
                     "  Skipping blame ({} files) — use without --skip-blame for full analysis",
-                    non_binary
+                    non_binary_total
                 );
             }
             HashMap::new()
@@ -323,18 +339,24 @@ impl Collector {
             } else {
                 crate::cache::blame::load(self.repo_path()).unwrap_or_default()
             };
-            let cached_count = files
+            if show_progress && non_binary_changed < non_binary_total {
+                eprintln!(
+                    "  Selective blame: {}/{} files changed in window",
+                    non_binary_changed, non_binary_total
+                );
+            }
+            let cached_count = blame_files
                 .iter()
-                .filter(|f| !f.is_binary && blame_cache.entries.contains_key(&f.blob_oid))
+                .filter(|f| blame_cache.entries.contains_key(&f.blob_oid))
                 .count();
             if show_progress && cached_count > 0 {
                 eprintln!(
                     "  Blame cache: {}/{} files cached",
-                    cached_count, non_binary
+                    cached_count, non_binary_changed
                 );
             }
             let blame_bar = if show_progress {
-                let pb = ProgressBar::new(non_binary);
+                let pb = ProgressBar::new(non_binary_changed);
                 pb.set_style(bar_style.clone());
                 pb.set_message("Blaming files");
                 pb.enable_steady_tick(std::time::Duration::from_millis(80));
@@ -347,7 +369,7 @@ impl Collector {
                 None => &NoProgress,
             };
             let (map, mut updated_cache) = self.collect_blame_cached(
-                &files,
+                &blame_files,
                 &collection.authors,
                 &blame_cache,
                 blame_progress,
@@ -369,7 +391,7 @@ impl Collector {
 
         // Phase 4: complexity (can be slow on large repos — progress bar)
         let complexity_bar = if show_progress {
-            let pb = ProgressBar::new(non_binary);
+            let pb = ProgressBar::new(non_binary_total);
             pb.set_style(bar_style);
             pb.set_message("Analysing complexity");
             pb.enable_steady_tick(std::time::Duration::from_millis(80));
