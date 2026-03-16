@@ -1,10 +1,20 @@
 target/
 .ncrunch/
-other
-dashboard/node_modules/
-dashboard/dist/
+.claude/
 .playwright-mcp/
+other
+
+# Generated artifacts
 *.png
 *.tar.gz
 report.html
 results_init.txt
+
+# JS lockfiles
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# Dashboard
+dashboard/node_modules/
+dashboard/dist/
