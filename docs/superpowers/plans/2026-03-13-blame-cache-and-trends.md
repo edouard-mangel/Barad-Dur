@@ -132,7 +132,7 @@ use serde::{Deserialize, Serialize};
 use crate::snapshot::BlameLine;
 
 /// Content-addressed blame cache: blob OID to blame lines.
-/// Lives in `.ncrunch/blame_cache.bin`, independent of the snapshot cache.
+/// Lives in `.repository-analysis/blame_cache.bin`, independent of the snapshot cache.
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct BlameCache {
     pub entries: HashMap<String, Vec<BlameLine>>,
@@ -473,7 +473,7 @@ time barad-dur analyze . --no-cache --html -o /tmp/fw-cached1.html -v
 ```
 
 Expected: approx 90s (full blame, but blame cache now saved).
-Verify: `.ncrunch/blame_cache.bin` exists.
+Verify: `.repository-analysis/blame_cache.bin` exists.
 
 - [ ] **Step 3: Second run (should use blame cache)**
 

@@ -32,13 +32,13 @@ pub struct Cli {
 pub enum Commands {
     /// Analyze a git repository
     Analyze(AnalyzeArgs),
-    /// Generate a .ncrunch/barad-dur.toml configuration file
+    /// Generate a .repository-analysis/barad-dur.toml configuration file
     Init(InitArgs),
 }
 
 #[derive(clap::Args, Debug)]
 #[command(
-    about = "Generate a .ncrunch/barad-dur.toml config file with smart defaults",
+    about = "Generate a .repository-analysis/barad-dur.toml config file with smart defaults",
     long_about = "Scans the repository to detect translation files, generated code, \
         vendored dependencies, and team patterns, then generates a commented config file \
         with recommended settings.\n\n\

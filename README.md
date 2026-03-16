@@ -173,7 +173,7 @@ When a `--token` is provided and the target is a GitHub URL, the report is enric
 
 ### Operational notes
 
-- **Cache**: Snapshots are cached at `.ncrunch/snapshot.bin` (auto-added to `.gitignore`). Subsequent runs are instant if HEAD hasn't changed. Use `--no-cache` to force re-collection, `--cache-only` to fail if no cache exists.
+- **Cache**: Snapshots are cached at `.repository-analysis/snapshot.bin` (auto-added to `.gitignore`). Subsequent runs are instant if HEAD hasn't changed. Use `--no-cache` to force re-collection, `--cache-only` to fail if no cache exists.
 - **Progress**: In interactive mode (non-JSON, non-HTML), a progress spinner shows collection stages (commits, file tree, blame, complexity, indexes).
 - **Shallow clones**: Detected automatically with a warning. For accurate CI/CD results, ensure a full clone (`GIT_DEPTH=0` in GitLab CI).
 

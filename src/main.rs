@@ -64,7 +64,7 @@ fn run_analyze(args: AnalyzeArgs) -> Result<()> {
         (PathBuf::from(&args.target), None)
     };
 
-    // Load and merge config (.ncrunch/barad-dur.toml + CLI flags)
+    // Load and merge config (.repository-analysis/barad-dur.toml + CLI flags)
     let cfg = config::load(&local_path)?;
     let cfg = config::merge_with_cli(cfg, &args);
     config::validate(&cfg)?;

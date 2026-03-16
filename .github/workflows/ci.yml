@@ -66,8 +66,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            .ncrunch/blame_cache.bin
-            .ncrunch/history.json
+            .repository-analysis/blame_cache.bin
+            .repository-analysis/history.json
           key: barad-dur-analysis
           restore-keys: |
             barad-dur-analysis

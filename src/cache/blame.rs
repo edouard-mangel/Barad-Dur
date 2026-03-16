@@ -11,7 +11,7 @@ use super::storage::CACHE_DIR;
 const BLAME_CACHE_FILE: &str = "blame_cache.bin";
 
 /// Content-addressed blame cache: blob OID → blame lines.
-/// Lives in `.ncrunch/blame_cache.bin`, independent of the snapshot cache.
+/// Lives in `.repository-analysis/blame_cache.bin`, independent of the snapshot cache.
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct BlameCache {
     pub entries: HashMap<String, Vec<BlameLine>>,

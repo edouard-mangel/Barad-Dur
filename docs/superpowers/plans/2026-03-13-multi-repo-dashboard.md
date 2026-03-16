@@ -4,7 +4,7 @@
 
 **Goal:** Add a `dashboard` subcommand that aggregates reports from multiple repositories into a single HTML comparison view, letting teams see health across all their services at a glance.
 
-**Architecture:** New `Dashboard` variant in `Commands` enum, a `src/dashboard.rs` module for aggregation logic, and a `src/renderer/dashboard_html.rs` for the self-contained HTML template. Reads existing `.ncrunch/history.json` from each repo (no re-analysis needed). Can also accept JSON report files as input.
+**Architecture:** New `Dashboard` variant in `Commands` enum, a `src/dashboard.rs` module for aggregation logic, and a `src/renderer/dashboard_html.rs` for the self-contained HTML template. Reads existing `.repository-analysis/history.json` from each repo (no re-analysis needed). Can also accept JSON report files as input.
 
 **Tech Stack:** Rust, clap (CLI args), serde/serde_json (data model), chrono (timestamps), vanilla JS/CSS (HTML template)
 
@@ -106,7 +106,7 @@ In `src/cli.rs`, add the `Dashboard` variant to the `Commands` enum:
 pub enum Commands {
     /// Analyze a git repository
     Analyze(AnalyzeArgs),
-    /// Generate a .ncrunch/barad-dur.toml configuration file
+    /// Generate a .repository-analysis/barad-dur.toml configuration file
     Init(InitArgs),
     /// Aggregate reports from multiple repositories into a comparison dashboard
     Dashboard(DashboardArgs),
@@ -119,7 +119,7 @@ Add the `DashboardArgs` struct after `InitArgs`:
 #[derive(clap::Args, Debug)]
 #[command(
     about = "Aggregate multi-repo reports into a comparison dashboard",
-    long_about = "Reads .ncrunch/history.json from each target repository (or JSON report \
+    long_about = "Reads .repository-analysis/history.json from each target repository (or JSON report \
         files with --reports) and generates a single HTML page comparing health scores, \
         trends, and key metrics across all repositories.\n\n\
         No re-analysis is performed -- only existing cached data is used.",
@@ -332,7 +332,7 @@ mod tests {
     #[test]
     fn collect_from_repos_skips_missing_history() {
         let dir = tempfile::TempDir::new().unwrap();
-        // Create a dir with no .ncrunch/history.json
+        // Create a dir with no .repository-analysis/history.json
         let repo_dir = dir.path().join("empty-repo");
         std::fs::create_dir_all(&repo_dir).unwrap();
 
@@ -344,7 +344,7 @@ mod tests {
     fn collect_from_repos_loads_history() {
         let dir = tempfile::TempDir::new().unwrap();
         let repo_dir = dir.path().join("my-repo");
-        let cache_dir = repo_dir.join(".ncrunch");
+        let cache_dir = repo_dir.join(".repository-analysis");
         std::fs::create_dir_all(&cache_dir).unwrap();
 
         // Write a history entry
@@ -1287,12 +1287,12 @@ Expected: shows DashboardArgs with examples, `--reports`, `--json`, `--open`, `-
 
 - [ ] **Step 3: Run on repos with history data**
 
-First ensure at least 2 repos have `.ncrunch/history.json`:
+First ensure at least 2 repos have `.repository-analysis/history.json`:
 
 ```bash
 # Check which repos have history
-ls /home/edouard/WS/FW.All/repos/FW.Runtime/.ncrunch/history.json
-ls /home/edouard/WS/tool/myTool/.ncrunch/history.json
+ls /home/edouard/WS/FW.All/repos/FW.Runtime/.repository-analysis/history.json
+ls /home/edouard/WS/tool/myTool/.repository-analysis/history.json
 ```
 
 If a repo lacks history, run `barad-dur analyze .` in it first.

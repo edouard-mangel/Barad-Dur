@@ -190,7 +190,7 @@ pub struct Thresholds {
     pub hygiene: HygieneThresholds,
 }
 
-/// TOML file structure — maps 1:1 to the .ncrunch/barad-dur.toml sections.
+/// TOML file structure — maps 1:1 to the .repository-analysis/barad-dur.toml sections.
 #[derive(Debug, Clone, Deserialize, Default)]
 struct TomlConfig {
     #[serde(default)]
@@ -269,7 +269,7 @@ impl Default for RepoConfig {
     }
 }
 
-/// Load config from `.ncrunch/barad-dur.toml` if it exists.
+/// Load config from `.repository-analysis/barad-dur.toml` if it exists.
 /// Returns default config if the file is absent.
 pub fn load(repo_root: &Path) -> Result<RepoConfig> {
     let config_path = repo_root.join(CACHE_DIR).join(CONFIG_FILE);
@@ -403,7 +403,7 @@ mod tests {
     #[test]
     fn load_minimal_toml() {
         let dir = TempDir::new().unwrap();
-        let cache_dir = dir.path().join(".ncrunch");
+        let cache_dir = dir.path().join(".repository-analysis");
         fs::create_dir_all(&cache_dir).unwrap();
         fs::write(
             cache_dir.join("barad-dur.toml"),
@@ -418,7 +418,7 @@ mod tests {
     #[test]
     fn load_custom_weights() {
         let dir = TempDir::new().unwrap();
-        let cache_dir = dir.path().join(".ncrunch");
+        let cache_dir = dir.path().join(".repository-analysis");
         fs::create_dir_all(&cache_dir).unwrap();
         fs::write(
             cache_dir.join("barad-dur.toml"),
@@ -433,7 +433,7 @@ mod tests {
     #[test]
     fn load_exclude_patterns() {
         let dir = TempDir::new().unwrap();
-        let cache_dir = dir.path().join(".ncrunch");
+        let cache_dir = dir.path().join(".repository-analysis");
         fs::create_dir_all(&cache_dir).unwrap();
         fs::write(
             cache_dir.join("barad-dur.toml"),
@@ -448,7 +448,7 @@ mod tests {
     #[test]
     fn load_output_section() {
         let dir = TempDir::new().unwrap();
-        let cache_dir = dir.path().join(".ncrunch");
+        let cache_dir = dir.path().join(".repository-analysis");
         fs::create_dir_all(&cache_dir).unwrap();
         fs::write(
             cache_dir.join("barad-dur.toml"),
@@ -463,7 +463,7 @@ mod tests {
     #[test]
     fn load_thresholds() {
         let dir = TempDir::new().unwrap();
-        let cache_dir = dir.path().join(".ncrunch");
+        let cache_dir = dir.path().join(".repository-analysis");
         fs::create_dir_all(&cache_dir).unwrap();
         fs::write(
             cache_dir.join("barad-dur.toml"),
@@ -479,7 +479,7 @@ mod tests {
     #[test]
     fn load_bad_toml_returns_error() {
         let dir = TempDir::new().unwrap();
-        let cache_dir = dir.path().join(".ncrunch");
+        let cache_dir = dir.path().join(".repository-analysis");
         fs::create_dir_all(&cache_dir).unwrap();
         fs::write(cache_dir.join("barad-dur.toml"), "not valid toml [[[").unwrap();
         assert!(load(dir.path()).is_err());

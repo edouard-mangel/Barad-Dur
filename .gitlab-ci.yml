@@ -123,8 +123,8 @@ self-analysis:
         - target/
     - key: barad-dur-analysis
       paths:
-        - .ncrunch/blame_cache.bin
-        - .ncrunch/history.json
+        - .repository-analysis/blame_cache.bin
+        - .repository-analysis/history.json
   script:
     - ./target/release/barad-dur analyze . -v
     - ./target/release/barad-dur analyze . --json --pretty > barad-dur-report.json

@@ -49,7 +49,7 @@
 
 ## ADR-001.4: Bincode for Snapshot Cache
 
-**Decision:** Use `bincode` binary serialization for the snapshot cache stored at `.ncrunch/snapshot.bin`.
+**Decision:** Use `bincode` binary serialization for the snapshot cache stored at `.repository-analysis/snapshot.bin`.
 
 **Rationale:**
 - Much faster than JSON for large snapshots (commits × files × blame lines)

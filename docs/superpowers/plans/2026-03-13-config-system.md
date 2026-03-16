@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a `.ncrunch/barad-dur.toml` config file system with 3-layer merge (defaults -> TOML -> CLI), configurable weights/thresholds, and a `barad-dur init` scaffold/wizard command.
+**Goal:** Add a `.repository-analysis/barad-dur.toml` config file system with 3-layer merge (defaults -> TOML -> CLI), configurable weights/thresholds, and a `barad-dur init` scaffold/wizard command.
 
 **Architecture:** New `src/config.rs` module owns the `RepoConfig` struct, TOML loading, CLI merge, and validation. The `init` subcommand lives in `src/init.rs` with repo-scanning heuristics. Existing metric modules gain optional threshold parameters threaded from config.
 
@@ -195,7 +195,7 @@ pub struct Thresholds {
     pub hygiene: HygieneThresholds,
 }
 
-/// TOML file structure — maps 1:1 to the .ncrunch/barad-dur.toml sections.
+/// TOML file structure — maps 1:1 to the .repository-analysis/barad-dur.toml sections.
 #[derive(Debug, Clone, Deserialize, Default)]
 struct TomlConfig {
     #[serde(default)]
@@ -269,7 +269,7 @@ impl Default for RepoConfig {
     }
 }
 
-/// Load config from `.ncrunch/barad-dur.toml` if it exists.
+/// Load config from `.repository-analysis/barad-dur.toml` if it exists.
 /// Returns default config if the file is absent.
 pub fn load(repo_root: &Path) -> Result<RepoConfig> {
     let config_path = repo_root.join(CACHE_DIR).join(CONFIG_FILE);
@@ -361,7 +361,7 @@ mod tests {
     #[test]
     fn load_minimal_toml() {
         let dir = TempDir::new().unwrap();
-        let cache_dir = dir.path().join(".ncrunch");
+        let cache_dir = dir.path().join(".repository-analysis");
         fs::create_dir_all(&cache_dir).unwrap();
         fs::write(
             cache_dir.join("barad-dur.toml"),
@@ -376,7 +376,7 @@ mod tests {
     #[test]
     fn load_custom_weights() {
         let dir = TempDir::new().unwrap();
-        let cache_dir = dir.path().join(".ncrunch");
+        let cache_dir = dir.path().join(".repository-analysis");
         fs::create_dir_all(&cache_dir).unwrap();
         fs::write(
             cache_dir.join("barad-dur.toml"),
@@ -391,7 +391,7 @@ mod tests {
     #[test]
     fn load_exclude_patterns() {
         let dir = TempDir::new().unwrap();
-        let cache_dir = dir.path().join(".ncrunch");
+        let cache_dir = dir.path().join(".repository-analysis");
         fs::create_dir_all(&cache_dir).unwrap();
         fs::write(
             cache_dir.join("barad-dur.toml"),
@@ -406,7 +406,7 @@ mod tests {
     #[test]
     fn load_output_section() {
         let dir = TempDir::new().unwrap();
-        let cache_dir = dir.path().join(".ncrunch");
+        let cache_dir = dir.path().join(".repository-analysis");
         fs::create_dir_all(&cache_dir).unwrap();
         fs::write(
             cache_dir.join("barad-dur.toml"),
@@ -421,7 +421,7 @@ mod tests {
     #[test]
     fn load_thresholds() {
         let dir = TempDir::new().unwrap();
-        let cache_dir = dir.path().join(".ncrunch");
+        let cache_dir = dir.path().join(".repository-analysis");
         fs::create_dir_all(&cache_dir).unwrap();
         fs::write(
             cache_dir.join("barad-dur.toml"),
@@ -438,7 +438,7 @@ mod tests {
     #[test]
     fn load_bad_toml_returns_error() {
         let dir = TempDir::new().unwrap();
-        let cache_dir = dir.path().join(".ncrunch");
+        let cache_dir = dir.path().join(".repository-analysis");
         fs::create_dir_all(&cache_dir).unwrap();
         fs::write(cache_dir.join("barad-dur.toml"), "not valid toml [[[").unwrap();
         assert!(load(dir.path()).is_err());
@@ -630,7 +630,7 @@ git commit -m "feat(config): add merge_with_cli and Option<bool> CLI fields"
 In `run_analyze()`, after `local_path` is resolved but before `build_time_window`:
 
 ```rust
-// Load repo config (.ncrunch/barad-dur.toml)
+// Load repo config (.repository-analysis/barad-dur.toml)
 let config = barad_dur::config::load(&local_path)?;
 let config = barad_dur::config::merge_with_cli(config, &args);
 barad_dur::config::validate(&config)?;
@@ -921,13 +921,13 @@ git commit -m "feat(config): thread configurable thresholds into all metric modu
 pub enum Commands {
     /// Analyze a git repository
     Analyze(AnalyzeArgs),
-    /// Generate a .ncrunch/barad-dur.toml configuration file
+    /// Generate a .repository-analysis/barad-dur.toml configuration file
     Init(InitArgs),
 }
 
 #[derive(clap::Args, Debug)]
 #[command(
-    about = "Generate a .ncrunch/barad-dur.toml config file with smart defaults",
+    about = "Generate a .repository-analysis/barad-dur.toml config file with smart defaults",
     long_about = "Scans the repository to detect translation files, generated code, \
         vendored dependencies, and team patterns, then generates a commented config file \
         with recommended settings.\n\n\
@@ -1236,8 +1236,8 @@ Expected: all pass
 
 ```bash
 cargo run -- init .
-# Should generate .ncrunch/barad-dur.toml with detected patterns
-cat .ncrunch/barad-dur.toml
+# Should generate .repository-analysis/barad-dur.toml with detected patterns
+cat .repository-analysis/barad-dur.toml
 
 cargo run -- init .
 # Should error: "Config already exists"
@@ -1268,7 +1268,7 @@ git commit -m "feat(init): wire init subcommand into main"
 #[test]
 fn config_file_affects_analysis() {
     // 1. Create temp dir, init git repo
-    // 2. Write .ncrunch/barad-dur.toml with custom weights
+    // 2. Write .repository-analysis/barad-dur.toml with custom weights
     // 3. Run barad-dur analyze . --json
     // 4. Parse JSON, verify weights affected overall score
 }
@@ -1307,7 +1307,7 @@ Expected: output unchanged (generated config uses detected defaults).
 
 - [ ] **Step 3: Modify config and verify effect**
 
-Edit `.ncrunch/barad-dur.toml` to set `health = 90, team = 10, evolution = 0, hygiene = 0`, then:
+Edit `.repository-analysis/barad-dur.toml` to set `health = 90, team = 10, evolution = 0, hygiene = 0`, then:
 
 ```bash
 cargo run -- analyze . -v
@@ -1324,7 +1324,7 @@ Expected: CLI `--since` overrides TOML `since`.
 - [ ] **Step 5: Clean up and final commit**
 
 ```bash
-rm .ncrunch/barad-dur.toml  # Remove test config
+rm .repository-analysis/barad-dur.toml  # Remove test config
 git add -A
 git commit -m "feat(config): complete config system implementation"
 ```

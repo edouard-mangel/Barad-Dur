@@ -32,7 +32,7 @@ Populated in `collect_files` (libgit.rs) from `entry.id().to_string()`.
 
 ### Cache Format
 
-**File**: `.ncrunch/blame_cache.bin` (bincode-serialized)
+**File**: `.repository-analysis/blame_cache.bin` (bincode-serialized)
 
 **Structure**: `HashMap<String, Vec<BlameLine>>` where key = blob OID.
 
@@ -40,7 +40,7 @@ Separate from `snapshot.bin` — snapshot invalidation (HEAD change) does not de
 
 ### Collection Flow
 
-1. Load blame cache from `.ncrunch/blame_cache.bin` (or empty HashMap if missing/corrupt)
+1. Load blame cache from `.repository-analysis/blame_cache.bin` (or empty HashMap if missing/corrupt)
 2. For each non-binary file:
    - If `blob_oid` exists in cache → reuse cached blame lines
    - Otherwise → run `git blame --porcelain`, store result in cache
@@ -66,7 +66,7 @@ When `--skip-blame` is set, the blame cache is neither read nor written. The fla
 
 ### Storage
 
-**File**: `.ncrunch/history.json` (JSONL — one JSON object per line)
+**File**: `.repository-analysis/history.json` (JSONL — one JSON object per line)
 
 **Entry schema**:
 ```json
@@ -110,7 +110,7 @@ When `--skip-blame` is set, the blame cache is neither read nor written. The fla
 ### Recording Logic
 
 After scoring completes in `main.rs`:
-1. Read last line of `.ncrunch/history.json` (if exists)
+1. Read last line of `.repository-analysis/history.json` (if exists)
 2. If HEAD hash matches last entry → skip (no duplicate)
 3. Otherwise → append new JSONL line
 

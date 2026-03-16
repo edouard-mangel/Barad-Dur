@@ -5,7 +5,7 @@ use std::path::Path;
 
 use crate::snapshot::RepoSnapshot;
 
-pub const CACHE_DIR: &str = ".ncrunch";
+pub const CACHE_DIR: &str = ".repository-analysis";
 const CACHE_FILE: &str = "snapshot.bin";
 
 /// Save a snapshot to the cache directory.
@@ -36,10 +36,10 @@ pub fn load(repo_path: &Path) -> Result<Option<RepoSnapshot>> {
     }
 }
 
-/// Ensure .ncrunch/ is in .gitignore.
+/// Ensure .repository-analysis/ is in .gitignore.
 fn ensure_gitignore(repo_path: &Path) -> Result<()> {
     let gitignore_path = repo_path.join(".gitignore");
-    let entry = ".ncrunch/";
+    let entry = ".repository-analysis/";
 
     if gitignore_path.exists() {
         let content = fs::read_to_string(&gitignore_path)?;
@@ -119,7 +119,7 @@ mod tests {
         ensure_gitignore(dir.path()).unwrap();
 
         let content = fs::read_to_string(dir.path().join(".gitignore")).unwrap();
-        assert!(content.contains(".ncrunch/"));
+        assert!(content.contains(".repository-analysis/"));
     }
 
     #[test]
@@ -129,7 +129,7 @@ mod tests {
         ensure_gitignore(dir.path()).unwrap();
 
         let content = fs::read_to_string(dir.path().join(".gitignore")).unwrap();
-        let count = content.lines().filter(|l| l.trim() == ".ncrunch/").count();
-        assert_eq!(count, 1, "Should not duplicate .ncrunch/ entry");
+        let count = content.lines().filter(|l| l.trim() == ".repository-analysis/").count();
+        assert_eq!(count, 1, "Should not duplicate .repository-analysis/ entry");
     }
 }

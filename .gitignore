@@ -1,4 +1,5 @@
 target/
+.repository-analysis/
 .ncrunch/
 .claude/
 .playwright-mcp/
