@@ -129,7 +129,10 @@ mod tests {
         ensure_gitignore(dir.path()).unwrap();
 
         let content = fs::read_to_string(dir.path().join(".gitignore")).unwrap();
-        let count = content.lines().filter(|l| l.trim() == ".repository-analysis/").count();
+        let count = content
+            .lines()
+            .filter(|l| l.trim() == ".repository-analysis/")
+            .count();
         assert_eq!(count, 1, "Should not duplicate .repository-analysis/ entry");
     }
 }
