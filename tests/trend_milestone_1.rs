@@ -227,7 +227,6 @@ fn ac_01_5_no_cache_flag_still_records_trend() {
 // on slow CI machines; the design constraint is "no new git calls".
 // ---------------------------------------------------------------------------
 #[test]
-#[ignore]
 fn ac_01_6_trend_recording_overhead_under_500ms() {
     use std::time::Instant;
 
