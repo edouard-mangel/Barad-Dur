@@ -314,7 +314,6 @@ fn ac_02_1_delta_shown_inline_with_overall_score() {
 // Then each category row shows its numeric delta
 // ---------------------------------------------------------------------------
 #[test]
-#[ignore]
 fn ac_02_2_per_category_deltas_shown() {
     let dir = TempDir::new().unwrap();
     let repo_path = dir.path();

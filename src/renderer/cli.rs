@@ -104,12 +104,28 @@ pub fn render(report: &AnalysisReport, verbosity: u8, trend: Option<&TrendSummar
         "───────────────────────────────────────────────────".dimmed()
     ));
 
+    let category_deltas = trend
+        .filter(|t| !t.delta.is_first)
+        .map(|t| &t.delta.categories);
+
     for cat in &report.categories {
+        let delta_suffix = category_deltas
+            .and_then(|deltas| deltas.get(&cat.name))
+            .map(|&d| {
+                if d >= 0 {
+                    format!("  (+{})", d)
+                } else {
+                    format!("  ({})", d)
+                }
+            })
+            .unwrap_or_default();
+
         out.push_str(&format!(
-            "\n  {} {} {}\n",
+            "\n  {} {} {}{}\n",
             format!("▸ {}", cat.name).bold(),
             format_score_bar(cat.score, 12),
-            format_score_number(cat.score)
+            format_score_number(cat.score),
+            delta_suffix.dimmed()
         ));
 
         if verbosity > 0 {
@@ -313,5 +329,80 @@ mod tests {
         let report = make_report();
         let output = render(&report, 0, None);
         assert!(output.contains("Top Actions"));
+    }
+
+    #[test]
+    fn render_category_row_includes_delta_on_subsequent_run() {
+        let report = make_report(); // Has "Health" category at score 72
+        let mut category_deltas = HashMap::new();
+        category_deltas.insert("Health".to_string(), 3_i32);
+        let trend = TrendSummary {
+            delta: TrendDelta { overall: 3, categories: category_deltas, is_first: false },
+            sparkline: vec![],
+            velocity: Some(TrendVelocity {
+                direction: VelocityDirection::Improving,
+                points_per_run: 3.0,
+                window_size: 2,
+            }),
+            branch_mismatch_warning: false,
+            history: vec![],
+        };
+        let output = render(&report, 0, Some(&trend));
+
+        // The Health category row must contain the delta marker "+3"
+        let health_line = output
+            .lines()
+            .find(|l| l.contains("Health"))
+            .unwrap_or("");
+        assert!(
+            health_line.contains("+3"),
+            "Health category row should show delta '+3', got: {health_line:?}"
+        );
+    }
+
+    #[test]
+    fn render_category_row_shows_negative_delta() {
+        let report = make_report(); // Has "Health" category at score 72
+        let mut category_deltas = HashMap::new();
+        category_deltas.insert("Health".to_string(), -5_i32);
+        let trend = TrendSummary {
+            delta: TrendDelta { overall: -5, categories: category_deltas, is_first: false },
+            sparkline: vec![],
+            velocity: Some(TrendVelocity {
+                direction: VelocityDirection::Declining,
+                points_per_run: -5.0,
+                window_size: 2,
+            }),
+            branch_mismatch_warning: false,
+            history: vec![],
+        };
+        let output = render(&report, 0, Some(&trend));
+
+        let health_line = output
+            .lines()
+            .find(|l| l.contains("Health"))
+            .unwrap_or("");
+        assert!(
+            health_line.contains("-5"),
+            "Health category row should show delta '-5', got: {health_line:?}"
+        );
+    }
+
+    #[test]
+    fn render_category_row_no_delta_on_first_run() {
+        let report = make_report();
+        let trend = make_first_run_trend();
+        let output = render(&report, 0, Some(&trend));
+
+        // On first run, category rows should NOT have delta markers
+        let health_line = output
+            .lines()
+            .find(|l| l.contains("Health"))
+            .unwrap_or("");
+        // No (+N) or (-N) pattern should appear on the category line for a first run
+        assert!(
+            !health_line.contains("(+") && !health_line.contains("(-"),
+            "Health category row should not show delta on first run, got: {health_line:?}"
+        );
     }
 }
