@@ -532,7 +532,6 @@ fn ac_02_5_output_score_format_unchanged_for_script_compatibility() {
 // And trend.direction is one of "improving", "declining", "stable"
 // ---------------------------------------------------------------------------
 #[test]
-#[ignore]
 fn ac_04_1_json_trend_flag_outputs_trend_key_with_required_fields() {
     let dir = TempDir::new().unwrap();
     let repo_path = dir.path();

@@ -193,4 +193,101 @@ mod tests {
             "trend.schema_version should be 1"
         );
     }
+
+    #[test]
+    fn json_render_trend_snapshots_have_required_fields() {
+        use crate::scorer::HistoryEntry;
+        use crate::trend::{TrendDelta, TrendSummary};
+        use std::collections::HashMap;
+
+        let report = make_report();
+
+        let mut categories = HashMap::new();
+        categories.insert("Health".to_string(), 30u32);
+        categories.insert("Team".to_string(), 18u32);
+        categories.insert("Evolution".to_string(), 14u32);
+        categories.insert("Git Hygiene".to_string(), 10u32);
+
+        let entry = HistoryEntry {
+            timestamp: chrono::DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+            head: "abc1234def5678901234567890abcdef12345678".to_string(),
+            overall_score: 72,
+            categories,
+            metrics: HashMap::new(),
+            counts: crate::scorer::HistoryCounts::default(),
+            branch: "main".to_string(),
+            schema_version: 1,
+        };
+
+        let summary = TrendSummary {
+            delta: TrendDelta {
+                overall: 0,
+                categories: HashMap::new(),
+                is_first: true,
+            },
+            sparkline: vec![],
+            velocity: None,
+            branch_mismatch_warning: false,
+            history: vec![entry],
+        };
+
+        let output = render(&report, false, Some(&summary)).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+        let trend = parsed.get("trend").expect("trend key must be present");
+        let snapshots = trend["snapshots"]
+            .as_array()
+            .expect("trend.snapshots should be an array");
+        assert_eq!(snapshots.len(), 1, "should have exactly 1 snapshot");
+
+        let snap = &snapshots[0];
+        assert!(
+            snap["timestamp"].is_string(),
+            "snapshot.timestamp should be a string"
+        );
+        let ts = snap["timestamp"].as_str().unwrap();
+        assert!(
+            ts.ends_with('Z') || ts.contains('+'),
+            "snapshot.timestamp should be ISO8601 UTC, got: {ts}"
+        );
+        assert!(
+            snap["commit"].is_string(),
+            "snapshot.commit should be a string (mapped from head)"
+        );
+        assert_eq!(
+            snap["commit"].as_str().unwrap(),
+            "abc1234def5678901234567890abcdef12345678",
+            "snapshot.commit should contain the full SHA"
+        );
+        assert!(
+            snap["branch"].is_string(),
+            "snapshot.branch should be a string"
+        );
+        assert_eq!(
+            snap["branch"].as_str().unwrap(),
+            "main",
+            "snapshot.branch should match entry branch"
+        );
+        assert!(
+            snap["overall_score"].is_number(),
+            "snapshot.overall_score should be a number"
+        );
+        assert_eq!(
+            snap["overall_score"].as_u64().unwrap(),
+            72,
+            "snapshot.overall_score should match entry value"
+        );
+
+        let cat = snap["category_scores"]
+            .as_object()
+            .expect("snapshot.category_scores should be an object");
+        for key in &["Health", "Team", "Evolution", "Git Hygiene"] {
+            assert!(
+                cat.contains_key(*key),
+                "snapshot.category_scores should contain key '{key}'"
+            );
+        }
+    }
 }
