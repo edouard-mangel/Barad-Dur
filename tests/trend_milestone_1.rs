@@ -279,7 +279,6 @@ fn ac_01_6_trend_recording_overhead_under_500ms() {
 // Then the output contains the overall score with a delta marker ("vs last run")
 // ---------------------------------------------------------------------------
 #[test]
-#[ignore]
 fn ac_02_1_delta_shown_inline_with_overall_score() {
     let dir = TempDir::new().unwrap();
     let repo_path = dir.path();
