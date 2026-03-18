@@ -1,18 +1,80 @@
 use anyhow::Result;
+use serde_json::{json, Value};
 
 use crate::scorer::AnalysisReport;
 use crate::trend::TrendSummary;
 
 /// Render the analysis report as JSON.
 ///
-/// `_trend` is accepted for API symmetry with the CLI renderer but is not yet
-/// serialised into the JSON output — that is step 03-04.
-pub fn render(report: &AnalysisReport, pretty: bool, _trend: Option<&TrendSummary>) -> Result<String> {
-    if pretty {
-        Ok(serde_json::to_string_pretty(report)?)
-    } else {
-        Ok(serde_json::to_string(report)?)
+/// When `trend` is `Some(summary)`, injects a top-level "trend" object into the
+/// JSON output. When `None`, the output is structurally identical to pre-trend
+/// runs (no "trend" key).
+pub fn render(report: &AnalysisReport, pretty: bool, trend: Option<&TrendSummary>) -> Result<String> {
+    let mut value: Value = serde_json::to_value(report)?;
+
+    if let Some(summary) = trend {
+        let trend_object = build_trend_object(summary);
+        if let Value::Object(ref mut map) = value {
+            map.insert("trend".to_string(), trend_object);
+        }
     }
+
+    if pretty {
+        Ok(serde_json::to_string_pretty(&value)?)
+    } else {
+        Ok(serde_json::to_string(&value)?)
+    }
+}
+
+fn build_trend_object(summary: &TrendSummary) -> Value {
+    let velocity_per_week = match &summary.velocity {
+        None => Value::Null,
+        Some(v) => json!(v.points_per_run),
+    };
+
+    let direction = match &summary.velocity {
+        None => "stable",
+        Some(v) => match v.direction {
+            crate::trend::VelocityDirection::Improving => "improving",
+            crate::trend::VelocityDirection::Declining => "declining",
+            crate::trend::VelocityDirection::Stable => "stable",
+        },
+    };
+
+    let delta_vs_last = if summary.delta.is_first {
+        Value::Null
+    } else {
+        json!(summary.delta.overall)
+    };
+
+    let delta_vs_oldest = if summary.delta.is_first {
+        Value::Null
+    } else {
+        json!(summary.delta.overall)
+    };
+
+    let snapshots: Vec<Value> = summary
+        .history
+        .iter()
+        .map(|entry| {
+            json!({
+                "timestamp": entry.timestamp.to_rfc3339(),
+                "commit": entry.head,
+                "branch": entry.branch,
+                "overall_score": entry.overall_score,
+                "category_scores": entry.categories,
+            })
+        })
+        .collect();
+
+    json!({
+        "schema_version": 1,
+        "direction": direction,
+        "delta_vs_last": delta_vs_last,
+        "delta_vs_oldest": delta_vs_oldest,
+        "velocity_per_week": velocity_per_week,
+        "snapshots": snapshots,
+    })
 }
 
 #[cfg(test)]
@@ -91,6 +153,44 @@ mod tests {
         assert!(
             !output.contains("\"trend\""),
             "JSON output should not contain 'trend' key when trend_data is None"
+        );
+    }
+
+    #[test]
+    fn json_render_with_trend_first_run_has_null_velocity() {
+        use crate::trend::{TrendDelta, TrendSummary};
+        use std::collections::HashMap;
+
+        let report = make_report();
+        let summary = TrendSummary {
+            delta: TrendDelta {
+                overall: 0,
+                categories: HashMap::new(),
+                is_first: true,
+            },
+            sparkline: vec![],
+            velocity: None,
+            branch_mismatch_warning: false,
+            history: vec![],
+        };
+
+        let output = render(&report, false, Some(&summary)).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+        let trend = parsed.get("trend").expect("trend key must be present when Some(summary) is passed");
+        assert!(
+            trend.as_object().unwrap().contains_key("velocity_per_week"),
+            "trend.velocity_per_week key must be present (as null)"
+        );
+        assert!(
+            trend["velocity_per_week"].is_null(),
+            "trend.velocity_per_week should be JSON null when velocity is None, got: {}",
+            trend["velocity_per_week"]
+        );
+        assert_eq!(
+            trend["schema_version"].as_i64().unwrap(),
+            1,
+            "trend.schema_version should be 1"
         );
     }
 }

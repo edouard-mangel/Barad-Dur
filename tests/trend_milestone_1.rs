@@ -749,7 +749,6 @@ fn ac_04_2_json_without_trend_flag_is_structurally_unchanged() {
 // Then trend.velocity_per_week is JSON null, not absent
 // ---------------------------------------------------------------------------
 #[test]
-#[ignore]
 fn ac_04_5_velocity_is_null_when_fewer_than_2_prior_snapshots() {
     let dir = TempDir::new().unwrap();
     let repo_path = dir.path();
