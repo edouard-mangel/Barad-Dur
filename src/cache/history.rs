@@ -5,7 +5,7 @@ use std::path::Path;
 use crate::cache::storage::CACHE_DIR;
 use crate::scorer::HistoryEntry;
 
-const HISTORY_FILE: &str = "history.json";
+const HISTORY_FILE: &str = "trends.json";
 
 pub fn load_history(repo_path: &Path) -> Result<Vec<HistoryEntry>> {
     let path = repo_path.join(CACHE_DIR).join(HISTORY_FILE);
@@ -72,6 +72,8 @@ mod tests {
                 files: 50,
                 authors: 3,
             },
+            branch: String::new(),
+            schema_version: 1,
         }
     }
 

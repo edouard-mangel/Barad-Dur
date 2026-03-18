@@ -3,7 +3,10 @@ use colored::Colorize;
 use crate::scorer::AnalysisReport;
 
 /// Render the analysis report as a colored CLI string.
-pub fn render(report: &AnalysisReport, verbosity: u8) -> String {
+///
+/// `prior_history_count` is the number of history entries that existed *before*
+/// the current run was appended. When it is zero the tool emits a first-run notice.
+pub fn render(report: &AnalysisReport, verbosity: u8, prior_history_count: usize) -> String {
     let mut out = String::new();
 
     // Header
@@ -51,6 +54,14 @@ pub fn render(report: &AnalysisReport, verbosity: u8) -> String {
                 out.push_str(&format!("  {}\n", desc.dimmed()));
             }
         }
+    }
+
+    // First-run notice
+    if prior_history_count == 0 {
+        out.push_str(&format!(
+            "  {}\n",
+            "Trend: first snapshot recorded".dimmed()
+        ));
     }
 
     // Overall score
@@ -188,14 +199,14 @@ mod tests {
     #[test]
     fn render_contains_header() {
         let report = make_report();
-        let output = render(&report, 0);
+        let output = render(&report, 0, 1);
         assert!(output.contains("Barad-dur"));
     }
 
     #[test]
     fn render_contains_repo_info() {
         let report = make_report();
-        let output = render(&report, 0);
+        let output = render(&report, 0, 1);
         assert!(output.contains("test-repo"));
         assert!(output.contains("main"));
     }
@@ -203,14 +214,14 @@ mod tests {
     #[test]
     fn render_contains_category() {
         let report = make_report();
-        let output = render(&report, 0);
+        let output = render(&report, 0, 1);
         assert!(output.contains("Health"));
     }
 
     #[test]
     fn render_verbose_shows_metrics() {
         let report = make_report();
-        let output = render(&report, 1);
+        let output = render(&report, 1, 1);
         assert!(output.contains("Bus factor"));
         assert!(output.contains("50/100"));
     }
@@ -218,15 +229,35 @@ mod tests {
     #[test]
     fn render_very_verbose_shows_raw_value() {
         let report = make_report();
-        let output = render(&report, 2);
+        let output = render(&report, 2, 1);
         assert!(output.contains("value:"));
         assert!(output.contains('2'));
     }
 
     #[test]
+    fn render_first_run_shows_trend_notice() {
+        let report = make_report();
+        let output = render(&report, 0, 0);
+        assert!(
+            output.contains("Trend: first snapshot recorded"),
+            "first run should show trend notice"
+        );
+    }
+
+    #[test]
+    fn render_subsequent_run_no_trend_notice() {
+        let report = make_report();
+        let output = render(&report, 0, 1);
+        assert!(
+            !output.contains("Trend: first snapshot recorded"),
+            "subsequent run should not show first-run trend notice"
+        );
+    }
+
+    #[test]
     fn render_contains_actions() {
         let report = make_report();
-        let output = render(&report, 0);
+        let output = render(&report, 0, 1);
         assert!(output.contains("Top Actions"));
     }
 }

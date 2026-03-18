@@ -92,11 +92,17 @@ pub struct HistoryCounts {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryEntry {
     pub timestamp: chrono::DateTime<chrono::Utc>,
+    #[serde(rename = "commit", alias = "head")]
     pub head: String,
     pub overall_score: u32,
+    #[serde(rename = "category_scores", alias = "categories")]
     pub categories: HashMap<String, u32>,
     pub metrics: HashMap<String, u32>,
     pub counts: HistoryCounts,
+    #[serde(default)]
+    pub branch: String,
+    #[serde(default)]
+    pub schema_version: u32,
 }
 
 pub fn build_history_entry(report: &AnalysisReport, head: &str) -> HistoryEntry {
@@ -121,6 +127,8 @@ pub fn build_history_entry(report: &AnalysisReport, head: &str) -> HistoryEntry 
             files: report.total_files,
             authors: report.total_authors,
         },
+        branch: report.branch.clone(),
+        schema_version: 1,
     }
 }
 
@@ -634,6 +642,18 @@ mod tests {
         let ages = build_file_ages(&snapshot);
         assert_eq!(ages[0].path, "old.rs");
         assert!(ages[0].days_since_modified > ages[1].days_since_modified);
+    }
+
+    #[test]
+    fn history_entry_deserializes_without_branch_and_schema_version() {
+        // Legacy NDJSON entries without branch or schema_version must deserialize cleanly
+        // and populate serde defaults (empty string / 0).
+        let legacy_json = r#"{"timestamp":"2024-01-01T00:00:00Z","head":"abc123","overall_score":75,"categories":{},"metrics":{},"counts":{"commits":10,"files":5,"authors":2}}"#;
+        let entry: HistoryEntry = serde_json::from_str(legacy_json)
+            .expect("legacy HistoryEntry without branch/schema_version should deserialize");
+        assert_eq!(entry.branch, "", "branch should default to empty string");
+        assert_eq!(entry.schema_version, 0, "schema_version should default to 0");
+        assert_eq!(entry.head, "abc123");
     }
 
     #[test]

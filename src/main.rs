@@ -150,6 +150,11 @@ fn run_analyze(args: AnalyzeArgs) -> Result<()> {
         eprintln!("  Scoring: {}ms", t.elapsed().as_millis());
     }
 
+    // Load prior history count before appending (used to detect first run in CLI renderer)
+    let prior_history_count = cache::history::load_history(&local_path)
+        .unwrap_or_default()
+        .len();
+
     // Record history entry (deduplicated by HEAD)
     let history_entry = scorer::build_history_entry(&report, &current_head);
     if let Err(e) = cache::history::append_if_new_head(&history_entry, &local_path) {
@@ -165,7 +170,7 @@ fn run_analyze(args: AnalyzeArgs) -> Result<()> {
     let output = match cfg.output_format {
         config::OutputFormat::Json => renderer::json::render(&report, args.pretty)?,
         config::OutputFormat::Html => renderer::html::render(&report)?,
-        config::OutputFormat::Cli => renderer::cli::render(&report, args.verbose),
+        config::OutputFormat::Cli => renderer::cli::render(&report, args.verbose, prior_history_count),
     };
     if args.verbose > 0 {
         eprintln!("  Render: {}ms", t.elapsed().as_millis());
