@@ -480,7 +480,6 @@ fn ac_02_4_branch_mismatch_suppresses_delta_shows_warning() {
 // (existing scripts that extract the score via regex still work)
 // ---------------------------------------------------------------------------
 #[test]
-#[ignore]
 fn ac_02_5_output_score_format_unchanged_for_script_compatibility() {
     let dir = TempDir::new().unwrap();
     let repo_path = dir.path();
