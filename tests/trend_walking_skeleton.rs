@@ -226,7 +226,6 @@ fn second_run_appends_to_trend_store() {
 // *structure* of the delta output (delta marker present), not its exact value.
 // ---------------------------------------------------------------------------
 #[test]
-#[ignore]
 fn delta_displayed_inline_after_prior_run_on_same_branch() {
     let dir = TempDir::new().unwrap();
     let repo_path = dir.path();

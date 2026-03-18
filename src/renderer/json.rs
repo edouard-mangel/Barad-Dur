@@ -1,9 +1,13 @@
 use anyhow::Result;
 
 use crate::scorer::AnalysisReport;
+use crate::trend::TrendSummary;
 
 /// Render the analysis report as JSON.
-pub fn render(report: &AnalysisReport, pretty: bool) -> Result<String> {
+///
+/// `_trend` is accepted for API symmetry with the CLI renderer but is not yet
+/// serialised into the JSON output — that is step 03-04.
+pub fn render(report: &AnalysisReport, pretty: bool, _trend: Option<&TrendSummary>) -> Result<String> {
     if pretty {
         Ok(serde_json::to_string_pretty(report)?)
     } else {
@@ -48,7 +52,7 @@ mod tests {
     #[test]
     fn json_output_is_valid() {
         let report = make_report();
-        let output = render(&report, false).unwrap();
+        let output = render(&report, false, None).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
         assert!(parsed.is_object());
     }
@@ -56,7 +60,7 @@ mod tests {
     #[test]
     fn json_contains_expected_fields() {
         let report = make_report();
-        let output = render(&report, false).unwrap();
+        let output = render(&report, false, None).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
         assert!(parsed["overall_score"].is_number());
         assert!(parsed["categories"].is_array());
@@ -67,7 +71,7 @@ mod tests {
     #[test]
     fn pretty_mode_is_indented() {
         let report = make_report();
-        let output = render(&report, true).unwrap();
+        let output = render(&report, true, None).unwrap();
         assert!(output.contains('\n'));
         assert!(output.contains("  ")); // indentation
     }
@@ -75,7 +79,7 @@ mod tests {
     #[test]
     fn compact_mode_is_single_line() {
         let report = make_report();
-        let output = render(&report, false).unwrap();
+        let output = render(&report, false, None).unwrap();
         // Compact JSON should not have newlines (except possibly within string values)
         assert!(!output.starts_with("{\n"));
     }

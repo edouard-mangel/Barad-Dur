@@ -8,3 +8,4 @@ pub mod remote;
 pub mod renderer;
 pub mod scorer;
 pub mod snapshot;
+pub mod trend;

@@ -12,6 +12,7 @@ use barad_dur::remote;
 use barad_dur::renderer;
 use barad_dur::scorer::{self, RemoteMeta};
 use barad_dur::snapshot::{RepoSnapshot, TimeWindow};
+use barad_dur::trend;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -150,27 +151,31 @@ fn run_analyze(args: AnalyzeArgs) -> Result<()> {
         eprintln!("  Scoring: {}ms", t.elapsed().as_millis());
     }
 
-    // Load prior history count before appending (used to detect first run in CLI renderer)
-    let prior_history_count = cache::history::load_history(&local_path)
-        .unwrap_or_default()
-        .len();
+    // Load history BEFORE appending the current entry so compute_trend sees
+    // only prior runs (the current entry is passed separately).
+    let prior_history = cache::history::load_history(&local_path).unwrap_or_default();
 
-    // Record history entry (deduplicated by HEAD)
+    // Build the current history entry (not yet appended).
     let history_entry = scorer::build_history_entry(&report, &current_head);
+
+    // Compute trend from prior history vs current entry.
+    let trend_summary = trend::compute_trend(&prior_history, &report.branch, &history_entry);
+
+    // Record history entry (deduplicated by HEAD).
     if let Err(e) = cache::history::append_if_new_head(&history_entry, &local_path) {
         eprintln!("Warning: Failed to record history: {}", e);
     }
 
-    // Load history for report (used by HTML Trends tab)
+    // Load history for report (used by HTML Trends tab).
     report.history = cache::history::load_history(&local_path).unwrap_or_default();
 
     // Render
     let t = std::time::Instant::now();
     let is_html = matches!(cfg.output_format, config::OutputFormat::Html);
     let output = match cfg.output_format {
-        config::OutputFormat::Json => renderer::json::render(&report, args.pretty)?,
+        config::OutputFormat::Json => renderer::json::render(&report, args.pretty, None)?,
         config::OutputFormat::Html => renderer::html::render(&report)?,
-        config::OutputFormat::Cli => renderer::cli::render(&report, args.verbose, prior_history_count),
+        config::OutputFormat::Cli => renderer::cli::render(&report, args.verbose, Some(&trend_summary)),
     };
     if args.verbose > 0 {
         eprintln!("  Render: {}ms", t.elapsed().as_millis());
