@@ -135,7 +135,6 @@ fn ac_01_3_first_run_outputs_first_snapshot_message() {
 // And the command exits with code 0
 // ---------------------------------------------------------------------------
 #[test]
-#[ignore]
 fn ac_01_4_corrupt_trends_file_is_archived_and_replaced() {
     let dir = TempDir::new().unwrap();
     let repo_path = dir.path();

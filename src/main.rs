@@ -153,7 +153,13 @@ fn run_analyze(args: AnalyzeArgs) -> Result<()> {
 
     // Load history BEFORE appending the current entry so compute_trend sees
     // only prior runs (the current entry is passed separately).
-    let prior_history = cache::history::load_history(&local_path).unwrap_or_default();
+    // If the file exists but is fully unparseable (corruption), archive it and
+    // warn the user, then start fresh.
+    let (prior_history, history_warning) =
+        cache::history::load_history_checked(&local_path).unwrap_or_default();
+    if let Some(ref warning) = history_warning {
+        println!("{}", warning);
+    }
 
     // Build the current history entry (not yet appended).
     let history_entry = scorer::build_history_entry(&report, &current_head);
