@@ -30,18 +30,6 @@ pub fn load_history(repo_path: &Path) -> Result<Vec<HistoryEntry>> {
 pub fn append_if_new_head(entry: &HistoryEntry, repo_path: &Path) -> Result<()> {
     let path = repo_path.join(CACHE_DIR).join(HISTORY_FILE);
 
-    // Check last entry's HEAD
-    if path.exists() {
-        let content = std::fs::read_to_string(&path)?;
-        if let Some(last_line) = content.lines().rev().find(|l| !l.trim().is_empty()) {
-            if let Ok(last) = serde_json::from_str::<HistoryEntry>(last_line) {
-                if last.head == entry.head {
-                    return Ok(()); // Duplicate HEAD — skip
-                }
-            }
-        }
-    }
-
     std::fs::create_dir_all(repo_path.join(CACHE_DIR))?;
     let mut file = std::fs::OpenOptions::new()
         .create(true)
@@ -89,14 +77,16 @@ mod tests {
     }
 
     #[test]
-    fn append_if_new_head_skips_duplicate() {
+    fn append_if_new_head_records_each_run() {
+        // Each call to append_if_new_head records a new entry, even for the same SHA.
+        // This preserves a complete run history so users can track repeated analyses.
         let dir = TempDir::new().unwrap();
         let entry = make_entry("abc123", 72);
         append_if_new_head(&entry, dir.path()).unwrap();
         append_if_new_head(&entry, dir.path()).unwrap();
 
         let history = load_history(dir.path()).unwrap();
-        assert_eq!(history.len(), 1);
+        assert_eq!(history.len(), 2);
     }
 
     #[test]

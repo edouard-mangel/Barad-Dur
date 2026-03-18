@@ -176,7 +176,6 @@ fn first_run_creates_trend_store() {
 // And the entries are ordered by timestamp ascending
 // ---------------------------------------------------------------------------
 #[test]
-#[ignore]
 fn second_run_appends_to_trend_store() {
     let dir = TempDir::new().unwrap();
     let repo_path = dir.path();
