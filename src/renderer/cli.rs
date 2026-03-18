@@ -87,13 +87,9 @@ pub fn render(report: &AnalysisReport, verbosity: u8, trend: Option<&TrendSummar
             out.push_str(&format!("  {}\n", delta_str.dimmed()));
 
             if let Some(velocity) = &summary.velocity {
-                use crate::trend::VelocityDirection;
-                let direction_str = match velocity.direction {
-                    VelocityDirection::Improving => "improving",
-                    VelocityDirection::Declining => "declining",
-                    VelocityDirection::Stable => "stable",
-                };
-                out.push_str(&format!("  {}\n", direction_str.dimmed()));
+                let direction_str = direction_word(&velocity.direction);
+                let arrow = direction_arrow(&velocity.direction);
+                out.push_str(&format!("  {} {}\n", arrow, direction_str.dimmed()));
             }
         }
     }
@@ -167,6 +163,24 @@ pub fn render(report: &AnalysisReport, verbosity: u8, trend: Option<&TrendSummar
     ));
 
     out
+}
+
+fn direction_arrow(direction: &crate::trend::VelocityDirection) -> &'static str {
+    use crate::trend::VelocityDirection;
+    match direction {
+        VelocityDirection::Improving => "↑",
+        VelocityDirection::Declining => "↓",
+        VelocityDirection::Stable => "→",
+    }
+}
+
+fn direction_word(direction: &crate::trend::VelocityDirection) -> &'static str {
+    use crate::trend::VelocityDirection;
+    match direction {
+        VelocityDirection::Improving => "improving",
+        VelocityDirection::Declining => "declining",
+        VelocityDirection::Stable => "stable",
+    }
 }
 
 fn format_score_bar(score: u32, width: usize) -> String {
@@ -386,6 +400,13 @@ mod tests {
             health_line.contains("-5"),
             "Health category row should show delta '-5', got: {health_line:?}"
         );
+    }
+
+    #[test]
+    fn direction_arrow_maps_correctly() {
+        assert_eq!(direction_arrow(&VelocityDirection::Improving), "↑");
+        assert_eq!(direction_arrow(&VelocityDirection::Declining), "↓");
+        assert_eq!(direction_arrow(&VelocityDirection::Stable), "→");
     }
 
     #[test]

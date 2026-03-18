@@ -366,7 +366,6 @@ fn ac_02_2_per_category_deltas_shown() {
 // And the output contains a sparkline showing score progression
 // ---------------------------------------------------------------------------
 #[test]
-#[ignore]
 fn ac_02_3_sparkline_and_direction_indicator_shown() {
     let dir = TempDir::new().unwrap();
     let repo_path = dir.path();
