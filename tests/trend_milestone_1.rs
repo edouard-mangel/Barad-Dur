@@ -187,7 +187,6 @@ fn ac_01_4_corrupt_trends_file_is_archived_and_replaced() {
 // Then trends.json now contains 2 entries
 // ---------------------------------------------------------------------------
 #[test]
-#[ignore]
 fn ac_01_5_no_cache_flag_still_records_trend() {
     let dir = TempDir::new().unwrap();
     let repo_path = dir.path();
