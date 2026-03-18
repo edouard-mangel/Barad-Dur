@@ -329,6 +329,29 @@ mod tests {
     }
 
     #[test]
+    fn compute_trend_direction_declining_when_score_drops() {
+        // Prior entry with score 99; current score much lower (40).
+        // velocity window: points_per_run = (40 - 99) / 1 = -59.0 < -0.5 → Declining
+        let prior = make_entry("main", 99, "aaa0001");
+        let current = make_entry("main", 40, "bbb1111");
+
+        let history = vec![prior];
+        let summary = compute_trend(&history, "main", &current);
+
+        let velocity = summary.velocity.expect("velocity should be Some with prior entries");
+        assert_eq!(
+            velocity.direction,
+            VelocityDirection::Declining,
+            "direction should be Declining when current score is below last score"
+        );
+        assert!(
+            summary.delta.overall < 0,
+            "delta_vs_last should be negative when current score drops, got: {}",
+            summary.delta.overall
+        );
+    }
+
+    #[test]
     fn compute_trend_filters_to_current_branch_only() {
         let on_other_branch = make_entry("feature", 90, "fff0000");
         let on_main = make_entry("main", 60, "aaa0000");

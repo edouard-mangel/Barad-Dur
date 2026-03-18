@@ -842,7 +842,6 @@ fn ac_04_6_direction_field_reflects_improving_trajectory() {
 // And trend.delta_vs_last is negative
 // ---------------------------------------------------------------------------
 #[test]
-#[ignore]
 fn ac_04_6_direction_is_declining_when_score_drops() {
     let dir = TempDir::new().unwrap();
     let repo_path = dir.path();
