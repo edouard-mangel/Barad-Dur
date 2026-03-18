@@ -303,6 +303,32 @@ mod tests {
     }
 
     #[test]
+    fn compute_trend_direction_improving_when_score_increases() {
+        // Prior entries with ascending scores; current score exceeds all prior.
+        // With 4 prior entries [60,65,68,72] and current 80:
+        // velocity window: points_per_run = (80 - 60) / 4 = 5.0 > 0.5 → Improving
+        let entry1 = make_entry("main", 60, "aaa0001");
+        let entry2 = make_entry("main", 65, "aaa0002");
+        let entry3 = make_entry("main", 68, "aaa0003");
+        let entry4 = make_entry("main", 72, "aaa0004");
+        let current = make_entry("main", 80, "bbb1111");
+
+        let history = vec![entry1, entry2, entry3, entry4];
+        let summary = compute_trend(&history, "main", &current);
+
+        let velocity = summary.velocity.expect("velocity should be Some with prior entries");
+        assert_eq!(
+            velocity.direction,
+            VelocityDirection::Improving,
+            "direction should be Improving when current score exceeds prior scores"
+        );
+        assert!(
+            summary.delta.overall > 0,
+            "delta_vs_last should be positive when current score exceeds last score"
+        );
+    }
+
+    #[test]
     fn compute_trend_filters_to_current_branch_only() {
         let on_other_branch = make_entry("feature", 90, "fff0000");
         let on_main = make_entry("main", 60, "aaa0000");

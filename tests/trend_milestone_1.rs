@@ -785,7 +785,6 @@ fn ac_04_5_velocity_is_null_when_fewer_than_2_prior_snapshots() {
 // And trend.delta_vs_last is positive
 // ---------------------------------------------------------------------------
 #[test]
-#[ignore]
 fn ac_04_6_direction_field_reflects_improving_trajectory() {
     let dir = TempDir::new().unwrap();
     let repo_path = dir.path();
