@@ -83,4 +83,14 @@ mod tests {
         // Compact JSON should not have newlines (except possibly within string values)
         assert!(!output.starts_with("{\n"));
     }
+
+    #[test]
+    fn json_render_without_trend_data_has_no_trend_key() {
+        let report = make_report();
+        let output = render(&report, false, None).unwrap();
+        assert!(
+            !output.contains("\"trend\""),
+            "JSON output should not contain 'trend' key when trend_data is None"
+        );
+    }
 }

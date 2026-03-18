@@ -681,7 +681,6 @@ fn ac_04_1_trend_includes_delta_and_velocity_fields() {
 // And no "trend" key is present
 // ---------------------------------------------------------------------------
 #[test]
-#[ignore]
 fn ac_04_2_json_without_trend_flag_is_structurally_unchanged() {
     let dir = TempDir::new().unwrap();
     let repo_path = dir.path();

@@ -160,6 +160,14 @@ pub struct AnalyzeArgs {
     #[arg(long, help_heading = "Output Format")]
     pub open: bool,
 
+    /// Show trend history and velocity in JSON output
+    ///
+    /// When combined with --json, includes a top-level "trend" key containing
+    /// historical snapshots, delta values, velocity, and direction.
+    /// Has no effect without --json.
+    #[arg(long, help_heading = "Output Format")]
+    pub trend: bool,
+
     /// Pretty-print JSON output (only effective with --json)
     #[arg(long, help_heading = "Output Format")]
     pub pretty: bool,
