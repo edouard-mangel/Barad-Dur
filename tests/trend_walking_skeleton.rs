@@ -8,69 +8,12 @@
 ///
 /// Driving port: `barad-dur analyze <path>` binary invoked via assert_cmd.
 /// No internal components are tested directly.
-use assert_cmd::Command;
 use std::fs;
 use std::path::Path;
 use tempfile::TempDir;
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn barad_dur() -> Command {
-    #[allow(deprecated)]
-    Command::cargo_bin("barad-dur").unwrap()
-}
-
-/// Build a minimal git repository in `dir` with one commit on `branch`.
-/// Returns the HEAD commit SHA (40 hex chars).
-fn init_git_repo(dir: &Path, branch: &str) -> String {
-    // Configure git identity (required for commits)
-    std::process::Command::new("git")
-        .args(["init", "-b", branch])
-        .current_dir(dir)
-        .output()
-        .expect("git init failed");
-
-    std::process::Command::new("git")
-        .args(["config", "user.email", "test@example.com"])
-        .current_dir(dir)
-        .output()
-        .expect("git config email failed");
-
-    std::process::Command::new("git")
-        .args(["config", "user.name", "Test User"])
-        .current_dir(dir)
-        .output()
-        .expect("git config name failed");
-
-    // Create a file and commit it
-    fs::write(dir.join("README.md"), "# Test repo\n").expect("write README failed");
-
-    std::process::Command::new("git")
-        .args(["add", "."])
-        .current_dir(dir)
-        .output()
-        .expect("git add failed");
-
-    std::process::Command::new("git")
-        .args(["commit", "-m", "Initial commit"])
-        .current_dir(dir)
-        .output()
-        .expect("git commit failed");
-
-    // Return HEAD SHA
-    let out = std::process::Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(dir)
-        .output()
-        .expect("git rev-parse failed");
-
-    String::from_utf8(out.stdout)
-        .expect("utf8")
-        .trim()
-        .to_string()
-}
+mod common;
+use common::{barad_dur, init_git_repo};
 
 fn read_trends_json(repo_dir: &Path) -> serde_json::Value {
     let path = repo_dir.join(".repository-analysis").join("trends.json");

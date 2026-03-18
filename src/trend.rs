@@ -144,12 +144,18 @@ fn compute_category_deltas(
     deltas
 }
 
-fn build_sparkline(same_branch: &[&HistoryEntry], current_entry: &HistoryEntry) -> Vec<SparklinePoint> {
-    let window_entries: Vec<&HistoryEntry> = if same_branch.len() > VELOCITY_WINDOW {
+/// Return the most recent `VELOCITY_WINDOW` entries from `same_branch`, or all
+/// entries if there are fewer than `VELOCITY_WINDOW`.
+fn take_velocity_window<'a>(same_branch: &[&'a HistoryEntry]) -> Vec<&'a HistoryEntry> {
+    if same_branch.len() > VELOCITY_WINDOW {
         same_branch[same_branch.len() - VELOCITY_WINDOW..].to_vec()
     } else {
         same_branch.to_vec()
-    };
+    }
+}
+
+fn build_sparkline(same_branch: &[&HistoryEntry], current_entry: &HistoryEntry) -> Vec<SparklinePoint> {
+    let window_entries = take_velocity_window(same_branch);
 
     let mut points: Vec<SparklinePoint> = window_entries
         .iter()
@@ -168,11 +174,7 @@ fn build_sparkline(same_branch: &[&HistoryEntry], current_entry: &HistoryEntry) 
 }
 
 fn compute_velocity(same_branch: &[&HistoryEntry], current_entry: &HistoryEntry) -> TrendVelocity {
-    let window: Vec<&HistoryEntry> = if same_branch.len() > VELOCITY_WINDOW {
-        same_branch[same_branch.len() - VELOCITY_WINDOW..].to_vec()
-    } else {
-        same_branch.to_vec()
-    };
+    let window = take_velocity_window(same_branch);
 
     let window_size = window.len() + 1; // +1 for current entry
 
