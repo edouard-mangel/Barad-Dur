@@ -38,8 +38,10 @@ pub struct TrendVelocity {
 /// Delta between the current run and the previous run on the same branch.
 #[derive(Debug, Clone, Serialize)]
 pub struct TrendDelta {
-    /// Change in overall score (positive = improving, negative = declining).
+    /// Change in overall score vs the most recent prior run (positive = improving).
     pub overall: i32,
+    /// Change in overall score vs the oldest entry in the history window.
+    pub delta_vs_oldest: i32,
     /// Per-category score deltas.
     pub categories: HashMap<String, i32>,
     /// True when there is no prior run on this branch to compare against.
@@ -80,6 +82,7 @@ pub fn compute_trend(
         return TrendSummary {
             delta: TrendDelta {
                 overall: 0,
+                delta_vs_oldest: 0,
                 categories: HashMap::new(),
                 is_first: true,
             },
@@ -91,6 +94,7 @@ pub fn compute_trend(
     }
 
     let last = *same_branch.last().unwrap();
+    let oldest = *same_branch.first().unwrap();
 
     // Check for mismatch: if the very last entry in the full history (not just
     // same-branch) belongs to a different branch, warn the caller.
@@ -100,6 +104,7 @@ pub fn compute_trend(
         .unwrap_or(false);
 
     let delta_overall = current_entry.overall_score as i32 - last.overall_score as i32;
+    let delta_vs_oldest = current_entry.overall_score as i32 - oldest.overall_score as i32;
 
     let delta_categories = compute_category_deltas(&last.categories, &current_entry.categories);
 
@@ -110,6 +115,7 @@ pub fn compute_trend(
     TrendSummary {
         delta: TrendDelta {
             overall: delta_overall,
+            delta_vs_oldest,
             categories: delta_categories,
             is_first: false,
         },
@@ -217,6 +223,35 @@ mod tests {
             branch: branch.to_string(),
             schema_version: 1,
         }
+    }
+
+    #[test]
+    fn compute_trend_with_3_entries_has_non_null_velocity_and_correct_delta_vs_oldest() {
+        let entry1 = make_entry("main", 60, "aaa0001");
+        let entry2 = make_entry("main", 65, "aaa0002");
+        let entry3 = make_entry("main", 68, "aaa0003");
+        let current = make_entry("main", 72, "bbb1111");
+
+        let history = vec![entry1, entry2, entry3];
+        let summary = compute_trend(&history, "main", &current);
+
+        // velocity must be non-null with 3+ same-branch prior entries
+        assert!(
+            summary.velocity.is_some(),
+            "velocity should be Some when 3+ same-branch prior entries exist"
+        );
+
+        // delta_vs_oldest should be current - oldest (72 - 60 = 12), not current - last (72 - 68 = 4)
+        assert_eq!(
+            summary.delta.delta_vs_oldest,
+            12,
+            "delta_vs_oldest should be current_score - oldest_score = 72 - 60 = 12"
+        );
+        assert_eq!(
+            summary.delta.overall,
+            4,
+            "delta.overall (delta_vs_last) should be current_score - last_score = 72 - 68 = 4"
+        );
     }
 
     #[test]

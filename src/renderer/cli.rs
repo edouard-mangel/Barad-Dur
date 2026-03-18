@@ -277,7 +277,7 @@ mod tests {
 
     fn make_first_run_trend() -> TrendSummary {
         TrendSummary {
-            delta: TrendDelta { overall: 0, categories: HashMap::new(), is_first: true },
+            delta: TrendDelta { overall: 0, delta_vs_oldest: 0, categories: HashMap::new(), is_first: true },
             sparkline: vec![],
             velocity: None,
             branch_mismatch_warning: false,
@@ -287,7 +287,7 @@ mod tests {
 
     fn make_subsequent_run_trend(delta: i32) -> TrendSummary {
         TrendSummary {
-            delta: TrendDelta { overall: delta, categories: HashMap::new(), is_first: false },
+            delta: TrendDelta { overall: delta, delta_vs_oldest: delta, categories: HashMap::new(), is_first: false },
             sparkline: vec![],
             velocity: Some(TrendVelocity {
                 direction: VelocityDirection::Stable,
@@ -372,7 +372,7 @@ mod tests {
         let mut category_deltas = HashMap::new();
         category_deltas.insert("Health".to_string(), 3_i32);
         let trend = TrendSummary {
-            delta: TrendDelta { overall: 3, categories: category_deltas, is_first: false },
+            delta: TrendDelta { overall: 3, delta_vs_oldest: 3, categories: category_deltas, is_first: false },
             sparkline: vec![],
             velocity: Some(TrendVelocity {
                 direction: VelocityDirection::Improving,
@@ -401,7 +401,7 @@ mod tests {
         let mut category_deltas = HashMap::new();
         category_deltas.insert("Health".to_string(), -5_i32);
         let trend = TrendSummary {
-            delta: TrendDelta { overall: -5, categories: category_deltas, is_first: false },
+            delta: TrendDelta { overall: -5, delta_vs_oldest: -5, categories: category_deltas, is_first: false },
             sparkline: vec![],
             velocity: Some(TrendVelocity {
                 direction: VelocityDirection::Declining,

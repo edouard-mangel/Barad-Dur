@@ -50,7 +50,7 @@ fn build_trend_object(summary: &TrendSummary) -> Value {
     let delta_vs_oldest = if summary.delta.is_first {
         Value::Null
     } else {
-        json!(summary.delta.overall)
+        json!(summary.delta.delta_vs_oldest)
     };
 
     let snapshots: Vec<Value> = summary
@@ -165,6 +165,7 @@ mod tests {
         let summary = TrendSummary {
             delta: TrendDelta {
                 overall: 0,
+                delta_vs_oldest: 0,
                 categories: HashMap::new(),
                 is_first: true,
             },
@@ -224,6 +225,7 @@ mod tests {
         let summary = TrendSummary {
             delta: TrendDelta {
                 overall: 0,
+                delta_vs_oldest: 0,
                 categories: HashMap::new(),
                 is_first: true,
             },

@@ -627,7 +627,6 @@ fn ac_04_1_json_trend_flag_outputs_trend_key_with_required_fields() {
 // And trend.velocity_per_week is a number (not null when 2+ prior snapshots)
 // ---------------------------------------------------------------------------
 #[test]
-#[ignore]
 fn ac_04_1_trend_includes_delta_and_velocity_fields() {
     let dir = TempDir::new().unwrap();
     let repo_path = dir.path();
