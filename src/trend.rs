@@ -74,6 +74,9 @@ pub fn compute_trend(
         .collect();
 
     if same_branch.is_empty() {
+        // If history is non-empty but contains no same-branch entries, the prior
+        // runs were on a different branch — emit a mismatch warning.
+        let branch_mismatch_warning = !history.is_empty();
         return TrendSummary {
             delta: TrendDelta {
                 overall: 0,
@@ -82,7 +85,7 @@ pub fn compute_trend(
             },
             sparkline: build_sparkline(&same_branch, current_entry),
             velocity: None,
-            branch_mismatch_warning: false,
+            branch_mismatch_warning,
             history: history.to_vec(),
         };
     }
@@ -242,6 +245,25 @@ mod tests {
         assert_eq!(
             summary.delta.overall, 5,
             "delta should be 75 - 70 = +5"
+        );
+    }
+
+    #[test]
+    fn compute_trend_branch_mismatch_sets_warning() {
+        // History exists only on "feature/refactor"; current branch is "main".
+        // Expected: branch_mismatch_warning = true, delta.is_first = true.
+        let prior = make_entry("feature/refactor", 70, "aaa0000");
+        let current = make_entry("main", 75, "bbb1111");
+
+        let summary = compute_trend(&[prior], "main", &current);
+
+        assert!(
+            summary.branch_mismatch_warning,
+            "branch_mismatch_warning should be true when history is non-empty but no same-branch entries exist"
+        );
+        assert!(
+            summary.delta.is_first,
+            "is_first should be true when no same-branch prior entries exist"
         );
     }
 

@@ -414,18 +414,20 @@ fn ac_02_3_sparkline_and_direction_indicator_shown() {
 // And the new snapshot is appended with branch "main"
 // ---------------------------------------------------------------------------
 #[test]
-#[ignore]
 fn ac_02_4_branch_mismatch_suppresses_delta_shows_warning() {
     let dir = TempDir::new().unwrap();
     let repo_path = dir.path();
     // Init on "feature/refactor"
     init_git_repo(repo_path, "feature/refactor");
 
-    // Seed a trends.json entry recorded on feature/refactor
+    // Seed a trends.json entry recorded on feature/refactor (trailing newline so
+    // append_if_new_head writes the next entry on its own line).
     let now = chrono::Utc::now().to_rfc3339();
     let entry = format!(
-        r#"{{"timestamp":"{now}","commit":"aabbccdd00112233445566778899aabbccddeeff","branch":"feature/refactor","overall_score":70,"schema_version":1,"category_scores":{{"Health":70,"Team":70,"Evolution":70,"Git Hygiene":70}}}}"#
+        "{}\n",
+        r#"{"timestamp":"2024-01-01T00:00:00Z","commit":"aabbccdd00112233445566778899aabbccddeeff","branch":"feature/refactor","overall_score":70,"schema_version":1,"category_scores":{"Health":70,"Team":70,"Evolution":70,"Git Hygiene":70}}"#
     );
+    let _ = now; // timestamp is embedded above as a fixed value for determinism
     seed_trends(repo_path, &entry);
 
     // Switch to "main" branch

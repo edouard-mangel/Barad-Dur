@@ -82,7 +82,7 @@ pub struct AnalysisReport {
     pub history: Vec<HistoryEntry>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct HistoryCounts {
     pub commits: usize,
     pub files: usize,
@@ -97,7 +97,9 @@ pub struct HistoryEntry {
     pub overall_score: u32,
     #[serde(rename = "category_scores", alias = "categories")]
     pub categories: HashMap<String, u32>,
+    #[serde(default)]
     pub metrics: HashMap<String, u32>,
+    #[serde(default)]
     pub counts: HistoryCounts,
     #[serde(default)]
     pub branch: String,

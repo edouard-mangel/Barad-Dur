@@ -58,9 +58,30 @@ pub fn render(report: &AnalysisReport, verbosity: u8, trend: Option<&TrendSummar
         }
     }
 
+    // Branch mismatch warning — suppresses delta and notifies the user.
+    if let Some(summary) = trend {
+        if summary.branch_mismatch_warning {
+            let prior_branch = summary
+                .history
+                .last()
+                .map(|e| e.branch.as_str())
+                .unwrap_or("unknown");
+            out.push_str(&format!(
+                "  {}\n",
+                format!(
+                    "Warning: prior history on '{}'; current branch is '{}'",
+                    prior_branch,
+                    report.branch
+                )
+                .yellow()
+            ));
+        }
+    }
+
     // First-run notice or trend delta
     let is_first = trend.map(|t| t.delta.is_first).unwrap_or(true);
-    if is_first {
+    let is_branch_mismatch = trend.map(|t| t.branch_mismatch_warning).unwrap_or(false);
+    if is_first && !is_branch_mismatch {
         out.push_str(&format!(
             "  {}\n",
             "Trend: first snapshot recorded".dimmed()
@@ -75,9 +96,9 @@ pub fn render(report: &AnalysisReport, verbosity: u8, trend: Option<&TrendSummar
         format_score_number(report.overall_score)
     ));
 
-    // Delta and direction (only when a prior run exists on this branch)
+    // Delta and direction (only when a prior run exists on this branch, and no branch mismatch)
     if let Some(summary) = trend {
-        if !summary.delta.is_first {
+        if !summary.delta.is_first && !summary.branch_mismatch_warning {
             let delta = summary.delta.overall;
             let delta_str = if delta >= 0 {
                 format!("+{} vs last run", delta)
@@ -101,7 +122,7 @@ pub fn render(report: &AnalysisReport, verbosity: u8, trend: Option<&TrendSummar
     ));
 
     let category_deltas = trend
-        .filter(|t| !t.delta.is_first)
+        .filter(|t| !t.delta.is_first && !t.branch_mismatch_warning)
         .map(|t| &t.delta.categories);
 
     for cat in &report.categories {
