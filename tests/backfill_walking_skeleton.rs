@@ -103,7 +103,6 @@ fn backfill_writes_source_backfill_field() {
 // so a CI failure pinpoints whether the issue is crash vs wrong output.
 // ---------------------------------------------------------------------------
 #[test]
-#[ignore]
 fn backfill_exits_zero() {
     let dir = TempDir::new().unwrap();
     let repo_path = dir.path();
