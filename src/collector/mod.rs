@@ -453,21 +453,16 @@ impl Collector {
     pub fn collect_snapshot_at(
         repo_path: &Path,
         sha: &str,
-        skip_blame: bool,
+        _skip_blame: bool,
     ) -> Result<RepoSnapshot> {
-        let repo = git2::Repository::discover(repo_path).with_context(|| {
-            format!("'{}' is not a git repository", repo_path.display())
-        })?;
+        let repo = git2::Repository::discover(repo_path)
+            .with_context(|| format!("'{}' is not a git repository", repo_path.display()))?;
         let time_window = TimeWindow::full_history();
         let collection = libgit::collect_commits_at(&repo, sha, &time_window)?;
         let files = libgit::collect_files_at(&repo, sha)?;
 
-        let blame_map = if skip_blame {
-            HashMap::new()
-        } else {
-            // For backfill we always skip blame (ADR-005 / performance)
-            HashMap::new()
-        };
+        // ADR-005: backfill always skips blame for performance.
+        let blame_map: HashMap<_, _> = HashMap::new();
 
         let repo_name = repo_path
             .file_name()

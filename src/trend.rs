@@ -200,7 +200,7 @@ fn compute_velocity(same_branch: &[&HistoryEntry], current_entry: &HistoryEntry)
 
     let direction = if points_per_run > DIRECTION_THRESHOLD {
         VelocityDirection::Improving
-    } else if points_per_run < -0.5 {
+    } else if points_per_run < -DIRECTION_THRESHOLD {
         VelocityDirection::Declining
     } else {
         VelocityDirection::Stable
