@@ -309,7 +309,6 @@ fn backfill_schema_version_is_1() {
 // Then every entry in trends.json has branch = "main"
 // ---------------------------------------------------------------------------
 #[test]
-#[ignore]
 fn backfill_branch_is_current_branch() {
     let dir = TempDir::new().unwrap();
     let repo_path = dir.path();
