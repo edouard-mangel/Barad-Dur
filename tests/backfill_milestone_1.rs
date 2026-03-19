@@ -210,7 +210,6 @@ fn backfill_zero_commit_repo_exits_nonzero() {
 // And the git index is unmodified (git status shows only the original state)
 // ---------------------------------------------------------------------------
 #[test]
-#[ignore]
 fn backfill_non_destructive() {
     let dir = TempDir::new().unwrap();
     let repo_path = dir.path();
