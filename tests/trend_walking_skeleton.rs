@@ -81,7 +81,7 @@ fn first_run_creates_trend_store() {
         "timestamp should be ISO8601 UTC: {timestamp}"
     );
 
-    let recorded_sha = entry["commit"].as_str().expect("commit should be a string");
+    let recorded_sha = entry["head"].as_str().expect("head should be a string");
     assert_eq!(
         recorded_sha, head_sha,
         "recorded commit SHA should match HEAD"

@@ -92,7 +92,7 @@ pub struct HistoryCounts {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryEntry {
     pub timestamp: chrono::DateTime<chrono::Utc>,
-    #[serde(rename = "commit", alias = "head")]
+    #[serde(rename = "head", alias = "commit")]
     pub head: String,
     pub overall_score: u32,
     #[serde(rename = "category_scores", alias = "categories")]
