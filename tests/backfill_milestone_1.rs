@@ -62,23 +62,40 @@ fn backfill_small_repo_writes_all() {
 // And the original 3 lines are unchanged (byte-level identity)
 // ---------------------------------------------------------------------------
 #[test]
-#[ignore]
 fn backfill_deduplication() {
     let dir = TempDir::new().unwrap();
     let repo_path = dir.path();
-    let shas = init_git_repo_with_commits(repo_path, "main", 15);
+    init_git_repo_with_commits(repo_path, "main", 15);
 
-    // Seed 3 existing entries using the oldest 3 SHAs (shas is newest-first, so oldest = last 3)
-    let oldest_shas = &shas[shas.len() - 3..];
-    let mut existing_ndjson = String::new();
-    for sha in oldest_shas {
-        existing_ndjson.push_str(&format!(
-            r#"{{"timestamp":"2024-01-01T00:00:00Z","head":"{sha}","branch":"main","overall_score":50,"schema_version":1,"source":"backfill","categories":{{}}}}"#
-        ));
-        existing_ndjson.push('\n');
-    }
-    seed_trends(repo_path, &existing_ndjson);
+    // Run backfill once to discover which SHAs are actually sampled
+    barad_dur()
+        .args(["backfill", repo_path.to_str().unwrap()])
+        .assert()
+        .success();
 
+    let first_run_entries = read_trends_entries(repo_path);
+    assert_eq!(first_run_entries.len(), 10, "first run should produce 10 entries");
+
+    // Retain only the 3 oldest entries (last 3) as the pre-existing seed.
+    // These SHAs are guaranteed to be in the sampled set (they came from backfill).
+    let pre_existing: Vec<_> = first_run_entries[first_run_entries.len() - 3..].to_vec();
+    let pre_existing_ndjson: String = pre_existing
+        .iter()
+        .map(|e| {
+            let sha = e["head"].as_str().unwrap();
+            format!(
+                "{}\n",
+                r#"{"timestamp":"2024-01-01T00:00:00Z","head":""#.to_string()
+                    + sha
+                    + r#"","branch":"main","overall_score":50,"schema_version":1,"source":"backfill","categories":{}}"#
+            )
+        })
+        .collect();
+
+    // Reset trends.json to only those 3 pre-existing entries
+    seed_trends(repo_path, &pre_existing_ndjson);
+
+    // Second run: should skip the 3 pre-existing SHAs and write 7 new ones → 10 total
     barad_dur()
         .args(["backfill", repo_path.to_str().unwrap()])
         .assert()
@@ -92,12 +109,13 @@ fn backfill_deduplication() {
         entries.len()
     );
 
-    // Verify the original lines are preserved (first 3 entries match the seed)
+    // Verify the original lines are preserved (seeded SHAs still present)
     let trends_path = repo_path.join(".repository-analysis").join("trends.json");
     let content = fs::read_to_string(&trends_path).unwrap();
-    for sha in oldest_shas {
+    for entry in &pre_existing {
+        let sha = entry["head"].as_str().unwrap();
         assert!(
-            content.contains(sha.as_str()),
+            content.contains(sha),
             "existing SHA {sha} should still be present after deduplication"
         );
     }

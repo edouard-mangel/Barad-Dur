@@ -1,6 +1,7 @@
 pub mod sampling;
 
 use anyhow::Result;
+use std::collections::HashSet;
 use std::path::Path;
 
 use crate::cache::history;
@@ -26,9 +27,17 @@ pub fn run(args: &BackfillArgs, repo_path: &Path) -> Result<()> {
 
     let selected_shas = sampling::select_samples(&all_shas, sample_count);
 
+    // Build a set of SHAs already present in trends.json to skip duplicates
+    let existing_entries = history::load_history(repo_path)?;
+    let existing_heads: HashSet<String> = existing_entries.into_iter().map(|e| e.head).collect();
+
     let mut written = 0usize;
 
     for sha in &selected_shas {
+        if existing_heads.contains(sha) {
+            continue;
+        }
+
         let snapshot = Collector::collect_snapshot_at(repo_path, sha, args.no_blame)?;
 
         let categories = vec![
