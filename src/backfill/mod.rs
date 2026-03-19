@@ -25,15 +25,22 @@ pub fn run(args: &BackfillArgs, repo_path: &Path) -> Result<()> {
     let collection = collector.collect_commits()?;
     let all_shas: Vec<String> = collection.commits.iter().map(|c| c.id.clone()).collect();
 
+    if all_shas.is_empty() {
+        anyhow::bail!("No commits found — nothing to backfill");
+    }
+
     let selected_shas = sampling::select_samples(&all_shas, sample_count);
 
     // Build a set of SHAs already present in trends.json to skip duplicates
     let existing_entries = history::load_history(repo_path)?;
     let existing_heads: HashSet<String> = existing_entries.into_iter().map(|e| e.head).collect();
 
+    let total = selected_shas.len();
     let mut written = 0usize;
 
-    for sha in &selected_shas {
+    for (idx, sha) in selected_shas.iter().enumerate() {
+        println!("[{}/{}] Analyzing {}...", idx + 1, total, &sha[..8]);
+
         if existing_heads.contains(sha) {
             continue;
         }
@@ -55,6 +62,10 @@ pub fn run(args: &BackfillArgs, repo_path: &Path) -> Result<()> {
         written += 1;
     }
 
-    println!("{} entries written", written);
+    if written == 0 && !existing_heads.is_empty() {
+        println!("Backfill already complete");
+    } else {
+        println!("{} entries written", written);
+    }
     Ok(())
 }
