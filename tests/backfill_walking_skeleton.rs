@@ -67,7 +67,6 @@ fn backfill_large_repo_writes_ten_entries() {
 // This validates that ADR-006 (backfill provenance tagging) is wired end-to-end.
 // ---------------------------------------------------------------------------
 #[test]
-#[ignore]
 fn backfill_writes_source_backfill_field() {
     let dir = TempDir::new().unwrap();
     let repo_path = dir.path();
