@@ -203,6 +203,8 @@ struct TomlConfig {
     thresholds: Thresholds,
     #[serde(default)]
     output: TomlOutput,
+    #[serde(default)]
+    backfill: BackfillConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -241,6 +243,25 @@ struct TomlOutput {
     auto_open: bool,
 }
 
+/// Configuration for the backfill subcommand.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BackfillConfig {
+    #[serde(default = "default_sample_count")]
+    pub sample_count: u32,
+}
+
+fn default_sample_count() -> u32 {
+    10
+}
+
+impl Default for BackfillConfig {
+    fn default() -> Self {
+        Self {
+            sample_count: default_sample_count(),
+        }
+    }
+}
+
 /// Resolved configuration after merging defaults + TOML + CLI.
 #[derive(Debug, Clone)]
 pub struct RepoConfig {
@@ -252,6 +273,7 @@ pub struct RepoConfig {
     pub thresholds: Thresholds,
     pub output_format: OutputFormat,
     pub auto_open: bool,
+    pub backfill: BackfillConfig,
 }
 
 impl Default for RepoConfig {
@@ -265,6 +287,7 @@ impl Default for RepoConfig {
             thresholds: Thresholds::default(),
             output_format: OutputFormat::Cli,
             auto_open: false,
+            backfill: BackfillConfig::default(),
         }
     }
 }
@@ -296,11 +319,12 @@ pub fn load(repo_root: &Path) -> Result<RepoConfig> {
         thresholds: toml_cfg.thresholds,
         output_format: toml_cfg.output.format,
         auto_open: toml_cfg.output.auto_open,
+        backfill: toml_cfg.backfill,
     })
 }
 
 fn warn_unknown_keys(content: &str, path: &Path) {
-    let known_sections = ["analysis", "exclude", "weights", "thresholds", "output"];
+    let known_sections = ["analysis", "exclude", "weights", "thresholds", "output", "backfill"];
     if let Ok(value) = content.parse::<toml::Value>() {
         if let Some(table) = value.as_table() {
             for key in table.keys() {
@@ -371,6 +395,7 @@ pub fn merge_with_cli(config: RepoConfig, args: &crate::cli::AnalyzeArgs) -> Rep
             config.output_format
         },
         auto_open: if args.open { true } else { config.auto_open },
+        backfill: config.backfill,
     }
 }
 

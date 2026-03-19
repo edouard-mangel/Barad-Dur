@@ -23,7 +23,7 @@ pub fn collect_blame(
         .par_iter()
         .filter(|f| !f.is_binary)
         .filter_map(|f| {
-            let result = match blame_file(repo_path, &f.path, &email_to_id) {
+            let result = match blame_file(repo_path, &f.path, &email_to_id, None) {
                 Ok(lines) if !lines.is_empty() => Some((f.path.clone(), lines)),
                 Ok(_) => None,
                 Err(_) => None, // Skip files that fail to blame (e.g., submodules)
@@ -54,7 +54,7 @@ pub fn collect_blame_cached(
             let lines = if let Some(cached) = cache.entries.get(&f.blob_oid) {
                 cached.clone()
             } else {
-                blame_file(repo_path, &f.path, &email_to_id).unwrap_or_default()
+                blame_file(repo_path, &f.path, &email_to_id, None).unwrap_or_default()
             };
             progress.inc(1);
             if lines.is_empty() {
@@ -79,9 +79,15 @@ fn blame_file(
     repo_path: &Path,
     file_path: &Path,
     email_to_id: &HashMap<&str, AuthorId>,
+    at_rev: Option<&str>,
 ) -> Result<Vec<BlameLine>> {
-    let output = Command::new("git")
-        .args(["blame", "--porcelain"])
+    let mut cmd = Command::new("git");
+    cmd.args(["blame", "--porcelain"]);
+    if let Some(sha) = at_rev {
+        cmd.arg(sha);
+    }
+    cmd.arg("--");
+    let output = cmd
         .arg(file_path.to_str().unwrap_or(""))
         .current_dir(repo_path)
         .output()

@@ -133,6 +133,7 @@ mod tests {
             },
             branch: String::new(),
             schema_version: 1,
+            source: None,
         }
     }
 

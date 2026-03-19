@@ -226,6 +226,7 @@ mod tests {
             counts: crate::scorer::HistoryCounts::default(),
             branch: "main".to_string(),
             schema_version: 1,
+            source: None,
         };
 
         let summary = TrendSummary {

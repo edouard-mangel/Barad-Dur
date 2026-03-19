@@ -105,9 +105,15 @@ pub struct HistoryEntry {
     pub branch: String,
     #[serde(default)]
     pub schema_version: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
-pub fn build_history_entry(report: &AnalysisReport, head: &str) -> HistoryEntry {
+pub fn build_history_entry(
+    report: &AnalysisReport,
+    head: &str,
+    source: Option<String>,
+) -> HistoryEntry {
     let mut categories = HashMap::new();
     let mut metrics = HashMap::new();
 
@@ -131,6 +137,7 @@ pub fn build_history_entry(report: &AnalysisReport, head: &str) -> HistoryEntry 
         },
         branch: report.branch.clone(),
         schema_version: 1,
+        source,
     }
 }
 
@@ -671,7 +678,7 @@ mod tests {
         );
         let categories = vec![make_category("Health", 80)];
         let report = build_report(&snapshot, categories, None, WEIGHTS);
-        let entry = build_history_entry(&report, "abc123");
+        let entry = build_history_entry(&report, "abc123", None);
 
         assert_eq!(entry.head, "abc123");
         assert_eq!(entry.overall_score, report.overall_score);

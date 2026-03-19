@@ -32,8 +32,27 @@ pub struct Cli {
 pub enum Commands {
     /// Analyze a git repository
     Analyze(AnalyzeArgs),
+    /// Backfill historical trend entries for a git repository
+    Backfill(BackfillArgs),
     /// Generate a .repository-analysis/barad-dur.toml configuration file
     Init(InitArgs),
+}
+
+#[derive(clap::Args, Debug)]
+#[command(
+    about = "Backfill historical trend entries for a git repository",
+    long_about = "Walks the commit history and samples representative snapshots to populate \
+        trends.json with historical analysis data. Uses adaptive sampling to select up to \
+        the configured number of commits (default: 10)."
+)]
+pub struct BackfillArgs {
+    /// Path to the git repository
+    #[arg(default_value = ".")]
+    pub target: String,
+
+    /// Skip git blame during backfill (faster but omits blame-dependent metrics)
+    #[arg(long, num_args = 0..=1, default_missing_value = "true")]
+    pub no_blame: bool,
 }
 
 #[derive(clap::Args, Debug)]

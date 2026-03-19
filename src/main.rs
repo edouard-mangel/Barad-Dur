@@ -3,6 +3,7 @@ use clap::Parser;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 
+use barad_dur::backfill;
 use barad_dur::cache;
 use barad_dur::cli::{AnalyzeArgs, Cli, Commands};
 use barad_dur::collector::Collector;
@@ -18,6 +19,10 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Commands::Analyze(args) => run_analyze(args)?,
+        Commands::Backfill(args) => {
+            let repo_path = std::path::PathBuf::from(&args.target);
+            backfill::run(&args, &repo_path)?;
+        }
         Commands::Init(args) => {
             let target = std::path::PathBuf::from(&args.target);
             barad_dur::init::run_init(&target, args.force, args.interactive)?;
@@ -162,7 +167,7 @@ fn run_analyze(args: AnalyzeArgs) -> Result<()> {
     }
 
     // Build the current history entry (not yet appended).
-    let history_entry = scorer::build_history_entry(&report, &current_head);
+    let history_entry = scorer::build_history_entry(&report, &current_head, None);
 
     // Compute trend from prior history vs current entry.
     let trend_summary = trend::compute_trend(&prior_history, &report.branch, &history_entry);

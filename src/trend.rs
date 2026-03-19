@@ -241,6 +241,7 @@ mod tests {
             },
             branch: branch.to_string(),
             schema_version: 1,
+            source: None,
         }
     }
 

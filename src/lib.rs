@@ -1,3 +1,4 @@
+pub mod backfill;
 pub mod cache;
 pub mod cli;
 pub mod collector;

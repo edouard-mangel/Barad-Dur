@@ -169,6 +169,118 @@ fn collect_file_changes(repo: &Repository, commit: &git2::Commit) -> Result<Vec<
     Ok(changes)
 }
 
+/// Collect commits reachable from the given SHA (as if it were HEAD).
+pub fn collect_commits_at(
+    repo: &Repository,
+    sha_str: &str,
+    time_window: &TimeWindow,
+) -> Result<CommitCollection> {
+    let sha_oid = git2::Oid::from_str(sha_str)
+        .with_context(|| format!("Invalid SHA: {sha_str}"))?;
+
+    let mut revwalk = repo.revwalk().context("Failed to create revwalk")?;
+    revwalk
+        .set_sorting(Sort::TIME | Sort::TOPOLOGICAL)
+        .context("Failed to set sorting")?;
+    revwalk.push(sha_oid).context("Failed to push SHA to revwalk")?;
+
+    let mut commits = Vec::new();
+    let mut email_to_id: HashMap<String, AuthorId> = HashMap::new();
+    let mut authors: Vec<Author> = Vec::new();
+
+    for oid_result in revwalk {
+        let oid = oid_result.context("Failed to get commit oid")?;
+        let commit = repo.find_commit(oid).context("Failed to find commit")?;
+
+        let timestamp = git_time_to_chrono(&commit.time());
+
+        if !time_window.contains(&timestamp) {
+            if let Some(since) = &time_window.since {
+                if &timestamp < since {
+                    break;
+                }
+            }
+            continue;
+        }
+
+        let author_sig = commit.author();
+        let email = author_sig.email().unwrap_or("unknown").to_lowercase();
+        let name = author_sig.name().unwrap_or("Unknown").to_string();
+
+        let author_id = if let Some(&id) = email_to_id.get(&email) {
+            id
+        } else {
+            let id = authors.len();
+            email_to_id.insert(email.clone(), id);
+            authors.push(Author { id, name, email });
+            id
+        };
+
+        let files_changed = collect_file_changes(repo, &commit)?;
+        let parent_count = commit.parent_count();
+
+        commits.push(Commit {
+            id: oid.to_string(),
+            author: author_id,
+            timestamp,
+            message: commit.message().unwrap_or("").to_string(),
+            files_changed,
+            is_merge: parent_count > 1,
+            parent_count,
+        });
+    }
+
+    Ok(CommitCollection { commits, authors })
+}
+
+/// Collect the file tree at a specific commit SHA (without modifying working tree).
+pub fn collect_files_at(repo: &Repository, sha_str: &str) -> Result<Vec<FileEntry>> {
+    let sha_oid = git2::Oid::from_str(sha_str)
+        .with_context(|| format!("Invalid SHA: {sha_str}"))?;
+    let commit = repo.find_commit(sha_oid)
+        .with_context(|| format!("Failed to find commit {sha_str}"))?;
+    let tree = commit.tree().context("Failed to get commit tree")?;
+
+    let mut files = Vec::new();
+
+    tree.walk(git2::TreeWalkMode::PreOrder, |dir, entry| {
+        if entry.kind() == Some(git2::ObjectType::Blob) {
+            let name = entry.name().unwrap_or("");
+            let path = if dir.is_empty() {
+                PathBuf::from(name)
+            } else {
+                PathBuf::from(format!("{}{}", dir, name))
+            };
+
+            let depth = path.components().count();
+
+            let is_binary = entry
+                .to_object(repo)
+                .ok()
+                .and_then(|obj| obj.as_blob().map(|b| b.is_binary()))
+                .unwrap_or(false);
+
+            let size_bytes = entry
+                .to_object(repo)
+                .ok()
+                .and_then(|obj| obj.as_blob().map(|b| b.size()))
+                .unwrap_or(0) as u64;
+
+            files.push(FileEntry {
+                path,
+                size_bytes,
+                is_binary,
+                depth,
+                blob_oid: entry.id().to_string(),
+            });
+        }
+        git2::TreeWalkResult::Ok
+    })
+    .context("Failed to walk tree")?;
+
+    Ok(files)
+}
+
 pub fn collect_files(repo: &Repository) -> Result<Vec<FileEntry>> {
     let head = repo.head().context("Failed to get HEAD")?;
     let tree = head.peel_to_tree().context("Failed to peel HEAD to tree")?;

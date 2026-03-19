@@ -448,6 +448,58 @@ impl Collector {
         Ok(snapshot)
     }
 
+    /// Collect a snapshot at a specific commit SHA without touching the working tree.
+    /// file_metrics is always empty (ADR-005).
+    pub fn collect_snapshot_at(
+        repo_path: &Path,
+        sha: &str,
+        skip_blame: bool,
+    ) -> Result<RepoSnapshot> {
+        let repo = git2::Repository::discover(repo_path).with_context(|| {
+            format!("'{}' is not a git repository", repo_path.display())
+        })?;
+        let time_window = TimeWindow::full_history();
+        let collection = libgit::collect_commits_at(&repo, sha, &time_window)?;
+        let files = libgit::collect_files_at(&repo, sha)?;
+
+        let blame_map = if skip_blame {
+            HashMap::new()
+        } else {
+            // For backfill we always skip blame (ADR-005 / performance)
+            HashMap::new()
+        };
+
+        let repo_name = repo_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+        let branch = repo
+            .head()
+            .ok()
+            .and_then(|h| h.shorthand().map(String::from))
+            .unwrap_or_else(|| "main".to_string());
+
+        let mut snapshot = RepoSnapshot {
+            path: repo_path.to_path_buf(),
+            name: repo_name,
+            default_branch: branch,
+            time_window,
+            head_commit: sha.to_string(),
+            created_at: Utc::now(),
+            commits: collection.commits,
+            files,
+            authors: collection.authors,
+            blame_map,
+            commits_by_author: HashMap::new(),
+            commits_by_file: HashMap::new(),
+            file_change_pairs: Vec::new(),
+            file_metrics: HashMap::new(),
+        };
+        snapshot.build_indexes();
+        Ok(snapshot)
+    }
+
     pub fn repo_path(&self) -> &Path {
         self.repo.workdir().unwrap_or_else(|| self.repo.path())
     }
