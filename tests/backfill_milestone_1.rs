@@ -32,7 +32,6 @@ fn seed_trends(repo_dir: &std::path::Path, ndjson: &str) {
 // And the command exits with code 0
 // ---------------------------------------------------------------------------
 #[test]
-#[ignore]
 fn backfill_small_repo_writes_all() {
     let dir = TempDir::new().unwrap();
     let repo_path = dir.path();
