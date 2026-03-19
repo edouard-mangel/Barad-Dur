@@ -15,6 +15,15 @@ fn git_time_to_chrono(time: &git2::Time) -> DateTime<Utc> {
 }
 
 pub fn collect_commits(repo: &Repository, time_window: &TimeWindow) -> Result<CommitCollection> {
+    // An empty repository (no commits yet) has no HEAD reference.
+    // Return an empty collection rather than propagating a confusing libgit2 error.
+    if repo.is_empty().unwrap_or(false) {
+        return Ok(CommitCollection {
+            commits: vec![],
+            authors: vec![],
+        });
+    }
+
     let mut revwalk = repo.revwalk().context("Failed to create revwalk")?;
     revwalk
         .set_sorting(Sort::TIME | Sort::TOPOLOGICAL)
