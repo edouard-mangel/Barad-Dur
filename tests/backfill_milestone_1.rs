@@ -132,7 +132,6 @@ fn backfill_deduplication() {
 // And no new entries are written (still exactly 10)
 // ---------------------------------------------------------------------------
 #[test]
-#[ignore]
 fn backfill_no_op_guard() {
     let dir = TempDir::new().unwrap();
     let repo_path = dir.path();
@@ -178,7 +177,6 @@ fn backfill_no_op_guard() {
 // And the output (stdout or stderr) contains "No commits"
 // ---------------------------------------------------------------------------
 #[test]
-#[ignore]
 fn backfill_zero_commit_repo_exits_nonzero() {
     let dir = TempDir::new().unwrap();
     let repo_path = dir.path();
