@@ -111,7 +111,10 @@ fn ac_01_4_corrupt_trends_file_is_archived_and_replaced() {
     let bak_path = repo_path
         .join(".repository-analysis")
         .join("trends.json.bak");
-    assert!(bak_path.exists(), "trends.json.bak should exist after corruption recovery");
+    assert!(
+        bak_path.exists(),
+        "trends.json.bak should exist after corruption recovery"
+    );
     let bak_content = fs::read_to_string(&bak_path).unwrap();
     assert_eq!(
         bak_content, corrupt_content,
@@ -335,16 +338,18 @@ fn ac_02_3_sparkline_and_direction_indicator_shown() {
     let stdout = String::from_utf8(output).unwrap();
 
     // Direction indicator
-    let has_direction = stdout.contains("improving")
-        || stdout.contains("declining")
-        || stdout.contains("stable");
+    let has_direction =
+        stdout.contains("improving") || stdout.contains("declining") || stdout.contains("stable");
     assert!(
         has_direction,
         "stdout should contain a direction indicator\nActual:\n{stdout}"
     );
 
     // Sparkline: look for the arrow separator used in sparkline format "N → N"
-    let has_sparkline = stdout.contains('→') || stdout.contains("->") || stdout.contains('↑') || stdout.contains('↓');
+    let has_sparkline = stdout.contains('→')
+        || stdout.contains("->")
+        || stdout.contains('↑')
+        || stdout.contains('↓');
     assert!(
         has_sparkline,
         "stdout should contain a sparkline or trend arrow\nActual:\n{stdout}"
@@ -450,14 +455,12 @@ fn ac_02_5_output_score_format_unchanged_for_script_compatibility() {
 
     // The score line must still contain the pattern "N/100" where N is 0-100.
     // This ensures existing `grep -oP '\d+(?=/100)'` style scripts still work.
-    let has_score_pattern = stdout
-        .lines()
-        .any(|line| {
-            let re_like = line
-                .split_whitespace()
-                .any(|token| token.ends_with("/100") && token.trim_end_matches("/100").parse::<u32>().is_ok());
-            re_like
+    let has_score_pattern = stdout.lines().any(|line| {
+        let re_like = line.split_whitespace().any(|token| {
+            token.ends_with("/100") && token.trim_end_matches("/100").parse::<u32>().is_ok()
         });
+        re_like
+    });
 
     assert!(
         has_score_pattern,
@@ -508,14 +511,19 @@ fn ac_04_1_json_trend_flag_outputs_trend_key_with_required_fields() {
         serde_json::from_slice(&output).expect("--json output should be valid JSON");
 
     // Then: top-level "trend" object exists
-    let trend = json.get("trend").expect("JSON should have top-level 'trend' key");
+    let trend = json
+        .get("trend")
+        .expect("JSON should have top-level 'trend' key");
     assert!(trend.is_object(), "'trend' should be a JSON object");
 
     // And: trend.snapshots is an array with entries
     let snapshots = trend["snapshots"]
         .as_array()
         .expect("trend.snapshots should be an array");
-    assert!(!snapshots.is_empty(), "trend.snapshots should contain at least one entry");
+    assert!(
+        !snapshots.is_empty(),
+        "trend.snapshots should contain at least one entry"
+    );
 
     // And: each snapshot has required fields
     for (i, snap) in snapshots.iter().enumerate() {
@@ -550,7 +558,9 @@ fn ac_04_1_json_trend_flag_outputs_trend_key_with_required_fields() {
 
     // And: schema_version is integer 1
     assert_eq!(
-        trend["schema_version"].as_i64().expect("schema_version should be integer"),
+        trend["schema_version"]
+            .as_i64()
+            .expect("schema_version should be integer"),
         1,
         "trend.schema_version should be 1"
     );
@@ -641,8 +651,8 @@ fn ac_04_2_json_without_trend_flag_is_structurally_unchanged() {
         .stdout
         .clone();
 
-    let baseline: serde_json::Value = serde_json::from_slice(&baseline_output)
-        .expect("baseline JSON should be valid");
+    let baseline: serde_json::Value =
+        serde_json::from_slice(&baseline_output).expect("baseline JSON should be valid");
     let baseline_keys: std::collections::BTreeSet<String> = baseline
         .as_object()
         .expect("baseline JSON should be an object")
@@ -768,7 +778,9 @@ fn ac_04_6_direction_field_reflects_improving_trajectory() {
     let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
     let trend = &json["trend"];
 
-    let direction = trend["direction"].as_str().expect("direction should be a string");
+    let direction = trend["direction"]
+        .as_str()
+        .expect("direction should be a string");
     assert!(
         ["improving", "declining", "stable"].contains(&direction),
         "trend.direction should be a valid enum value, got: {direction}"
@@ -817,12 +829,16 @@ fn ac_04_6_direction_is_declining_when_score_drops() {
     let trend = &json["trend"];
 
     assert_eq!(
-        trend["direction"].as_str().expect("direction should be string"),
+        trend["direction"]
+            .as_str()
+            .expect("direction should be string"),
         "declining",
         "direction should be 'declining' when current score is below prior score"
     );
 
-    let delta = trend["delta_vs_last"].as_i64().expect("delta_vs_last should be integer");
+    let delta = trend["delta_vs_last"]
+        .as_i64()
+        .expect("delta_vs_last should be integer");
     assert!(
         delta < 0,
         "delta_vs_last should be negative when score drops, got: {delta}"

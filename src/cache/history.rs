@@ -102,7 +102,10 @@ mod tests {
         // bak file contains the original corrupt content
         assert!(bak_path.exists(), "trends.json.bak should exist");
         let bak_content = std::fs::read_to_string(&bak_path).unwrap();
-        assert_eq!(bak_content, corrupt_content, "bak should preserve corrupt content");
+        assert_eq!(
+            bak_content, corrupt_content,
+            "bak should preserve corrupt content"
+        );
 
         // trends.json exists and is empty
         assert!(trends_path.exists(), "trends.json should be recreated");

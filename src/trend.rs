@@ -7,8 +7,15 @@ use serde::Serialize;
 
 use crate::scorer::HistoryEntry;
 
-/// Number of same-branch history entries used to compute velocity.
+/// Number of same-branch history entries used to compute velocity and sparkline.
+/// 8 entries covers ~2 months at weekly cadence — enough signal to detect
+/// short-term trends without being dominated by very old history (AC-01.6, DA-04).
 const VELOCITY_WINDOW: usize = 8;
+
+/// Minimum points-per-run delta to classify a trend as improving or declining.
+/// Changes below ±0.5 points/run are considered noise and classified as "stable"
+/// (AC-04.6). Smaller than 0.5 = effectively zero for integer scoring.
+const DIRECTION_THRESHOLD: f64 = 0.5;
 
 /// Direction of the score trend over recent runs.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -154,7 +161,10 @@ fn take_velocity_window<'a>(same_branch: &[&'a HistoryEntry]) -> Vec<&'a History
     }
 }
 
-fn build_sparkline(same_branch: &[&HistoryEntry], current_entry: &HistoryEntry) -> Vec<SparklinePoint> {
+fn build_sparkline(
+    same_branch: &[&HistoryEntry],
+    current_entry: &HistoryEntry,
+) -> Vec<SparklinePoint> {
     let window_entries = take_velocity_window(same_branch);
 
     let mut points: Vec<SparklinePoint> = window_entries
@@ -178,14 +188,17 @@ fn compute_velocity(same_branch: &[&HistoryEntry], current_entry: &HistoryEntry)
 
     let window_size = window.len() + 1; // +1 for current entry
 
-    let first_score = window.first().map(|e| e.overall_score).unwrap_or(current_entry.overall_score);
+    let first_score = window
+        .first()
+        .map(|e| e.overall_score)
+        .unwrap_or(current_entry.overall_score);
     let last_score = current_entry.overall_score;
 
     let total_change = last_score as i32 - first_score as i32;
     let runs = (window_size - 1).max(1) as f64;
     let points_per_run = total_change as f64 / runs;
 
-    let direction = if points_per_run > 0.5 {
+    let direction = if points_per_run > DIRECTION_THRESHOLD {
         VelocityDirection::Improving
     } else if points_per_run < -0.5 {
         VelocityDirection::Declining
@@ -207,8 +220,8 @@ fn compute_velocity(same_branch: &[&HistoryEntry], current_entry: &HistoryEntry)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
     use crate::scorer::HistoryCounts;
+    use chrono::Utc;
 
     fn make_entry(branch: &str, overall_score: u32, head: &str) -> HistoryEntry {
         let mut categories = HashMap::new();
@@ -221,7 +234,11 @@ mod tests {
             overall_score,
             categories,
             metrics: HashMap::new(),
-            counts: HistoryCounts { commits: 1, files: 1, authors: 1 },
+            counts: HistoryCounts {
+                commits: 1,
+                files: 1,
+                authors: 1,
+            },
             branch: branch.to_string(),
             schema_version: 1,
         }
@@ -245,13 +262,11 @@ mod tests {
 
         // delta_vs_oldest should be current - oldest (72 - 60 = 12), not current - last (72 - 68 = 4)
         assert_eq!(
-            summary.delta.delta_vs_oldest,
-            12,
+            summary.delta.delta_vs_oldest, 12,
             "delta_vs_oldest should be current_score - oldest_score = 72 - 60 = 12"
         );
         assert_eq!(
-            summary.delta.overall,
-            4,
+            summary.delta.overall, 4,
             "delta.overall (delta_vs_last) should be current_score - last_score = 72 - 68 = 4"
         );
     }
@@ -279,10 +294,7 @@ mod tests {
             !summary.delta.is_first,
             "is_first should be false when prior history exists"
         );
-        assert_eq!(
-            summary.delta.overall, 5,
-            "delta should be 75 - 70 = +5"
-        );
+        assert_eq!(summary.delta.overall, 5, "delta should be 75 - 70 = +5");
     }
 
     #[test]
@@ -318,7 +330,9 @@ mod tests {
         let history = vec![entry1, entry2, entry3, entry4];
         let summary = compute_trend(&history, "main", &current);
 
-        let velocity = summary.velocity.expect("velocity should be Some with prior entries");
+        let velocity = summary
+            .velocity
+            .expect("velocity should be Some with prior entries");
         assert_eq!(
             velocity.direction,
             VelocityDirection::Improving,
@@ -340,7 +354,9 @@ mod tests {
         let history = vec![prior];
         let summary = compute_trend(&history, "main", &current);
 
-        let velocity = summary.velocity.expect("velocity should be Some with prior entries");
+        let velocity = summary
+            .velocity
+            .expect("velocity should be Some with prior entries");
         assert_eq!(
             velocity.direction,
             VelocityDirection::Declining,

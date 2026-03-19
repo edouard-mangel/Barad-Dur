@@ -1,0 +1,279 @@
+journey:
+  name: "historical-trends"
+  goal: "Understand whether repository health is improving or declining over time"
+  persona: "Marco Rossi (Engineering Lead) / Priya Nair (Senior Developer)"
+  feature_id: "historical-trends"
+
+  emotional_arc:
+    start: "Uncertain — has a score number but no directional context"
+    middle: "Orienting — sees delta and trend line alongside familiar output"
+    end: "Confident and informed — can state direction with evidence"
+
+steps:
+  - id: 1
+    name: "Run analysis (auto-recording)"
+    command: "barad-dur analyze ."
+    description: >
+      User runs the existing analyze command unchanged. No new flag required.
+      As a side effect, the completed analysis is appended as a snapshot entry
+      to .repository-analysis/trends.json. First run creates the file.
+
+    tui_mockup: |
+      +-- barad-dur analyze . -----------------------------------------------+
+      | Analyzing ${repo_name} (${branch})  [last 6 months]                   |
+      | [####################################] done in ${analysis_duration}    |
+      |                                                                        |
+      | Overall Score: ${overall_score}/100                                    |
+      |                                                                        |
+      | Health      ${health_score}  [bar]                                     |
+      | Team        ${team_score}    [bar]                                     |
+      | Evolution   ${evolution_score} [bar]                                   |
+      | Git Hygiene ${hygiene_score} [bar]                                     |
+      |                                                                        |
+      | Trend: first snapshot recorded                                         |
+      | Run again next week to start tracking direction.                       |
+      +------------------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "overall_score"
+        source: "AnalysisReport.overall_score (scorer.rs)"
+        displayed_as: "${overall_score}"
+        consumers:
+          - "CLI renderer (current run)"
+          - "trends.json snapshot entry"
+          - "delta computation (step 2)"
+      - name: "category_scores"
+        source: "AnalysisReport.categories[*].score (scorer.rs)"
+        displayed_as: "${health_score}, ${team_score}, ${evolution_score}, ${hygiene_score}"
+        consumers:
+          - "CLI renderer (current run)"
+          - "trends.json snapshot entry"
+          - "trend table (step 3)"
+      - name: "commit_hash"
+        source: "RepoSnapshot.head_commit (snapshot.rs)"
+        displayed_as: "(stored in trend entry, not shown by default)"
+        consumers:
+          - "trends.json snapshot entry (for correctness validation)"
+          - "branch mismatch detection"
+      - name: "branch"
+        source: "AnalysisReport.branch (scorer.rs)"
+        displayed_as: "${branch}"
+        consumers:
+          - "CLI renderer (current run)"
+          - "trends.json snapshot entry"
+          - "branch mismatch warning"
+      - name: "timestamp"
+        source: "system time at analysis completion"
+        displayed_as: "(stored in trend entry)"
+        consumers:
+          - "trends.json snapshot entry"
+          - "velocity computation"
+          - "trend table date column"
+
+    emotional_state:
+      entry: "Uncertain — same as always when starting analysis"
+      exit: "Familiar — output looks the same; trend line is a small addition, not disruptive"
+
+    integration_checkpoint: |
+      trends.json must exist and contain exactly 1 entry after this step.
+      Entry must contain: timestamp (ISO8601), commit (SHA), branch, overall_score,
+      and all 4 category scores. File must not be committed to git.
+
+    gherkin: |
+      Scenario: First analysis run records trend snapshot silently
+        Given Marco runs barad-dur on his repo for the first time
+        When he runs "barad-dur analyze ."
+        Then the analysis completes and the usual scored report is displayed
+        And .repository-analysis/trends.json is created with 1 snapshot entry
+        And the entry contains timestamp, branch, commit hash, and all 5 scores
+        And the CLI output includes "Trend: first snapshot recorded"
+        And the output does not include a delta (no prior run to compare)
+
+  - id: 2
+    name: "Read trend delta in regular output"
+    command: "barad-dur analyze ."
+    description: >
+      On subsequent runs (2nd run onward), the CLI output automatically
+      includes a delta vs the last snapshot and a compact trend line.
+      No extra flag required. The delta appears inline with the score.
+
+    tui_mockup: |
+      +-- barad-dur analyze . -----------------------------------------------+
+      | Analyzing ${repo_name} (${branch})  [last 6 months]                   |
+      | [####################################] done in ${analysis_duration}    |
+      |                                                                        |
+      | Overall Score: ${overall_score}/100  (+${delta_last} vs last run       |
+      |                                       · +${delta_oldest} vs ${weeks_ago} weeks ago) |
+      |                                                                        |
+      | Health      ${health_score}  [bar]  ${health_delta}                    |
+      | Team        ${team_score}    [bar]  ${team_delta}                      |
+      | Evolution   ${evolution_score} [bar] ${evolution_delta}               |
+      | Git Hygiene ${hygiene_score} [bar]  ${hygiene_delta}                   |
+      |                                                                        |
+      | Trend (${snapshot_count} snapshots, ${weeks_span} weeks):              |
+      | Overall  ${trend_sparkline}   ${direction_indicator} ${direction_label}|
+      |                                                                        |
+      | Top actions:                                                           |
+      |   1. ${top_action_1}                                                   |
+      +------------------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "delta_last"
+        source: "current overall_score minus previous snapshot overall_score (trends.json)"
+        displayed_as: "${delta_last}"
+        consumers:
+          - "CLI inline delta display"
+          - "JSON trend output"
+      - name: "trend_sparkline"
+        source: "all snapshot overall_scores from trends.json, ordered by timestamp"
+        displayed_as: "${trend_sparkline} (sequence of numbers)"
+        consumers:
+          - "CLI compact trend line"
+          - "HTML trend chart"
+      - name: "direction_indicator"
+        source: "computed from first vs last snapshot in trend_sparkline"
+        displayed_as: "${direction_indicator} (arrow: ↑ ↓ →)"
+        consumers:
+          - "CLI trend line"
+          - "JSON direction field"
+
+    emotional_state:
+      entry: "Routine — running the same monthly command"
+      exit: "Oriented — the delta immediately answers 'is this better or worse?'"
+
+    integration_checkpoint: |
+      After this step trends.json has N+1 entries.
+      Delta displayed must equal current_overall_score minus previous_entry_overall_score exactly.
+      Branch must match between current run and previous entry for delta to be shown.
+      If branches differ, branch mismatch warning is shown instead of delta.
+
+    gherkin: |
+      Scenario: Second run shows delta versus last snapshot
+        Given Marco has 1 prior snapshot in trends.json with overall_score 68
+        When he runs "barad-dur analyze ." and the current score is 74
+        Then the CLI output shows "Overall Score: 74/100  (+6 vs last run)"
+        And each category row shows its individual delta
+        And the compact trend line shows "68 → 74  ↑ improving"
+        And trends.json now contains 2 entries
+
+  - id: 3
+    name: "View full trend history with --trend flag"
+    command: "barad-dur analyze . --trend"
+    description: >
+      When the user wants the full trend table (all snapshots, velocity, per-category
+      direction), they add --trend. This shows the complete history table and computed
+      velocity. Does not re-run any past commit analysis — reads only trends.json.
+
+    tui_mockup: |
+      +-- barad-dur analyze . --trend ---------------------------------------+
+      | Analyzing ${repo_name} (${branch})  [last 6 months]                  |
+      | [####################################] done in ${analysis_duration}   |
+      |                                                                       |
+      | Overall Score: ${overall_score}/100  (+${delta_last} vs last run)     |
+      |                                                                       |
+      | TREND HISTORY (${snapshot_count} snapshots)                          |
+      | ─────────────────────────────────────────────────────────────────    |
+      | Date         Overall  Health  Team   Evol.  Hygiene                  |
+      | ${date_1}    ${s1_ov}  ${s1_h} ${s1_t} ${s1_e} ${s1_g}              |
+      | ${date_2}    ${s2_ov}  ${s2_h} ${s2_t} ${s2_e} ${s2_g}              |
+      | ...                                                                   |
+      | ${date_n} *  ${sn_ov}  ${sn_h} ${sn_t} ${sn_e} ${sn_g}  <- today   |
+      | ─────────────────────────────────────────────────────────────────    |
+      | Direction  ${dir_ov}  ${dir_h} ${dir_t} ${dir_e} ${dir_g}           |
+      | Velocity   ${velocity}/wk                                            |
+      |                                                                       |
+      | Most improved: ${most_improved_category} (${most_improved_delta})    |
+      | Watch:  ${slowest_category} (${slowest_note})                        |
+      +-----------------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "snapshot_table"
+        source: "all entries from trends.json ordered by timestamp"
+        displayed_as: "date rows in trend history table"
+        consumers:
+          - "CLI --trend table"
+          - "JSON trend.snapshots array"
+          - "HTML trend tab"
+      - name: "velocity"
+        source: "computed: (last_overall_score - first_overall_score) / weeks_span"
+        displayed_as: "${velocity}/wk"
+        consumers:
+          - "CLI --trend footer"
+          - "JSON trend.velocity_per_week"
+
+    emotional_state:
+      entry: "Intentional — user wants to present data or investigate"
+      exit: "Confident — has a complete, table-structured view suitable for sharing"
+
+    integration_checkpoint: |
+      No new git operations must occur. All data read from trends.json.
+      Velocity calculation must be deterministic given fixed snapshot entries.
+      Table must be readable in 80-column terminal without truncation.
+
+    gherkin: |
+      Scenario: Full trend table shown with --trend flag
+        Given Marco has 6 snapshots recorded over 6 weeks in trends.json
+        When he runs "barad-dur analyze . --trend"
+        Then the output contains a TREND HISTORY table with 6 data rows plus today's run
+        And each row shows date, overall, and all 4 category scores
+        And the footer shows computed velocity in points per week
+        And no git blame or commit re-analysis occurs during this step
+
+  - id: 4
+    name: "Export trend data"
+    command: "barad-dur analyze . --trend --json -o trend-report.json"
+    description: >
+      When --json is combined with --trend, the JSON output includes a
+      top-level "trend" key containing the full snapshot array plus computed
+      fields. The schema is versioned and stable.
+
+    tui_mockup: |
+      (no stdout — output written to file)
+      Analyzing ${repo_name} ...  done
+      Trend report written to trend-report.json
+      (${snapshot_count} snapshots, overall direction: ${direction_label})
+
+    shared_artifacts:
+      - name: "trend_json_schema"
+        source: "AnalysisTrendReport (to be defined in scorer.rs or separate module)"
+        displayed_as: "JSON key 'trend' in output file"
+        consumers:
+          - "CI/CD pipeline parsers"
+          - "Grafana/dashboard integrations"
+          - "HTML renderer trend tab"
+          - "acceptance tests"
+
+    emotional_state:
+      entry: "Purposeful — preparing a shareable artifact"
+      exit: "Done — has a stable file to send to manager or paste in Confluence"
+
+    integration_checkpoint: |
+      JSON schema must include: trend.snapshots[], trend.direction,
+      trend.delta_vs_last, trend.delta_vs_oldest, trend.velocity_per_week.
+      Schema version must be included. Backward-compatible additions allowed;
+      field removals require major version bump.
+
+    gherkin: |
+      Scenario: JSON output includes trend key when --trend flag used
+        Given Marco has 4 snapshots in trends.json
+        When he runs "barad-dur analyze . --trend --json -o out.json"
+        Then out.json contains a top-level "trend" key
+        And trend.snapshots is an array with 5 entries (4 prior + today)
+        And each entry has timestamp, commit, branch, overall_score, and category_scores
+        And trend.direction is one of "improving", "declining", or "stable"
+        And existing top-level fields (overall_score, categories, etc.) are unchanged
+
+integration_validation:
+  shared_artifact_consistency:
+    - artifact: "overall_score"
+      must_match_across: [1, 2, 3, 4]
+      failure_message: "Score shown in CLI and stored in trends.json must be identical"
+    - artifact: "branch"
+      must_match_across: [1, 2, 3, 4]
+      failure_message: "Branch recorded in trends.json must match branch in CLI header"
+    - artifact: "trend_json_schema"
+      must_match_across: [3, 4]
+      failure_message: "CLI --trend table fields must correspond 1:1 to JSON trend.snapshots fields"
+    - artifact: "timestamp"
+      must_match_across: [1, 2, 3, 4]
+      failure_message: "Timestamps in trends.json must be ISO8601 UTC; velocity computation depends on this"

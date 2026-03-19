@@ -46,7 +46,10 @@ fn first_run_creates_trend_store() {
 
     // Given: no trends.json exists
     let trends_path = repo_path.join(".repository-analysis").join("trends.json");
-    assert!(!trends_path.exists(), "trends.json should not exist before first run");
+    assert!(
+        !trends_path.exists(),
+        "trends.json should not exist before first run"
+    );
 
     // When: user runs analyze
     let output = barad_dur()
@@ -70,7 +73,9 @@ fn first_run_creates_trend_store() {
     let entry = &entries[0];
 
     // And: entry contains required fields
-    let timestamp = entry["timestamp"].as_str().expect("timestamp should be a string");
+    let timestamp = entry["timestamp"]
+        .as_str()
+        .expect("timestamp should be a string");
     assert!(
         timestamp.contains('T') && (timestamp.ends_with('Z') || timestamp.contains('+')),
         "timestamp should be ISO8601 UTC: {timestamp}"
@@ -142,7 +147,11 @@ fn second_run_appends_to_trend_store() {
     // Then: trends.json contains exactly 2 entries
     let entries = read_trends_json(repo_path);
     let arr = entries.as_array().unwrap();
-    assert_eq!(arr.len(), 2, "trends.json should have exactly 2 entries after second run");
+    assert_eq!(
+        arr.len(),
+        2,
+        "trends.json should have exactly 2 entries after second run"
+    );
 
     // And: entries are ordered by timestamp ascending
     let ts0 = arr[0]["timestamp"].as_str().expect("timestamp[0]");
@@ -199,9 +208,8 @@ fn delta_displayed_inline_after_prior_run_on_same_branch() {
     );
 
     // And: output contains a direction indicator
-    let has_direction = stdout.contains("improving")
-        || stdout.contains("declining")
-        || stdout.contains("stable");
+    let has_direction =
+        stdout.contains("improving") || stdout.contains("declining") || stdout.contains("stable");
     assert!(
         has_direction,
         "stdout should contain a direction indicator (improving/declining/stable)\nActual stdout:\n{stdout}"

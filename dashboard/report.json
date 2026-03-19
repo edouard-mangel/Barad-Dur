@@ -1,0 +1,1589 @@
+{
+  "repo_name": "barad-dur",
+  "branch": "main",
+  "time_window_months": 6,
+  "total_commits": 38,
+  "total_authors": 3,
+  "total_files": 50,
+  "overall_score": 71,
+  "categories": [
+    {
+      "name": "Health",
+      "score": 63,
+      "metrics": [
+        {
+          "name": "Bus factor",
+          "description": "1 (critical)",
+          "raw_value": {
+            "Integer": 1
+          },
+          "score": 20
+        },
+        {
+          "name": "Churn hotspots",
+          "description": "3 files account for 18% of changes",
+          "raw_value": {
+            "List": [
+              "src/main.rs (8)",
+              "src/collector/mod.rs (8)",
+              ".gitlab-ci.yml (6)"
+            ]
+          },
+          "score": 90
+        },
+        {
+          "name": "Temporal coupling",
+          "description": "13 suspicious file pairs detected",
+          "raw_value": {
+            "Count": 13
+          },
+          "score": 25
+        },
+        {
+          "name": "Stale code",
+          "description": "0% of files untouched in window",
+          "raw_value": {
+            "Percentage": 0.0
+          },
+          "score": 100
+        },
+        {
+          "name": "File complexity",
+          "description": "2 large files, 0 deep-nested dirs, 0 binaries",
+          "raw_value": {
+            "Count": 2
+          },
+          "score": 80
+        }
+      ]
+    },
+    {
+      "name": "Team",
+      "score": 73,
+      "metrics": [
+        {
+          "name": "Knowledge distribution",
+          "description": "Gini 0.41 (moderate)",
+          "raw_value": {
+            "Float": 0.41219478548765354
+          },
+          "score": 75
+        },
+        {
+          "name": "Contributor activity",
+          "description": "3/3 authors active (100%)",
+          "raw_value": {
+            "Percentage": 100.0
+          },
+          "score": 100
+        },
+        {
+          "name": "Ownership clarity",
+          "description": "98% of files have a clear owner",
+          "raw_value": {
+            "Percentage": 98.0
+          },
+          "score": 90
+        },
+        {
+          "name": "Collaboration patterns",
+          "description": "7 directory silos detected out of 14",
+          "raw_value": {
+            "Count": 7
+          },
+          "score": 50
+        },
+        {
+          "name": "Merge patterns",
+          "description": "0 merges (0%)",
+          "raw_value": {
+            "Count": 0
+          },
+          "score": 50
+        }
+      ]
+    },
+    {
+      "name": "Evolution",
+      "score": 58,
+      "metrics": [
+        {
+          "name": "Growth trend",
+          "description": "+50 files, +14497 lines in window",
+          "raw_value": {
+            "Integer": 50
+          },
+          "score": 40
+        },
+        {
+          "name": "Refactoring ratio",
+          "description": "3 of 38 commits invest in structure (8%)",
+          "raw_value": {
+            "Float": 0.07894736842105263
+          },
+          "score": 55
+        },
+        {
+          "name": "Code age",
+          "description": "0.1 months (median code age)",
+          "raw_value": {
+            "Float": 0.06666666666666667
+          },
+          "score": 70
+        },
+        {
+          "name": "Commit cadence",
+          "description": "12.7 commits/day, moderate pattern",
+          "raw_value": {
+            "Float": 12.666666666666666
+          },
+          "score": 70
+        }
+      ]
+    },
+    {
+      "name": "Git Hygiene",
+      "score": 93,
+      "metrics": [
+        {
+          "name": "Commit message quality",
+          "description": "100% good messages, 45% conventional commits",
+          "raw_value": {
+            "Percentage": 100.0
+          },
+          "score": 90
+        },
+        {
+          "name": "History cleanliness",
+          "description": "0% merges, 0 octopus merges, 0 empty messages",
+          "raw_value": {
+            "Count": 0
+          },
+          "score": 90
+        },
+        {
+          "name": "Gitignore coverage",
+          "description": "No suspicious tracked files",
+          "raw_value": {
+            "Count": 0
+          },
+          "score": 100
+        }
+      ]
+    }
+  ],
+  "top_actions": [
+    "[Health] Bus factor (score: 20) — Increase code review coverage and pair programming to spread knowledge",
+    "[Health] Temporal coupling (score: 25) — Decouple tightly paired files by extracting shared interfaces",
+    "[Evolution] Growth trend (score: 40) — Monitor growth rate and plan for sustainable development"
+  ],
+  "remote_meta": null,
+  "file_hotspots": [
+    {
+      "path": "src/main.rs",
+      "churn_count": 8,
+      "loc": 177,
+      "total_lines": 215,
+      "cyclomatic_complexity": 42,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 60.81722344896361
+    },
+    {
+      "path": "src/renderer/html.rs",
+      "churn_count": 5,
+      "loc": 1069,
+      "total_lines": 1235,
+      "cyclomatic_complexity": 80,
+      "public_methods": 1,
+      "properties": 0,
+      "hotspot_score": 59.1003454662013
+    },
+    {
+      "path": "src/collector/mod.rs",
+      "churn_count": 8,
+      "loc": 164,
+      "total_lines": 198,
+      "cyclomatic_complexity": 15,
+      "public_methods": 12,
+      "properties": 3,
+      "hotspot_score": 54.86117244818007
+    },
+    {
+      "path": "src/metrics/evolution.rs",
+      "churn_count": 6,
+      "loc": 489,
+      "total_lines": 556,
+      "cyclomatic_complexity": 56,
+      "public_methods": 1,
+      "properties": 0,
+      "hotspot_score": 54.42791509366764
+    },
+    {
+      "path": "docs/plans/2026-03-07-code-maat-file-analysis.md",
+      "churn_count": 1,
+      "loc": 1149,
+      "total_lines": 1455,
+      "cyclomatic_complexity": 139,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 47.62623762376237
+    },
+    {
+      "path": "src/metrics/team.rs",
+      "churn_count": 4,
+      "loc": 508,
+      "total_lines": 584,
+      "cyclomatic_complexity": 73,
+      "public_methods": 1,
+      "properties": 0,
+      "hotspot_score": 45.78509865375026
+    },
+    {
+      "path": "src/scorer.rs",
+      "churn_count": 5,
+      "loc": 510,
+      "total_lines": 562,
+      "cyclomatic_complexity": 17,
+      "public_methods": 1,
+      "properties": 38,
+      "hotspot_score": 39.968569698696484
+    },
+    {
+      "path": ".gitlab-ci.yml",
+      "churn_count": 6,
+      "loc": 123,
+      "total_lines": 153,
+      "cyclomatic_complexity": 2,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 39.14947645843721
+    },
+    {
+      "path": "Cargo.lock",
+      "churn_count": 3,
+      "loc": 2020,
+      "total_lines": 2256,
+      "cyclomatic_complexity": 1,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 38.9658273381295
+    },
+    {
+      "path": "src/lib.rs",
+      "churn_count": 6,
+      "loc": 8,
+      "total_lines": 8,
+      "cyclomatic_complexity": 0,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 37.57920792079208
+    },
+    {
+      "path": "src/metrics/complexity.rs",
+      "churn_count": 2,
+      "loc": 280,
+      "total_lines": 304,
+      "cyclomatic_complexity": 98,
+      "public_methods": 3,
+      "properties": 0,
+      "hotspot_score": 36.423356364413415
+    },
+    {
+      "path": "tests/collector_tests.rs",
+      "churn_count": 5,
+      "loc": 160,
+      "total_lines": 187,
+      "cyclomatic_complexity": 5,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 33.913295106489066
+    },
+    {
+      "path": "src/snapshot.rs",
+      "churn_count": 4,
+      "loc": 349,
+      "total_lines": 402,
+      "cyclomatic_complexity": 21,
+      "public_methods": 4,
+      "properties": 43,
+      "hotspot_score": 32.98781964527388
+    },
+    {
+      "path": "src/renderer/cli.rs",
+      "churn_count": 4,
+      "loc": 204,
+      "total_lines": 231,
+      "cyclomatic_complexity": 23,
+      "public_methods": 1,
+      "properties": 0,
+      "hotspot_score": 31.98383075717644
+    },
+    {
+      "path": "src/metrics/hygiene.rs",
+      "churn_count": 3,
+      "loc": 346,
+      "total_lines": 390,
+      "cyclomatic_complexity": 37,
+      "public_methods": 1,
+      "properties": 0,
+      "hotspot_score": 30.161354085048796
+    },
+    {
+      "path": "src/cli.rs",
+      "churn_count": 4,
+      "loc": 167,
+      "total_lines": 225,
+      "cyclomatic_complexity": 10,
+      "public_methods": 2,
+      "properties": 17,
+      "hotspot_score": 28.811738727829617
+    },
+    {
+      "path": "docs/plans/2026-03-07-cicd-html-report.md",
+      "churn_count": 1,
+      "loc": 884,
+      "total_lines": 1048,
+      "cyclomatic_complexity": 62,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 28.38377021155353
+    },
+    {
+      "path": "src/metrics/health.rs",
+      "churn_count": 2,
+      "loc": 405,
+      "total_lines": 477,
+      "cyclomatic_complexity": 36,
+      "public_methods": 1,
+      "properties": 0,
+      "hotspot_score": 24.27968516276088
+    },
+    {
+      "path": "docs/plans/2026-03-06-barad-dur-implementation.md",
+      "churn_count": 1,
+      "loc": 677,
+      "total_lines": 1014,
+      "cyclomatic_complexity": 38,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 21.154409145950567
+    },
+    {
+      "path": "src/renderer/json.rs",
+      "churn_count": 3,
+      "loc": 71,
+      "total_lines": 81,
+      "cyclomatic_complexity": 1,
+      "public_methods": 1,
+      "properties": 0,
+      "hotspot_score": 19.668797635159198
+    },
+    {
+      "path": "Cargo.toml",
+      "churn_count": 3,
+      "loc": 22,
+      "total_lines": 24,
+      "cyclomatic_complexity": 0,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 18.96782178217822
+    },
+    {
+      "path": "src/collector/libgit.rs",
+      "churn_count": 2,
+      "loc": 171,
+      "total_lines": 213,
+      "cyclomatic_complexity": 18,
+      "public_methods": 2,
+      "properties": 0,
+      "hotspot_score": 18.077961393261628
+    },
+    {
+      "path": "src/collector/gitcli.rs",
+      "churn_count": 2,
+      "loc": 138,
+      "total_lines": 159,
+      "cyclomatic_complexity": 17,
+      "public_methods": 2,
+      "properties": 0,
+      "hotspot_score": 17.53540138186481
+    },
+    {
+      "path": ".claude/settings.local.json",
+      "churn_count": 2,
+      "loc": 84,
+      "total_lines": 84,
+      "cyclomatic_complexity": 14,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 16.35326590212978
+    },
+    {
+      "path": "src/remote/github.rs",
+      "churn_count": 2,
+      "loc": 105,
+      "total_lines": 137,
+      "cyclomatic_complexity": 10,
+      "public_methods": 2,
+      "properties": 5,
+      "hotspot_score": 15.697877341691004
+    },
+    {
+      "path": "README.md",
+      "churn_count": 2,
+      "loc": 97,
+      "total_lines": 167,
+      "cyclomatic_complexity": 10,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 15.618669420898925
+    },
+    {
+      "path": "src/cache/storage.rs",
+      "churn_count": 2,
+      "loc": 113,
+      "total_lines": 138,
+      "cyclomatic_complexity": 5,
+      "public_methods": 2,
+      "properties": 0,
+      "hotspot_score": 14.697948571835601
+    },
+    {
+      "path": "src/metrics/mod.rs",
+      "churn_count": 2,
+      "loc": 51,
+      "total_lines": 58,
+      "cyclomatic_complexity": 3,
+      "public_methods": 1,
+      "properties": 7,
+      "hotspot_score": 13.652432509437995
+    },
+    {
+      "path": "tests/integration_tests.rs",
+      "churn_count": 2,
+      "loc": 100,
+      "total_lines": 116,
+      "cyclomatic_complexity": 0,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 13.490099009900991
+    },
+    {
+      "path": "src/remote/mod.rs",
+      "churn_count": 2,
+      "loc": 5,
+      "total_lines": 7,
+      "cyclomatic_complexity": 3,
+      "public_methods": 1,
+      "properties": 0,
+      "hotspot_score": 13.19698696488354
+    },
+    {
+      "path": "init.sh",
+      "churn_count": 2,
+      "loc": 35,
+      "total_lines": 47,
+      "cyclomatic_complexity": 0,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 12.846534653465348
+    },
+    {
+      "path": "docs/plans/2026-03-06-barad-dur-design.md",
+      "churn_count": 1,
+      "loc": 307,
+      "total_lines": 429,
+      "cyclomatic_complexity": 16,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 12.742841370467984
+    },
+    {
+      "path": ".gitignore",
+      "churn_count": 2,
+      "loc": 5,
+      "total_lines": 5,
+      "cyclomatic_complexity": 0,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 12.549504950495049
+    },
+    {
+      "path": "src/renderer/mod.rs",
+      "churn_count": 2,
+      "loc": 3,
+      "total_lines": 3,
+      "cyclomatic_complexity": 0,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 12.52970297029703
+    },
+    {
+      "path": "docs/adr/001-architecture-decisions.md",
+      "churn_count": 1,
+      "loc": 127,
+      "total_lines": 198,
+      "cyclomatic_complexity": 23,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 12.471454519552674
+    },
+    {
+      "path": "dashboard/src/pages/Report.tsx",
+      "churn_count": 1,
+      "loc": 217,
+      "total_lines": 233,
+      "cyclomatic_complexity": 11,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 10.77261557090961
+    },
+    {
+      "path": "dashboard/src/types.ts",
+      "churn_count": 1,
+      "loc": 96,
+      "total_lines": 110,
+      "cyclomatic_complexity": 16,
+      "public_methods": 5,
+      "properties": 0,
+      "hotspot_score": 10.653732459576892
+    },
+    {
+      "path": "dashboard/src/components/HotspotsView.tsx",
+      "churn_count": 1,
+      "loc": 144,
+      "total_lines": 167,
+      "cyclomatic_complexity": 8,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 9.402361279293396
+    },
+    {
+      "path": "dashboard/src/components/AgeView.tsx",
+      "churn_count": 1,
+      "loc": 81,
+      "total_lines": 86,
+      "cyclomatic_complexity": 8,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 8.778598903055773
+    },
+    {
+      "path": "dashboard/src/components/OwnershipView.tsx",
+      "churn_count": 1,
+      "loc": 84,
+      "total_lines": 93,
+      "cyclomatic_complexity": 7,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 8.592474535223307
+    },
+    {
+      "path": "dashboard/src/components/CouplingView.tsx",
+      "churn_count": 1,
+      "loc": 84,
+      "total_lines": 88,
+      "cyclomatic_complexity": 3,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 7.729165182705322
+    },
+    {
+      "path": "Makefile",
+      "churn_count": 1,
+      "loc": 21,
+      "total_lines": 40,
+      "cyclomatic_complexity": 4,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 7.321230144597194
+    },
+    {
+      "path": "docs/plans/2026-03-07-cicd-html-report-design.md",
+      "churn_count": 1,
+      "loc": 68,
+      "total_lines": 120,
+      "cyclomatic_complexity": 1,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 7.139094664862171
+    },
+    {
+      "path": "scripts/lint-check.sh",
+      "churn_count": 1,
+      "loc": 21,
+      "total_lines": 35,
+      "cyclomatic_complexity": 2,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 6.889575468338201
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "churn_count": 1,
+      "loc": 60,
+      "total_lines": 73,
+      "cyclomatic_complexity": 0,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 6.844059405940595
+    },
+    {
+      "path": "src/cache/staleness.rs",
+      "churn_count": 1,
+      "loc": 32,
+      "total_lines": 37,
+      "cyclomatic_complexity": 1,
+      "public_methods": 1,
+      "properties": 0,
+      "hotspot_score": 6.782659021297814
+    },
+    {
+      "path": "docs/BACKLOG.md",
+      "churn_count": 1,
+      "loc": 10,
+      "total_lines": 23,
+      "cyclomatic_complexity": 2,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 6.780664577249092
+    },
+    {
+      "path": "dashboard/sample.json",
+      "churn_count": 1,
+      "loc": 1,
+      "total_lines": 1,
+      "cyclomatic_complexity": 2,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 6.691555666358003
+    },
+    {
+      "path": "src/remote/clone.rs",
+      "churn_count": 1,
+      "loc": 13,
+      "total_lines": 21,
+      "cyclomatic_complexity": 0,
+      "public_methods": 1,
+      "properties": 1,
+      "hotspot_score": 6.378712871287129
+    },
+    {
+      "path": "src/cache/mod.rs",
+      "churn_count": 1,
+      "loc": 4,
+      "total_lines": 5,
+      "cyclomatic_complexity": 0,
+      "public_methods": 0,
+      "properties": 0,
+      "hotspot_score": 6.28960396039604
+    }
+  ],
+  "coupling_pairs": [
+    {
+      "file_a": "src/main.rs",
+      "file_b": "src/scorer.rs",
+      "co_changes": 4,
+      "coupling_pct": 80.0
+    },
+    {
+      "file_a": "src/metrics/evolution.rs",
+      "file_b": "src/metrics/team.rs",
+      "co_changes": 4,
+      "coupling_pct": 100.0
+    },
+    {
+      "file_a": "src/renderer/cli.rs",
+      "file_b": "src/scorer.rs",
+      "co_changes": 4,
+      "coupling_pct": 100.0
+    },
+    {
+      "file_a": "src/cli.rs",
+      "file_b": "src/main.rs",
+      "co_changes": 4,
+      "coupling_pct": 100.0
+    },
+    {
+      "file_a": "src/collector/mod.rs",
+      "file_b": "tests/collector_tests.rs",
+      "co_changes": 4,
+      "coupling_pct": 80.0
+    },
+    {
+      "file_a": "src/collector/mod.rs",
+      "file_b": "src/scorer.rs",
+      "co_changes": 3,
+      "coupling_pct": 60.0
+    },
+    {
+      "file_a": "src/metrics/evolution.rs",
+      "file_b": "src/metrics/hygiene.rs",
+      "co_changes": 3,
+      "coupling_pct": 100.0
+    },
+    {
+      "file_a": "src/metrics/evolution.rs",
+      "file_b": "src/scorer.rs",
+      "co_changes": 3,
+      "coupling_pct": 60.0
+    },
+    {
+      "file_a": "src/main.rs",
+      "file_b": "src/renderer/cli.rs",
+      "co_changes": 3,
+      "coupling_pct": 75.0
+    },
+    {
+      "file_a": "Cargo.toml",
+      "file_b": "src/main.rs",
+      "co_changes": 3,
+      "coupling_pct": 100.0
+    },
+    {
+      "file_a": "src/metrics/hygiene.rs",
+      "file_b": "src/metrics/team.rs",
+      "co_changes": 3,
+      "coupling_pct": 100.0
+    },
+    {
+      "file_a": "Cargo.lock",
+      "file_b": "src/main.rs",
+      "co_changes": 3,
+      "coupling_pct": 100.0
+    },
+    {
+      "file_a": "src/collector/mod.rs",
+      "file_b": "src/metrics/evolution.rs",
+      "co_changes": 3,
+      "coupling_pct": 50.0
+    },
+    {
+      "file_a": "src/main.rs",
+      "file_b": "src/metrics/evolution.rs",
+      "co_changes": 3,
+      "coupling_pct": 50.0
+    },
+    {
+      "file_a": "src/renderer/cli.rs",
+      "file_b": "src/renderer/json.rs",
+      "co_changes": 3,
+      "coupling_pct": 100.0
+    },
+    {
+      "file_a": "src/main.rs",
+      "file_b": "src/renderer/html.rs",
+      "co_changes": 3,
+      "coupling_pct": 60.0
+    },
+    {
+      "file_a": "src/collector/mod.rs",
+      "file_b": "src/main.rs",
+      "co_changes": 3,
+      "coupling_pct": 37.5
+    },
+    {
+      "file_a": "src/renderer/json.rs",
+      "file_b": "src/scorer.rs",
+      "co_changes": 3,
+      "coupling_pct": 100.0
+    },
+    {
+      "file_a": "src/lib.rs",
+      "file_b": "src/main.rs",
+      "co_changes": 3,
+      "coupling_pct": 50.0
+    },
+    {
+      "file_a": "Cargo.lock",
+      "file_b": "Cargo.toml",
+      "co_changes": 3,
+      "coupling_pct": 100.0
+    }
+  ],
+  "author_ownership": [
+    {
+      "path": "src/metrics/complexity.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "docs/BACKLOG.md",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "src/collector/mod.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 95.45454545454545
+        },
+        {
+          "name": "Edouard MANGEL",
+          "pct": 4.545454545454546
+        }
+      ]
+    },
+    {
+      "path": "Cargo.lock",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 95.87765957446808
+        },
+        {
+          "name": "Edouard MANGEL",
+          "pct": 4.122340425531915
+        }
+      ]
+    },
+    {
+      "path": "src/cache/mod.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": ".claude/settings.local.json",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 84.52380952380952
+        },
+        {
+          "name": "Edouard MANGEL",
+          "pct": 15.476190476190476
+        }
+      ]
+    },
+    {
+      "path": "src/cache/staleness.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "dashboard/src/components/HotspotsView.tsx",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "docs/plans/2026-03-07-cicd-html-report-design.md",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "tests/collector_tests.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 53.475935828877006
+        },
+        {
+          "name": "Edouard MANGEL",
+          "pct": 46.524064171122994
+        }
+      ]
+    },
+    {
+      "path": "docs/plans/2026-03-06-barad-dur-implementation.md",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "src/renderer/html.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "dashboard/src/components/CouplingView.tsx",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "Cargo.toml",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 75.0
+        },
+        {
+          "name": "Edouard MANGEL",
+          "pct": 25.0
+        }
+      ]
+    },
+    {
+      "path": "dashboard/src/types.ts",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "docs/plans/2026-03-06-barad-dur-design.md",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "src/cache/storage.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "tests/integration_tests.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "src/metrics/health.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "src/collector/libgit.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "init.sh",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 76.59574468085107
+        },
+        {
+          "name": "Edouard MANGEL",
+          "pct": 23.404255319148938
+        }
+      ]
+    },
+    {
+      "path": "scripts/lint-check.sh",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "docs/adr/001-architecture-decisions.md",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "docs/plans/2026-03-07-cicd-html-report.md",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "src/remote/github.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "dashboard/sample.json",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": ".gitlab-ci.yml",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 75.81699346405229
+        },
+        {
+          "name": "Edouard",
+          "pct": 15.686274509803921
+        },
+        {
+          "name": "Edouard MANGEL",
+          "pct": 8.49673202614379
+        }
+      ]
+    },
+    {
+      "path": "src/metrics/mod.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 98.27586206896551
+        },
+        {
+          "name": "Edouard MANGEL",
+          "pct": 1.7241379310344827
+        }
+      ]
+    },
+    {
+      "path": "dashboard/src/pages/Report.tsx",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "src/main.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 67.44186046511628
+        },
+        {
+          "name": "Edouard MANGEL",
+          "pct": 32.55813953488372
+        }
+      ]
+    },
+    {
+      "path": "src/lib.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 62.5
+        },
+        {
+          "name": "Edouard MANGEL",
+          "pct": 37.5
+        }
+      ]
+    },
+    {
+      "path": "src/remote/mod.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "src/renderer/cli.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 85.71428571428571
+        },
+        {
+          "name": "Edouard MANGEL",
+          "pct": 14.285714285714285
+        }
+      ]
+    },
+    {
+      "path": "src/cli.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 57.77777777777777
+        },
+        {
+          "name": "Edouard MANGEL",
+          "pct": 42.22222222222222
+        }
+      ]
+    },
+    {
+      "path": ".gitignore",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 60.0
+        },
+        {
+          "name": "Edouard MANGEL",
+          "pct": 40.0
+        }
+      ]
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "src/renderer/mod.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 66.66666666666666
+        },
+        {
+          "name": "Edouard MANGEL",
+          "pct": 33.33333333333333
+        }
+      ]
+    },
+    {
+      "path": "dashboard/src/components/AgeView.tsx",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "src/renderer/json.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 53.086419753086425
+        },
+        {
+          "name": "Edouard MANGEL",
+          "pct": 46.913580246913575
+        }
+      ]
+    },
+    {
+      "path": "src/snapshot.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 77.61194029850746
+        },
+        {
+          "name": "Edouard MANGEL",
+          "pct": 22.388059701492537
+        }
+      ]
+    },
+    {
+      "path": "src/scorer.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 50.0
+        },
+        {
+          "name": "Edouard MANGEL",
+          "pct": 50.0
+        }
+      ]
+    },
+    {
+      "path": "src/collector/gitcli.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "src/metrics/evolution.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 85.431654676259
+        },
+        {
+          "name": "Edouard MANGEL",
+          "pct": 14.568345323741008
+        }
+      ]
+    },
+    {
+      "path": "docs/plans/2026-03-07-code-maat-file-analysis.md",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "src/metrics/team.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "src/remote/clone.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "src/metrics/hygiene.rs",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "dashboard/src/components/OwnershipView.tsx",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    },
+    {
+      "path": "README.md",
+      "authors": [
+        {
+          "name": "Edouard",
+          "pct": 99.40119760479041
+        },
+        {
+          "name": "Edouard MANGEL",
+          "pct": 0.5988023952095809
+        }
+      ]
+    },
+    {
+      "path": "Makefile",
+      "authors": [
+        {
+          "name": "Edouard MANGEL",
+          "pct": 100.0
+        }
+      ]
+    }
+  ],
+  "file_ages": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "last_modified": "2026-03-07T09:54:04Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": ".gitignore",
+      "last_modified": "2026-03-07T09:49:44Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": ".gitlab-ci.yml",
+      "last_modified": "2026-03-07T12:01:54Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "Cargo.lock",
+      "last_modified": "2026-03-06T22:50:49Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "Cargo.toml",
+      "last_modified": "2026-03-06T22:50:49Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "Makefile",
+      "last_modified": "2026-03-07T09:54:04Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "README.md",
+      "last_modified": "2026-03-06T15:46:16Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "dashboard/sample.json",
+      "last_modified": "2026-03-07T06:18:25Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "dashboard/src/components/AgeView.tsx",
+      "last_modified": "2026-03-07T06:26:04Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "dashboard/src/components/CouplingView.tsx",
+      "last_modified": "2026-03-07T06:26:04Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "dashboard/src/components/HotspotsView.tsx",
+      "last_modified": "2026-03-07T06:26:04Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "dashboard/src/components/OwnershipView.tsx",
+      "last_modified": "2026-03-07T06:26:04Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "dashboard/src/pages/Report.tsx",
+      "last_modified": "2026-03-07T06:26:04Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "dashboard/src/types.ts",
+      "last_modified": "2026-03-07T06:20:08Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "docs/BACKLOG.md",
+      "last_modified": "2026-03-06T16:17:11Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "docs/adr/001-architecture-decisions.md",
+      "last_modified": "2026-03-06T15:03:38Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "docs/plans/2026-03-06-barad-dur-design.md",
+      "last_modified": "2026-03-06T15:03:38Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "docs/plans/2026-03-06-barad-dur-implementation.md",
+      "last_modified": "2026-03-06T15:03:38Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "docs/plans/2026-03-07-cicd-html-report-design.md",
+      "last_modified": "2026-03-07T09:50:33Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "docs/plans/2026-03-07-cicd-html-report.md",
+      "last_modified": "2026-03-07T09:50:33Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "docs/plans/2026-03-07-code-maat-file-analysis.md",
+      "last_modified": "2026-03-07T01:54:11Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "init.sh",
+      "last_modified": "2026-03-07T09:49:44Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "scripts/lint-check.sh",
+      "last_modified": "2026-03-06T15:33:26Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "src/cache/mod.rs",
+      "last_modified": "2026-03-06T15:03:38Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "src/cache/staleness.rs",
+      "last_modified": "2026-03-06T15:03:38Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "src/cache/storage.rs",
+      "last_modified": "2026-03-06T15:33:26Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "src/cli.rs",
+      "last_modified": "2026-03-07T08:37:45Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "src/collector/gitcli.rs",
+      "last_modified": "2026-03-06T15:33:26Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "src/collector/libgit.rs",
+      "last_modified": "2026-03-06T15:33:26Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "src/lib.rs",
+      "last_modified": "2026-03-06T22:50:49Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "src/metrics/health.rs",
+      "last_modified": "2026-03-06T15:33:26Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "src/metrics/hygiene.rs",
+      "last_modified": "2026-03-06T15:33:26Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "src/metrics/mod.rs",
+      "last_modified": "2026-03-07T06:13:16Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "src/metrics/team.rs",
+      "last_modified": "2026-03-06T15:33:26Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "src/remote/clone.rs",
+      "last_modified": "2026-03-06T22:50:49Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "src/renderer/json.rs",
+      "last_modified": "2026-03-07T06:17:51Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "src/renderer/mod.rs",
+      "last_modified": "2026-03-07T08:37:45Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "src/snapshot.rs",
+      "last_modified": "2026-03-07T01:59:31Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "tests/collector_tests.rs",
+      "last_modified": "2026-03-06T22:50:49Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": "tests/integration_tests.rs",
+      "last_modified": "2026-03-06T15:33:26Z",
+      "days_since_modified": 2
+    },
+    {
+      "path": ".claude/settings.local.json",
+      "last_modified": "2026-03-09T12:11:46Z",
+      "days_since_modified": 0
+    },
+    {
+      "path": "src/collector/mod.rs",
+      "last_modified": "2026-03-09T12:11:46Z",
+      "days_since_modified": 0
+    },
+    {
+      "path": "src/main.rs",
+      "last_modified": "2026-03-09T12:11:46Z",
+      "days_since_modified": 0
+    },
+    {
+      "path": "src/metrics/complexity.rs",
+      "last_modified": "2026-03-09T12:11:46Z",
+      "days_since_modified": 0
+    },
+    {
+      "path": "src/metrics/evolution.rs",
+      "last_modified": "2026-03-09T12:11:46Z",
+      "days_since_modified": 0
+    },
+    {
+      "path": "src/remote/github.rs",
+      "last_modified": "2026-03-09T12:11:46Z",
+      "days_since_modified": 0
+    },
+    {
+      "path": "src/remote/mod.rs",
+      "last_modified": "2026-03-09T12:11:46Z",
+      "days_since_modified": 0
+    },
+    {
+      "path": "src/renderer/cli.rs",
+      "last_modified": "2026-03-09T12:11:46Z",
+      "days_since_modified": 0
+    },
+    {
+      "path": "src/renderer/html.rs",
+      "last_modified": "2026-03-09T12:11:46Z",
+      "days_since_modified": 0
+    },
+    {
+      "path": "src/scorer.rs",
+      "last_modified": "2026-03-09T12:11:46Z",
+      "days_since_modified": 0
+    }
+  ]
+}

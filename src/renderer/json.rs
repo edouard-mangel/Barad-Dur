@@ -9,7 +9,11 @@ use crate::trend::TrendSummary;
 /// When `trend` is `Some(summary)`, injects a top-level "trend" object into the
 /// JSON output. When `None`, the output is structurally identical to pre-trend
 /// runs (no "trend" key).
-pub fn render(report: &AnalysisReport, pretty: bool, trend: Option<&TrendSummary>) -> Result<String> {
+pub fn render(
+    report: &AnalysisReport,
+    pretty: bool,
+    trend: Option<&TrendSummary>,
+) -> Result<String> {
     let mut value: Value = serde_json::to_value(report)?;
 
     if let Some(summary) = trend {
@@ -178,7 +182,9 @@ mod tests {
         let output = render(&report, false, Some(&summary)).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
 
-        let trend = parsed.get("trend").expect("trend key must be present when Some(summary) is passed");
+        let trend = parsed
+            .get("trend")
+            .expect("trend key must be present when Some(summary) is passed");
         assert!(
             trend.as_object().unwrap().contains_key("velocity_per_week"),
             "trend.velocity_per_week key must be present (as null)"

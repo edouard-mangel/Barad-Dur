@@ -178,11 +178,17 @@ fn run_analyze(args: AnalyzeArgs) -> Result<()> {
     // Render
     let t = std::time::Instant::now();
     let is_html = matches!(cfg.output_format, config::OutputFormat::Html);
-    let json_trend = if args.trend { Some(&trend_summary) } else { None };
+    let json_trend = if args.trend {
+        Some(&trend_summary)
+    } else {
+        None
+    };
     let output = match cfg.output_format {
         config::OutputFormat::Json => renderer::json::render(&report, args.pretty, json_trend)?,
         config::OutputFormat::Html => renderer::html::render(&report)?,
-        config::OutputFormat::Cli => renderer::cli::render(&report, args.verbose, Some(&trend_summary)),
+        config::OutputFormat::Cli => {
+            renderer::cli::render(&report, args.verbose, Some(&trend_summary))
+        }
     };
     if args.verbose > 0 {
         eprintln!("  Render: {}ms", t.elapsed().as_millis());

@@ -654,7 +654,10 @@ mod tests {
         let entry: HistoryEntry = serde_json::from_str(legacy_json)
             .expect("legacy HistoryEntry without branch/schema_version should deserialize");
         assert_eq!(entry.branch, "", "branch should default to empty string");
-        assert_eq!(entry.schema_version, 0, "schema_version should default to 0");
+        assert_eq!(
+            entry.schema_version, 0,
+            "schema_version should default to 0"
+        );
         assert_eq!(entry.head, "abc123");
     }
 

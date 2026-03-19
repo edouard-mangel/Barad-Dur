@@ -70,8 +70,7 @@ pub fn render(report: &AnalysisReport, verbosity: u8, trend: Option<&TrendSummar
                 "  {}\n",
                 format!(
                     "Warning: prior history on '{}'; current branch is '{}'",
-                    prior_branch,
-                    report.branch
+                    prior_branch, report.branch
                 )
                 .yellow()
             ));
@@ -241,10 +240,10 @@ fn format_score_dot(score: u32) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use super::*;
     use crate::metrics::{CategoryResult, MetricValue, RawValue};
     use crate::trend::{TrendDelta, TrendSummary, TrendVelocity, VelocityDirection};
+    use std::collections::HashMap;
 
     fn make_report() -> AnalysisReport {
         AnalysisReport {
@@ -277,7 +276,12 @@ mod tests {
 
     fn make_first_run_trend() -> TrendSummary {
         TrendSummary {
-            delta: TrendDelta { overall: 0, delta_vs_oldest: 0, categories: HashMap::new(), is_first: true },
+            delta: TrendDelta {
+                overall: 0,
+                delta_vs_oldest: 0,
+                categories: HashMap::new(),
+                is_first: true,
+            },
             sparkline: vec![],
             velocity: None,
             branch_mismatch_warning: false,
@@ -287,7 +291,12 @@ mod tests {
 
     fn make_subsequent_run_trend(delta: i32) -> TrendSummary {
         TrendSummary {
-            delta: TrendDelta { overall: delta, delta_vs_oldest: delta, categories: HashMap::new(), is_first: false },
+            delta: TrendDelta {
+                overall: delta,
+                delta_vs_oldest: delta,
+                categories: HashMap::new(),
+                is_first: false,
+            },
             sparkline: vec![],
             velocity: Some(TrendVelocity {
                 direction: VelocityDirection::Stable,
@@ -372,7 +381,12 @@ mod tests {
         let mut category_deltas = HashMap::new();
         category_deltas.insert("Health".to_string(), 3_i32);
         let trend = TrendSummary {
-            delta: TrendDelta { overall: 3, delta_vs_oldest: 3, categories: category_deltas, is_first: false },
+            delta: TrendDelta {
+                overall: 3,
+                delta_vs_oldest: 3,
+                categories: category_deltas,
+                is_first: false,
+            },
             sparkline: vec![],
             velocity: Some(TrendVelocity {
                 direction: VelocityDirection::Improving,
@@ -385,10 +399,7 @@ mod tests {
         let output = render(&report, 0, Some(&trend));
 
         // The Health category row must contain the delta marker "+3"
-        let health_line = output
-            .lines()
-            .find(|l| l.contains("Health"))
-            .unwrap_or("");
+        let health_line = output.lines().find(|l| l.contains("Health")).unwrap_or("");
         assert!(
             health_line.contains("+3"),
             "Health category row should show delta '+3', got: {health_line:?}"
@@ -401,7 +412,12 @@ mod tests {
         let mut category_deltas = HashMap::new();
         category_deltas.insert("Health".to_string(), -5_i32);
         let trend = TrendSummary {
-            delta: TrendDelta { overall: -5, delta_vs_oldest: -5, categories: category_deltas, is_first: false },
+            delta: TrendDelta {
+                overall: -5,
+                delta_vs_oldest: -5,
+                categories: category_deltas,
+                is_first: false,
+            },
             sparkline: vec![],
             velocity: Some(TrendVelocity {
                 direction: VelocityDirection::Declining,
@@ -413,10 +429,7 @@ mod tests {
         };
         let output = render(&report, 0, Some(&trend));
 
-        let health_line = output
-            .lines()
-            .find(|l| l.contains("Health"))
-            .unwrap_or("");
+        let health_line = output.lines().find(|l| l.contains("Health")).unwrap_or("");
         assert!(
             health_line.contains("-5"),
             "Health category row should show delta '-5', got: {health_line:?}"
@@ -437,10 +450,7 @@ mod tests {
         let output = render(&report, 0, Some(&trend));
 
         // On first run, category rows should NOT have delta markers
-        let health_line = output
-            .lines()
-            .find(|l| l.contains("Health"))
-            .unwrap_or("");
+        let health_line = output.lines().find(|l| l.contains("Health")).unwrap_or("");
         // No (+N) or (-N) pattern should appear on the category line for a first run
         assert!(
             !health_line.contains("(+") && !health_line.contains("(-"),

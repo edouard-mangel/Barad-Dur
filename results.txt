@@ -1,0 +1,50 @@
+././include/kcl/kcl_fence.h:22:20: error: conflicting types for ‘__dma_fence_is_later’; have ‘bool(u64,  u64)’ {aka ‘_Bool(long long unsigned int,  long long unsigned int)’}
+   22 | static inline bool __dma_fence_is_later(u64 f1, u64 f2)
+      |                    ^~~~~~~~~~~~~~~~~~~~
+In file included from ././include/kcl/kcl_fence.h:17:
+/usr/src/linux-headers-6.17.0-1012-oem/include/linux/dma-fence.h:471:20: note: previous definition of ‘__dma_fence_is_later’ with type ‘bool(struct dma_fence *, u64,  u64)’ {aka ‘_Bool(struct dma_fence *, long long unsigned int,  long long unsigned int)’}
+  471 | static inline bool __dma_fence_is_later(struct dma_fence *fence, u64 f1, u64 f2)
+      |                    ^~~~~~~~~~~~~~~~~~~~
+make[5]: *** [/usr/src/linux-headers-6.17.0-1012-oem/scripts/Makefile.build:287: amd/amdgpu/atombios_crtc.o] Error 1
+cc1: some warnings being treated as errors
+make[5]: *** [/usr/src/linux-headers-6.17.0-1012-oem/scripts/Makefile.build:287: amd/amdgpu/amdgpu_connectors.o] Error 1
+amd/amdkcl/kcl_fence.c:239:6: warning: no previous prototype for ‘amdkcl_fence_init’ [-Wmissing-prototypes]
+  239 | void amdkcl_fence_init(void)
+      |      ^~~~~~~~~~~~~~~~~
+amd/amdgpu/amdgpu_fence.c: In function ‘amdgpu_fence_process’:
+amd/amdgpu/amdgpu_fence.c:283:13: error: implicit declaration of function ‘del_timer’; did you mean ‘add_timer’? [-Werror=implicit-function-declaration]
+  283 |         if (del_timer(&ring->fence_drv.fallback_timer) &&
+      |             ^~~~~~~~~
+      |             add_timer
+cc1: some warnings being treated as errors
+make[5]: *** [/usr/src/linux-headers-6.17.0-1012-oem/scripts/Makefile.build:287: amd/amdkcl/kcl_fence.o] Error 1
+amd/amdgpu/amdgpu_fence.c: In function ‘amdgpu_fence_fallback’:
+amd/amdgpu/amdgpu_fence.c:325:36: error: implicit declaration of function ‘from_timer’; did you mean ‘mod_timer’? [-Werror=implicit-function-declaration]
+  325 |         struct amdgpu_ring *ring = from_timer(ring, t,
+      |                                    ^~~~~~~~~~
+      |                                    mod_timer
+make[5]: *** [/usr/src/linux-headers-6.17.0-1012-oem/scripts/Makefile.build:287: amd/amdgpu/atom.o] Error 1
+amd/amdgpu/amdgpu_fence.c:326:47: error: ‘fence_drv’ undeclared (first use in this function)
+  326 |                                               fence_drv.fallback_timer);
+      |                                               ^~~~~~~~~
+amd/amdgpu/amdgpu_fence.c:326:47: note: each undeclared identifier is reported only once for each function it appears in
+amd/amdgpu/amdgpu_fence.c: In function ‘amdgpu_fence_driver_hw_fini’:
+amd/amdgpu/amdgpu_fence.c:621:17: error: implicit declaration of function ‘del_timer_sync’ [-Werror=implicit-function-declaration]
+  621 |                 del_timer_sync(&ring->fence_drv.fallback_timer);
+      |                 ^~~~~~~~~~~~~~
+cc1: some warnings being treated as errors
+cc1: some warnings being treated as errors
+make[5]: *** [/usr/src/linux-headers-6.17.0-1012-oem/scripts/Makefile.build:287: amd/amdgpu/amdgpu_ttm.o] Error 1
+make[5]: *** [/usr/src/linux-headers-6.17.0-1012-oem/scripts/Makefile.build:287: amd/amdgpu/amdgpu_object.o] Error 1
+cc1: some warnings being treated as errors
+cc1: some warnings being treated as errors
+make[5]: *** [/usr/src/linux-headers-6.17.0-1012-oem/scripts/Makefile.build:287: amd/amdgpu/amdgpu_fence.o] Error 1
+make[5]: *** [/usr/src/linux-headers-6.17.0-1012-oem/scripts/Makefile.build:287: amd/amdgpu/amdgpu_gart.o] Error 1
+make[4]: *** [/usr/src/linux-headers-6.17.0-1012-oem/scripts/Makefile.build:556: amd/amdgpu] Error 2
+make[4]: *** [/usr/src/linux-headers-6.17.0-1012-oem/scripts/Makefile.build:556: amd/amdkcl] Error 2
+make[3]: *** [/usr/src/linux-headers-6.17.0-1012-oem/Makefile:2016: .] Error 2
+make[2]: *** [/usr/src/linux-headers-6.17.0-1012-oem/Makefile:248: __sub-make] Error 2
+make[2]: Leaving directory '/var/lib/dkms/amdgpu/6.12.12-2187269.24.04/build'
+make[1]: *** [Makefile:248: __sub-make] Error 2
+make[1]: Leaving directory '/usr/src/linux-headers-6.17.0-1012-oem'
+make: *** [Makefile:46: modules] Error 2
