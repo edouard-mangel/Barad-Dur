@@ -1,0 +1,282 @@
+journey:
+  name: "backfill"
+  goal: "Retroactively populate trends.json with historical commit analyses so the trends dashboard is immediately useful on an inherited or newly onboarded repository"
+  persona: "Marco Rossi (Engineering Lead) / Priya Nair (Senior Developer)"
+  feature_id: "adaptive-trends-period"
+
+  emotional_arc:
+    start: "Curious but uncertain — will 3 years of history show something useful?"
+    middle: "Engaged — progress ticking forward, each commit being processed"
+    end: "Confident — trend dashboard populated, results ready to share"
+
+steps:
+  - id: 1
+    name: "Invoke backfill subcommand"
+    command: "barad-dur backfill [--no-blame]"
+    actor: "user"
+
+    inputs:
+      - name: "repo_path"
+        description: "Current working directory (implicit target)"
+        source: "CWD at invocation time"
+      - name: "no_blame_flag"
+        description: "Optional flag to skip git blame computation"
+        source: "CLI argument --no-blame"
+
+    outputs:
+      - name: "backfill_started_signal"
+        description: "Immediate stdout message acknowledging the command"
+        value: "Collecting commit history..."
+
+    tui_mockup: |
+      $ barad-dur backfill
+      Collecting commit history...
+
+    emotional_state:
+      entry: "Curious, ready to wait"
+      exit: "Informed — knows something is happening"
+
+    integration_checkpoint: |
+      CWD must be a valid git repository. If not, exit 1 with helpful message.
+
+  - id: 2
+    name: "Discover and sample commits"
+    command: "git log --format=%H (internal)"
+    actor: "system"
+
+    inputs:
+      - name: "git_log_output"
+        description: "Full commit SHA list from git log"
+        source: "git log --format=%H HEAD (all commits, no --since filter)"
+
+    outputs:
+      - name: "total_commit_count"
+        description: "Total commits found in repo history"
+        source: "count of git log output lines"
+      - name: "sampled_shas"
+        description: "List of up to 10 evenly-spaced commit SHAs"
+        source: "Adaptive sampling: if total <= 10, all commits; else 10 evenly spaced"
+
+    tui_mockup: |
+      Found 847 commits.
+      Sampling 10 evenly spaced commits across full history.
+
+    shared_artifacts:
+      - name: "sampled_shas"
+        source: "git log --format=%H HEAD (full history, not --since window)"
+        displayed_as: "${total_commit_count} commits found, ${sample_size} sampled"
+        consumers:
+          - "Step 3: analyze each sampled SHA"
+          - "Step 4: deduplication check against trends.json"
+
+    emotional_state:
+      entry: "Waiting"
+      exit: "Informed — knows scope of work"
+
+    integration_checkpoint: |
+      If git log returns empty or errors, exit 1 with message:
+      "Error: No commits found in this repository."
+
+  - id: 3
+    name: "Deduplicate against existing trends.json"
+    command: "load_history() internal"
+    actor: "system"
+
+    inputs:
+      - name: "existing_history"
+        description: "Current contents of trends.json"
+        source: "src/cache/history.rs load_history()"
+      - name: "sampled_shas"
+        description: "Output of step 2 sampling"
+        source: "Step 2"
+
+    outputs:
+      - name: "commits_to_analyze"
+        description: "Sampled SHAs not already present in trends.json"
+        source: "Set difference: sampled_shas minus existing_history[*].head"
+      - name: "skipped_count"
+        description: "Number of sampled SHAs already in trends.json"
+        source: "Set intersection count"
+
+    shared_artifacts:
+      - name: "trends_json_path"
+        source: ".repository-analysis/trends.json (CACHE_DIR constant)"
+        displayed_as: "existing entry SHAs"
+        consumers:
+          - "Deduplication check (read)"
+          - "Step 5: append new entries (write)"
+
+    emotional_state:
+      entry: "Waiting"
+      exit: "Informed — skips already done"
+
+    integration_checkpoint: |
+      If all sampled SHAs already exist in trends.json, print no-op message and exit 0.
+      No-op guard message: "Backfill already complete. N entries found covering the full commit range."
+
+  - id: 4
+    name: "Analyze each sampled commit"
+    command: "git ls-tree <sha>, git blame <sha> -- <file> (internal)"
+    actor: "system"
+
+    inputs:
+      - name: "commits_to_analyze"
+        description: "SHAs that need analysis (from step 3)"
+        source: "Step 3 output"
+      - name: "no_blame"
+        description: "Whether to skip blame computation"
+        source: "CLI flag --no-blame"
+
+    outputs:
+      - name: "analysis_report"
+        description: "AnalysisReport struct for each commit"
+        source: "build_report() called per SHA using git commands targeting that SHA"
+      - name: "progress_output"
+        description: "Progress line per commit"
+        value: "[N/M] Analyzing commit <short_sha>..."
+
+    tui_mockup: |
+      [1/10] Analyzing commit abc1234...
+      [2/10] Analyzing commit def5678...
+      [3/10] Analyzing commit 12ab34c...
+      ...
+      [10/10] Analyzing commit xyz9999...
+
+    shared_artifacts:
+      - name: "commit_sha"
+        source: "sampled_shas list (step 2)"
+        displayed_as: "${short_sha} (first 7 chars)"
+        consumers:
+          - "Progress output [N/M] line"
+          - "HistoryEntry.head field (full SHA)"
+          - "Deduplication check in step 3"
+
+    emotional_state:
+      entry: "Watching progress"
+      exit: "Satisfied — all commits processed"
+
+    error_handling:
+      git_error_on_commit: |
+        If git command fails for a specific SHA (e.g., object not found):
+        Print warning: "Warning: Could not analyze commit <sha>. Skipping."
+        Continue to next commit. Do not abort the whole backfill.
+      fatal_git_error: |
+        If git binary not found or repo is inaccessible: exit 1 with message.
+
+    integration_checkpoint: |
+      Each analysis uses git commands scoped to a specific SHA (non-destructive).
+      No git checkout. No working tree modification.
+      Commands: git ls-tree <sha>, git log <sha>, git blame <sha> -- <file>
+
+  - id: 5
+    name: "Write entries to trends.json"
+    command: "append_if_new_head() internal"
+    actor: "system"
+
+    inputs:
+      - name: "analysis_report"
+        description: "AnalysisReport per commit from step 4"
+        source: "Step 4"
+      - name: "commit_sha"
+        description: "Full SHA of analyzed commit"
+        source: "Step 2 sampled_shas"
+
+    outputs:
+      - name: "history_entry"
+        description: "HistoryEntry written as NDJSON line to trends.json"
+        source: "build_history_entry(report, sha)"
+      - name: "entries_written_count"
+        description: "Total entries appended in this run"
+        source: "Counter incremented per successful write"
+
+    shared_artifacts:
+      - name: "history_entry_schema"
+        source: "src/scorer.rs HistoryEntry struct (schema_version = 1)"
+        displayed_as: "NDJSON line in trends.json"
+        consumers:
+          - "trends.json file (written)"
+          - "barad-dur analyze --trend (read)"
+          - "Dashboard tab (read via JSON output)"
+      - name: "trends_json_path"
+        source: ".repository-analysis/trends.json"
+        displayed_as: "file path in completion message"
+        consumers:
+          - "Completion message"
+          - "barad-dur analyze --trend"
+
+    emotional_state:
+      entry: "Waiting for disk writes"
+      exit: "Relieved — data is persisted"
+
+    integration_checkpoint: |
+      Entries written by backfill use schema_version = 1.
+      branch field = current HEAD branch name (branch at time of analysis, not the commit's original branch).
+      timestamp field = UTC time of analysis (not the git commit timestamp).
+
+  - id: 6
+    name: "Completion summary"
+    command: "stdout summary"
+    actor: "system"
+
+    outputs:
+      - name: "completion_message"
+        description: "Summary of what was written"
+        value: "Backfill complete. N entries written to .repository-analysis/trends.json"
+      - name: "next_step_hint"
+        description: "Inline hint for what to run next"
+        value: "Run 'barad-dur analyze . --trend' to view the populated dashboard."
+
+    tui_mockup: |
+      Backfill complete. 10 entries written to .repository-analysis/trends.json
+      Run 'barad-dur analyze . --trend' to view the populated dashboard.
+
+    emotional_state:
+      entry: "Waiting for confirmation"
+      exit: "Confident — knows exactly what to do next"
+
+  - id: 7
+    name: "User verifies dashboard (downstream)"
+    command: "barad-dur analyze . --trend"
+    actor: "user"
+    note: "This step is outside backfill itself but is the natural follow-on."
+
+    outputs:
+      - name: "trend_display"
+        description: "Trend table populated from backfill entries"
+        source: "trends.json read by analyze --trend renderer"
+
+    shared_artifacts:
+      - name: "trends_json_path"
+        source: ".repository-analysis/trends.json"
+        displayed_as: "populated trend table"
+        consumers:
+          - "CLI --trend renderer"
+          - "HTML report trend tab"
+
+    emotional_state:
+      entry: "Curious — will the trend show something meaningful?"
+      exit: "Satisfied — trend line visible, ready to present"
+
+integration_validation:
+  shared_artifact_consistency:
+    - artifact: "history_entry_schema"
+      must_match_across: [5, 7]
+      failure_message: "Backfill entries not readable by analyze --trend renderer"
+    - artifact: "trends_json_path"
+      must_match_across: [3, 5, 7]
+      failure_message: "Backfill reads/writes different path than analyze reads"
+    - artifact: "commit_sha"
+      must_match_across: [2, 3, 4, 5]
+      failure_message: "SHA used for deduplication does not match SHA stored in HistoryEntry.head"
+
+business_rules:
+  - id: "BR-BF-01"
+    rule: "Commits selected from full repository history (git log HEAD with no --since filter), not the current TimeWindow"
+  - id: "BR-BF-02"
+    rule: "branch field in each entry = name of the branch at HEAD at time of analysis, not original branch of the commit"
+
+out_of_scope:
+  - "Analyzing multiple branches"
+  - "Progress bar with ETA (R2)"
+  - "Configurable sample count via flag or barad-dur.toml (R2)"
+  - "Tagging entries with source: backfill field (open question Q3)"
