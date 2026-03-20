@@ -21,15 +21,19 @@ pub fn run(args: &BackfillArgs, repo_path: &Path) -> Result<()> {
 
     let weight_pairs = cfg.weights.as_weight_pairs();
 
-    // Collect all commits (newest-first) to get SHAs for sampling
+    // Collect all commits (newest-first) to get SHAs + timestamps for sampling
     let collection = collector.collect_commits()?;
-    let all_shas: Vec<String> = collection.commits.iter().map(|c| c.id.clone()).collect();
+    let commit_refs: Vec<sampling::CommitRef> = collection
+        .commits
+        .iter()
+        .map(|c| (c.id.clone(), c.timestamp))
+        .collect();
 
-    if all_shas.is_empty() {
+    if commit_refs.is_empty() {
         anyhow::bail!("No commits found — nothing to backfill");
     }
 
-    let selected_shas = sampling::select_samples(&all_shas, sample_count);
+    let selected_shas = sampling::select_samples(&commit_refs, sample_count);
 
     // Build a set of SHAs already present in trends.json to skip duplicates
     let existing_entries = history::load_history(repo_path)?;
