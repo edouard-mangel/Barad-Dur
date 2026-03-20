@@ -55,8 +55,7 @@ pub fn run(args: &BackfillArgs, repo_path: &Path) -> Result<()> {
         ];
 
         let report = scorer::build_report(&snapshot, categories, None, &weight_pairs);
-        let entry =
-            scorer::build_history_entry(&report, sha, Some("backfill".to_string()));
+        let entry = scorer::build_history_entry(&report, sha, Some("backfill".to_string()));
 
         history::append_if_new_head(&entry, repo_path)?;
         written += 1;

@@ -68,8 +68,7 @@ pub fn init_git_repo_with_commits(dir: &Path, branch: &str, n: usize) -> Vec<Str
     // Add n-1 more commits
     for i in 2..=n {
         let filename = format!("commit_{i}.txt");
-        fs::write(dir.join(&filename), format!("commit {i}\n"))
-            .expect("write commit file failed");
+        fs::write(dir.join(&filename), format!("commit {i}\n")).expect("write commit file failed");
 
         std::process::Command::new("git")
             .args(["add", &filename])

@@ -184,14 +184,16 @@ pub fn collect_commits_at(
     sha_str: &str,
     time_window: &TimeWindow,
 ) -> Result<CommitCollection> {
-    let sha_oid = git2::Oid::from_str(sha_str)
-        .with_context(|| format!("Invalid SHA: {sha_str}"))?;
+    let sha_oid =
+        git2::Oid::from_str(sha_str).with_context(|| format!("Invalid SHA: {sha_str}"))?;
 
     let mut revwalk = repo.revwalk().context("Failed to create revwalk")?;
     revwalk
         .set_sorting(Sort::TIME | Sort::TOPOLOGICAL)
         .context("Failed to set sorting")?;
-    revwalk.push(sha_oid).context("Failed to push SHA to revwalk")?;
+    revwalk
+        .push(sha_oid)
+        .context("Failed to push SHA to revwalk")?;
 
     let mut commits = Vec::new();
     let mut email_to_id: HashMap<String, AuthorId> = HashMap::new();
@@ -244,9 +246,10 @@ pub fn collect_commits_at(
 
 /// Collect the file tree at a specific commit SHA (without modifying working tree).
 pub fn collect_files_at(repo: &Repository, sha_str: &str) -> Result<Vec<FileEntry>> {
-    let sha_oid = git2::Oid::from_str(sha_str)
-        .with_context(|| format!("Invalid SHA: {sha_str}"))?;
-    let commit = repo.find_commit(sha_oid)
+    let sha_oid =
+        git2::Oid::from_str(sha_str).with_context(|| format!("Invalid SHA: {sha_str}"))?;
+    let commit = repo
+        .find_commit(sha_oid)
         .with_context(|| format!("Failed to find commit {sha_str}"))?;
     let tree = commit.tree().context("Failed to get commit tree")?;
 

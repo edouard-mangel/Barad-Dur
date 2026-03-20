@@ -73,7 +73,11 @@ fn backfill_deduplication() {
         .success();
 
     let first_run_entries = read_trends_entries(repo_path);
-    assert_eq!(first_run_entries.len(), 10, "first run should produce 10 entries");
+    assert_eq!(
+        first_run_entries.len(),
+        10,
+        "first run should produce 10 entries"
+    );
 
     // Retain only the 3 oldest entries (last 3) as the pre-existing seed.
     // These SHAs are guaranteed to be in the sampled set (they came from backfill).

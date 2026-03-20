@@ -324,7 +324,14 @@ pub fn load(repo_root: &Path) -> Result<RepoConfig> {
 }
 
 fn warn_unknown_keys(content: &str, path: &Path) {
-    let known_sections = ["analysis", "exclude", "weights", "thresholds", "output", "backfill"];
+    let known_sections = [
+        "analysis",
+        "exclude",
+        "weights",
+        "thresholds",
+        "output",
+        "backfill",
+    ];
     if let Ok(value) = content.parse::<toml::Value>() {
         if let Some(table) = value.as_table() {
             for key in table.keys() {
