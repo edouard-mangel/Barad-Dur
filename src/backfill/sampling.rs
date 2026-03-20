@@ -120,8 +120,16 @@ mod tests {
         let result = select_samples(&commits, 5);
         let newest_sha = &commits[0].0;
         let oldest_sha = &commits[19].0;
-        assert_eq!(result.first().unwrap(), oldest_sha, "first sample should be oldest");
-        assert_eq!(result.last().unwrap(), newest_sha, "last sample should be newest");
+        assert_eq!(
+            result.first().unwrap(),
+            oldest_sha,
+            "first sample should be oldest"
+        );
+        assert_eq!(
+            result.last().unwrap(),
+            newest_sha,
+            "last sample should be newest"
+        );
     }
 
     #[test]
@@ -132,6 +140,10 @@ mod tests {
         let ts = Utc.with_ymd_and_hms(2024, 6, 1, 0, 0, 0).unwrap();
         let commits: Vec<CommitRef> = (0..10).map(|i| (format!("sha{i:02}"), ts)).collect();
         let result = select_samples(&commits, 5);
-        assert_eq!(result.len(), 1, "identical timestamps should collapse to 1 sample");
+        assert_eq!(
+            result.len(),
+            1,
+            "identical timestamps should collapse to 1 sample"
+        );
     }
 }
