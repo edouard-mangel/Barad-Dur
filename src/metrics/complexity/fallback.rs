@@ -31,11 +31,6 @@ pub fn detect_language(path: &str) -> Language {
     }
 }
 
-pub fn analyse_file(path: &Path, content: &str) -> FileComplexity {
-    let lang = detect_language(&path.to_string_lossy());
-    analyse_content(content, lang)
-}
-
 pub fn analyse_content(content: &str, lang: Language) -> FileComplexity {
     let lines: Vec<&str> = content.lines().collect();
     let total_lines = lines.len();
@@ -63,7 +58,12 @@ pub fn analyse_content(content: &str, lang: Language) -> FileComplexity {
 
 fn is_comment_line(trimmed: &str, lang: Language) -> bool {
     match lang {
-        Language::Rust | Language::JsTs | Language::Go | Language::Java | Language::Kotlin | Language::CSharp => {
+        Language::Rust
+        | Language::JsTs
+        | Language::Go
+        | Language::Java
+        | Language::Kotlin
+        | Language::CSharp => {
             trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with('*')
         }
         Language::Python => trimmed.starts_with('#'),

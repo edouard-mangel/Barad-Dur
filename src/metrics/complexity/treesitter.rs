@@ -5,6 +5,9 @@ use crate::snapshot::FileComplexity;
 use super::fallback::Language;
 use super::queries;
 
+type Capture = (u32, std::ops::Range<usize>);
+type MatchResult = (Option<tree_sitter::Query>, Vec<Vec<Capture>>);
+
 /// Analyse source content using tree-sitter AST parsing.
 /// Returns `None` for unsupported languages or complete parse failures.
 pub fn analyse(content: &str, lang: Language, ext: &str) -> Option<FileComplexity> {
@@ -75,7 +78,7 @@ fn collect_matches(
     source: &[u8],
     query_src: &str,
     grammar: &tree_sitter::Language,
-) -> (Option<tree_sitter::Query>, Vec<Vec<(u32, std::ops::Range<usize>)>>) {
+) -> MatchResult {
     let query = match tree_sitter::Query::new(grammar, query_src) {
         Ok(q) => q,
         Err(_) => return (None, Vec::new()),
@@ -84,7 +87,7 @@ fn collect_matches(
     let mut stream = cursor.matches(&query, tree.root_node(), source);
     let mut results = Vec::new();
     while let Some(m) = stream.next() {
-        let captures: Vec<(u32, std::ops::Range<usize>)> = m
+        let captures: Vec<Capture> = m
             .captures
             .iter()
             .map(|c| (c.index, c.node.byte_range()))
@@ -113,14 +116,29 @@ fn count_complexity(
 
 fn complexity_queries(lang: Language, ext: &str) -> (&'static str, Option<&'static str>) {
     match lang {
-        Language::Rust => (queries::RUST_COMPLEXITY, Some(queries::RUST_COMPLEXITY_OPERATORS)),
+        Language::Rust => (
+            queries::RUST_COMPLEXITY,
+            Some(queries::RUST_COMPLEXITY_OPERATORS),
+        ),
         Language::JsTs => match ext {
-            "ts" | "tsx" => (queries::JS_COMPLEXITY, Some(queries::JS_COMPLEXITY_OPERATORS)),
-            _ => (queries::JS_COMPLEXITY, Some(queries::JS_COMPLEXITY_OPERATORS)),
+            "ts" | "tsx" => (
+                queries::JS_COMPLEXITY,
+                Some(queries::JS_COMPLEXITY_OPERATORS),
+            ),
+            _ => (
+                queries::JS_COMPLEXITY,
+                Some(queries::JS_COMPLEXITY_OPERATORS),
+            ),
         },
         Language::Python => (queries::PYTHON_COMPLEXITY, None),
-        Language::Go => (queries::GO_COMPLEXITY, Some(queries::GO_COMPLEXITY_OPERATORS)),
-        Language::Java => (queries::JAVA_COMPLEXITY, Some(queries::JAVA_COMPLEXITY_OPERATORS)),
+        Language::Go => (
+            queries::GO_COMPLEXITY,
+            Some(queries::GO_COMPLEXITY_OPERATORS),
+        ),
+        Language::Java => (
+            queries::JAVA_COMPLEXITY,
+            Some(queries::JAVA_COMPLEXITY_OPERATORS),
+        ),
         Language::CSharp => (
             queries::CSHARP_COMPLEXITY,
             Some(queries::CSHARP_COMPLEXITY_OPERATORS),
@@ -161,7 +179,12 @@ fn count_public_methods(
             grammar,
             queries::GO_PUBLIC_METHODS,
             "name",
-            |first_byte| first_byte.first().map(|b| b.is_ascii_uppercase()).unwrap_or(false),
+            |first_byte| {
+                first_byte
+                    .first()
+                    .map(|b| b.is_ascii_uppercase())
+                    .unwrap_or(false)
+            },
         ),
         Language::Java => count_with_visibility_filter(
             tree,
@@ -214,7 +237,11 @@ fn count_properties(
             grammar,
             queries::GO_PROPERTIES,
             "name",
-            |text| text.first().map(|b| b.is_ascii_uppercase()).unwrap_or(false),
+            |text| {
+                text.first()
+                    .map(|b| b.is_ascii_uppercase())
+                    .unwrap_or(false)
+            },
         ),
         Language::Java => run_query(tree, source, queries::JAVA_PROPERTIES, grammar),
         Language::CSharp => run_query(tree, source, queries::CSHARP_PROPERTIES, grammar),
@@ -379,8 +406,7 @@ mod tests {
 
     #[test]
     fn js_public_methods() {
-        let content =
-            "export function foo() {}\nfunction bar() {}\nexport const baz = () => {}\n";
+        let content = "export function foo() {}\nfunction bar() {}\nexport const baz = () => {}\n";
         let result = analyse(content, Language::JsTs, "js").unwrap();
         assert_eq!(result.public_methods, 2);
     }

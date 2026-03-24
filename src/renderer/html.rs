@@ -150,6 +150,56 @@ header {
   margin-right: 4px;
   vertical-align: middle;
 }
+.explainer {
+  grid-column: 1 / -1;
+  background: #111827;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #94a3b8;
+}
+.explainer summary {
+  cursor: pointer;
+  padding: 12px 16px;
+  font-weight: 600;
+  font-size: 14px;
+  color: #e2e8f0;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+}
+.explainer summary::-webkit-details-marker { display: none; }
+.explainer summary::before {
+  content: '\25b6';
+  font-size: 10px;
+  transition: transform 0.2s;
+  color: #f59e0b;
+}
+.explainer[open] summary::before { transform: rotate(90deg); }
+.explainer-body {
+  padding: 0 16px 16px;
+}
+.explainer-body h4 {
+  color: #e2e8f0;
+  font-size: 13px;
+  margin: 12px 0 4px;
+}
+.explainer-body h4:first-child { margin-top: 0; }
+.explainer-body ul {
+  margin: 4px 0 0 16px;
+  padding: 0;
+}
+.explainer-body li { margin-bottom: 2px; }
+.explainer-body code {
+  background: #1e293b;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 12px;
+  color: #f59e0b;
+}
 .overview-grid {
   display: grid;
   grid-template-columns: 1fr 280px;
@@ -917,6 +967,35 @@ fn build_js() -> String {
     return info;
   }
 
+  function buildExplainer(summaryText, sections) {
+    var details = el('details', { className: 'explainer' });
+    var summary = document.createElement('summary');
+    summary.append(txt(summaryText));
+    details.append(summary);
+    var body = el('div', { className: 'explainer-body' });
+    sections.forEach(function(s) {
+      var h = el('h4');
+      h.append(txt(s.heading));
+      body.append(h);
+      if (s.items) {
+        var ul = el('ul');
+        s.items.forEach(function(item) {
+          var li = el('li');
+          li.append(txt(item));
+          ul.append(li);
+        });
+        body.append(ul);
+      }
+      if (s.text) {
+        var p = el('div', { style: { marginTop: '4px' } });
+        p.append(txt(s.text));
+        body.append(p);
+      }
+    });
+    details.append(body);
+    return details;
+  }
+
   var defaultScoreHints = [
     { color: '#ef4444', label: '0\u201339 Critical' },
     { color: '#f59e0b', label: '40\u201369 Needs work' },
@@ -942,6 +1021,44 @@ fn build_js() -> String {
         { color: '#ef4444', label: 'High risk \u2014 complex + frequently changed' }
       ]
     ));
+
+    wrap.append(buildExplainer('Understanding churn and why it matters', [
+      {
+        heading: 'What is churn?',
+        text: 'Churn is the number of times a file has been modified (committed to) within the analysis window. A file touched in 30 separate commits has a churn count of 30. Renames and moves are tracked as the same logical file when git detects them.'
+      },
+      {
+        heading: 'Why churn alone is not enough',
+        text: 'High churn is not inherently bad \u2014 a configuration file or changelog will naturally have high churn. Churn becomes a risk signal only when combined with high complexity: a complex file that changes often is statistically more likely to introduce defects because each change interacts with more code paths.'
+      },
+      {
+        heading: 'How the Hotspot Score combines churn with complexity',
+        items: [
+          'Churn count and cyclomatic complexity are each normalized to a 0\u20131 scale (divided by the repository maximum).',
+          'The hotspot score is the product of normalized churn, normalized complexity, and a size factor (LOC), scaled to 0\u2013100.',
+          'This means a file must rank high on multiple dimensions to surface as a true hotspot \u2014 one dimension alone will not flag it.'
+        ]
+      },
+      {
+        heading: 'What to do with high-churn hotspots',
+        items: [
+          'Break large files apart \u2014 extract stable logic into smaller modules so that changes are isolated.',
+          'Increase test coverage \u2014 high-churn files benefit most from regression tests.',
+          'Review ownership \u2014 if many authors touch the same hotspot, coordinate on conventions.',
+          'Reduce complexity \u2014 simplify branching (fewer if/match arms) to make future changes safer.',
+          'Watch the trend \u2014 a file whose churn is rising over time is an escalating risk.'
+        ]
+      },
+      {
+        heading: 'Reading the scatter plot',
+        items: [
+          'X-axis = cyclomatic complexity (number of independent code paths).',
+          'Y-axis = churn count (commits touching the file in the analysis window).',
+          'Bubble size = lines of code.',
+          'Top-right corner = high complexity + high churn \u2014 these are the files that need attention first.'
+        ]
+      }
+    ]));
 
     // Scatter plot
     var plotCard = el('div', { className: 'view-card', style: { padding: '16px' } });

@@ -71,8 +71,7 @@ pub const PYTHON_COMPLEXITY: &str = r#"[
   (conditional_expression)
 ] @cc"#;
 
-pub const PYTHON_PUBLIC_METHODS: &str =
-    r#"(function_definition name: (identifier) @name)"#;
+pub const PYTHON_PUBLIC_METHODS: &str = r#"(function_definition name: (identifier) @name)"#;
 
 pub const PYTHON_COMMENTS: &str = r#"(comment) @comment"#;
 
@@ -92,8 +91,7 @@ pub const GO_PUBLIC_METHODS: &str = r#"[
   (method_declaration name: (field_identifier) @name)
 ]"#;
 
-pub const GO_PROPERTIES: &str =
-    r#"(field_declaration name: (field_identifier) @name)"#;
+pub const GO_PROPERTIES: &str = r#"(field_declaration name: (field_identifier) @name)"#;
 
 pub const GO_COMMENTS: &str = r#"(comment) @comment"#;
 
@@ -110,14 +108,12 @@ pub const JAVA_COMPLEXITY: &str = r#"[
   (ternary_expression)
 ] @cc"#;
 
-pub const JAVA_COMPLEXITY_OPERATORS: &str =
-    r#"(binary_expression operator: ["&&" "||"]) @cc"#;
+pub const JAVA_COMPLEXITY_OPERATORS: &str = r#"(binary_expression operator: ["&&" "||"]) @cc"#;
 
 pub const JAVA_PUBLIC_METHODS: &str =
     r#"(method_declaration (modifiers) @mods name: (identifier) @name)"#;
 
-pub const JAVA_PROPERTIES: &str =
-    r#"(field_declaration (modifiers) @mods)"#;
+pub const JAVA_PROPERTIES: &str = r#"(field_declaration (modifiers) @mods)"#;
 
 pub const JAVA_COMMENTS: &str = r#"[(line_comment) (block_comment)] @comment"#;
 
@@ -134,14 +130,12 @@ pub const CSHARP_COMPLEXITY: &str = r#"[
   (conditional_expression)
 ] @cc"#;
 
-pub const CSHARP_COMPLEXITY_OPERATORS: &str =
-    r#"(binary_expression operator: ["&&" "||"]) @cc"#;
+pub const CSHARP_COMPLEXITY_OPERATORS: &str = r#"(binary_expression operator: ["&&" "||"]) @cc"#;
 
 pub const CSHARP_PUBLIC_METHODS: &str =
     r#"(method_declaration (modifier) @mod name: (identifier) @name)"#;
 
-pub const CSHARP_PROPERTIES: &str =
-    r#"(field_declaration (modifier) @mod)"#;
+pub const CSHARP_PROPERTIES: &str = r#"(field_declaration (modifier) @mod)"#;
 
 pub const CSHARP_COMMENTS: &str = r#"(comment) @comment"#;
 
