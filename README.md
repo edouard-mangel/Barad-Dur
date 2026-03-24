@@ -92,6 +92,11 @@ The binary is at `target/release/barad-dur`.
 Build a minimal (~31MB) container image from scratch:
 
 ```bash
+# Using the install script (recommended)
+./install.sh --docker                        # builds barad-dur:latest
+./install.sh --docker -t myorg/barad-dur:v1  # custom image tag
+
+# Or directly with docker
 docker build -t barad-dur .
 ```
 
