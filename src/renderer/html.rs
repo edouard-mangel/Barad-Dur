@@ -2557,8 +2557,16 @@ fn build_js() -> String {
       var maxT = dates[dates.length - 1].getTime();
       var rangeT = maxT - minT || 1;
 
+      // Dynamic Y-axis: pad 10 points above max and below min, clamped to 0-100
+      var rawMin = Math.min.apply(null, scores);
+      var rawMax = Math.max.apply(null, scores);
+      var yMin = Math.max(0, Math.floor((rawMin - 10) / 5) * 5);
+      var yMax = Math.min(100, Math.ceil((rawMax + 10) / 5) * 5);
+      if (yMin === yMax) { yMin = Math.max(0, yMin - 10); yMax = Math.min(100, yMax + 10); }
+      var yRange = yMax - yMin || 1;
+
       function x(i) { return pad.left + (dates[i].getTime() - minT) / rangeT * cw; }
-      function y(s) { return pad.top + (1 - s / 100) * ch; }
+      function y(s) { return pad.top + (1 - (s - yMin) / yRange) * ch; }
 
       var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto">';
 
@@ -2567,11 +2575,14 @@ fn build_js() -> String {
       var gridCol = h + '1e293b';
       var labelCol = h + '8b949e';
       var bgCol = h + '0d1117';
-      [0, 25, 50, 75, 100].forEach(function(v) {
+      var gridSteps = 5;
+      for (var gi = 0; gi <= gridSteps; gi++) {
+        var v = yMin + (yRange * gi / gridSteps);
+        v = Math.round(v);
         var yy = y(v);
         svg += '<line x1="' + pad.left + '" y1="' + yy + '" x2="' + (W - pad.right) + '" y2="' + yy + '" stroke="' + gridCol + '" stroke-width="1"/>';
         svg += '<text x="' + (pad.left - 8) + '" y="' + (yy + 4) + '" text-anchor="end" fill="' + labelCol + '" font-size="11">' + v + '</text>';
-      });
+      }
 
       // X-axis date labels
       var labelCount = Math.min(history.length, 8);
