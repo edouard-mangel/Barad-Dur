@@ -8,7 +8,9 @@ pub enum Language {
     JsTs,
     Python,
     Go,
-    Jvm, // Java, Kotlin, C#
+    Java,
+    Kotlin,
+    CSharp,
     Generic,
 }
 
@@ -22,7 +24,9 @@ pub fn detect_language(path: &str) -> Language {
         "js" | "ts" | "jsx" | "tsx" | "mjs" | "cjs" => Language::JsTs,
         "py" => Language::Python,
         "go" => Language::Go,
-        "java" | "kt" | "kts" | "cs" => Language::Jvm,
+        "java" => Language::Java,
+        "kt" | "kts" => Language::Kotlin,
+        "cs" => Language::CSharp,
         _ => Language::Generic,
     }
 }
@@ -59,7 +63,7 @@ pub fn analyse_content(content: &str, lang: Language) -> FileComplexity {
 
 fn is_comment_line(trimmed: &str, lang: Language) -> bool {
     match lang {
-        Language::Rust | Language::JsTs | Language::Go | Language::Jvm => {
+        Language::Rust | Language::JsTs | Language::Go | Language::Java | Language::Kotlin | Language::CSharp => {
             trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with('*')
         }
         Language::Python => trimmed.starts_with('#'),
@@ -131,7 +135,7 @@ fn count_public_methods(content: &str, lang: Language) -> u32 {
                 }
             }
         }
-        Language::Jvm => {
+        Language::Java | Language::Kotlin | Language::CSharp => {
             for line in content.lines() {
                 let t = line.trim();
                 if t.starts_with("public ")
@@ -213,7 +217,7 @@ fn count_properties(content: &str, lang: Language) -> u32 {
                 }
             }
         }
-        Language::Jvm => {
+        Language::Java | Language::Kotlin | Language::CSharp => {
             for line in content.lines() {
                 let t = line.trim();
                 if (t.starts_with("private ")
@@ -259,10 +263,19 @@ mod tests {
     }
 
     #[test]
-    fn detects_jvm() {
-        assert!(matches!(detect_language("Foo.java"), Language::Jvm));
-        assert!(matches!(detect_language("Bar.kt"), Language::Jvm));
-        assert!(matches!(detect_language("Baz.cs"), Language::Jvm));
+    fn detects_java() {
+        assert!(matches!(detect_language("Foo.java"), Language::Java));
+    }
+
+    #[test]
+    fn detects_kotlin() {
+        assert!(matches!(detect_language("Bar.kt"), Language::Kotlin));
+        assert!(matches!(detect_language("App.kts"), Language::Kotlin));
+    }
+
+    #[test]
+    fn detects_csharp() {
+        assert!(matches!(detect_language("Baz.cs"), Language::CSharp));
     }
 
     #[test]
