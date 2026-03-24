@@ -59,7 +59,18 @@ pub fn run(args: &BackfillArgs, repo_path: &Path) -> Result<()> {
         ];
 
         let report = scorer::build_report(&snapshot, categories, None, &weight_pairs);
-        let entry = scorer::build_history_entry(&report, sha, Some("backfill".to_string()));
+        let mut entry = scorer::build_history_entry(&report, sha, Some("backfill".to_string()));
+
+        // Use the commit's actual timestamp instead of "now" so the trend
+        // chart spaces backfill points by their real dates.
+        let commit_ts = snapshot
+            .commits
+            .iter()
+            .find(|c| c.id == *sha)
+            .map(|c| c.timestamp);
+        if let Some(ts) = commit_ts {
+            entry.timestamp = ts;
+        }
 
         history::append_if_new_head(&entry, repo_path)?;
         written += 1;
