@@ -2,4 +2,60 @@ mod fallback;
 mod queries;
 mod treesitter;
 
-pub use fallback::{analyse_content, analyse_file, detect_language, Language};
+use std::path::Path;
+
+use crate::snapshot::FileComplexity;
+
+pub use fallback::{detect_language, Language};
+
+pub fn analyse_file(path: &Path, content: &str) -> FileComplexity {
+    let lang = detect_language(&path.to_string_lossy());
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    treesitter::analyse(content, lang, ext)
+        .unwrap_or_else(|| fallback::analyse_content(content, lang))
+}
+
+pub fn analyse_content(content: &str, lang: Language) -> FileComplexity {
+    let default_ext = match lang {
+        Language::Java => "java",
+        Language::Kotlin => "kt",
+        Language::CSharp => "cs",
+        Language::JsTs => "js",
+        _ => "",
+    };
+    treesitter::analyse(content, lang, default_ext)
+        .unwrap_or_else(|| fallback::analyse_content(content, lang))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn analyse_file_uses_treesitter_for_rust() {
+        let content = "pub fn foo() {}\nfn bar() {}\n";
+        let result = analyse_file(Path::new("test.rs"), content);
+        assert_eq!(result.public_methods, 1);
+    }
+
+    #[test]
+    fn analyse_content_generic_uses_fallback() {
+        let content = "if x { } for y { }";
+        let result = analyse_content(content, Language::Generic);
+        assert!(result.total_lines > 0);
+    }
+
+    #[test]
+    fn analyse_file_unknown_extension_uses_fallback() {
+        let content = "some content\nmore content\n";
+        let result = analyse_file(Path::new("data.xyz"), content);
+        assert_eq!(result.total_lines, 2);
+    }
+
+    #[test]
+    fn kotlin_falls_back_to_line_based() {
+        let content = "fun main() {\n    if (true) {}\n}\n";
+        let result = analyse_file(Path::new("app.kt"), content);
+        assert!(result.total_lines > 0);
+    }
+}
