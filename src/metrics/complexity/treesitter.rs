@@ -431,6 +431,35 @@ mod tests {
         assert_eq!(result.public_methods, 1);
     }
 
+    #[test]
+    fn ts_interface_properties() {
+        // property_signature nodes only exist in the TS grammar, not JS
+        let content = "interface Foo {\n  name: string;\n  age: number;\n}\n";
+        let result = analyse(content, Language::JsTs, "ts").unwrap();
+        assert_eq!(result.properties, 2);
+    }
+
+    #[test]
+    fn tsx_parses_jsx_with_types() {
+        let content = "export function App(props: { name: string }) { return <div/>; }\n";
+        let result = analyse(content, Language::JsTs, "tsx").unwrap();
+        assert_eq!(result.public_methods, 1);
+    }
+
+    #[test]
+    fn ts_loc_excludes_comments() {
+        let content = "// comment\nconst x: number = 1;\n";
+        let result = analyse(content, Language::JsTs, "ts").unwrap();
+        assert_eq!(result.loc, 1);
+    }
+
+    #[test]
+    fn ts_complexity() {
+        let content = "function f(x: number): void { if (x > 0) {} while (x) {} }\n";
+        let result = analyse(content, Language::JsTs, "ts").unwrap();
+        assert!(result.cyclomatic_complexity >= 2);
+    }
+
     // ── Python ──────────────────────────────────────────────────────
 
     #[test]
@@ -492,9 +521,9 @@ mod tests {
 
     #[test]
     fn csharp_public_methods() {
-        let content = "class Foo {\n  public void Bar() {}\n  private void Baz() {}\n}\n";
+        let content = "class Foo {\n  public void Bar() {}\n  private void Baz() {}\n  public void Qux() {}\n}\n";
         let result = analyse(content, Language::CSharp, "cs").unwrap();
-        assert_eq!(result.public_methods, 1);
+        assert_eq!(result.public_methods, 2);
     }
 
     // ── Edge cases ──────────────────────────────────────────────────
@@ -515,6 +544,15 @@ mod tests {
         let result = analyse(content, Language::Rust, "rs");
         assert!(result.is_some(), "should parse despite syntax errors");
         assert!(result.unwrap().public_methods >= 1);
+    }
+
+    #[test]
+    fn loc_counts_only_nonblank_nonccomment_lines() {
+        // Tests the fallback branch inside count_loc (blank line filtering)
+        let content = "\n\n// comment\nfn foo() {}\n\n";
+        let result = analyse(content, Language::Rust, "rs").unwrap();
+        assert_eq!(result.loc, 1);
+        assert_eq!(result.total_lines, 5);
     }
 
     #[test]

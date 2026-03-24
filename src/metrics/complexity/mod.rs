@@ -58,4 +58,33 @@ mod tests {
         let result = analyse_file(Path::new("app.kt"), content);
         assert!(result.total_lines > 0);
     }
+
+    // Kill mutants: analyse_content match arms for each Language variant
+    #[test]
+    fn analyse_content_java_uses_treesitter() {
+        let content = "class Foo {\n  public void bar() {}\n  private void baz() {}\n}\n";
+        let result = analyse_content(content, Language::Java);
+        assert_eq!(result.public_methods, 1);
+    }
+
+    #[test]
+    fn analyse_content_csharp_uses_treesitter() {
+        let content = "class Foo {\n  public void Bar() {}\n  private void Baz() {}\n}\n";
+        let result = analyse_content(content, Language::CSharp);
+        assert_eq!(result.public_methods, 1);
+    }
+
+    #[test]
+    fn analyse_content_jsts_uses_treesitter() {
+        let content = "export function foo() {}\nfunction bar() {}\n";
+        let result = analyse_content(content, Language::JsTs);
+        assert_eq!(result.public_methods, 1);
+    }
+
+    #[test]
+    fn analyse_content_kotlin_falls_back() {
+        let content = "fun foo() {}\nprivate fun bar() {}\n";
+        let result = analyse_content(content, Language::Kotlin);
+        assert_eq!(result.total_lines, 2);
+    }
 }
