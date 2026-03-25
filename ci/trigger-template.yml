@@ -1,0 +1,141 @@
+# barad-dur Pipeline API — Caller Template
+#
+# Include this template in your project's .gitlab-ci.yml to analyze
+# any public git repository and download an interactive HTML report.
+#
+# Usage:
+#   include:
+#     - project: 'devops/barad-dur'
+#       file: 'ci/trigger-template.yml'
+#
+#   analyze-repo:
+#     extends: .barad-dur-analysis
+#     variables:
+#       REPO_URL: "https://github.com/your-org/your-repo.git"
+#
+# Required CI variables (set in project Settings > CI/CD > Variables):
+#   BARAD_DUR_TRIGGER_TOKEN  — Pipeline trigger token (masked)
+#   BARAD_DUR_PROJECT_ID     — barad-dur project ID on Froggit
+#
+# Optional variables (override in your job):
+#   REPO_BRANCH    — Branch to analyze (default: main)
+#   MIN_SCORE      — Minimum score threshold for quality gate (0-100)
+#   CATEGORIES     — Comma-separated: health,team,evolution,hygiene
+#   BARAD_DUR_TIMEOUT — Max wait time in seconds (default: 1800)
+
+.barad-dur-analysis:
+  image: alpine:3.21
+  before_script:
+    - apk add --no-cache curl jq
+  script:
+    - set -euo pipefail
+    # ── Validate required variables ──
+    - |
+      if [ -z "${BARAD_DUR_TRIGGER_TOKEN:-}" ]; then
+        echo "ERROR: BARAD_DUR_TRIGGER_TOKEN is not set"
+        exit 1
+      fi
+    - |
+      if [ -z "${BARAD_DUR_PROJECT_ID:-}" ]; then
+        echo "ERROR: BARAD_DUR_PROJECT_ID is not set"
+        exit 1
+      fi
+    - |
+      if [ -z "${REPO_URL:-}" ]; then
+        echo "ERROR: REPO_URL is not set"
+        exit 1
+      fi
+    # ── Trigger barad-dur pipeline ──
+    - |
+      FROGGIT_URL="${CI_SERVER_URL:-https://lab.music-music.com}"
+      TRIGGER_BODY="token=${BARAD_DUR_TRIGGER_TOKEN}&ref=main"
+      TRIGGER_BODY="${TRIGGER_BODY}&variables[REPO_URL]=${REPO_URL}"
+      if [ -n "${REPO_BRANCH:-}" ]; then
+        TRIGGER_BODY="${TRIGGER_BODY}&variables[REPO_BRANCH]=${REPO_BRANCH}"
+      fi
+      if [ -n "${MIN_SCORE:-}" ]; then
+        TRIGGER_BODY="${TRIGGER_BODY}&variables[MIN_SCORE]=${MIN_SCORE}"
+      fi
+      if [ -n "${CATEGORIES:-}" ]; then
+        TRIGGER_BODY="${TRIGGER_BODY}&variables[CATEGORIES]=${CATEGORIES}"
+      fi
+      echo "Triggering barad-dur analysis..."
+      RESPONSE=$(curl -s -w "\n%{http_code}" \
+        --request POST \
+        "${FROGGIT_URL}/api/v4/projects/${BARAD_DUR_PROJECT_ID}/trigger/pipeline" \
+        --data "${TRIGGER_BODY}")
+      HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+      BODY=$(echo "$RESPONSE" | sed '$d')
+      if [ "$HTTP_CODE" != "201" ]; then
+        echo "ERROR: Failed to trigger pipeline (HTTP ${HTTP_CODE})"
+        echo "$BODY"
+        exit 1
+      fi
+      PIPELINE_ID=$(echo "$BODY" | jq -r '.id')
+      PIPELINE_URL=$(echo "$BODY" | jq -r '.web_url')
+      echo "Pipeline triggered: ${PIPELINE_URL} (ID: ${PIPELINE_ID})"
+    # ── Poll for completion ──
+    - |
+      TIMEOUT="${BARAD_DUR_TIMEOUT:-1800}"
+      ELAPSED=0
+      INTERVAL=15
+      while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
+        STATUS=$(curl -s \
+          --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+          "${FROGGIT_URL}/api/v4/projects/${BARAD_DUR_PROJECT_ID}/pipelines/${PIPELINE_ID}" \
+          | jq -r '.status')
+        case "$STATUS" in
+          success)
+            echo "Analysis complete (success)"
+            break
+            ;;
+          failed)
+            echo "Analysis pipeline failed — check ${PIPELINE_URL}"
+            break
+            ;;
+          canceled|skipped)
+            echo "Analysis pipeline ${STATUS}"
+            exit 1
+            ;;
+        esac
+        echo "Status: ${STATUS} — waiting ${INTERVAL}s (${ELAPSED}/${TIMEOUT}s)..."
+        sleep "$INTERVAL"
+        ELAPSED=$((ELAPSED + INTERVAL))
+      done
+      if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
+        echo "ERROR: Timed out after ${TIMEOUT}s waiting for pipeline"
+        exit 1
+      fi
+    # ── Download HTML report artifact ──
+    - |
+      JOB_ID=$(curl -s \
+        --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+        "${FROGGIT_URL}/api/v4/projects/${BARAD_DUR_PROJECT_ID}/pipelines/${PIPELINE_ID}/jobs" \
+        | jq -r '.[] | select(.name == "analyze-api") | .id')
+      if [ -z "$JOB_ID" ] || [ "$JOB_ID" = "null" ]; then
+        echo "ERROR: Could not find analyze-api job in pipeline"
+        exit 1
+      fi
+      echo "Downloading report from job ${JOB_ID}..."
+      curl -s -o barad-dur-report.html \
+        --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+        "${FROGGIT_URL}/api/v4/projects/${BARAD_DUR_PROJECT_ID}/jobs/${JOB_ID}/artifacts/barad-dur-report.html"
+      if [ ! -s barad-dur-report.html ]; then
+        echo "ERROR: Downloaded report is empty"
+        exit 1
+      fi
+      echo "Report downloaded: barad-dur-report.html"
+    # ── Summary ──
+    - |
+      if [ "$STATUS" = "failed" ]; then
+        echo "barad-dur analysis completed but gate failed — report still available"
+        exit 1
+      fi
+      echo "barad-dur analysis passed — report available as artifact"
+  artifacts:
+    paths:
+      - barad-dur-report.html
+    expire_in: 1 week
+    when: always
+  # Uncomment to serialize concurrent analyses:
+  # resource_group: barad-dur-analysis

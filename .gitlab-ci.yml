@@ -7,6 +7,7 @@ stages:
   - deploy
   - release
   - docker
+  - api
 
 variables:
   CARGO_HOME: ${CI_PROJECT_DIR}/.cargo
@@ -262,3 +263,71 @@ docker:
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+
+# ── API (Pipeline Trigger) ──────────────────
+
+analyze-api:
+  stage: api
+  image: ${CI_REGISTRY_IMAGE}:latest
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "trigger" && $REPO_URL
+  variables:
+    REPO_BRANCH: "main"
+    GIT_STRATEGY: none
+  script:
+    - set -euo pipefail
+    # ── Input validation ──
+    - |
+      if [ -z "${REPO_URL:-}" ]; then
+        echo "ERROR: REPO_URL is required"
+        exit 1
+      fi
+    - |
+      if ! echo "$REPO_URL" | grep -qE '^https://'; then
+        echo "ERROR: REPO_URL must start with https://"
+        exit 1
+      fi
+    - |
+      if [ -n "${MIN_SCORE:-}" ] && ! echo "$MIN_SCORE" | grep -qE '^[0-9]+$'; then
+        echo "ERROR: MIN_SCORE must be a positive integer (got: '${MIN_SCORE}')"
+        exit 1
+      fi
+    # ── Clone target repository ──
+    - |
+      echo "Cloning ${REPO_URL} (branch: ${REPO_BRANCH})..."
+      if ! git clone --branch "${REPO_BRANCH}" --depth 0 "${REPO_URL}" /tmp/target 2>&1; then
+        echo "ERROR: Failed to clone repository"
+        exit 1
+      fi
+    # ── Build CLI flags ──
+    - |
+      CATEGORY_FLAGS=""
+      if [ -n "${CATEGORIES:-}" ]; then
+        for cat in $(echo "$CATEGORIES" | tr ',' ' ' | tr '[:upper:]' '[:lower:]'); do
+          case "$cat" in
+            health|team|evolution|hygiene) CATEGORY_FLAGS="$CATEGORY_FLAGS --$cat" ;;
+            *) echo "WARNING: Unknown category '$cat', skipping" ;;
+          esac
+        done
+      fi
+    # ── Run analysis (HTML report) ──
+    - |
+      echo "Running barad-dur analysis..."
+      barad-dur analyze /tmp/target --html -o barad-dur-report.html ${CATEGORY_FLAGS}
+    # ── Optional quality gate ──
+    - |
+      if [ -n "${MIN_SCORE:-}" ]; then
+        echo "Running quality gate (threshold: ${MIN_SCORE})..."
+        if barad-dur gate /tmp/target --min-score "${MIN_SCORE}" ${CATEGORY_FLAGS}; then
+          echo "PASS: quality gate passed"
+        else
+          echo "FAIL: quality gate failed (score < ${MIN_SCORE})"
+          exit 1
+        fi
+      fi
+  artifacts:
+    paths:
+      - barad-dur-report.html
+    expire_in: 1 week
+    when: always
+  timeout: 30 minutes
