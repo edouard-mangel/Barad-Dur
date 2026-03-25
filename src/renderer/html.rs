@@ -2758,6 +2758,39 @@ fn build_js() -> String {
       ]
     ));
 
+    container.append(buildExplainer('Understanding commit quality and author metrics', [
+      {
+        heading: 'How commit quality is scored',
+        text: 'Each commit message is scored 0\u2013100 using a heuristic. The per-author quality is the average across all their commits in the analysis window.'
+      },
+      {
+        heading: 'Scoring breakdown',
+        items: [
+          'Base: +10 points for any non-empty message.',
+          'Length: +10 (4\u201310 chars), +30 (11\u201350 chars), or +40 (51+ chars).',
+          'Conventional prefix: +30 if the message starts with feat:, fix:, docs:, style:, refactor:, perf:, test:, chore:, ci:, or build:.',
+          'Descriptive: +20 if the message has a body (newline) or exceeds 20 characters.',
+          'Penalty: messages that are exactly "wip", "fix", "update", or "." are capped at 10.'
+        ]
+      },
+      {
+        heading: 'Files owned',
+        text: 'A file is "owned" by an author when they have more than 50% of the blame lines in that file. This is the same threshold used in the Ownership tab.'
+      },
+      {
+        heading: 'Activity status',
+        items: [
+          'Green (Active): committed within the last 30 days.',
+          'Yellow (Aging): last commit was 30\u201390 days ago.',
+          'Red (Stale): no commits in over 90 days.'
+        ]
+      },
+      {
+        heading: 'Directories touched',
+        text: 'The number of unique parent directories across all files changed by this author\u2019s commits. A high number indicates broad codebase knowledge; a low number suggests a specialist focused on a narrow area.'
+      }
+    ]));
+
     var cards = (R.author_cards || []).slice();
     if (cards.length === 0) {
       var empty = el('div', { style: { padding: '48px', textAlign: 'center', color: '#64748b' } });
