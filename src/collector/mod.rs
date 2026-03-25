@@ -44,6 +44,11 @@ const DEFAULT_EXCLUDE_PATTERNS: &[&str] = &[
     "db/schema.rb",
     "prisma/migrations/**",
     "alembic/versions/**",
+    // Internationalization / translation directories
+    "**/i18n/**",
+    "**/l10n/**",
+    "**/locales/**",
+    "**/locale/**",
 ];
 
 /// Returns true if the file should be excluded based on the given glob patterns
@@ -592,6 +597,20 @@ mod tests {
         assert!(is_excluded(Path::new("src/i18n/en.ts"), &patterns, true));
         // Not matched by either
         assert!(!is_excluded(Path::new("src/main.rs"), &patterns, true));
+    }
+
+    #[test]
+    fn is_excluded_matches_i18n_directories_by_default() {
+        assert!(is_excluded(
+            Path::new("src/client/src/assets/i18n/sfk-messages/en-US.ts"),
+            &[],
+            true
+        ));
+        assert!(is_excluded(Path::new("app/l10n/strings_fr.arb"), &[], true));
+        assert!(is_excluded(Path::new("src/locales/en.json"), &[], true));
+        assert!(is_excluded(Path::new("config/locale/fr.yml"), &[], true));
+        // Non-i18n .ts files should NOT be excluded
+        assert!(!is_excluded(Path::new("src/main.ts"), &[], true));
     }
 
     #[test]
