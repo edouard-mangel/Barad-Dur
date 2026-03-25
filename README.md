@@ -266,13 +266,16 @@ cargo test --test integration_tests # 8 end-to-end tests
 cargo run -- analyze . -v
 ```
 
-## Roadmap (v2)
+## Shipped
 
-- AST analysis via tree-sitter (replace current line-based heuristics with proper syntax-tree parsing for more accurate complexity, method, and property detection)
+- **v0.5.0** — AST analysis via tree-sitter (Rust, JS, TS, Python, Go, Java, C#), historical trend tracking with backfill, per-blob blame cache
+- **v0.6.0** — Author report cards, cross-tab drill-through links, CI quality gate (`barad-dur gate`), parallel complexity analysis (9x speedup on large repos)
+
+## Roadmap
+
 - PR/merge request analysis (review turnaround, approval patterns)
-- Historical trend tracking (score over time)
-- Configuration file (`.barad-dur.toml`) for custom thresholds
 - GitHub/GitLab API integration for PR data
+- Multi-repo dashboard (aggregate scores across repositories)
 - Interactive config editor (see [backlog](docs/BACKLOG.md))
 
 ## License
