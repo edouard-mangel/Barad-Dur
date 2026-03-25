@@ -10,9 +10,9 @@ Barad-dur analyzes git metadata (commits, blame, file tree) and source code comp
 
 | Category | Metrics | Weight |
 |----------|---------|--------|
-| **Health** | Bus factor, churn hotspots, temporal coupling, stale code, file complexity | 30% |
-| **Team** | Knowledge distribution (Gini), contributor activity, ownership clarity, silos, merge patterns | 30% |
-| **Evolution** | Growth trend, refactoring ratio, code age, commit cadence | 20% |
+| **Health** | Bus factor, churn hotspots, temporal coupling, stale code, file complexity | 40% |
+| **Team** | Knowledge distribution (Gini), contributor activity, ownership clarity, silos, merge patterns | 15% |
+| **Evolution** | Growth trend, refactoring ratio, code age, commit cadence | 25% |
 | **Git Hygiene** | Commit message quality, history cleanliness, gitignore coverage | 20% |
 
 Each metric scores 0-100. Category scores are averages. The overall score is a weighted average. The report includes **Top Actions** — concrete suggestions from the lowest-scoring metrics.
@@ -277,6 +277,7 @@ cargo run -- analyze . -v
 - GitHub/GitLab API integration for PR data
 - Multi-repo dashboard (aggregate scores across repositories)
 - Interactive config editor (see [backlog](docs/BACKLOG.md))
+- Provide barad-dur as a gitlab-ci executable. 
 
 ## License
 

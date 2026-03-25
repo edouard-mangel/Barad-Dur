@@ -8,9 +8,9 @@ use crate::snapshot::RepoSnapshot;
 /// Default category weights for overall score computation.
 #[cfg(test)]
 const WEIGHTS: &[(&str, f64)] = &[
-    ("Health", 0.30),
-    ("Team", 0.30),
-    ("Evolution", 0.20),
+    ("Health", 0.40),
+    ("Team", 0.15),
+    ("Evolution", 0.25),
     ("Git Hygiene", 0.20),
 ];
 
@@ -629,8 +629,8 @@ mod tests {
         ];
 
         let score = compute_overall_score(&categories);
-        // 80*0.3 + 60*0.3 + 70*0.2 + 50*0.2 = 24+18+14+10 = 66
-        assert_eq!(score, 66);
+        // 80*0.4 + 60*0.15 + 70*0.25 + 50*0.2 = 32+9+17.5+10 = 68.5 → 69
+        assert_eq!(score, 69);
     }
 
     #[test]

@@ -30,13 +30,13 @@ pub struct CategoryWeights {
 }
 
 fn default_health_weight() -> u32 {
-    30
+    40
 }
 fn default_team_weight() -> u32 {
-    30
+    15
 }
 fn default_evolution_weight() -> u32 {
-    20
+    25
 }
 fn default_hygiene_weight() -> u32 {
     20
@@ -45,9 +45,9 @@ fn default_hygiene_weight() -> u32 {
 impl Default for CategoryWeights {
     fn default() -> Self {
         Self {
-            health: 30,
-            team: 30,
-            evolution: 20,
+            health: 40,
+            team: 15,
+            evolution: 25,
             hygiene: 20,
         }
     }
@@ -428,7 +428,7 @@ mod tests {
     fn load_missing_file_returns_defaults() {
         let dir = TempDir::new().unwrap();
         let cfg = load(dir.path()).unwrap();
-        assert_eq!(cfg.weights.health, 30);
+        assert_eq!(cfg.weights.health, 40);
         assert!(cfg.exclude_use_defaults);
     }
 
@@ -444,7 +444,7 @@ mod tests {
         .unwrap();
         let cfg = load(dir.path()).unwrap();
         assert_eq!(cfg.since, Some("3months".to_string()));
-        assert_eq!(cfg.weights.health, 30);
+        assert_eq!(cfg.weights.health, 40);
     }
 
     #[test]

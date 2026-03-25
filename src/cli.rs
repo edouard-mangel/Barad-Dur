@@ -125,9 +125,9 @@ pub struct GateArgs {
         or --html for an interactive single-file report with charts and tables.",
     after_long_help = "\
 METRICS:\n\
-  Health (30%)      Bus factor, churn hotspots, temporal coupling, stale code, file complexity\n\
-  Team (30%)        Knowledge distribution (Gini), contributor activity, ownership, silos, merges\n\
-  Evolution (20%)   Growth trend, refactoring ratio, code age, commit cadence\n\
+  Health (40%)      Bus factor, churn hotspots, temporal coupling, stale code, file complexity\n\
+  Team (15%)        Knowledge distribution (Gini), contributor activity, ownership, silos, merges\n\
+  Evolution (25%)   Growth trend, refactoring ratio, code age, commit cadence\n\
   Git Hygiene (20%) Commit message quality, history cleanliness, gitignore coverage\n\
 \n\
 TIME WINDOW FORMATS:\n\

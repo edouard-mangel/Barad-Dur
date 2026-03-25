@@ -1713,7 +1713,7 @@ fn build_js() -> String {
     var wrapper = el('div');
     wrapper.append(buildTabInfo(
       'Overview \u2014 Repository health at a glance',
-      'The overall score (0\u2013100) is a weighted average of four categories: Health (30%), Team (30%), Evolution (20%), and Git Hygiene (20%). Each category aggregates several metrics scored individually. The radar chart shows balance across categories \u2014 a lopsided shape reveals areas needing attention. Recommendations below target the lowest-scoring metrics.',
+      'The overall score (0\u2013100) is a weighted average of four categories: Health (40%), Team (15%), Evolution (25%), and Git Hygiene (20%). Each category aggregates several metrics scored individually. The radar chart shows balance across categories \u2014 a lopsided shape reveals areas needing attention. Recommendations below target the lowest-scoring metrics.',
       defaultScoreHints
     ));
     var div = el('div', { className: 'overview-grid' });
