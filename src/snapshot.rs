@@ -179,11 +179,22 @@ impl RepoSnapshot {
 
     fn build_file_change_pairs(&mut self) {
         use std::collections::HashMap as Map;
+        use std::collections::HashSet;
+
+        // Only consider files present in the (already filtered) file tree.
+        // This ensures excluded paths (translations, config, lockfiles) don't
+        // appear in coupling pairs.
+        let known_files: HashSet<&PathBuf> = self.files.iter().map(|f| &f.path).collect();
+
         let mut pair_counts: Map<(PathBuf, PathBuf), usize> = Map::new();
 
         for commit in &self.commits {
-            let paths: Vec<&PathBuf> = commit.files_changed.iter().map(|fc| &fc.path).collect();
-            // For each unique pair of files in this commit, increment counter
+            let paths: Vec<&PathBuf> = commit
+                .files_changed
+                .iter()
+                .map(|fc| &fc.path)
+                .filter(|p| known_files.contains(p))
+                .collect();
             for i in 0..paths.len() {
                 for j in (i + 1)..paths.len() {
                     let (a, b) = if paths[i] < paths[j] {
@@ -350,6 +361,16 @@ mod tests {
         assert_eq!(snapshot.commits_by_file[&PathBuf::from("b.rs")].len(), 1);
     }
 
+    fn make_file(path: &str) -> FileEntry {
+        FileEntry {
+            path: PathBuf::from(path),
+            size_bytes: 100,
+            is_binary: false,
+            depth: 1,
+            blob_oid: String::new(),
+        }
+    }
+
     #[test]
     fn build_file_change_pairs_detects_coupling() {
         let mut snapshot = RepoSnapshot::new(
@@ -358,6 +379,7 @@ mod tests {
             "main".into(),
             TimeWindow::default(),
         );
+        snapshot.files = vec![make_file("a.rs"), make_file("b.rs"), make_file("c.rs")];
         // Files A and B change together in 5 commits, C only once
         snapshot.commits = vec![
             make_commit("c1", 0, vec!["a.rs", "b.rs"]),
@@ -384,6 +406,42 @@ mod tests {
         assert!(
             ac_pair.is_none(),
             "a.rs and c.rs should NOT be coupled (only 1 co-change)"
+        );
+    }
+
+    #[test]
+    fn build_file_change_pairs_excludes_files_not_in_tree() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        // Only a.rs and b.rs are in the file tree; i18n file is excluded
+        snapshot.files = vec![make_file("a.rs"), make_file("b.rs")];
+        snapshot.commits = vec![
+            make_commit("c1", 0, vec!["a.rs", "b.rs", "src/i18n/en.ts"]),
+            make_commit("c2", 0, vec!["a.rs", "b.rs", "src/i18n/en.ts"]),
+            make_commit("c3", 0, vec!["a.rs", "b.rs", "src/i18n/en.ts"]),
+        ];
+        snapshot.build_indexes();
+
+        // a.rs + b.rs should be coupled
+        assert!(
+            snapshot
+                .file_change_pairs
+                .iter()
+                .any(|(a, b, _)| a == &PathBuf::from("a.rs") && b == &PathBuf::from("b.rs")),
+            "a.rs and b.rs should be coupled"
+        );
+        // i18n file should NOT appear in any pair
+        assert!(
+            !snapshot
+                .file_change_pairs
+                .iter()
+                .any(|(a, b, _)| a.to_string_lossy().contains("i18n")
+                    || b.to_string_lossy().contains("i18n")),
+            "excluded i18n files should not appear in coupling pairs"
         );
     }
 
