@@ -201,20 +201,21 @@ impl Collector {
         files: &[FileEntry],
         progress: &dyn Progress,
     ) -> HashMap<PathBuf, FileComplexity> {
+        use rayon::prelude::*;
+
         let root = self.repo_path();
-        let mut map = HashMap::new();
-        for entry in files {
-            if entry.is_binary {
-                continue;
-            }
-            let abs_path = root.join(&entry.path);
-            if let Ok(content) = std::fs::read_to_string(&abs_path) {
+        let results: Vec<(PathBuf, FileComplexity)> = files
+            .par_iter()
+            .filter(|entry| !entry.is_binary)
+            .filter_map(|entry| {
+                let abs_path = root.join(&entry.path);
+                let content = std::fs::read_to_string(&abs_path).ok()?;
                 let metrics = complexity::analyse_file(&entry.path, &content);
-                map.insert(entry.path.clone(), metrics);
-            }
-            progress.inc(1);
-        }
-        map
+                progress.inc(1);
+                Some((entry.path.clone(), metrics))
+            })
+            .collect();
+        results.into_iter().collect()
     }
 
     /// Build a complete RepoSnapshot with all data and derived indexes.
