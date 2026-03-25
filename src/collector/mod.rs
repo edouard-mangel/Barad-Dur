@@ -32,6 +32,11 @@ const DEFAULT_EXCLUDE_PATTERNS: &[&str] = &[
     "composer.lock",
     "go.sum",
     "flake.lock",
+    "**/*.lock",
+    // App / environment config (churn noise, not real code changes)
+    "**/appsettings*.json",
+    "**/launchSettings.json",
+    "**/.env*",
     // Tooling directories
     ".claude/**",
     ".cursor/**",
@@ -597,6 +602,29 @@ mod tests {
         assert!(is_excluded(Path::new("src/i18n/en.ts"), &patterns, true));
         // Not matched by either
         assert!(!is_excluded(Path::new("src/main.rs"), &patterns, true));
+    }
+
+    #[test]
+    fn is_excluded_matches_config_files_by_default() {
+        assert!(is_excluded(
+            Path::new("src/server/BusinessHub.API/appsettings.json"),
+            &[],
+            true,
+        ));
+        assert!(is_excluded(
+            Path::new("src/server/BusinessHub.API/appsettings.Development.json"),
+            &[],
+            true,
+        ));
+        assert!(is_excluded(
+            Path::new("Properties/launchSettings.json"),
+            &[],
+            true,
+        ));
+        assert!(is_excluded(Path::new("some/path/foo.lock"), &[], true));
+        assert!(is_excluded(Path::new(".env.production"), &[], true));
+        // Regular JSON should NOT be excluded
+        assert!(!is_excluded(Path::new("src/data/schema.json"), &[], true));
     }
 
     #[test]
