@@ -36,6 +36,8 @@ pub enum Commands {
     Backfill(BackfillArgs),
     /// Generate a .repository-analysis/barad-dur.toml configuration file
     Init(InitArgs),
+    /// Quality gate — exit non-zero if score is below threshold
+    Gate(GateArgs),
 }
 
 #[derive(clap::Args, Debug)]
@@ -75,6 +77,41 @@ pub struct InitArgs {
     /// Overwrite existing config file
     #[arg(long)]
     pub force: bool,
+}
+
+#[derive(clap::Args, Debug)]
+#[command(
+    about = "Quality gate — exit non-zero if score is below threshold",
+    long_about = "Runs analysis and checks whether the overall score (or per-category scores) \
+        meet a minimum threshold. Exits with code 0 if the gate passes, or code 1 if any \
+        checked score falls below the threshold.\n\n\
+        Designed for CI/CD pipelines. Uses cached data when available.",
+    after_long_help = "\
+EXAMPLES:\n    \
+  barad-dur gate .                         # default: overall >= 60\n    \
+  barad-dur gate . --min-score 70          # overall >= 70\n    \
+  barad-dur gate . --category health       # check health category only\n    \
+  barad-dur gate . --category health --category team  # check both"
+)]
+pub struct GateArgs {
+    /// Path to the git repository
+    #[arg(default_value = ".")]
+    pub target: String,
+
+    /// Minimum score to pass (0-100)
+    #[arg(long, default_value = "60")]
+    pub min_score: u32,
+
+    /// Check specific category scores instead of overall
+    ///
+    /// When specified, each named category must individually meet --min-score.
+    /// Can be repeated: --category health --category team
+    #[arg(long, action = clap::ArgAction::Append)]
+    pub category: Vec<String>,
+
+    /// Skip git blame for faster checks (blame-dependent metrics get defaults)
+    #[arg(long, num_args = 0..=1, default_missing_value = "true")]
+    pub skip_blame: Option<bool>,
 }
 
 #[derive(clap::Args, Debug)]
@@ -421,6 +458,42 @@ mod tests {
         assert!(args.should_run("team"));
         assert!(args.should_run("evolution"));
         assert!(args.should_run("hygiene"));
+    }
+
+    fn parse_gate(args: &[&str]) -> super::GateArgs {
+        let cli = Cli::parse_from(args);
+        match cli.command {
+            Commands::Gate(a) => a,
+            _ => panic!("expected Gate command"),
+        }
+    }
+
+    #[test]
+    fn gate_default_args() {
+        let args = parse_gate(&["barad-dur", "gate", "."]);
+        assert_eq!(args.target, ".");
+        assert_eq!(args.min_score, 60);
+        assert!(args.category.is_empty());
+    }
+
+    #[test]
+    fn gate_min_score() {
+        let args = parse_gate(&["barad-dur", "gate", ".", "--min-score", "75"]);
+        assert_eq!(args.min_score, 75);
+    }
+
+    #[test]
+    fn gate_category_filter() {
+        let args = parse_gate(&[
+            "barad-dur",
+            "gate",
+            ".",
+            "--category",
+            "health",
+            "--category",
+            "team",
+        ]);
+        assert_eq!(args.category, vec!["health", "team"]);
     }
 
     #[test]

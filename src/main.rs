@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use barad_dur::backfill;
 use barad_dur::cache;
-use barad_dur::cli::{AnalyzeArgs, Cli, Commands};
+use barad_dur::cli::{AnalyzeArgs, Cli, Commands, GateArgs};
 use barad_dur::collector::Collector;
 use barad_dur::config::{self, RepoConfig};
 use barad_dur::metrics::{evolution, health, hygiene, team, CategoryResult};
@@ -26,6 +26,9 @@ fn main() -> Result<()> {
         Commands::Init(args) => {
             let target = std::path::PathBuf::from(&args.target);
             barad_dur::init::run_init(&target, args.force, args.interactive)?;
+        }
+        Commands::Gate(args) => {
+            std::process::exit(run_gate(args)?);
         }
     }
     Ok(())
@@ -230,6 +233,100 @@ fn run_analyze(args: AnalyzeArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn run_gate(args: GateArgs) -> Result<i32> {
+    let local_path = PathBuf::from(&args.target);
+    let cfg = config::load(&local_path)?;
+    let skip_blame = args.skip_blame.unwrap_or(cfg.skip_blame);
+
+    let time_window = TimeWindow::default();
+    let collector = Collector::open(&local_path, time_window)?;
+
+    let exclude_patterns = &cfg.exclude_patterns;
+    let use_default_excludes = cfg.exclude_use_defaults;
+
+    let snapshot = if let Some(cached) = cache::load(collector.repo_path())? {
+        let current_head = collector.head_commit_hash()?;
+        if !cache::is_stale(&cached, &current_head) {
+            cached
+        } else {
+            collect_and_cache(
+                &collector,
+                false,
+                false,
+                skip_blame,
+                false,
+                exclude_patterns,
+                use_default_excludes,
+            )?
+        }
+    } else {
+        collect_and_cache(
+            &collector,
+            false,
+            false,
+            skip_blame,
+            false,
+            exclude_patterns,
+            use_default_excludes,
+        )?
+    };
+
+    let categories = vec![
+        health::compute_health(&snapshot, &cfg.thresholds.health),
+        team::compute_team(&snapshot, &cfg.thresholds.team),
+        evolution::compute_evolution(&snapshot, &cfg.thresholds.evolution),
+        hygiene::compute_hygiene(&snapshot, &cfg.thresholds.hygiene),
+    ];
+
+    let weight_pairs = cfg.weights.as_weight_pairs();
+    let report = scorer::build_report(&snapshot, categories, None, &weight_pairs);
+
+    let threshold = args.min_score;
+    let mut failed = false;
+
+    if args.category.is_empty() {
+        // Check overall score
+        if report.overall_score < threshold {
+            println!(
+                "FAIL: overall score {} < threshold {}",
+                report.overall_score, threshold
+            );
+            failed = true;
+        } else {
+            println!(
+                "PASS: overall score {} >= threshold {}",
+                report.overall_score, threshold
+            );
+        }
+    } else {
+        // Check each requested category
+        for cat_name in &args.category {
+            let cat_lower = cat_name.to_lowercase();
+            if let Some(cat) = report.categories.iter().find(|c| {
+                let name_lower = c.name.to_lowercase();
+                name_lower == cat_lower || name_lower.contains(&cat_lower)
+            }) {
+                if cat.score < threshold {
+                    println!(
+                        "FAIL: {} score {} < threshold {}",
+                        cat.name, cat.score, threshold
+                    );
+                    failed = true;
+                } else {
+                    println!(
+                        "PASS: {} score {} >= threshold {}",
+                        cat.name, cat.score, threshold
+                    );
+                }
+            } else {
+                println!("WARN: unknown category '{}', skipping", cat_name);
+            }
+        }
+    }
+
+    Ok(if failed { 1 } else { 0 })
 }
 
 fn open_in_browser(path: &std::path::Path) -> Result<()> {
