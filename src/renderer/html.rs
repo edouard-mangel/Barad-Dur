@@ -292,6 +292,8 @@ header {
   min-width: 20px;
   padding-top: 1px;
 }
+.action-link { color: #38bdf8; text-decoration: underline; cursor: pointer; transition: color 0.2s; }
+.action-link:hover { color: #7dd3fc; }
 .view-card {
   background: #0d1117;
   border: 1px solid #1e293b;
@@ -988,9 +990,26 @@ fn build_js() -> String {
       var item = el('div', { className: 'action-item' });
       var num = el('div', { className: 'action-num' });
       num.append(txt(String(i + 1)));
-      var text = el('div');
-      text.append(txt(a));
-      item.append(num, text);
+      var actionObj = typeof a === 'string' ? { text: a } : a;
+      var textEl = el('div');
+      if (actionObj.target_tab) {
+        var link = el('a', {
+          className: 'action-link',
+          style: { cursor: 'pointer' }
+        });
+        link.setAttribute('href', '#');
+        link.append(txt(actionObj.text));
+        link.addEventListener('click', function(e) {
+          e.preventDefault();
+          if (window.__switchToTab) {
+            window.__switchToTab(actionObj.target_tab, actionObj.sort_by || null);
+          }
+        });
+        textEl.append(link);
+      } else {
+        textEl.append(txt(actionObj.text));
+      }
+      item.append(num, textEl);
       section.append(item);
     });
     return section;
@@ -2941,6 +2960,22 @@ fn build_js() -> String {
     contentDivs[0].replaceChildren(tabContents[0]());
     contentDivs[0].dataset.rendered = '1';
 
+    // Expose tab-switching for drill-through links
+    window.__switchToTab = function(tabName, sortBy) {
+      var idx = tabNames.indexOf(tabName.charAt(0).toUpperCase() + tabName.slice(1));
+      if (idx < 0) return;
+      var allTabs = tabs.querySelectorAll('.tab');
+      allTabs.forEach(function(tb) { tb.className = 'tab'; });
+      contentDivs.forEach(function(cd) { cd.className = 'tab-content'; });
+      allTabs[idx].className = 'tab active';
+      contentDivs[idx].className = 'tab-content active';
+      if (contentDivs[idx].dataset.rendered !== '1') {
+        contentDivs[idx].replaceChildren(tabContents[idx]());
+        contentDivs[idx].dataset.rendered = '1';
+      }
+      contentDivs[idx].scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+
     app.replaceChildren(header, tabs, ...contentDivs);
   }
 
@@ -2953,7 +2988,7 @@ fn build_js() -> String {
 mod tests {
     use super::*;
     use crate::metrics::{CategoryResult, MetricValue, RawValue};
-    use crate::scorer::AnalysisReport;
+    use crate::scorer::{ActionItem, AnalysisReport};
 
     fn make_report() -> AnalysisReport {
         AnalysisReport {
@@ -2974,7 +3009,11 @@ mod tests {
                     score: 75,
                 }],
             }],
-            top_actions: vec!["Improve test coverage".into()],
+            top_actions: vec![ActionItem {
+                text: "Improve test coverage".into(),
+                target_tab: Some("hotspots".into()),
+                sort_by: None,
+            }],
             remote_meta: None,
             file_hotspots: vec![],
             coupling_pairs: vec![],

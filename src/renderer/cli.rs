@@ -173,7 +173,7 @@ pub fn render(report: &AnalysisReport, verbosity: u8, trend: Option<&TrendSummar
         ));
         out.push_str(&format!("  {}\n", "Top Actions:".bold()));
         for (i, action) in report.top_actions.iter().enumerate() {
-            out.push_str(&format!("  {}. {}\n", i + 1, action));
+            out.push_str(&format!("  {}. {}\n", i + 1, action.text));
         }
     }
 
@@ -242,6 +242,7 @@ fn format_score_dot(score: u32) -> String {
 mod tests {
     use super::*;
     use crate::metrics::{CategoryResult, MetricValue, RawValue};
+    use crate::scorer::ActionItem;
     use crate::trend::{TrendDelta, TrendSummary, TrendVelocity, VelocityDirection};
     use std::collections::HashMap;
 
@@ -264,7 +265,11 @@ mod tests {
                     score: 50,
                 }],
             }],
-            top_actions: vec!["[Health] Bus factor (score: 50) — Improve".into()],
+            top_actions: vec![ActionItem {
+                text: "[Health] Bus factor (score: 50) — Improve".into(),
+                target_tab: Some("ownership".into()),
+                sort_by: None,
+            }],
             remote_meta: None,
             file_hotspots: vec![],
             coupling_pairs: vec![],

@@ -78,6 +78,15 @@ pub struct RemoteMeta {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct ActionItem {
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_tab: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort_by: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct AnalysisReport {
     pub repo_name: String,
     pub branch: String,
@@ -87,7 +96,7 @@ pub struct AnalysisReport {
     pub total_files: usize,
     pub overall_score: u32,
     pub categories: Vec<CategoryResult>,
-    pub top_actions: Vec<String>,
+    pub top_actions: Vec<ActionItem>,
     pub remote_meta: Option<RemoteMeta>,
     pub file_hotspots: Vec<HotspotFile>,
     pub coupling_pairs: Vec<CouplingPair>,
@@ -515,7 +524,7 @@ fn compute_overall_score(categories: &[CategoryResult]) -> u32 {
     compute_overall_score_with_weights(categories, WEIGHTS)
 }
 
-fn generate_top_actions(categories: &[CategoryResult]) -> Vec<String> {
+fn generate_top_actions(categories: &[CategoryResult]) -> Vec<ActionItem> {
     let mut low_metrics: Vec<(&str, &str, u32)> = Vec::new();
 
     for cat in categories {
@@ -524,24 +533,45 @@ fn generate_top_actions(categories: &[CategoryResult]) -> Vec<String> {
         }
     }
 
-    // Sort by score ascending (worst first)
     low_metrics.sort_by_key(|m| m.2);
 
-    // Take top 3 worst metrics and generate suggestions
     low_metrics
         .iter()
         .take(3)
-        .filter(|m| m.2 < 80) // Only suggest for metrics below 80
+        .filter(|m| m.2 < 80)
         .map(|(cat, metric, score)| {
-            format!(
-                "[{}] {} (score: {}) — {}",
-                cat,
-                metric,
-                score,
-                suggest_action(metric)
-            )
+            let (target_tab, sort_by) = target_tab_for_metric(metric);
+            ActionItem {
+                text: format!(
+                    "[{}] {} (score: {}) — {}",
+                    cat,
+                    metric,
+                    score,
+                    suggest_action(metric)
+                ),
+                target_tab: target_tab.map(String::from),
+                sort_by: sort_by.map(String::from),
+            }
         })
         .collect()
+}
+
+fn target_tab_for_metric(metric_name: &str) -> (Option<&'static str>, Option<&'static str>) {
+    match metric_name {
+        "Bus factor" => (Some("ownership"), Some("authors")),
+        "Churn hotspots" => (Some("hotspots"), Some("churn")),
+        "Temporal coupling" => (Some("coupling"), None),
+        "Stale code" => (Some("age"), Some("oldest")),
+        "File complexity" => (Some("hotspots"), Some("complexity")),
+        "Knowledge distribution" => (Some("ownership"), None),
+        "Ownership clarity" => (Some("ownership"), None),
+        "Collaboration patterns" => (Some("ownership"), None),
+        "Code age" => (Some("age"), None),
+        "Growth trend" => (Some("trends"), None),
+        "Refactoring ratio" => (Some("hotspots"), None),
+        "Commit cadence" => (Some("trends"), None),
+        _ => (None, None),
+    }
 }
 
 fn suggest_action(metric_name: &str) -> &'static str {
@@ -670,7 +700,7 @@ mod tests {
         let actions = generate_top_actions(&categories);
         assert!(!actions.is_empty());
         // Worst metric (score 15) should be first
-        assert!(actions[0].contains("Knowledge distribution"));
+        assert!(actions[0].text.contains("Knowledge distribution"));
     }
 
     #[test]

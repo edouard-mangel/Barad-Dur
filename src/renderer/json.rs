@@ -85,6 +85,7 @@ fn build_trend_object(summary: &TrendSummary) -> Value {
 mod tests {
     use super::*;
     use crate::metrics::{CategoryResult, MetricValue, RawValue};
+    use crate::scorer::ActionItem;
 
     fn make_report() -> AnalysisReport {
         AnalysisReport {
@@ -105,7 +106,11 @@ mod tests {
                     score: 50,
                 }],
             }],
-            top_actions: vec!["Fix bus factor".into()],
+            top_actions: vec![ActionItem {
+                text: "Fix bus factor".into(),
+                target_tab: Some("ownership".into()),
+                sort_by: None,
+            }],
             remote_meta: None,
             file_hotspots: vec![],
             coupling_pairs: vec![],
