@@ -586,6 +586,90 @@ svg.radar { display: block; margin: 0 auto; }
   padding: 8px 12px; border-radius: 6px; font-size: 12px;
   pointer-events: none; z-index: 1000; display: none; white-space: pre-line; }
 .tr-empty { text-align: center; color: #8b949e; padding: 60px 20px; font-size: 16px; }
+.ac-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+  padding: 24px;
+}
+.ac-card {
+  background: #0d1117;
+  border: 1px solid #1e293b;
+  border-radius: 12px;
+  padding: 20px;
+  transition: border-color 0.15s;
+}
+.ac-card:hover { border-color: #334155; }
+.ac-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: #e2e8f0;
+  margin-bottom: 2px;
+}
+.ac-email { font-size: 11px; color: #64748b; margin-bottom: 12px; }
+.ac-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+  margin-bottom: 12px;
+}
+.ac-stat-label {
+  font-size: 11px;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.ac-stat-value { font-size: 18px; font-weight: 700; color: #e2e8f0; }
+.ac-badge {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+.ac-files {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #1e293b;
+}
+.ac-file-item {
+  font-size: 12px;
+  color: #94a3b8;
+  padding: 2px 0;
+  font-family: monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ac-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 16px 24px;
+  border-bottom: 1px solid #1e293b;
+  background: #0d1117;
+  flex-wrap: wrap;
+}
+.ac-search {
+  background: #161b22;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  color: #e2e8f0;
+  padding: 6px 12px;
+  font-size: 13px;
+  min-width: 200px;
+}
+.ac-search:focus { outline: none; border-color: #3b82f6; }
+.ac-sort-btn {
+  background: #161b22;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  color: #94a3b8;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.ac-sort-btn.active { border-color: #3b82f6; color: #e2e8f0; }
 "#;
 
 fn build_js() -> String {
@@ -2642,6 +2726,146 @@ fn build_js() -> String {
   }
 
   /* ---- Main render ---- */
+  /* ---- Authors tab ---- */
+  function buildAuthorsTab() {
+    var container = el('div');
+    container.append(buildTabInfo(
+      'Author Report Cards',
+      'Per-contributor metrics derived from git blame and commit history. Files owned = files where author has >50% blame lines. Commit quality scores message length, conventional prefixes, and penalizes low-effort messages.',
+      [
+        { color: '#10b981', label: 'Active \u2014 committed in last 30 days' },
+        { color: '#f59e0b', label: 'Aging \u2014 30\u201390 days since last commit' },
+        { color: '#ef4444', label: 'Stale \u2014 90+ days since last commit' }
+      ]
+    ));
+
+    var cards = (R.author_cards || []).slice();
+    if (cards.length === 0) {
+      var empty = el('div', { style: { padding: '48px', textAlign: 'center', color: '#64748b' } });
+      empty.append(txt('No author data available. Run with blame enabled.'));
+      container.append(empty);
+      return container;
+    }
+
+    var toolbar = el('div', { className: 'ac-toolbar' });
+    var search = el('input', { className: 'ac-search', placeholder: 'Filter by name or email...' });
+    search.setAttribute('type', 'text');
+
+    var sortOptions = [
+      { key: 'commits', label: 'Commits' },
+      { key: 'files', label: 'Files Owned' },
+      { key: 'active', label: 'Last Active' },
+      { key: 'quality', label: 'Commit Quality' }
+    ];
+    var currentSort = 'commits';
+
+    var sortBtns = sortOptions.map(function(opt) {
+      var btn = el('button', { className: 'ac-sort-btn' + (opt.key === 'commits' ? ' active' : '') });
+      btn.append(txt(opt.label));
+      btn.addEventListener('click', function() {
+        currentSort = opt.key;
+        toolbar.querySelectorAll('.ac-sort-btn').forEach(function(b) { b.className = 'ac-sort-btn'; });
+        btn.className = 'ac-sort-btn active';
+        renderCards();
+      });
+      return btn;
+    });
+
+    toolbar.append(search);
+    sortBtns.forEach(function(b) { toolbar.append(b); });
+
+    var grid = el('div', { className: 'ac-grid' });
+
+    function activityColor(days) {
+      if (days <= 30) return '#10b981';
+      if (days <= 90) return '#f59e0b';
+      return '#ef4444';
+    }
+
+    function qualityColor(q) {
+      if (q >= 70) return '#10b981';
+      if (q >= 40) return '#f59e0b';
+      return '#ef4444';
+    }
+
+    function renderCards() {
+      var q = search.value.toLowerCase();
+      var filtered = cards.filter(function(c) {
+        if (!q) return true;
+        return c.name.toLowerCase().indexOf(q) >= 0 ||
+               c.email.toLowerCase().indexOf(q) >= 0;
+      });
+
+      filtered.sort(function(a, b) {
+        if (currentSort === 'commits') return b.commit_count - a.commit_count;
+        if (currentSort === 'files') return b.files_owned - a.files_owned;
+        if (currentSort === 'active') return a.days_since_active - b.days_since_active;
+        if (currentSort === 'quality') return b.avg_commit_quality - a.avg_commit_quality;
+        return 0;
+      });
+
+      grid.replaceChildren();
+      filtered.forEach(function(c) {
+        var card = el('div', { className: 'ac-card' });
+
+        var nameEl = el('div', { className: 'ac-name' });
+        var badge = el('span', { className: 'ac-badge' });
+        badge.style.backgroundColor = activityColor(c.days_since_active);
+        nameEl.append(badge, txt(c.name));
+        var emailEl = el('div', { className: 'ac-email' });
+        emailEl.append(txt(c.email));
+
+        var stats = el('div', { className: 'ac-stats' });
+        function addStat(label, value) {
+          var lbl = el('div', { className: 'ac-stat-label' });
+          lbl.append(txt(label));
+          var val = el('div', { className: 'ac-stat-value' });
+          val.append(txt(String(value)));
+          stats.append(lbl, val);
+        }
+        addStat('Commits', c.commit_count);
+        addStat('Files Owned', c.files_owned);
+        addStat('Lines Owned', c.lines_owned);
+        addStat('Dirs Touched', c.directories_touched);
+
+        var qLabel = el('div', { className: 'ac-stat-label', style: { marginTop: '8px' } });
+        qLabel.append(txt('Commit Quality'));
+        var qBar = el('div', { style: { height: '6px', borderRadius: '3px', background: '#1e293b', marginTop: '4px' } });
+        var qFill = el('div', { style: { height: '100%', borderRadius: '3px', width: Math.round(c.avg_commit_quality) + '%', background: qualityColor(c.avg_commit_quality) } });
+        qBar.append(qFill);
+        var qVal = el('div', { style: { fontSize: '11px', color: '#94a3b8', marginTop: '2px' } });
+        qVal.append(txt(Math.round(c.avg_commit_quality) + '/100'));
+
+        var activeEl = el('div', { style: { fontSize: '12px', color: activityColor(c.days_since_active), marginTop: '8px' } });
+        var daysText = c.days_since_active === 0 ? 'Active today' :
+                       c.days_since_active === 1 ? '1 day ago' :
+                       c.days_since_active + ' days ago';
+        activeEl.append(txt(daysText));
+
+        var filesDiv = el('div', { className: 'ac-files' });
+        if (c.top_files && c.top_files.length > 0) {
+          var fLabel = el('div', { className: 'ac-stat-label' });
+          fLabel.append(txt('Top Files'));
+          filesDiv.append(fLabel);
+          c.top_files.forEach(function(f) {
+            var fi = el('div', { className: 'ac-file-item' });
+            fi.append(txt(f));
+            filesDiv.append(fi);
+          });
+        }
+
+        card.append(nameEl, emailEl, stats, qLabel, qBar, qVal, activeEl, filesDiv);
+        grid.append(card);
+      });
+    }
+
+    search.addEventListener('input', renderCards);
+    renderCards();
+
+    container.append(toolbar, grid);
+    return container;
+  }
+
   function renderApp() {
     var app = document.getElementById('app');
 
@@ -2669,7 +2893,7 @@ fn build_js() -> String {
     header.append(headerRow);
 
     // Tabs
-    var tabNames = ['Overview', 'Hotspots', 'Coupling', 'Ownership', 'Age', 'Treemap', 'Trends'];
+    var tabNames = ['Overview', 'Hotspots', 'Coupling', 'Ownership', 'Age', 'Treemap', 'Trends', 'Authors'];
     var tabContents = [
       buildOverviewTab,
       buildHotspotsTab,
@@ -2677,7 +2901,8 @@ fn build_js() -> String {
       buildOwnershipTab,
       buildAgeTab,
       buildTreemapTab,
-      buildTrendsTab
+      buildTrendsTab,
+      buildAuthorsTab
     ];
 
     var tabs = el('div', { className: 'tabs' });

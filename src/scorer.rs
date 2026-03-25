@@ -452,7 +452,15 @@ fn score_commit_message(msg: &str) -> f64 {
 
     // Conventional commit prefix: +30 points
     let prefixes = [
-        "feat:", "fix:", "docs:", "style:", "refactor:", "perf:", "test:", "chore:", "ci:",
+        "feat:",
+        "fix:",
+        "docs:",
+        "style:",
+        "refactor:",
+        "perf:",
+        "test:",
+        "chore:",
+        "ci:",
         "build:",
     ];
     if prefixes.iter().any(|p| trimmed.starts_with(p)) {
@@ -877,8 +885,16 @@ mod tests {
             TimeWindow::default(),
         );
         snapshot.authors = vec![
-            Author { id: 0, name: "Alice".into(), email: "alice@x.com".into() },
-            Author { id: 1, name: "Bob".into(), email: "bob@x.com".into() },
+            Author {
+                id: 0,
+                name: "Alice".into(),
+                email: "alice@x.com".into(),
+            },
+            Author {
+                id: 1,
+                name: "Bob".into(),
+                email: "bob@x.com".into(),
+            },
         ];
         snapshot.commits = vec![
             Commit {
@@ -887,8 +903,18 @@ mod tests {
                 timestamp: now - Duration::days(10),
                 message: "feat: add login flow with validation".into(),
                 files_changed: vec![
-                    FileChange { path: "src/auth.rs".into(), additions: 50, deletions: 0, change_type: ChangeType::Modified },
-                    FileChange { path: "src/main.rs".into(), additions: 5, deletions: 0, change_type: ChangeType::Modified },
+                    FileChange {
+                        path: "src/auth.rs".into(),
+                        additions: 50,
+                        deletions: 0,
+                        change_type: ChangeType::Modified,
+                    },
+                    FileChange {
+                        path: "src/main.rs".into(),
+                        additions: 5,
+                        deletions: 0,
+                        change_type: ChangeType::Modified,
+                    },
                 ],
                 is_merge: false,
                 parent_count: 1,
@@ -898,9 +924,12 @@ mod tests {
                 author: 0,
                 timestamp: now - Duration::days(5),
                 message: "fix: handle edge case in auth".into(),
-                files_changed: vec![
-                    FileChange { path: "src/auth.rs".into(), additions: 10, deletions: 2, change_type: ChangeType::Modified },
-                ],
+                files_changed: vec![FileChange {
+                    path: "src/auth.rs".into(),
+                    additions: 10,
+                    deletions: 2,
+                    change_type: ChangeType::Modified,
+                }],
                 is_merge: false,
                 parent_count: 1,
             },
@@ -909,27 +938,76 @@ mod tests {
                 author: 1,
                 timestamp: now - Duration::days(100),
                 message: "wip".into(),
-                files_changed: vec![
-                    FileChange { path: "src/main.rs".into(), additions: 3, deletions: 1, change_type: ChangeType::Modified },
-                ],
+                files_changed: vec![FileChange {
+                    path: "src/main.rs".into(),
+                    additions: 3,
+                    deletions: 1,
+                    change_type: ChangeType::Modified,
+                }],
                 is_merge: false,
                 parent_count: 1,
             },
         ];
-        snapshot.blame_map.insert("src/auth.rs".into(), vec![
-            BlameLine { author_id: 0, commit_id: "c1".into(), timestamp: now },
-            BlameLine { author_id: 0, commit_id: "c1".into(), timestamp: now },
-            BlameLine { author_id: 0, commit_id: "c1".into(), timestamp: now },
-            BlameLine { author_id: 0, commit_id: "c1".into(), timestamp: now },
-            BlameLine { author_id: 1, commit_id: "c3".into(), timestamp: now },
-        ]);
-        snapshot.blame_map.insert("src/main.rs".into(), vec![
-            BlameLine { author_id: 1, commit_id: "c3".into(), timestamp: now },
-            BlameLine { author_id: 1, commit_id: "c3".into(), timestamp: now },
-            BlameLine { author_id: 1, commit_id: "c3".into(), timestamp: now },
-            BlameLine { author_id: 0, commit_id: "c1".into(), timestamp: now },
-            BlameLine { author_id: 0, commit_id: "c1".into(), timestamp: now },
-        ]);
+        snapshot.blame_map.insert(
+            "src/auth.rs".into(),
+            vec![
+                BlameLine {
+                    author_id: 0,
+                    commit_id: "c1".into(),
+                    timestamp: now,
+                },
+                BlameLine {
+                    author_id: 0,
+                    commit_id: "c1".into(),
+                    timestamp: now,
+                },
+                BlameLine {
+                    author_id: 0,
+                    commit_id: "c1".into(),
+                    timestamp: now,
+                },
+                BlameLine {
+                    author_id: 0,
+                    commit_id: "c1".into(),
+                    timestamp: now,
+                },
+                BlameLine {
+                    author_id: 1,
+                    commit_id: "c3".into(),
+                    timestamp: now,
+                },
+            ],
+        );
+        snapshot.blame_map.insert(
+            "src/main.rs".into(),
+            vec![
+                BlameLine {
+                    author_id: 1,
+                    commit_id: "c3".into(),
+                    timestamp: now,
+                },
+                BlameLine {
+                    author_id: 1,
+                    commit_id: "c3".into(),
+                    timestamp: now,
+                },
+                BlameLine {
+                    author_id: 1,
+                    commit_id: "c3".into(),
+                    timestamp: now,
+                },
+                BlameLine {
+                    author_id: 0,
+                    commit_id: "c1".into(),
+                    timestamp: now,
+                },
+                BlameLine {
+                    author_id: 0,
+                    commit_id: "c1".into(),
+                    timestamp: now,
+                },
+            ],
+        );
         snapshot.build_indexes();
 
         let cards = build_author_cards(&snapshot);
