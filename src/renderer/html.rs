@@ -2831,10 +2831,11 @@ fn build_js() -> String {
         var qLabel = el('div', { className: 'ac-stat-label', style: { marginTop: '8px' } });
         qLabel.append(txt('Commit Quality'));
         var qBar = el('div', { style: { height: '6px', borderRadius: '3px', background: '#1e293b', marginTop: '4px' } });
-        var qFill = el('div', { style: { height: '100%', borderRadius: '3px', width: Math.round(c.avg_commit_quality) + '%', background: qualityColor(c.avg_commit_quality) } });
+        var qRounded = Math.round(c.avg_commit_quality);
+        var qFill = el('div', { style: { height: '100%', borderRadius: '3px', width: qRounded + '%', background: qualityColor(qRounded) } });
         qBar.append(qFill);
         var qVal = el('div', { style: { fontSize: '11px', color: '#94a3b8', marginTop: '2px' } });
-        qVal.append(txt(Math.round(c.avg_commit_quality) + '/100'));
+        qVal.append(txt(qRounded + '/100'));
 
         var activeEl = el('div', { style: { fontSize: '12px', color: activityColor(c.days_since_active), marginTop: '8px' } });
         var daysText = c.days_since_active === 0 ? 'Active today' :
