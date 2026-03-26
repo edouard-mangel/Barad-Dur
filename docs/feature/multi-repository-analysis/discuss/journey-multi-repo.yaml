@@ -1,0 +1,211 @@
+journey:
+  id: cross-repo-coupling
+  name: Cross-Repository Coupling Detection
+  description: >
+    Detect temporal, team, and dependency coupling between repositories in a local
+    directory. Output ranked coupling pairs via CLI and interactive HTML visualization.
+  personas:
+    - id: adriana-kowalski
+      role: VP of Engineering
+      context: Manages 24 microservices; suspects 5-6 repo pairs are too coupled
+      motivation: Get evidence-based coupling data to justify decoupling investments
+    - id: tomasz-wierzbicki
+      role: Platform team lead
+      context: Owns shared-libs consumed by 12 services; needs blast radius mapping
+      motivation: Quantify dependency coupling and avoid surprise breakages
+    - id: yuki-tanaka
+      role: Senior developer (new joiner, 3 weeks)
+      context: Keeps getting pulled across repo boundaries; assigned to search-indexer
+      motivation: Understand which repos are connected and why she bridges them
+
+  emotional_arc:
+    start: uncertain
+    middle: informed
+    end: empowered
+    progression:
+      - phase: discover
+        emotion: uncertain
+        note: "I suspect coupling but have no proof"
+      - phase: collect
+        emotion: curious
+        note: "Found 24 repos, collecting git history"
+      - phase: analyze
+        emotion: informed
+        note: "8 significant coupling pairs detected so far"
+      - phase: review
+        emotion: empowered
+        note: "payment-gateway and billing-service confirmed 78% temporal coupling"
+      - phase: share
+        emotion: satisfied
+        note: "Coupling visualization ready for architecture review"
+
+  steps:
+    - id: discover-repos
+      name: Discover Repositories
+      description: >
+        User provides a root directory. The tool scans subdirectories for git repos.
+      trigger: User invokes `barad-dur coupling <root-dir>`
+      inputs:
+        - root_dir: "CLI positional arg -- directory containing git repos"
+        - time_window: "CLI --window or default (6 months)"
+        - coupling_window: "CLI --coupling-window or default (24h)"
+        - min_coupling: "CLI --min-coupling or default (30%)"
+      outputs:
+        - discovered_repos: "List of valid git repo paths found in subdirectories"
+        - skipped_repos: "Non-repo dirs or invalid repos with reason"
+      emotional_state: uncertain -> curious
+      happy_path: >
+        User provides root dir, tool finds N repos, reports count and pair scope.
+      error_paths:
+        - no_repos_found: "Error message with usage example"
+        - single_repo: "Suggest `barad-dur analyze` for intra-repo coupling"
+        - path_not_exists: "Error: directory not found"
+
+    - id: collect-snapshots
+      name: Collect Git Snapshots
+      description: >
+        Build RepoSnapshot per repo using existing Collector pipeline.
+        Extract commit timestamps, authors, and file change data.
+      trigger: Repos discovered from previous step
+      inputs:
+        - discovered_repos: "From discovery step"
+        - time_window: "How far back to look in git history"
+      outputs:
+        - repo_snapshots: "Map of repo name to RepoSnapshot with commits, authors, files"
+        - skipped_repos: "Repos that failed during collection (merged with discovery skips)"
+      emotional_state: curious -> informed
+      happy_path: >
+        All repos collected successfully. Progress bar shows per-repo status.
+      error_paths:
+        - repo_fails_collection: "Log warning, skip, continue with remaining"
+        - all_fail: "Error summary, exit code 1"
+      integration_checkpoints:
+        - "Reuses existing Collector -> Snapshot pipeline from single-repo analysis"
+        - "Cache checked per-repo: stale cache triggers re-collection"
+        - "Each snapshot provides commits[], authors[], commits_by_author, commits_by_file"
+      performance_notes:
+        - "Repos with fresh cache: ~0.3s each"
+        - "Repos needing collection: 10-60s each (git log + blame)"
+        - "Parallel collection via rayon (already a dependency)"
+
+    - id: analyze-coupling
+      name: Analyze Coupling Across Pairs
+      description: >
+        Compute coupling scores across all valid repo pairs.
+        R1: temporal coupling. R2: add team and dependency coupling.
+      trigger: Snapshots collected for 2+ repos
+      inputs:
+        - repo_snapshots: "From collection step"
+        - coupling_window: "Max time between commits for temporal co-change (default 24h)"
+        - min_coupling: "Minimum score to include in results"
+      outputs:
+        - coupling_pairs: "Ranked list of repo pairs with per-dimension scores"
+        - team_bridges: "Single-author bridges flagged as bus factor risks (R2)"
+        - dependency_map: "Directed dependency graph from manifest scanning (R2)"
+      emotional_state: informed
+      happy_path: >
+        Pairwise analysis runs across all combinations. Progress bar shows pair count.
+        Significant pairs accumulate during analysis.
+      error_paths:
+        - zero_coupling_found: "Report 'no significant coupling detected above threshold'"
+
+    - id: render-results
+      name: Review Coupling Results
+      description: >
+        Format coupling analysis into CLI output, JSON, or HTML visualization.
+      trigger: Coupling analysis complete
+      inputs:
+        - coupling_pairs: "Ranked coupling pairs with scores"
+        - team_bridges: "Bus factor risks (R2)"
+        - dependency_map: "Dependency graph (R2)"
+        - output_format: "CLI (default), JSON (--json), HTML (--html)"
+        - min_coupling: "Threshold for display"
+      outputs:
+        - rendered_output: "Formatted coupling report (CLI text, JSON, or HTML)"
+      emotional_state: informed -> empowered
+      happy_path: >
+        CLI shows ranked coupling pairs sorted by score descending.
+        Summary shows high/medium/low counts.
+      error_paths:
+        - empty_results: "No coupling above threshold -- suggest lowering --min-coupling"
+
+    - id: share-findings
+      name: Share Coupling Findings
+      description: >
+        Write output to file or stdout. Open HTML in browser.
+      trigger: Results rendered
+      inputs:
+        - rendered_output: "Formatted content"
+        - output_path: "Optional -o flag"
+        - auto_open: "--open flag (HTML only)"
+      outputs:
+        - file_written: "Path to output file (if -o specified)"
+      emotional_state: empowered -> satisfied
+      happy_path: >
+        File written. If --html --open, browser opens with coupling visualization.
+
+  integration_points:
+    - point: existing-snapshot-pipeline
+      description: >
+        Each repo's git data is collected via the existing Collector -> Snapshot
+        pipeline. The coupling feature consumes RepoSnapshot structs but does NOT
+        reuse the scoring pipeline (Health/Team/Evolution/Hygiene categories are
+        irrelevant for cross-repo coupling).
+      risk: low
+      note: >
+        RepoSnapshot already contains commits (with timestamps), authors, and
+        commits_by_file. The coupling analyzer needs commits_by_author and
+        commit timestamps per repo, which are already indexed.
+
+    - point: existing-intra-repo-coupling
+      description: >
+        barad-dur already detects temporal coupling WITHIN a single repo via
+        file_change_pairs in RepoSnapshot and temporal_coupling() in health.rs.
+        The cross-repo feature extends this concept to repo-level pairs using
+        commit timestamps instead of file-level co-changes.
+      risk: low
+      note: >
+        The algorithm is conceptually similar (count co-occurrences within a window)
+        but operates on repo-level commits rather than file-level changes within
+        a single commit.
+
+    - point: author-normalization
+      description: >
+        Author matching across repos requires normalizing git identities.
+        The existing Author struct uses author_id (index into authors vec).
+        Cross-repo matching must compare by name or email.
+      risk: medium
+      note: >
+        Git users may have different emails across repos (work vs personal).
+        Name-based matching is more reliable but can have collisions.
+        A .mailmap-like config could resolve ambiguities.
+
+    - point: manifest-scanning
+      description: >
+        Dependency coupling requires parsing manifest files (Cargo.toml,
+        package.json, go.mod, requirements.txt). This is NEW code not
+        present in the existing codebase.
+      risk: medium
+      note: >
+        Start with Cargo.toml (Rust project). Expand to other ecosystems
+        based on detected project types.
+
+    - point: html-visualization
+      description: >
+        A new HTML template for coupling visualization (graph + matrix).
+        Follows the self-contained pattern from renderer/html.rs but with
+        graph rendering (force-directed) and matrix layout.
+      risk: medium
+      note: >
+        The existing HTML renderer generates self-contained reports with
+        inline CSS + JS. The coupling visualization needs a graph library
+        (inline, no CDN) which adds complexity.
+
+  constraints:
+    - "CLI output must be readable in 120-column terminal with 50+ repo pairs"
+    - "`barad-dur analyze` command and output must remain completely unchanged"
+    - "The coupling subcommand operates on a root directory, not individual repo paths"
+    - "HTML visualization must be self-contained (no external deps)"
+    - "Temporal coupling window default is 24 hours (configurable)"
+    - "Minimum coupling threshold default is 30% (configurable)"
+    - "Cross-repo coupling is a NEW subcommand, not a modification of existing features"
