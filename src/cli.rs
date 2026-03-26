@@ -157,6 +157,10 @@ pub struct CouplingArgs {
     #[arg(long)]
     pub json: bool,
 
+    /// Pretty-print JSON output (only effective with --json)
+    #[arg(long)]
+    pub pretty: bool,
+
     /// Output as self-contained HTML report
     #[arg(long)]
     pub html: bool,

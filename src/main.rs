@@ -453,9 +453,14 @@ fn collect_and_cache(
 
 fn run_coupling(args: CouplingArgs) -> Result<()> {
     use barad_dur::coupling::collector::collect_snapshots;
+    use barad_dur::coupling::dependency::analyze_dependency_coupling;
     use barad_dur::coupling::discovery::discover_repos;
+    use barad_dur::coupling::scorer::score_coupling_pairs;
+    use barad_dur::coupling::team::analyze_team_coupling;
     use barad_dur::coupling::temporal::analyze_temporal_coupling;
+    use barad_dur::coupling::{CouplingReport, CouplingReportSummary, RepoInfo};
     use barad_dur::renderer::coupling_cli::render_coupling_table;
+    use barad_dur::renderer::coupling_json::render_coupling_json;
 
     // Step 1: Discover repos under root directory
     let discovery = discover_repos(&args.root_dir);
@@ -490,13 +495,73 @@ fn run_coupling(args: CouplingArgs) -> Result<()> {
         );
     }
 
-    // Step 3: Analyze temporal coupling
+    // Step 3: Analyze all three coupling dimensions
     let window = std::time::Duration::from_secs(24 * 60 * 60);
-    let pairs = analyze_temporal_coupling(&collection.snapshots, window);
+    let temporal_pairs = analyze_temporal_coupling(&collection.snapshots, window);
+    let team_pairs = analyze_team_coupling(&collection.snapshots);
 
-    // Step 4: Render output
-    let output = render_coupling_table(&pairs);
-    print!("{}", output);
+    let repo_paths: Vec<(String, std::path::PathBuf)> = collection
+        .snapshots
+        .iter()
+        .map(|(name, snap)| (name.clone(), snap.path.clone()))
+        .collect();
+    let dep_analysis = analyze_dependency_coupling(&repo_paths);
+
+    // Step 4: Combine scores from all dimensions
+    let combined_pairs = score_coupling_pairs(&temporal_pairs, &team_pairs, &dep_analysis);
+
+    // Step 5: Render output
+    if args.json {
+        let repos: Vec<RepoInfo> = collection
+            .snapshots
+            .iter()
+            .map(|(name, snap)| RepoInfo {
+                name: name.clone(),
+                path: snap.path.clone(),
+                commit_count: snap.commits.len(),
+                author_count: snap.authors.len(),
+            })
+            .collect();
+
+        let highest = combined_pairs
+            .first()
+            .map(|p| p.combined_score)
+            .unwrap_or(0.0);
+
+        let pairs_above = combined_pairs
+            .iter()
+            .filter(|p| p.combined_score >= args.min_score)
+            .count();
+
+        let report = CouplingReport {
+            repos: repos.clone(),
+            pairs: combined_pairs,
+            summary: CouplingReportSummary {
+                total_repos: repos.len(),
+                total_pairs_analyzed: repos.len() * (repos.len().saturating_sub(1)) / 2,
+                pairs_above_threshold: pairs_above,
+                highest_coupling_score: highest,
+            },
+            blast_radius: dep_analysis.blast_radius,
+        };
+
+        let output = render_coupling_json(&report, args.pretty);
+
+        if let Some(path) = &args.output {
+            std::fs::write(path, &output)?;
+            eprintln!("Report written to {}", path.display());
+        } else {
+            print!("{}", output);
+        }
+    } else {
+        let output = render_coupling_table(&temporal_pairs);
+        if let Some(path) = &args.output {
+            std::fs::write(path, &output)?;
+            eprintln!("Report written to {}", path.display());
+        } else {
+            print!("{}", output);
+        }
+    }
 
     Ok(())
 }

@@ -1,3 +1,4 @@
+use crate::coupling::dependency::BlastRadiusEntry;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -108,6 +109,7 @@ pub struct CouplingReport {
     pub repos: Vec<RepoInfo>,
     pub pairs: Vec<CouplingPair>,
     pub summary: CouplingReportSummary,
+    pub blast_radius: Vec<BlastRadiusEntry>,
 }
 
 #[cfg(test)]
