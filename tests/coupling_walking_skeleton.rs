@@ -10,7 +10,9 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
-use barad_dur::coupling::discovery::{discover_repos, SkipReason};
+use barad_dur::coupling::discovery::{discover_repos, DiscoveredRepo, SkipReason};
+use barad_dur::coupling::collector::collect_snapshots;
+use barad_dur::coupling::CouplingConfig;
 
 // ---------------------------------------------------------------------------
 // AC: coupling_cli_parses_subcommand
@@ -144,4 +146,102 @@ fn discovery_returns_empty_for_no_subdirectories() {
     let result = discover_repos(root.path());
     assert!(result.discovered.is_empty());
     assert!(result.skipped.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// Helper: create a temp git repo with a file and one commit
+// ---------------------------------------------------------------------------
+fn create_temp_repo(parent: &std::path::Path, name: &str) -> std::path::PathBuf {
+    let repo_path = parent.join(name);
+    std::fs::create_dir(&repo_path).unwrap();
+    let repo = git2::Repository::init(&repo_path).unwrap();
+    let sig = git2::Signature::now("Alice", "alice@example.com").unwrap();
+
+    // Create a file so there's something in the tree
+    let file_path = repo_path.join("README.md");
+    std::fs::write(&file_path, format!("# {name}\n")).unwrap();
+
+    let mut index = repo.index().unwrap();
+    index.add_path(std::path::Path::new("README.md")).unwrap();
+    index.write().unwrap();
+    let tree_id = index.write_tree().unwrap();
+    let tree = repo.find_tree(tree_id).unwrap();
+
+    repo.commit(Some("HEAD"), &sig, &sig, "initial commit", &tree, &[])
+        .unwrap();
+
+    repo_path
+}
+
+// ---------------------------------------------------------------------------
+// AC: collector_skips_blame_and_handles_failures
+//
+// GIVEN a list of discovered repos
+// WHEN snapshots are collected for coupling analysis
+// THEN each repo produces a RepoSnapshot with commits and authors populated
+//   AND blame_map is empty (skip-blame optimization)
+//   AND repos that fail collection appear in the skipped list
+//     with a CollectionFailed reason rather than aborting the pipeline
+// ---------------------------------------------------------------------------
+#[test]
+fn collector_skips_blame_and_handles_failures() {
+    let root = TempDir::new().unwrap();
+
+    // Create two valid repos
+    let repo_a_path = create_temp_repo(root.path(), "repo-a");
+    let repo_b_path = create_temp_repo(root.path(), "repo-b");
+
+    // Create a "broken" repo entry pointing to a non-existent path
+    let broken_path = root.path().join("broken-repo");
+    std::fs::create_dir(&broken_path).unwrap();
+    // Not a git repo — collection should fail gracefully
+
+    let discovered = vec![
+        DiscoveredRepo { name: "repo-a".to_string(), path: repo_a_path },
+        DiscoveredRepo { name: "repo-b".to_string(), path: repo_b_path },
+        DiscoveredRepo { name: "broken-repo".to_string(), path: broken_path.clone() },
+    ];
+
+    let config = CouplingConfig::default();
+    let result = collect_snapshots(&discovered, &config);
+
+    // Two repos should have been collected successfully
+    assert_eq!(
+        result.snapshots.len(), 2,
+        "expected 2 successful snapshots, got {}",
+        result.snapshots.len()
+    );
+
+    // Each snapshot should have commits and authors populated
+    for (name, snapshot) in &result.snapshots {
+        assert!(
+            !snapshot.commits.is_empty(),
+            "snapshot for '{}' should have commits",
+            name
+        );
+        assert!(
+            !snapshot.authors.is_empty(),
+            "snapshot for '{}' should have authors",
+            name
+        );
+        // blame_map MUST be empty (skip-blame optimization)
+        assert!(
+            snapshot.blame_map.is_empty(),
+            "snapshot for '{}' should have empty blame_map (skip-blame)",
+            name
+        );
+    }
+
+    // The broken repo should appear in the failed list
+    assert_eq!(
+        result.failed.len(), 1,
+        "expected 1 failed repo, got {}",
+        result.failed.len()
+    );
+    assert_eq!(result.failed[0].path, broken_path);
+    assert!(
+        matches!(result.failed[0].reason, SkipReason::Other(_)),
+        "broken repo should have CollectionFailed-style reason, got {:?}",
+        result.failed[0].reason
+    );
 }

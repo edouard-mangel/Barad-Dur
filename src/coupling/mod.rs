@@ -1,3 +1,4 @@
+pub mod collector;
 pub mod discovery;
 pub mod types;
 
