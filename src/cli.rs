@@ -38,6 +38,8 @@ pub enum Commands {
     Init(InitArgs),
     /// Quality gate — exit non-zero if score is below threshold
     Gate(GateArgs),
+    /// Analyze cross-repository coupling (temporal, team, dependency)
+    Coupling(CouplingArgs),
 }
 
 #[derive(clap::Args, Debug)]
@@ -112,6 +114,60 @@ pub struct GateArgs {
     /// Skip git blame for faster checks (blame-dependent metrics get defaults)
     #[arg(long, num_args = 0..=1, default_missing_value = "true")]
     pub skip_blame: Option<bool>,
+}
+
+#[derive(clap::Args, Debug)]
+#[command(
+    about = "Analyze cross-repository coupling (temporal, team, dependency)",
+    long_about = "Discovers git repositories under a root directory and analyzes coupling \
+        signals between them: temporal (commits within a time window), team (shared \
+        contributors), and dependency (shared libraries/packages).\n\n\
+        Produces a scored report of repository pairs ranked by combined coupling strength.",
+    after_long_help = "\
+EXAMPLES:\n    \
+  barad-dur coupling /path/to/workspace          # analyze all repos under workspace\n    \
+  barad-dur coupling . --json                     # JSON output\n    \
+  barad-dur coupling . --min-score 50             # only show pairs scoring >= 50\n    \
+  barad-dur coupling . --coupling-window 12h      # 12-hour coupling window\n    \
+  barad-dur coupling . --since 3months            # limit to last 3 months"
+)]
+pub struct CouplingArgs {
+    /// Root directory containing multiple git repositories
+    pub root_dir: PathBuf,
+
+    /// Maximum time window for commits to be considered coupled [default: 24h]
+    ///
+    /// Commits in two different repos that fall within this window are
+    /// counted as temporally coupled. Accepts durations like "24h", "12h", "48h".
+    #[arg(long, default_value = "24h")]
+    pub coupling_window: String,
+
+    /// Start of analysis window (how far back to look)
+    ///
+    /// Accepts relative durations (3months, 30days, 1year) or
+    /// ISO dates (2024-01-01). Defaults to 6 months ago.
+    #[arg(long)]
+    pub since: Option<String>,
+
+    /// Minimum combined score to include a pair in the report (0-100)
+    #[arg(long, default_value = "30.0")]
+    pub min_score: f64,
+
+    /// Output as JSON instead of CLI table
+    #[arg(long)]
+    pub json: bool,
+
+    /// Output as self-contained HTML report
+    #[arg(long)]
+    pub html: bool,
+
+    /// Write output to a file instead of stdout
+    #[arg(short, long)]
+    pub output: Option<PathBuf>,
+
+    /// Increase verbosity (-v shows details, -vv shows raw data)
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    pub verbose: u8,
 }
 
 #[derive(clap::Args, Debug)]

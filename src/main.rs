@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use barad_dur::backfill;
 use barad_dur::cache;
-use barad_dur::cli::{AnalyzeArgs, Cli, Commands, GateArgs};
+use barad_dur::cli::{AnalyzeArgs, Cli, Commands, CouplingArgs, GateArgs};
 use barad_dur::collector::Collector;
 use barad_dur::config::{self, RepoConfig};
 use barad_dur::metrics::{evolution, health, hygiene, team, CategoryResult};
@@ -30,6 +30,7 @@ fn main() -> Result<()> {
         Commands::Gate(args) => {
             std::process::exit(run_gate(args)?);
         }
+        Commands::Coupling(args) => run_coupling(args)?,
     }
     Ok(())
 }
@@ -448,6 +449,12 @@ fn collect_and_cache(
         eprintln!("Warning: Failed to save cache: {}", e);
     }
     Ok(snapshot)
+}
+
+fn run_coupling(_args: CouplingArgs) -> Result<()> {
+    eprintln!("Coupling analysis not yet implemented.");
+    eprintln!("Root directory: {}", _args.root_dir.display());
+    Ok(())
 }
 
 fn compute_selected_metrics(
