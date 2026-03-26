@@ -451,9 +451,53 @@ fn collect_and_cache(
     Ok(snapshot)
 }
 
-fn run_coupling(_args: CouplingArgs) -> Result<()> {
-    eprintln!("Coupling analysis not yet implemented.");
-    eprintln!("Root directory: {}", _args.root_dir.display());
+fn run_coupling(args: CouplingArgs) -> Result<()> {
+    use barad_dur::coupling::collector::collect_snapshots;
+    use barad_dur::coupling::discovery::discover_repos;
+    use barad_dur::coupling::temporal::analyze_temporal_coupling;
+    use barad_dur::renderer::coupling_cli::render_coupling_table;
+
+    // Step 1: Discover repos under root directory
+    let discovery = discover_repos(&args.root_dir);
+    if args.verbose > 0 {
+        eprintln!(
+            "Discovered {} repos, skipped {}",
+            discovery.discovered.len(),
+            discovery.skipped.len()
+        );
+    }
+
+    if discovery.discovered.len() < 2 {
+        eprintln!(
+            "Found {} repos under {}. Need at least 2 for coupling analysis.",
+            discovery.discovered.len(),
+            args.root_dir.display()
+        );
+        return Ok(());
+    }
+
+    // Step 2: Collect snapshots (skip-blame, parallel)
+    let config = barad_dur::coupling::CouplingConfig {
+        root_dir: args.root_dir.clone(),
+        ..Default::default()
+    };
+    let collection = collect_snapshots(&discovery.discovered, &config);
+    if args.verbose > 0 {
+        eprintln!(
+            "Collected {} snapshots, {} failed",
+            collection.snapshots.len(),
+            collection.failed.len()
+        );
+    }
+
+    // Step 3: Analyze temporal coupling
+    let window = std::time::Duration::from_secs(24 * 60 * 60);
+    let pairs = analyze_temporal_coupling(&collection.snapshots, window);
+
+    // Step 4: Render output
+    let output = render_coupling_table(&pairs);
+    print!("{}", output);
+
     Ok(())
 }
 

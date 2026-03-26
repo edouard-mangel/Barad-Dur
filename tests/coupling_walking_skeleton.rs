@@ -12,7 +12,9 @@ use tempfile::TempDir;
 
 use barad_dur::coupling::discovery::{discover_repos, DiscoveredRepo, SkipReason};
 use barad_dur::coupling::collector::collect_snapshots;
+use barad_dur::coupling::temporal::{analyze_temporal_coupling, Confidence};
 use barad_dur::coupling::CouplingConfig;
+use barad_dur::renderer::coupling_cli::render_coupling_table;
 
 // ---------------------------------------------------------------------------
 // AC: coupling_cli_parses_subcommand
@@ -243,5 +245,189 @@ fn collector_skips_blame_and_handles_failures() {
         matches!(result.failed[0].reason, SkipReason::Other(_)),
         "broken repo should have CollectionFailed-style reason, got {:?}",
         result.failed[0].reason
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Helper: create a temp repo with multiple commits at specified timestamps
+// ---------------------------------------------------------------------------
+fn create_repo_with_commits(
+    parent: &std::path::Path,
+    name: &str,
+    timestamps: &[i64], // Unix timestamps for each commit
+) -> std::path::PathBuf {
+    let repo_path = parent.join(name);
+    std::fs::create_dir(&repo_path).unwrap();
+    let repo = git2::Repository::init(&repo_path).unwrap();
+
+    let file_path = repo_path.join("main.rs");
+    let mut parent_commit: Option<git2::Oid> = None;
+
+    for (i, &ts) in timestamps.iter().enumerate() {
+        let content = format!("// version {i}\nfn main() {{}}\n");
+        std::fs::write(&file_path, &content).unwrap();
+
+        let mut index = repo.index().unwrap();
+        index
+            .add_path(std::path::Path::new("main.rs"))
+            .unwrap();
+        index.write().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+
+        let sig = git2::Signature::new(
+            "Alice",
+            "alice@example.com",
+            &git2::Time::new(ts, 0),
+        )
+        .unwrap();
+
+        let oid = if let Some(parent_oid) = parent_commit {
+            let parent = repo.find_commit(parent_oid).unwrap();
+            repo.commit(
+                Some("HEAD"),
+                &sig,
+                &sig,
+                &format!("commit {i}"),
+                &tree,
+                &[&parent],
+            )
+            .unwrap()
+        } else {
+            repo.commit(Some("HEAD"), &sig, &sig, &format!("commit {i}"), &tree, &[])
+                .unwrap()
+        };
+        parent_commit = Some(oid);
+    }
+
+    repo_path
+}
+
+// ---------------------------------------------------------------------------
+// AC: temporal_coupling_end_to_end
+//
+// GIVEN two repos where commits overlap within a 24h window at least 3 times
+// WHEN temporal coupling is computed
+// THEN the pair appears in the report with temporal_score =
+//   (co_changes / min(commits_a, commits_b)) * 100
+// AND confidence is HIGH for 30+ co-changes, MEDIUM for 10-29, LOW for 3-9
+//
+// GIVEN two repos with fewer than 3 co-changes within the window
+// THEN the pair does not appear in the report
+//
+// GIVEN the CLI output format
+// WHEN the report is rendered
+// THEN pairs are displayed in a ranked table sorted by temporal score descending
+// ---------------------------------------------------------------------------
+#[test]
+fn temporal_coupling_end_to_end() {
+    let root = TempDir::new().unwrap();
+
+    // Base timestamp: ~30 days ago (well within the default 180-day analysis window)
+    let base_ts: i64 = chrono::Utc::now().timestamp() - 30 * 24 * 3600;
+    let one_hour: i64 = 3600;
+    let two_days: i64 = 2 * 24 * 3600;
+
+    // repo-alpha: 5 commits, 4 of which overlap with repo-beta within 24h
+    let alpha_times = vec![
+        base_ts,                        // overlaps with beta[0]
+        base_ts + two_days,             // overlaps with beta[1]
+        base_ts + 2 * two_days,         // overlaps with beta[2]
+        base_ts + 3 * two_days,         // overlaps with beta[3]
+        base_ts + 10 * two_days,        // no overlap with beta
+    ];
+    create_repo_with_commits(root.path(), "repo-alpha", &alpha_times);
+
+    // repo-beta: 4 commits, all overlap with repo-alpha within 24h
+    let beta_times = vec![
+        base_ts + one_hour,             // within 24h of alpha[0]
+        base_ts + two_days + one_hour,  // within 24h of alpha[1]
+        base_ts + 2 * two_days + one_hour, // within 24h of alpha[2]
+        base_ts + 3 * two_days + one_hour, // within 24h of alpha[3]
+    ];
+    create_repo_with_commits(root.path(), "repo-beta", &beta_times);
+
+    // repo-gamma: 5 commits, only 2 overlap with alpha (below threshold of 3)
+    let gamma_times = vec![
+        base_ts + one_hour,             // overlaps with alpha[0]
+        base_ts + two_days + one_hour,  // overlaps with alpha[1]
+        base_ts + 20 * two_days,        // no overlap
+        base_ts + 21 * two_days,        // no overlap
+        base_ts + 22 * two_days,        // no overlap
+    ];
+    create_repo_with_commits(root.path(), "repo-gamma", &gamma_times);
+
+    // Step 1: Discover repos
+    let discovery = discover_repos(root.path());
+    assert_eq!(discovery.discovered.len(), 3, "should find 3 repos");
+
+    // Step 2: Collect snapshots
+    let config = CouplingConfig::default();
+    let collection = collect_snapshots(&discovery.discovered, &config);
+    assert_eq!(collection.snapshots.len(), 3, "should collect 3 snapshots");
+
+    // Step 3: Analyze temporal coupling
+    let window = std::time::Duration::from_secs(24 * 60 * 60);
+    let pairs = analyze_temporal_coupling(&collection.snapshots, window);
+
+    // alpha-beta should appear: 4 co-changes, min(5,4)=4, score = (4/4)*100 = 100.0
+    let alpha_beta = pairs.iter().find(|p| {
+        (p.repo_a == "repo-alpha" && p.repo_b == "repo-beta")
+            || (p.repo_a == "repo-beta" && p.repo_b == "repo-alpha")
+    });
+    assert!(
+        alpha_beta.is_some(),
+        "alpha-beta pair should appear (4 co-changes >= 3)"
+    );
+    let ab = alpha_beta.unwrap();
+    assert_eq!(ab.co_changes, 4);
+    let expected_score = (4.0 / 4.0) * 100.0;
+    assert!(
+        (ab.temporal_score - expected_score).abs() < 0.01,
+        "expected score {expected_score}, got {}",
+        ab.temporal_score
+    );
+    assert_eq!(ab.confidence, Confidence::Low, "4 co-changes -> LOW confidence");
+
+    // alpha-gamma should NOT appear: only 2 co-changes < 3
+    let alpha_gamma = pairs.iter().find(|p| {
+        (p.repo_a == "repo-alpha" && p.repo_b == "repo-gamma")
+            || (p.repo_a == "repo-gamma" && p.repo_b == "repo-alpha")
+    });
+    assert!(
+        alpha_gamma.is_none(),
+        "alpha-gamma pair should NOT appear (only 2 co-changes < 3)"
+    );
+
+    // beta-gamma: beta has 4 commits, gamma has 5. Overlaps at base_ts+1h and
+    // base_ts+two_days+1h => 2 co-changes < 3, should NOT appear
+    let beta_gamma = pairs.iter().find(|p| {
+        (p.repo_a == "repo-beta" && p.repo_b == "repo-gamma")
+            || (p.repo_a == "repo-gamma" && p.repo_b == "repo-beta")
+    });
+    assert!(
+        beta_gamma.is_none(),
+        "beta-gamma pair should NOT appear (< 3 co-changes)"
+    );
+
+    // Step 4: Verify CLI rendering
+    let table = render_coupling_table(&pairs);
+    assert!(
+        table.contains("repo-alpha"),
+        "CLI table should contain repo-alpha"
+    );
+    assert!(
+        table.contains("repo-beta"),
+        "CLI table should contain repo-beta"
+    );
+    assert!(
+        !table.contains("repo-gamma"),
+        "CLI table should NOT contain repo-gamma (no pairs)"
+    );
+    // Table should contain column headers
+    assert!(table.contains("Score"), "CLI table should have Score column");
+    assert!(
+        table.contains("Confidence"),
+        "CLI table should have Confidence column"
     );
 }
