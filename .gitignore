@@ -5,6 +5,9 @@ target/
 .playwright-mcp/
 other
 
+# Release artifacts
+dist/
+
 # Generated artifacts
 *.png
 *.tar.gz

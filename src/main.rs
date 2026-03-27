@@ -461,16 +461,33 @@ fn run_coupling(args: CouplingArgs) -> Result<()> {
     use barad_dur::coupling::{CouplingReport, CouplingReportSummary, RepoInfo};
     use barad_dur::renderer::coupling_cli::render_coupling_table;
     use barad_dur::renderer::coupling_json::render_coupling_json;
+    use indicatif::{ProgressBar, ProgressStyle};
+
+    let is_tty = std::io::stderr().is_terminal();
+
+    let make_spinner = |msg: &str| -> ProgressBar {
+        if !is_tty {
+            return ProgressBar::hidden();
+        }
+        let sp = ProgressBar::new_spinner();
+        sp.set_style(
+            ProgressStyle::default_spinner()
+                .template("  {spinner:.cyan} {msg}")
+                .unwrap(),
+        );
+        sp.set_message(msg.to_string());
+        sp.enable_steady_tick(std::time::Duration::from_millis(80));
+        sp
+    };
 
     // Step 1: Discover repos under root directory
+    let sp = make_spinner("Discovering repositories...");
     let discovery = discover_repos(&args.root_dir);
-    if args.verbose > 0 {
-        eprintln!(
-            "Discovered {} repos, skipped {}",
-            discovery.discovered.len(),
-            discovery.skipped.len()
-        );
-    }
+    sp.finish_with_message(format!(
+        "Discovered {} repos (skipped {})",
+        discovery.discovered.len(),
+        discovery.skipped.len()
+    ));
 
     if discovery.discovered.len() < 2 {
         eprintln!(
@@ -482,33 +499,50 @@ fn run_coupling(args: CouplingArgs) -> Result<()> {
     }
 
     // Step 2: Collect snapshots (skip-blame, parallel)
+    let sp = make_spinner(&format!(
+        "Collecting snapshots from {} repos...",
+        discovery.discovered.len()
+    ));
     let config = barad_dur::coupling::CouplingConfig {
         root_dir: args.root_dir.clone(),
         ..Default::default()
     };
     let collection = collect_snapshots(&discovery.discovered, &config);
-    if args.verbose > 0 {
-        eprintln!(
-            "Collected {} snapshots, {} failed",
-            collection.snapshots.len(),
-            collection.failed.len()
-        );
-    }
+    sp.finish_with_message(format!(
+        "Collected {} snapshots ({} failed)",
+        collection.snapshots.len(),
+        collection.failed.len()
+    ));
 
     // Step 3: Analyze all three coupling dimensions
+    let sp = make_spinner("Analyzing temporal coupling...");
     let window = std::time::Duration::from_secs(24 * 60 * 60);
     let temporal_pairs = analyze_temporal_coupling(&collection.snapshots, window);
-    let team_pairs = analyze_team_coupling(&collection.snapshots);
+    sp.finish_with_message(format!(
+        "Temporal: {} coupled pairs",
+        temporal_pairs.len()
+    ));
 
+    let sp = make_spinner("Analyzing team coupling...");
+    let team_pairs = analyze_team_coupling(&collection.snapshots);
+    sp.finish_with_message(format!("Team: {} pairs", team_pairs.len()));
+
+    let sp = make_spinner("Analyzing dependency coupling...");
     let repo_paths: Vec<(String, std::path::PathBuf)> = collection
         .snapshots
         .iter()
         .map(|(name, snap)| (name.clone(), snap.path.clone()))
         .collect();
     let dep_analysis = analyze_dependency_coupling(&repo_paths);
+    sp.finish_with_message(format!(
+        "Dependencies: {} pairs",
+        dep_analysis.pairs.len()
+    ));
 
     // Step 4: Combine scores from all dimensions
+    let sp = make_spinner("Computing combined scores...");
     let combined_pairs = score_coupling_pairs(&temporal_pairs, &team_pairs, &dep_analysis);
+    sp.finish_with_message(format!("Scored {} pairs", combined_pairs.len()));
 
     // Step 5: Render output
     let use_html = args.html || args.open;
