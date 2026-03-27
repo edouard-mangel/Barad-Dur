@@ -198,3 +198,85 @@ fn html_renders_with_empty_pairs() {
     assert!(html.contains("<!DOCTYPE html>"));
     assert!(html.contains("solo-repo"));
 }
+
+// === Step 03-02: Matrix tab and dimension filtering ===
+
+#[test]
+fn html_matrix_and_filtering() {
+    let report = sample_report();
+    let html = render_coupling_html(&report);
+
+    // --- Tab navigation ---
+    // Must have a "Graph" tab and a "Matrix" tab
+    assert!(
+        html.contains("Graph</") || html.contains("Graph<"),
+        "missing Graph tab label"
+    );
+    assert!(
+        html.contains("Matrix</") || html.contains("Matrix<"),
+        "missing Matrix tab label"
+    );
+
+    // Must have tab containers
+    assert!(
+        html.contains("id=\"tab-graph\"") || html.contains("id=\"graph-tab\""),
+        "missing graph tab container"
+    );
+    assert!(
+        html.contains("id=\"tab-matrix\"") || html.contains("id=\"matrix-tab\""),
+        "missing matrix tab container"
+    );
+
+    // --- Dimension filter checkboxes ---
+    assert!(
+        html.contains("type=\"checkbox\""),
+        "missing checkbox inputs for dimension filters"
+    );
+    // Must have labeled checkboxes for each dimension
+    assert!(
+        html.contains("Temporal"),
+        "missing Temporal dimension filter label"
+    );
+    assert!(
+        html.contains("Team"),
+        "missing Team dimension filter label"
+    );
+    assert!(
+        html.contains("Dependency"),
+        "missing Dependency dimension filter label"
+    );
+
+    // --- Heatmap matrix ---
+    // Must contain a matrix/heatmap container
+    assert!(
+        html.contains("matrix") || html.contains("heatmap"),
+        "missing matrix/heatmap container"
+    );
+    // Must contain table structure for the NxN grid (either static HTML or JS DOM creation)
+    assert!(
+        html.contains("<table") || html.contains("<th")
+            || html.contains("createElement('table')") || html.contains("createElement('th')"),
+        "missing table structure for heatmap grid"
+    );
+    // Must have repo names as row/column headers in the matrix
+    // The JS must generate these dynamically, but the code must contain the logic
+    assert!(
+        html.contains("heatmap") || html.contains("matrix-cell") || html.contains("buildMatrix") || html.contains("renderMatrix"),
+        "missing heatmap rendering logic"
+    );
+
+    // --- Filtering JS logic ---
+    // Must contain JS that recalculates scores based on checked dimensions
+    assert!(
+        html.contains("temporal_score") || html.contains("temporalScore"),
+        "missing temporal score field reference in JS"
+    );
+    assert!(
+        html.contains("team_score") || html.contains("teamScore"),
+        "missing team score field reference in JS"
+    );
+    assert!(
+        html.contains("dependency_score") || html.contains("dependencyScore"),
+        "missing dependency score field reference in JS"
+    );
+}

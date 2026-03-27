@@ -21,7 +21,21 @@ pub fn render_coupling_html(report: &CouplingReport) -> String {
            <p class=\"summary\">{repo_count} repos &middot; {pair_count} coupling pairs \
             &middot; highest score: {highest:.1}</p>\n\
          </header>\n\
-         <div id=\"graph\"></div>\n\
+         <nav class=\"tabs\">\n\
+           <button class=\"tab active\" data-tab=\"tab-graph\">Graph</button>\n\
+           <button class=\"tab\" data-tab=\"tab-matrix\">Matrix</button>\n\
+         </nav>\n\
+         <div class=\"filters\">\n\
+           <label><input type=\"checkbox\" id=\"filter-temporal\" checked> Temporal</label>\n\
+           <label><input type=\"checkbox\" id=\"filter-team\" checked> Team</label>\n\
+           <label><input type=\"checkbox\" id=\"filter-dependency\" checked> Dependency</label>\n\
+         </div>\n\
+         <div id=\"tab-graph\" class=\"tab-content active\">\n\
+           <div id=\"graph\"></div>\n\
+         </div>\n\
+         <div id=\"tab-matrix\" class=\"tab-content\">\n\
+           <div id=\"matrix\"></div>\n\
+         </div>\n\
          <div id=\"tooltip\" class=\"tooltip\"></div>\n\
          <script>window.__COUPLING_DATA__={json};</script>\n\
          <script>\n{js}\n</script>\n\
@@ -62,7 +76,7 @@ header .summary {
 }
 #graph {
   width: 100%;
-  height: calc(100vh - 80px);
+  height: calc(100vh - 140px);
   position: relative;
 }
 #graph svg {
@@ -85,6 +99,78 @@ header .summary {
 }
 .tooltip .name { font-weight: 600; font-size: 13px; color: #f1f5f9; }
 .tooltip .detail { color: #94a3b8; margin-top: 2px; }
+.tabs {
+  display: flex;
+  gap: 0;
+  background: #0d1117;
+  border-bottom: 1px solid #1e293b;
+  padding: 0 24px;
+}
+.tab {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  padding: 10px 20px;
+  cursor: pointer;
+  font-size: 14px;
+  border-bottom: 2px solid transparent;
+  transition: color 0.2s, border-color 0.2s;
+}
+.tab:hover { color: #e2e8f0; }
+.tab.active {
+  color: #3b82f6;
+  border-bottom-color: #3b82f6;
+}
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+.filters {
+  background: #0d1117;
+  padding: 8px 24px;
+  display: flex;
+  gap: 16px;
+  border-bottom: 1px solid #1e293b;
+}
+.filters label {
+  color: #94a3b8;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.filters input[type="checkbox"] {
+  accent-color: #3b82f6;
+}
+#matrix {
+  padding: 24px;
+  overflow: auto;
+}
+#matrix table {
+  border-collapse: collapse;
+  margin: 0 auto;
+}
+#matrix th {
+  padding: 6px 10px;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+#matrix td {
+  width: 48px;
+  height: 48px;
+  text-align: center;
+  font-size: 11px;
+  color: #e2e8f0;
+  border: 1px solid #1e293b;
+  position: relative;
+}
+#matrix td.matrix-cell {
+  cursor: default;
+}
+#matrix td.diagonal {
+  background: #0d1117;
+}
 "#;
 
 const JS: &str = r#"
@@ -341,6 +427,134 @@ const JS: &str = r#"
     }
   }
   tick();
+
+  // === Tab navigation ===
+  var tabButtons = document.querySelectorAll('.tab');
+  tabButtons.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      tabButtons.forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      document.querySelectorAll('.tab-content').forEach(function(tc) {
+        tc.classList.remove('active');
+      });
+      var target = document.getElementById(btn.getAttribute('data-tab'));
+      if (target) target.classList.add('active');
+    });
+  });
+
+  // === Dimension filtering ===
+  var filterTemporal = document.getElementById('filter-temporal');
+  var filterTeam = document.getElementById('filter-team');
+  var filterDependency = document.getElementById('filter-dependency');
+
+  function computeFilteredScore(edge) {
+    var score = 0;
+    var count = 0;
+    if (filterTemporal.checked) { score += edge.temporalScore; count++; }
+    if (filterTeam.checked) { score += edge.teamScore; count++; }
+    if (filterDependency.checked) { score += edge.dependencyScore; count++; }
+    return count > 0 ? score : 0;
+  }
+
+  function heatmapColor(score) {
+    // Map score 0-100 to green->yellow->red gradient
+    if (score <= 0) return 'rgba(34,197,94,0.1)';
+    var ratio = Math.min(score / 100, 1);
+    var r, g;
+    if (ratio < 0.5) {
+      // green to yellow
+      r = Math.round(255 * (ratio * 2));
+      g = 200;
+    } else {
+      // yellow to red
+      r = 255;
+      g = Math.round(200 * (1 - (ratio - 0.5) * 2));
+    }
+    var alpha = 0.15 + ratio * 0.75;
+    return 'rgba(' + r + ',' + g + ',50,' + alpha.toFixed(2) + ')';
+  }
+
+  function updateFilters() {
+    // Update graph edges
+    edgeEls.forEach(function(ee) {
+      var filtered = computeFilteredScore(ee.data);
+      ee.el.setAttribute('stroke', edgeColor(filtered));
+      ee.el.setAttribute('stroke-width', edgeWidth(filtered));
+      ee.el.setAttribute('stroke-opacity', filtered > 0 ? '0.6' : '0.05');
+    });
+    // Re-render matrix
+    renderMatrix();
+  }
+
+  filterTemporal.addEventListener('change', updateFilters);
+  filterTeam.addEventListener('change', updateFilters);
+  filterDependency.addEventListener('change', updateFilters);
+
+  // === Matrix / heatmap rendering ===
+  function renderMatrix() {
+    var container = document.getElementById('matrix');
+    container.textContent = '';
+    var repoNames = repos.map(function(r) { return r.name; });
+    var n = repoNames.length;
+
+    // Build score lookup: "repoA|repoB" -> edge
+    var scoreLookup = {};
+    edges.forEach(function(e) {
+      scoreLookup[e.source + '|' + e.target] = e;
+      scoreLookup[e.target + '|' + e.source] = e;
+    });
+
+    var table = document.createElement('table');
+
+    // Header row
+    var thead = document.createElement('thead');
+    var headerRow = document.createElement('tr');
+    var emptyTh = document.createElement('th');
+    headerRow.appendChild(emptyTh);
+    repoNames.forEach(function(name) {
+      var th = document.createElement('th');
+      th.textContent = name;
+      headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    // Body rows
+    var tbody = document.createElement('tbody');
+    repoNames.forEach(function(rowName, i) {
+      var tr = document.createElement('tr');
+      var rowHeader = document.createElement('th');
+      rowHeader.textContent = rowName;
+      tr.appendChild(rowHeader);
+
+      repoNames.forEach(function(colName, j) {
+        var td = document.createElement('td');
+        td.className = 'matrix-cell';
+        if (i === j) {
+          td.className += ' diagonal';
+          td.textContent = '-';
+        } else {
+          var key = rowName + '|' + colName;
+          var edge = scoreLookup[key];
+          if (edge) {
+            var score = computeFilteredScore(edge);
+            td.textContent = score.toFixed(1);
+            td.style.background = heatmapColor(score);
+          } else {
+            td.textContent = '0';
+            td.style.background = heatmapColor(0);
+          }
+        }
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    container.appendChild(table);
+  }
+
+  // Initial matrix render
+  renderMatrix();
 })();
 "#;
 
@@ -416,6 +630,37 @@ mod tests {
         assert!(
             html.contains("#080a0f"),
             "missing dark theme background color"
+        );
+    }
+
+    #[test]
+    fn html_contains_matrix_tab_navigation() {
+        let report = minimal_report();
+        let html = render_coupling_html(&report);
+        assert!(
+            html.contains("tab-graph") && html.contains("tab-matrix"),
+            "missing tab navigation containers"
+        );
+    }
+
+    #[test]
+    fn html_contains_dimension_filter_checkboxes() {
+        let report = minimal_report();
+        let html = render_coupling_html(&report);
+        assert!(
+            html.contains("type=\"checkbox\""),
+            "missing dimension filter checkboxes"
+        );
+    }
+
+    #[test]
+    fn html_contains_heatmap_color_function() {
+        let report = minimal_report();
+        let html = render_coupling_html(&report);
+        // JS must have a function that maps scores to heatmap colors
+        assert!(
+            html.contains("heatmapColor") || html.contains("cellColor"),
+            "missing heatmap color mapping function in JS"
         );
     }
 }
