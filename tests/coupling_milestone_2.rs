@@ -237,10 +237,7 @@ fn html_matrix_and_filtering() {
         html.contains("Temporal"),
         "missing Temporal dimension filter label"
     );
-    assert!(
-        html.contains("Team"),
-        "missing Team dimension filter label"
-    );
+    assert!(html.contains("Team"), "missing Team dimension filter label");
     assert!(
         html.contains("Dependency"),
         "missing Dependency dimension filter label"
@@ -254,14 +251,19 @@ fn html_matrix_and_filtering() {
     );
     // Must contain table structure for the NxN grid (either static HTML or JS DOM creation)
     assert!(
-        html.contains("<table") || html.contains("<th")
-            || html.contains("createElement('table')") || html.contains("createElement('th')"),
+        html.contains("<table")
+            || html.contains("<th")
+            || html.contains("createElement('table')")
+            || html.contains("createElement('th')"),
         "missing table structure for heatmap grid"
     );
     // Must have repo names as row/column headers in the matrix
     // The JS must generate these dynamically, but the code must contain the logic
     assert!(
-        html.contains("heatmap") || html.contains("matrix-cell") || html.contains("buildMatrix") || html.contains("renderMatrix"),
+        html.contains("heatmap")
+            || html.contains("matrix-cell")
+            || html.contains("buildMatrix")
+            || html.contains("renderMatrix"),
         "missing heatmap rendering logic"
     );
 
