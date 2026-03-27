@@ -518,10 +518,7 @@ fn run_coupling(args: CouplingArgs) -> Result<()> {
     let sp = make_spinner("Analyzing temporal coupling...");
     let window = std::time::Duration::from_secs(24 * 60 * 60);
     let temporal_pairs = analyze_temporal_coupling(&collection.snapshots, window);
-    sp.finish_with_message(format!(
-        "Temporal: {} coupled pairs",
-        temporal_pairs.len()
-    ));
+    sp.finish_with_message(format!("Temporal: {} coupled pairs", temporal_pairs.len()));
 
     let sp = make_spinner("Analyzing team coupling...");
     let team_pairs = analyze_team_coupling(&collection.snapshots);
@@ -534,10 +531,7 @@ fn run_coupling(args: CouplingArgs) -> Result<()> {
         .map(|(name, snap)| (name.clone(), snap.path.clone()))
         .collect();
     let dep_analysis = analyze_dependency_coupling(&repo_paths);
-    sp.finish_with_message(format!(
-        "Dependencies: {} pairs",
-        dep_analysis.pairs.len()
-    ));
+    sp.finish_with_message(format!("Dependencies: {} pairs", dep_analysis.pairs.len()));
 
     // Step 4: Combine scores from all dimensions
     let sp = make_spinner("Computing combined scores...");
