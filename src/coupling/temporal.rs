@@ -1,5 +1,6 @@
 use crate::snapshot::RepoSnapshot;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fmt;
 use std::time::Duration;
 
@@ -70,10 +71,7 @@ fn has_neighbor_within_window(sorted_timestamps: &[i64], target: i64, window_sec
     let lower = target - window_secs;
     let upper = target + window_secs;
 
-    // Binary search for the insertion point of `lower`
     let start = sorted_timestamps.partition_point(|&t| t < lower);
-
-    // Check if any element from `start` onward is within range
     start < sorted_timestamps.len() && sorted_timestamps[start] <= upper
 }
 
@@ -86,85 +84,113 @@ pub fn compute_temporal_score(co_changes: usize, commits_a: usize, commits_b: us
     (co_changes as f64 / min_commits as f64) * 100.0
 }
 
-/// Extract sorted Unix timestamps from a snapshot's commits.
-fn extract_sorted_timestamps(snapshot: &RepoSnapshot) -> Vec<i64> {
-    let mut timestamps: Vec<i64> = snapshot
-        .commits
-        .iter()
-        .map(|c| c.timestamp.timestamp())
-        .collect();
-    timestamps.sort_unstable();
-    timestamps
-}
-
-/// Analyze a single pair using pre-sorted timestamps; return coupling pair if >= 3 co-changes.
-fn analyze_pair(
-    name_a: &str,
-    timestamps_a: &[i64],
-    commits_a: usize,
-    name_b: &str,
-    timestamps_b: &[i64],
-    commits_b: usize,
-    window_secs: i64,
-) -> Option<TemporalCouplingPair> {
-    // Count co-changes bidirectionally and take the max
-    let co_changes_a_to_b = count_co_changes(timestamps_a, timestamps_b, window_secs);
-    let co_changes_b_to_a = count_co_changes(timestamps_b, timestamps_a, window_secs);
-    let co_changes = co_changes_a_to_b.max(co_changes_b_to_a);
-
-    if co_changes < 3 {
-        return None;
+/// Canonical pair key with smaller index first.
+fn directed_key(a: usize, b: usize) -> (usize, usize) {
+    if a <= b {
+        (a, b)
+    } else {
+        (b, a)
     }
-
-    let temporal_score = compute_temporal_score(co_changes, commits_a, commits_b);
-    let confidence = classify_confidence(co_changes);
-
-    Some(TemporalCouplingPair {
-        repo_a: name_a.to_string(),
-        repo_b: name_b.to_string(),
-        co_changes,
-        temporal_score,
-        confidence,
-    })
 }
 
 /// Analyze temporal coupling across all pairs of repository snapshots.
 ///
-/// For each pair (A, B), counts commits in A that fall within `window` of
-/// any commit in B (and vice versa, taking the max). Pairs with fewer than
-/// 3 co-changes are filtered out.
+/// Merges all commits into a single sorted timeline and uses binary search
+/// per commit to find neighbors within `window`. This is O(M log M + M × W_avg)
+/// where M = total commits and W_avg = average commits per window, replacing
+/// the previous O(n² × m) pairwise approach.
+///
+/// For each pair (A, B), counts commits in A that have at least one commit
+/// from B within the window (and vice versa, taking the max). Pairs with
+/// fewer than 3 co-changes are filtered out.
 ///
 /// Returns pairs sorted by temporal_score descending.
 pub fn analyze_temporal_coupling(
     snapshots: &[(String, RepoSnapshot)],
     window: Duration,
 ) -> Vec<TemporalCouplingPair> {
+    if snapshots.len() < 2 {
+        return Vec::new();
+    }
+
     let window_secs = window.as_secs() as i64;
 
-    // Pre-compute sorted timestamps once per repo (avoids O(n²) redundant work)
-    let cached: Vec<(&str, Vec<i64>, usize)> = snapshots
-        .iter()
-        .map(|(name, snap)| {
-            let ts = extract_sorted_timestamps(snap);
-            let commit_count = snap.commits.len();
-            (name.as_str(), ts, commit_count)
-        })
-        .collect();
+    // Collect commit counts per repo (needed for scoring)
+    let commit_counts: Vec<usize> = snapshots.iter().map(|(_, s)| s.commits.len()).collect();
 
-    let pair_count = cached.len() * cached.len().saturating_sub(1) / 2;
-    let mut pairs: Vec<TemporalCouplingPair> = Vec::with_capacity(pair_count);
-
-    for i in 0..cached.len() {
-        for j in (i + 1)..cached.len() {
-            let (name_a, ts_a, commits_a) = &cached[i];
-            let (name_b, ts_b, commits_b) = &cached[j];
-            if let Some(pair) =
-                analyze_pair(name_a, ts_a, *commits_a, name_b, ts_b, *commits_b, window_secs)
-            {
-                pairs.push(pair);
-            }
+    // Step 1: Merge all commits into a single timeline tagged with repo index
+    let total_commits: usize = commit_counts.iter().sum();
+    let mut timeline: Vec<(i64, usize)> = Vec::with_capacity(total_commits);
+    for (repo_idx, (_, snap)) in snapshots.iter().enumerate() {
+        for commit in &snap.commits {
+            timeline.push((commit.timestamp.timestamp(), repo_idx));
         }
     }
+
+    // Step 2: Sort by timestamp
+    timeline.sort_unstable_by_key(|&(ts, _)| ts);
+
+    // Step 3: For each commit, find neighbors within ±window via binary search,
+    // collect distinct repos in that range, and increment directed co-change counts.
+    // Key: (source_repo, neighbor_repo) → count of source commits that have a neighbor.
+    let mut directed_counts: HashMap<(usize, usize), usize> = HashMap::new();
+
+    let timestamps_only: Vec<i64> = timeline.iter().map(|&(ts, _)| ts).collect();
+
+    for &(ts, repo) in &timeline {
+        let lower = ts - window_secs;
+        let upper = ts + window_secs;
+
+        let start = timestamps_only.partition_point(|&t| t < lower);
+        let end = timestamps_only.partition_point(|&t| t <= upper);
+
+        // Scan window and collect distinct neighbor repos (skip self-repo)
+        let mut seen_repos = Vec::new();
+        for &(_, other_repo) in &timeline[start..end] {
+            if other_repo != repo && !seen_repos.contains(&other_repo) {
+                seen_repos.push(other_repo);
+            }
+        }
+
+        // This commit from `repo` has at least one neighbor in each `other_repo`
+        for other_repo in seen_repos {
+            *directed_counts.entry((repo, other_repo)).or_insert(0) += 1;
+        }
+    }
+
+    // Step 4: Build pairs — for each canonical pair, take max of both directions
+    let mut seen_pairs: HashMap<(usize, usize), (usize, usize)> = HashMap::new();
+    for (&(src, dst), &count) in &directed_counts {
+        let key = directed_key(src, dst);
+        let entry = seen_pairs.entry(key).or_insert((0, 0));
+        if src == key.0 {
+            entry.0 = entry.0.max(count);
+        } else {
+            entry.1 = entry.1.max(count);
+        }
+    }
+
+    let mut pairs: Vec<TemporalCouplingPair> = seen_pairs
+        .into_iter()
+        .filter_map(|((idx_a, idx_b), (count_a_to_b, count_b_to_a))| {
+            let co_changes = count_a_to_b.max(count_b_to_a);
+            if co_changes < 3 {
+                return None;
+            }
+
+            let temporal_score =
+                compute_temporal_score(co_changes, commit_counts[idx_a], commit_counts[idx_b]);
+            let confidence = classify_confidence(co_changes);
+
+            Some(TemporalCouplingPair {
+                repo_a: snapshots[idx_a].0.clone(),
+                repo_b: snapshots[idx_b].0.clone(),
+                co_changes,
+                temporal_score,
+                confidence,
+            })
+        })
+        .collect();
 
     pairs.sort_by(|a, b| {
         b.temporal_score
