@@ -60,13 +60,15 @@ pub fn score_coupling_pairs(
     team: &[TeamCouplingPair],
     dependency: &DependencyAnalysis,
 ) -> Vec<CouplingPair> {
-    let mut temporal_map: HashMap<(String, String), &TemporalCouplingPair> = HashMap::new();
+    let mut temporal_map: HashMap<(String, String), &TemporalCouplingPair> =
+        HashMap::with_capacity(temporal.len());
     for pair in temporal {
         let key = pair_key(&pair.repo_a, &pair.repo_b);
         temporal_map.insert(key, pair);
     }
 
-    let mut team_map: HashMap<(String, String), &TeamCouplingPair> = HashMap::new();
+    let mut team_map: HashMap<(String, String), &TeamCouplingPair> =
+        HashMap::with_capacity(team.len());
     for pair in team {
         let key = pair_key(&pair.repo_a, &pair.repo_b);
         team_map.insert(key, pair);
@@ -75,15 +77,17 @@ pub fn score_coupling_pairs(
     let mut dep_map: HashMap<
         (String, String),
         &crate::coupling::dependency::DependencyCouplingPair,
-    > = HashMap::new();
+    > = HashMap::with_capacity(dependency.pairs.len());
     for pair in &dependency.pairs {
         let key = pair_key(&pair.repo_a, &pair.repo_b);
         dep_map.insert(key, pair);
     }
 
     // Collect all unique pair keys
-    let mut all_keys: Vec<(String, String)> = Vec::new();
-    let mut seen: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
+    let total_estimate = temporal_map.len() + team_map.len() + dep_map.len();
+    let mut all_keys: Vec<(String, String)> = Vec::with_capacity(total_estimate);
+    let mut seen: std::collections::HashSet<(String, String)> =
+        std::collections::HashSet::with_capacity(total_estimate);
 
     for key in temporal_map.keys() {
         if seen.insert(key.clone()) {

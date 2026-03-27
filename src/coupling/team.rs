@@ -45,19 +45,16 @@ fn detect_bridge(shared_authors: &[String]) -> (bool, Option<String>) {
     }
 }
 
-/// Analyze a single pair of snapshots for team coupling.
+/// Analyze a single pair using pre-computed author sets.
 fn analyze_pair(
     name_a: &str,
-    snapshot_a: &RepoSnapshot,
+    authors_a: &HashSet<String>,
     name_b: &str,
-    snapshot_b: &RepoSnapshot,
+    authors_b: &HashSet<String>,
 ) -> TeamCouplingPair {
-    let authors_a = extract_normalized_authors(snapshot_a);
-    let authors_b = extract_normalized_authors(snapshot_b);
+    let shared: Vec<String> = authors_a.intersection(authors_b).cloned().collect();
 
-    let shared: Vec<String> = authors_a.intersection(&authors_b).cloned().collect();
-
-    let total_unique = authors_a.union(&authors_b).count();
+    let total_unique = authors_a.union(authors_b).count();
     let shared_count = shared.len();
     let team_score = compute_team_score(shared_count, total_unique);
     let (is_single_bridge, bridge_author) = detect_bridge(&shared);
@@ -79,13 +76,20 @@ fn analyze_pair(
 /// display name) to total unique authors across both repos, expressed as a
 /// percentage. Returns all pairs sorted by team_score descending.
 pub fn analyze_team_coupling(snapshots: &[(String, RepoSnapshot)]) -> Vec<TeamCouplingPair> {
-    let mut pairs: Vec<TeamCouplingPair> = Vec::new();
+    // Pre-compute normalized authors once per repo (avoids O(n²) redundant work)
+    let cached: Vec<(&str, HashSet<String>)> = snapshots
+        .iter()
+        .map(|(name, snap)| (name.as_str(), extract_normalized_authors(snap)))
+        .collect();
 
-    for i in 0..snapshots.len() {
-        for j in (i + 1)..snapshots.len() {
-            let (name_a, snap_a) = &snapshots[i];
-            let (name_b, snap_b) = &snapshots[j];
-            pairs.push(analyze_pair(name_a, snap_a, name_b, snap_b));
+    let pair_count = cached.len() * cached.len().saturating_sub(1) / 2;
+    let mut pairs: Vec<TeamCouplingPair> = Vec::with_capacity(pair_count);
+
+    for i in 0..cached.len() {
+        for j in (i + 1)..cached.len() {
+            let (name_a, authors_a) = &cached[i];
+            let (name_b, authors_b) = &cached[j];
+            pairs.push(analyze_pair(name_a, authors_a, name_b, authors_b));
         }
     }
 

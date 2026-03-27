@@ -48,19 +48,20 @@ pub fn classify_confidence(co_changes: usize) -> Confidence {
 /// Count how many commits in repo_a fall within `window` of any commit in repo_b.
 ///
 /// Each commit in repo_a is counted at most once (it either has a neighbor in
-/// repo_b within the window or it doesn't). Uses sorted timestamps with
-/// binary search for efficiency.
-pub fn count_co_changes(timestamps_a: &[i64], timestamps_b: &[i64], window_secs: i64) -> usize {
-    if timestamps_a.is_empty() || timestamps_b.is_empty() {
+/// repo_b within the window or it doesn't). Both slices must be pre-sorted;
+/// uses binary search for efficiency.
+pub fn count_co_changes(
+    sorted_timestamps_a: &[i64],
+    sorted_timestamps_b: &[i64],
+    window_secs: i64,
+) -> usize {
+    if sorted_timestamps_a.is_empty() || sorted_timestamps_b.is_empty() {
         return 0;
     }
 
-    let mut sorted_b: Vec<i64> = timestamps_b.to_vec();
-    sorted_b.sort_unstable();
-
-    timestamps_a
+    sorted_timestamps_a
         .iter()
-        .filter(|&&ts_a| has_neighbor_within_window(&sorted_b, ts_a, window_secs))
+        .filter(|&&ts_a| has_neighbor_within_window(sorted_timestamps_b, ts_a, window_secs))
         .count()
 }
 
@@ -96,28 +97,25 @@ fn extract_sorted_timestamps(snapshot: &RepoSnapshot) -> Vec<i64> {
     timestamps
 }
 
-/// Analyze a single pair of snapshots and return a coupling pair if >= 3 co-changes.
+/// Analyze a single pair using pre-sorted timestamps; return coupling pair if >= 3 co-changes.
 fn analyze_pair(
     name_a: &str,
-    snapshot_a: &RepoSnapshot,
+    timestamps_a: &[i64],
+    commits_a: usize,
     name_b: &str,
-    snapshot_b: &RepoSnapshot,
+    timestamps_b: &[i64],
+    commits_b: usize,
     window_secs: i64,
 ) -> Option<TemporalCouplingPair> {
-    let timestamps_a = extract_sorted_timestamps(snapshot_a);
-    let timestamps_b = extract_sorted_timestamps(snapshot_b);
-
     // Count co-changes bidirectionally and take the max
-    let co_changes_a_to_b = count_co_changes(&timestamps_a, &timestamps_b, window_secs);
-    let co_changes_b_to_a = count_co_changes(&timestamps_b, &timestamps_a, window_secs);
+    let co_changes_a_to_b = count_co_changes(timestamps_a, timestamps_b, window_secs);
+    let co_changes_b_to_a = count_co_changes(timestamps_b, timestamps_a, window_secs);
     let co_changes = co_changes_a_to_b.max(co_changes_b_to_a);
 
     if co_changes < 3 {
         return None;
     }
 
-    let commits_a = snapshot_a.commits.len();
-    let commits_b = snapshot_b.commits.len();
     let temporal_score = compute_temporal_score(co_changes, commits_a, commits_b);
     let confidence = classify_confidence(co_changes);
 
@@ -143,13 +141,26 @@ pub fn analyze_temporal_coupling(
 ) -> Vec<TemporalCouplingPair> {
     let window_secs = window.as_secs() as i64;
 
-    let mut pairs: Vec<TemporalCouplingPair> = Vec::new();
+    // Pre-compute sorted timestamps once per repo (avoids O(n²) redundant work)
+    let cached: Vec<(&str, Vec<i64>, usize)> = snapshots
+        .iter()
+        .map(|(name, snap)| {
+            let ts = extract_sorted_timestamps(snap);
+            let commit_count = snap.commits.len();
+            (name.as_str(), ts, commit_count)
+        })
+        .collect();
 
-    for i in 0..snapshots.len() {
-        for j in (i + 1)..snapshots.len() {
-            let (name_a, snap_a) = &snapshots[i];
-            let (name_b, snap_b) = &snapshots[j];
-            if let Some(pair) = analyze_pair(name_a, snap_a, name_b, snap_b, window_secs) {
+    let pair_count = cached.len() * cached.len().saturating_sub(1) / 2;
+    let mut pairs: Vec<TemporalCouplingPair> = Vec::with_capacity(pair_count);
+
+    for i in 0..cached.len() {
+        for j in (i + 1)..cached.len() {
+            let (name_a, ts_a, commits_a) = &cached[i];
+            let (name_b, ts_b, commits_b) = &cached[j];
+            if let Some(pair) =
+                analyze_pair(name_a, ts_a, *commits_a, name_b, ts_b, *commits_b, window_secs)
+            {
                 pairs.push(pair);
             }
         }
