@@ -511,7 +511,8 @@ fn run_coupling(args: CouplingArgs) -> Result<()> {
     let combined_pairs = score_coupling_pairs(&temporal_pairs, &team_pairs, &dep_analysis);
 
     // Step 5: Render output
-    if args.json {
+    let use_html = args.html || args.open;
+    if args.json || use_html {
         let repos: Vec<RepoInfo> = collection
             .snapshots
             .iter()
@@ -545,13 +546,28 @@ fn run_coupling(args: CouplingArgs) -> Result<()> {
             blast_radius: dep_analysis.blast_radius,
         };
 
-        let output = render_coupling_json(&report, args.pretty);
-
-        if let Some(path) = &args.output {
-            std::fs::write(path, &output)?;
+        if use_html {
+            let output = renderer::coupling_html::render_coupling_html(&report);
+            let path = if let Some(ref p) = args.output {
+                std::fs::write(p, &output)?;
+                p.clone()
+            } else {
+                let default_path = PathBuf::from("coupling-report.html");
+                std::fs::write(&default_path, &output)?;
+                default_path
+            };
             eprintln!("Report written to {}", path.display());
+            if args.open {
+                open_in_browser(&path)?;
+            }
         } else {
-            print!("{}", output);
+            let output = render_coupling_json(&report, args.pretty);
+            if let Some(path) = &args.output {
+                std::fs::write(path, &output)?;
+                eprintln!("Report written to {}", path.display());
+            } else {
+                print!("{}", output);
+            }
         }
     } else {
         let output = render_coupling_table(&temporal_pairs);

@@ -165,6 +165,10 @@ pub struct CouplingArgs {
     #[arg(long)]
     pub html: bool,
 
+    /// Generate HTML report and open it in the default browser
+    #[arg(long)]
+    pub open: bool,
+
     /// Write output to a file instead of stdout
     #[arg(short, long)]
     pub output: Option<PathBuf>,
