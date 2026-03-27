@@ -157,7 +157,10 @@ fn html_graph_edge_thickness_proportional_to_score() {
 
     // The JSON data must contain the combined scores so JS can use them for edge thickness
     assert!(html.contains("72.5"), "missing high coupling score 72.5");
-    assert!(html.contains("38.0") || html.contains("38"), "missing lower coupling score 38");
+    assert!(
+        html.contains("38.0") || html.contains("38"),
+        "missing lower coupling score 38"
+    );
 }
 
 #[test]

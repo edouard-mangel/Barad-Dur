@@ -226,7 +226,11 @@ fn compute_shared_deps(deps_a: &HashSet<String>, deps_b: &HashSet<String>) -> Ve
 }
 
 /// Compute dependency coupling score: shared / union.
-fn compute_dep_score(shared_count: usize, deps_a: &HashSet<String>, deps_b: &HashSet<String>) -> f64 {
+fn compute_dep_score(
+    shared_count: usize,
+    deps_a: &HashSet<String>,
+    deps_b: &HashSet<String>,
+) -> f64 {
     let union_count = deps_a.union(deps_b).count();
     if union_count == 0 {
         return 0.0;
@@ -242,10 +246,7 @@ fn detect_direct_dependency(
     repo_b_refs: &[CargoDep],
 ) -> Option<DirectDep> {
     // Check if A references B
-    if repo_a_refs
-        .iter()
-        .any(|r| r.references_repo == repo_b_name)
-    {
+    if repo_a_refs.iter().any(|r| r.references_repo == repo_b_name) {
         return Some(DirectDep {
             from: repo_a_name.to_string(),
             to: repo_b_name.to_string(),
@@ -253,10 +254,7 @@ fn detect_direct_dependency(
     }
 
     // Check if B references A
-    if repo_b_refs
-        .iter()
-        .any(|r| r.references_repo == repo_a_name)
-    {
+    if repo_b_refs.iter().any(|r| r.references_repo == repo_a_name) {
         return Some(DirectDep {
             from: repo_b_name.to_string(),
             to: repo_a_name.to_string(),
@@ -267,9 +265,7 @@ fn detect_direct_dependency(
 }
 
 /// Compute blast radius: dependencies consumed by 3+ repos.
-fn compute_blast_radius(
-    repo_deps: &[RepoDeps],
-) -> Vec<BlastRadiusEntry> {
+fn compute_blast_radius(repo_deps: &[RepoDeps]) -> Vec<BlastRadiusEntry> {
     let mut dep_consumers: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
     for repo in repo_deps {

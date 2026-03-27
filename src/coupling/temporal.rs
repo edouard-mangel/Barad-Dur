@@ -50,11 +50,7 @@ pub fn classify_confidence(co_changes: usize) -> Confidence {
 /// Each commit in repo_a is counted at most once (it either has a neighbor in
 /// repo_b within the window or it doesn't). Uses sorted timestamps with
 /// binary search for efficiency.
-pub fn count_co_changes(
-    timestamps_a: &[i64],
-    timestamps_b: &[i64],
-    window_secs: i64,
-) -> usize {
+pub fn count_co_changes(timestamps_a: &[i64], timestamps_b: &[i64], window_secs: i64) -> usize {
     if timestamps_a.is_empty() || timestamps_b.is_empty() {
         return 0;
     }

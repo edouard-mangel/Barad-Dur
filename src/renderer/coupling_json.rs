@@ -46,11 +46,11 @@ pub fn render_coupling_json(report: &CouplingReport, pretty: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::coupling::dependency::BlastRadiusEntry;
     use crate::coupling::types::{
         CouplingDetails, CouplingPair, CouplingReportSummary, DependencyDetails, RepoInfo,
         TeamDetails, TemporalDetails,
     };
-    use crate::coupling::dependency::BlastRadiusEntry;
     use std::path::PathBuf;
 
     fn make_test_report() -> CouplingReport {

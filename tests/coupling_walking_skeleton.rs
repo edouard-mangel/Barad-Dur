@@ -10,8 +10,8 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
-use barad_dur::coupling::discovery::{discover_repos, DiscoveredRepo, SkipReason};
 use barad_dur::coupling::collector::collect_snapshots;
+use barad_dur::coupling::discovery::{discover_repos, DiscoveredRepo, SkipReason};
 use barad_dur::coupling::temporal::{analyze_temporal_coupling, Confidence};
 use barad_dur::coupling::CouplingConfig;
 use barad_dur::renderer::coupling_cli::render_coupling_table;
@@ -131,14 +131,18 @@ fn discovery_finds_valid_repos() {
     assert!(skipped_names.contains(&"not-a-repo".to_string()));
 
     // Check skip reasons
-    let repo_b_skip = result.skipped.iter().find(|s| {
-        s.path.file_name().unwrap().to_str().unwrap() == "repo-b"
-    }).unwrap();
+    let repo_b_skip = result
+        .skipped
+        .iter()
+        .find(|s| s.path.file_name().unwrap().to_str().unwrap() == "repo-b")
+        .unwrap();
     assert!(matches!(repo_b_skip.reason, SkipReason::NoCommits));
 
-    let not_a_repo_skip = result.skipped.iter().find(|s| {
-        s.path.file_name().unwrap().to_str().unwrap() == "not-a-repo"
-    }).unwrap();
+    let not_a_repo_skip = result
+        .skipped
+        .iter()
+        .find(|s| s.path.file_name().unwrap().to_str().unwrap() == "not-a-repo")
+        .unwrap();
     assert!(matches!(not_a_repo_skip.reason, SkipReason::NotAGitRepo));
 }
 
@@ -199,9 +203,18 @@ fn collector_skips_blame_and_handles_failures() {
     // Not a git repo — collection should fail gracefully
 
     let discovered = vec![
-        DiscoveredRepo { name: "repo-a".to_string(), path: repo_a_path },
-        DiscoveredRepo { name: "repo-b".to_string(), path: repo_b_path },
-        DiscoveredRepo { name: "broken-repo".to_string(), path: broken_path.clone() },
+        DiscoveredRepo {
+            name: "repo-a".to_string(),
+            path: repo_a_path,
+        },
+        DiscoveredRepo {
+            name: "repo-b".to_string(),
+            path: repo_b_path,
+        },
+        DiscoveredRepo {
+            name: "broken-repo".to_string(),
+            path: broken_path.clone(),
+        },
     ];
 
     let config = CouplingConfig::default();
@@ -209,7 +222,8 @@ fn collector_skips_blame_and_handles_failures() {
 
     // Two repos should have been collected successfully
     assert_eq!(
-        result.snapshots.len(), 2,
+        result.snapshots.len(),
+        2,
         "expected 2 successful snapshots, got {}",
         result.snapshots.len()
     );
@@ -236,7 +250,8 @@ fn collector_skips_blame_and_handles_failures() {
 
     // The broken repo should appear in the failed list
     assert_eq!(
-        result.failed.len(), 1,
+        result.failed.len(),
+        1,
         "expected 1 failed repo, got {}",
         result.failed.len()
     );
@@ -268,19 +283,13 @@ fn create_repo_with_commits(
         std::fs::write(&file_path, &content).unwrap();
 
         let mut index = repo.index().unwrap();
-        index
-            .add_path(std::path::Path::new("main.rs"))
-            .unwrap();
+        index.add_path(std::path::Path::new("main.rs")).unwrap();
         index.write().unwrap();
         let tree_id = index.write_tree().unwrap();
         let tree = repo.find_tree(tree_id).unwrap();
 
-        let sig = git2::Signature::new(
-            "Alice",
-            "alice@example.com",
-            &git2::Time::new(ts, 0),
-        )
-        .unwrap();
+        let sig =
+            git2::Signature::new("Alice", "alice@example.com", &git2::Time::new(ts, 0)).unwrap();
 
         let oid = if let Some(parent_oid) = parent_commit {
             let parent = repo.find_commit(parent_oid).unwrap();
@@ -330,18 +339,18 @@ fn temporal_coupling_end_to_end() {
 
     // repo-alpha: 5 commits, 4 of which overlap with repo-beta within 24h
     let alpha_times = vec![
-        base_ts,                        // overlaps with beta[0]
-        base_ts + two_days,             // overlaps with beta[1]
-        base_ts + 2 * two_days,         // overlaps with beta[2]
-        base_ts + 3 * two_days,         // overlaps with beta[3]
-        base_ts + 10 * two_days,        // no overlap with beta
+        base_ts,                 // overlaps with beta[0]
+        base_ts + two_days,      // overlaps with beta[1]
+        base_ts + 2 * two_days,  // overlaps with beta[2]
+        base_ts + 3 * two_days,  // overlaps with beta[3]
+        base_ts + 10 * two_days, // no overlap with beta
     ];
     create_repo_with_commits(root.path(), "repo-alpha", &alpha_times);
 
     // repo-beta: 4 commits, all overlap with repo-alpha within 24h
     let beta_times = vec![
-        base_ts + one_hour,             // within 24h of alpha[0]
-        base_ts + two_days + one_hour,  // within 24h of alpha[1]
+        base_ts + one_hour,                // within 24h of alpha[0]
+        base_ts + two_days + one_hour,     // within 24h of alpha[1]
         base_ts + 2 * two_days + one_hour, // within 24h of alpha[2]
         base_ts + 3 * two_days + one_hour, // within 24h of alpha[3]
     ];
@@ -349,11 +358,11 @@ fn temporal_coupling_end_to_end() {
 
     // repo-gamma: 5 commits, only 2 overlap with alpha (below threshold of 3)
     let gamma_times = vec![
-        base_ts + one_hour,             // overlaps with alpha[0]
-        base_ts + two_days + one_hour,  // overlaps with alpha[1]
-        base_ts + 20 * two_days,        // no overlap
-        base_ts + 21 * two_days,        // no overlap
-        base_ts + 22 * two_days,        // no overlap
+        base_ts + one_hour,            // overlaps with alpha[0]
+        base_ts + two_days + one_hour, // overlaps with alpha[1]
+        base_ts + 20 * two_days,       // no overlap
+        base_ts + 21 * two_days,       // no overlap
+        base_ts + 22 * two_days,       // no overlap
     ];
     create_repo_with_commits(root.path(), "repo-gamma", &gamma_times);
 
@@ -387,7 +396,11 @@ fn temporal_coupling_end_to_end() {
         "expected score {expected_score}, got {}",
         ab.temporal_score
     );
-    assert_eq!(ab.confidence, Confidence::Low, "4 co-changes -> LOW confidence");
+    assert_eq!(
+        ab.confidence,
+        Confidence::Low,
+        "4 co-changes -> LOW confidence"
+    );
 
     // alpha-gamma should NOT appear: only 2 co-changes < 3
     let alpha_gamma = pairs.iter().find(|p| {
@@ -425,7 +438,10 @@ fn temporal_coupling_end_to_end() {
         "CLI table should NOT contain repo-gamma (no pairs)"
     );
     // Table should contain column headers
-    assert!(table.contains("Score"), "CLI table should have Score column");
+    assert!(
+        table.contains("Score"),
+        "CLI table should have Score column"
+    );
     assert!(
         table.contains("Confidence"),
         "CLI table should have Confidence column"

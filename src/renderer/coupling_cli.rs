@@ -6,7 +6,14 @@ use std::fmt::Write;
 /// Columns: Rank, Repo A, Repo B, Score, Co-Changes, Confidence
 /// Pairs should already be sorted by temporal_score descending.
 pub fn render_coupling_table(pairs: &[TemporalCouplingPair]) -> String {
-    let headers = ["Rank", "Repo A", "Repo B", "Score", "Co-Changes", "Confidence"];
+    let headers = [
+        "Rank",
+        "Repo A",
+        "Repo B",
+        "Score",
+        "Co-Changes",
+        "Confidence",
+    ];
 
     // Compute column widths from headers and data
     let widths = compute_column_widths(pairs, &headers);
@@ -102,8 +109,14 @@ mod tests {
     #[test]
     fn render_empty_pairs_returns_header_only() {
         let output = render_coupling_table(&[]);
-        assert!(output.contains("Score"), "should contain header even when empty");
-        assert!(output.contains("Confidence"), "should contain Confidence header");
+        assert!(
+            output.contains("Score"),
+            "should contain header even when empty"
+        );
+        assert!(
+            output.contains("Confidence"),
+            "should contain Confidence header"
+        );
     }
 
     #[test]

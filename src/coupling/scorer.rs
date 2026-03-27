@@ -72,8 +72,10 @@ pub fn score_coupling_pairs(
         team_map.insert(key, pair);
     }
 
-    let mut dep_map: HashMap<(String, String), &crate::coupling::dependency::DependencyCouplingPair> =
-        HashMap::new();
+    let mut dep_map: HashMap<
+        (String, String),
+        &crate::coupling::dependency::DependencyCouplingPair,
+    > = HashMap::new();
     for pair in &dependency.pairs {
         let key = pair_key(&pair.repo_a, &pair.repo_b);
         dep_map.insert(key, pair);
@@ -256,10 +258,7 @@ mod tests {
 
     #[test]
     fn pairs_sorted_by_combined_score_descending() {
-        let temporal = vec![
-            make_temporal("a", "b", 40.0),
-            make_temporal("c", "d", 80.0),
-        ];
+        let temporal = vec![make_temporal("a", "b", 40.0), make_temporal("c", "d", 80.0)];
         let pairs = score_coupling_pairs(&temporal, &[], &empty_dep_analysis());
 
         assert_eq!(pairs.len(), 2);

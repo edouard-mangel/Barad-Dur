@@ -55,10 +55,7 @@ fn analyze_pair(
     let authors_a = extract_normalized_authors(snapshot_a);
     let authors_b = extract_normalized_authors(snapshot_b);
 
-    let shared: Vec<String> = authors_a
-        .intersection(&authors_b)
-        .cloned()
-        .collect();
+    let shared: Vec<String> = authors_a.intersection(&authors_b).cloned().collect();
 
     let total_unique = authors_a.union(&authors_b).count();
     let shared_count = shared.len();
@@ -81,9 +78,7 @@ fn analyze_pair(
 /// For each pair (A, B), computes the ratio of shared authors (by lowercase
 /// display name) to total unique authors across both repos, expressed as a
 /// percentage. Returns all pairs sorted by team_score descending.
-pub fn analyze_team_coupling(
-    snapshots: &[(String, RepoSnapshot)],
-) -> Vec<TeamCouplingPair> {
+pub fn analyze_team_coupling(snapshots: &[(String, RepoSnapshot)]) -> Vec<TeamCouplingPair> {
     let mut pairs: Vec<TeamCouplingPair> = Vec::new();
 
     for i in 0..snapshots.len() {
@@ -154,8 +149,16 @@ mod tests {
             TimeWindow::full_history(),
         );
         snapshot.authors = vec![
-            Author { id: 0, name: "Alice Smith".to_string(), email: "a@x.com".to_string() },
-            Author { id: 1, name: "BOB JONES".to_string(), email: "b@x.com".to_string() },
+            Author {
+                id: 0,
+                name: "Alice Smith".to_string(),
+                email: "a@x.com".to_string(),
+            },
+            Author {
+                id: 1,
+                name: "BOB JONES".to_string(),
+                email: "b@x.com".to_string(),
+            },
         ];
 
         let normalized = extract_normalized_authors(&snapshot);

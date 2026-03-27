@@ -1,9 +1,9 @@
 pub mod backfill;
-pub mod coupling;
 pub mod cache;
 pub mod cli;
 pub mod collector;
 pub mod config;
+pub mod coupling;
 pub mod init;
 pub mod metrics;
 pub mod remote;

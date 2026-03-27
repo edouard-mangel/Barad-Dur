@@ -413,6 +413,9 @@ mod tests {
     fn html_contains_dark_theme_background() {
         let report = minimal_report();
         let html = render_coupling_html(&report);
-        assert!(html.contains("#080a0f"), "missing dark theme background color");
+        assert!(
+            html.contains("#080a0f"),
+            "missing dark theme background color"
+        );
     }
 }
