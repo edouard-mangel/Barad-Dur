@@ -3528,7 +3528,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn html_trends_legend_css_class_present() {
         let html = render(&make_report()).unwrap();
         assert!(
