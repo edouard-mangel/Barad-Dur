@@ -564,5 +564,6 @@ mod tests {
         assert_eq!(result.cyclomatic_complexity, 0);
         assert_eq!(result.public_methods, 0);
         assert_eq!(result.properties, 0);
+        assert_eq!(result.demeter_violations, 0);
     }
 }
