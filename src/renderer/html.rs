@@ -588,6 +588,8 @@ svg.radar { display: block; margin: 0 auto; }
   padding: 8px 12px; border-radius: 6px; font-size: 12px;
   pointer-events: none; z-index: 1000; display: none; white-space: pre-line; }
 .tr-empty { text-align: center; color: #8b949e; padding: 60px 20px; font-size: 16px; }
+.tr-legend { display:flex; align-items:center; gap:8px; margin-left:auto; font-size:12px; color:#aaa; }
+.tr-legend-sep { width:8px; height:8px; border-radius:50%; display:inline-block; }
 .ac-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
@@ -2622,6 +2624,27 @@ fn build_js() -> String {
     });
     label.append(select);
     controls.append(label);
+
+    // Legend — conditionally rendered when backfill entries exist
+    if (window.R.history.some(function(e){ return e.source === 'backfill'; })) {
+      var leg = el('div');
+      leg.className = 'tr-legend';
+
+      var sepBackfill = el('span');
+      sepBackfill.className = 'tr-legend-sep';
+      sepBackfill.style.cssText = 'border:2px solid #8b949e;background:transparent;';
+      leg.appendChild(sepBackfill);
+      leg.appendChild(txt('Backfill'));
+
+      var sepLive = el('span');
+      sepLive.className = 'tr-legend-sep';
+      sepLive.style.cssText = 'background:#10b981;';
+      leg.appendChild(sepLive);
+      leg.appendChild(txt('Live analysis'));
+
+      controls.appendChild(leg);
+    }
+
     container.append(controls);
 
     // Chart container
@@ -3476,7 +3499,6 @@ mod tests {
     // Milestone 2 — Legend (AC-TG-02)
     // ---------------------------------------------------------------------------
     #[test]
-    #[ignore]
     fn html_trends_legend_labels_in_js() {
         let html = render(&make_report()).unwrap();
         assert!(
