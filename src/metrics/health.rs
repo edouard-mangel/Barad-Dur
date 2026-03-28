@@ -701,6 +701,85 @@ mod tests {
     }
 
     #[test]
+    fn god_objects_boundary_loc_500_not_flagged() {
+        // loc = 500 is NOT > 500, so not a god object
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+        );
+        snapshot.file_metrics.insert(
+            PathBuf::from("boundary.rs"),
+            FileComplexity { total_lines: 550, loc: 500, cyclomatic_complexity: 5,
+                             public_methods: 5, properties: 1, demeter_violations: 0 },
+        );
+        let result = god_objects(&snapshot);
+        assert_eq!(result.score, 100);
+    }
+
+    #[test]
+    fn god_objects_boundary_loc_501_flagged() {
+        // loc = 501 IS > 500, so it IS a god object
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+        );
+        snapshot.file_metrics.insert(
+            PathBuf::from("boundary.rs"),
+            FileComplexity { total_lines: 550, loc: 501, cyclomatic_complexity: 5,
+                             public_methods: 5, properties: 1, demeter_violations: 0 },
+        );
+        let result = god_objects(&snapshot);
+        assert_eq!(result.score, 75);
+    }
+
+    #[test]
+    fn god_objects_boundary_methods_15_not_flagged() {
+        // loc=310, public_methods=15 — methods is NOT > 15, so not flagged
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+        );
+        snapshot.file_metrics.insert(
+            PathBuf::from("boundary.rs"),
+            FileComplexity { total_lines: 350, loc: 310, cyclomatic_complexity: 5,
+                             public_methods: 15, properties: 1, demeter_violations: 0 },
+        );
+        let result = god_objects(&snapshot);
+        assert_eq!(result.score, 100);
+    }
+
+    #[test]
+    fn god_objects_scores_50_with_three_to_five() {
+        // 3 god objects → score 50
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+        );
+        for i in 0..3 {
+            snapshot.file_metrics.insert(
+                PathBuf::from(format!("big{}.rs", i)),
+                FileComplexity { total_lines: 600, loc: 520, cyclomatic_complexity: 5,
+                                 public_methods: 5, properties: 1, demeter_violations: 0 },
+            );
+        }
+        let result = god_objects(&snapshot);
+        assert_eq!(result.score, 50);
+    }
+
+    #[test]
+    fn god_objects_scores_25_with_more_than_five() {
+        // 6 god objects → score 25
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+        );
+        for i in 0..6 {
+            snapshot.file_metrics.insert(
+                PathBuf::from(format!("big{}.rs", i)),
+                FileComplexity { total_lines: 600, loc: 520, cyclomatic_complexity: 5,
+                                 public_methods: 5, properties: 1, demeter_violations: 0 },
+            );
+        }
+        let result = god_objects(&snapshot);
+        assert_eq!(result.score, 25);
+    }
+
+    #[test]
     fn file_complexity_flags_large_and_deep() {
         let mut snapshot = RepoSnapshot::new(
             PathBuf::from("/tmp"),
