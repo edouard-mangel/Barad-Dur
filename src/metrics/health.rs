@@ -12,6 +12,7 @@ pub fn compute_health(snapshot: &RepoSnapshot, thresholds: &HealthThresholds) ->
         temporal_coupling(snapshot, thresholds),
         stale_code(snapshot),
         file_complexity(snapshot, thresholds),
+        god_objects(snapshot),
     ];
 
     CategoryResult {
@@ -221,6 +222,31 @@ fn stale_code(snapshot: &RepoSnapshot) -> MetricValue {
         name: "Stale code".to_string(),
         description: format!("{:.0}% of files untouched in window", pct),
         raw_value: RawValue::Percentage(pct),
+        score,
+    }
+}
+
+/// Files that have grown too large to maintain (god objects / bloaters).
+fn god_objects(snapshot: &RepoSnapshot) -> MetricValue {
+    let gods: Vec<String> = snapshot
+        .file_metrics
+        .iter()
+        .filter(|(_, m)| m.loc > 500 || (m.loc > 300 && m.public_methods > 15))
+        .map(|(p, _)| p.display().to_string())
+        .collect();
+
+    let count = gods.len();
+    let score = match count {
+        0 => 100,
+        1..=2 => 75,
+        3..=5 => 50,
+        _ => 25,
+    };
+
+    MetricValue {
+        name: "God objects".to_string(),
+        description: format!("{} oversized files detected", count),
+        raw_value: RawValue::List(gods),
         score,
     }
 }
@@ -513,6 +539,57 @@ mod tests {
             RawValue::Percentage(p) => assert!((p - 40.0).abs() < 1.0, "Expected ~40% stale"),
             _ => panic!("Expected Percentage"),
         }
+    }
+
+    #[test]
+    fn god_objects_detects_large_files() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+        );
+        snapshot.file_metrics.insert(
+            PathBuf::from("fat.rs"),
+            FileComplexity { total_lines: 600, loc: 520, cyclomatic_complexity: 10,
+                             public_methods: 5, properties: 2, demeter_violations: 0 },
+        );
+        snapshot.file_metrics.insert(
+            PathBuf::from("small.rs"),
+            FileComplexity { total_lines: 100, loc: 80, cyclomatic_complexity: 3,
+                             public_methods: 2, properties: 1, demeter_violations: 0 },
+        );
+        let result = god_objects(&snapshot);
+        assert_eq!(result.score, 75); // 1 god object
+        match &result.raw_value {
+            RawValue::List(v) => assert_eq!(v.len(), 1),
+            _ => panic!("Expected List"),
+        }
+    }
+
+    #[test]
+    fn god_objects_detects_method_bloat() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+        );
+        snapshot.file_metrics.insert(
+            PathBuf::from("bloated.rs"),
+            FileComplexity { total_lines: 350, loc: 310, cyclomatic_complexity: 5,
+                             public_methods: 16, properties: 3, demeter_violations: 0 },
+        );
+        let result = god_objects(&snapshot);
+        assert_eq!(result.score, 75); // 1 god object (LOC>300 AND methods>15)
+    }
+
+    #[test]
+    fn god_objects_scores_100_when_none() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+        );
+        snapshot.file_metrics.insert(
+            PathBuf::from("normal.rs"),
+            FileComplexity { total_lines: 100, loc: 80, cyclomatic_complexity: 3,
+                             public_methods: 5, properties: 1, demeter_violations: 0 },
+        );
+        let result = god_objects(&snapshot);
+        assert_eq!(result.score, 100);
     }
 
     #[test]
