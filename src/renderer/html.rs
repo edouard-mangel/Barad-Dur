@@ -2751,11 +2751,13 @@ fn build_js() -> String {
           var d = new Date(entry.timestamp);
           var dateStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
           var head7 = entry.head.substring(0, 7);
+          var srcLabel = dot.dataset.backfill === '1' ? 'Source: Backfill' : 'Source: Live analysis';
           var lines = dateStr + ' (' + head7 + ')\n'
             + metric + ': ' + getScore(entry, metric) + '\n'
             + entry.counts.commits + ' commits, '
             + entry.counts.files + ' files, '
-            + entry.counts.authors + ' authors';
+            + entry.counts.authors + ' authors\n'
+            + srcLabel;
           tooltip.textContent = lines;
           tooltip.style.display = 'block';
           tooltip.style.left = (e.clientX + 14) + 'px';
@@ -3540,7 +3542,6 @@ mod tests {
     // Milestone 3 — Tooltip source label (AC-TG-03)
     // ---------------------------------------------------------------------------
     #[test]
-    #[ignore]
     fn html_trends_tooltip_source_backfill_label() {
         let html = render(&make_report()).unwrap();
         assert!(
@@ -3550,7 +3551,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn html_trends_tooltip_source_live_label() {
         let html = render(&make_report()).unwrap();
         assert!(
@@ -3560,7 +3560,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn html_trends_tooltip_no_inner_html() {
         let html = render(&make_report()).unwrap();
         // Tooltip already uses textContent — this regression test ensures it
