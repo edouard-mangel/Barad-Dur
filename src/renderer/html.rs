@@ -3610,7 +3610,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn html_trends_hollow_dot_pointer_events_all() {
         let html = render(&make_report()).unwrap();
         assert!(
