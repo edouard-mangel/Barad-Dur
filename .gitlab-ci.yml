@@ -72,8 +72,9 @@ coverage:
   stage: test
   <<: *rust-base
   script:
+    - rustup component add llvm-tools-preview
     - cargo install cargo-tarpaulin --locked
-    - cargo tarpaulin --out xml --output-dir coverage/
+    - cargo tarpaulin --engine llvm --out xml --output-dir coverage/
   coverage: '/^\d+.\d+% coverage/'
   artifacts:
     reports:
