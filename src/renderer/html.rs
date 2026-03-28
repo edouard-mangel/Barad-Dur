@@ -3451,7 +3451,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn html_trends_hollow_circle_stroke_is_score_color() {
         let mut report = make_report();
         report.history = vec![make_history_entry(58, Some("backfill"))];
