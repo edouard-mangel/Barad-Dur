@@ -3594,7 +3594,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn html_trends_all_backfill_window_r_all_have_source() {
         let mut report = make_report();
         report.history = vec![
