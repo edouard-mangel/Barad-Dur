@@ -213,4 +213,79 @@ mod tests {
         let result = demeter_violations(&snapshot);
         assert_eq!(result.score, 100);
     }
+
+    #[test]
+    fn temporal_coupling_boundary_exactly_07_excluded() {
+        // ratio = 7/10 = 0.70 exactly — NOT > 0.7, so excluded
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+        );
+        snapshot.file_change_pairs = vec![(PathBuf::from("a.rs"), PathBuf::from("b.rs"), 7)];
+        snapshot.commits_by_file.insert(PathBuf::from("a.rs"), (0..10).map(|i| format!("c{}", i)).collect());
+        snapshot.commits_by_file.insert(PathBuf::from("b.rs"), (0..10).map(|i| format!("c{}", i)).collect());
+        let result = temporal_coupling(&snapshot);
+        assert_eq!(result.score, 100); // 0.70 is not > 0.70
+    }
+
+    #[test]
+    fn temporal_coupling_scores_50_with_four_to_eight_pairs() {
+        // 4 suspicious pairs → score 50
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+        );
+        for i in 0..4usize {
+            let a = PathBuf::from(format!("a{}.rs", i));
+            let b = PathBuf::from(format!("b{}.rs", i));
+            snapshot.file_change_pairs.push((a.clone(), b.clone(), 9));
+            snapshot.commits_by_file.insert(a, (0..10).map(|j| format!("c{}_{}", i, j)).collect());
+            snapshot.commits_by_file.insert(b, (0..10).map(|j| format!("d{}_{}", i, j)).collect());
+        }
+        let result = temporal_coupling(&snapshot);
+        assert_eq!(result.score, 50);
+    }
+
+    #[test]
+    fn fan_out_coupling_boundary_exactly_5_not_flagged() {
+        // hub.rs with exactly 5 partners — NOT > 5, so not high fan-out
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+        );
+        for i in 0..5 {
+            snapshot.file_change_pairs.push((
+                PathBuf::from("hub.rs"), PathBuf::from(format!("p{}.rs", i)), 2,
+            ));
+        }
+        let result = fan_out_coupling(&snapshot);
+        assert_eq!(result.score, 100); // 5 partners is not > 5
+    }
+
+    #[test]
+    fn demeter_violations_scores_50_with_six_to_fifteen() {
+        // total = 6 violations → score 50
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+        );
+        snapshot.file_metrics.insert(
+            PathBuf::from("a.rs"),
+            FileComplexity { total_lines: 50, loc: 40, cyclomatic_complexity: 2,
+                             public_methods: 1, properties: 0, demeter_violations: 6 },
+        );
+        let result = demeter_violations(&snapshot);
+        assert_eq!(result.score, 50);
+    }
+
+    #[test]
+    fn demeter_violations_scores_25_above_fifteen() {
+        // total = 16 violations → score 25
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+        );
+        snapshot.file_metrics.insert(
+            PathBuf::from("a.rs"),
+            FileComplexity { total_lines: 50, loc: 40, cyclomatic_complexity: 2,
+                             public_methods: 1, properties: 0, demeter_violations: 16 },
+        );
+        let result = demeter_violations(&snapshot);
+        assert_eq!(result.score, 25);
+    }
 }
