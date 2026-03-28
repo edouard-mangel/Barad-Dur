@@ -64,6 +64,7 @@ pub struct FileComplexity {
     pub cyclomatic_complexity: u32,
     pub public_methods: u32,
     pub properties: u32,
+    pub demeter_violations: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

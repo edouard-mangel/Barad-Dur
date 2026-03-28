@@ -53,6 +53,7 @@ pub fn analyse_content(content: &str, lang: Language) -> FileComplexity {
         cyclomatic_complexity,
         public_methods,
         properties,
+        demeter_violations: 0,
     }
 }
 

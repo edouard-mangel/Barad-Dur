@@ -26,6 +26,7 @@ pub fn analyse(content: &str, lang: Language, ext: &str) -> Option<FileComplexit
         cyclomatic_complexity,
         public_methods,
         properties,
+        demeter_violations: 0,
     })
 }
 
