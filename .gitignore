@@ -24,3 +24,4 @@ dashboard/node_modules/
 dashboard/dist/
 mutants.out/
 mutants.out.old/
+.worktrees/
