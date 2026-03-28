@@ -589,7 +589,7 @@ svg.radar { display: block; margin: 0 auto; }
   pointer-events: none; z-index: 1000; display: none; white-space: pre-line; }
 .tr-empty { text-align: center; color: #8b949e; padding: 60px 20px; font-size: 16px; }
 .tr-legend { display:flex; align-items:center; gap:8px; margin-left:auto; font-size:12px; color:#aaa; }
-.tr-legend-sep { width:8px; height:8px; border-radius:50%; display:inline-block; }
+.tr-legend-dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
 .ac-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
@@ -2630,19 +2630,19 @@ fn build_js() -> String {
       var leg = el('div');
       leg.className = 'tr-legend';
 
-      var sepBackfill = el('span');
-      sepBackfill.className = 'tr-legend-sep';
-      sepBackfill.style.cssText = 'border:2px solid #8b949e;background:transparent;';
-      leg.appendChild(sepBackfill);
-      leg.appendChild(txt('Backfill'));
+      var dotBackfill = el('span');
+      dotBackfill.className = 'tr-legend-dot';
+      dotBackfill.style.cssText = 'border:2px solid #8b949e;background:transparent;';
+      leg.append(dotBackfill);
+      leg.append(txt('Backfill'));
 
-      var sepLive = el('span');
-      sepLive.className = 'tr-legend-sep';
-      sepLive.style.cssText = 'background:#10b981;';
-      leg.appendChild(sepLive);
-      leg.appendChild(txt('Live analysis'));
+      var dotLive = el('span');
+      dotLive.className = 'tr-legend-dot';
+      dotLive.style.cssText = 'background:#10b981;';
+      leg.append(dotLive);
+      leg.append(txt('Live analysis'));
 
-      controls.appendChild(leg);
+      controls.append(leg);
     }
 
     container.append(controls);
