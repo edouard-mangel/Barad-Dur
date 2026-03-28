@@ -211,8 +211,7 @@ fn generate_toml_inner(
     out.push_str("[thresholds.health]\n");
     out.push_str("max_complexity       = 20\n");
     out.push_str("hotspot_top_n        = 10\n");
-    out.push_str("coupling_min_commits = 5\n");
-    out.push_str("bus_factor_warning   = 2\n\n");
+    out.push_str("coupling_min_commits = 5\n\n");
     out.push_str("[thresholds.team]\n");
     out.push_str("silo_max_owners      = 1\n");
     out.push_str("activity_window_days = 30\n\n");

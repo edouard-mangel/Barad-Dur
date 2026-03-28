@@ -78,8 +78,6 @@ pub struct HealthThresholds {
     pub hotspot_top_n: usize,
     #[serde(default = "default_coupling_min_commits")]
     pub coupling_min_commits: usize,
-    #[serde(default = "default_bus_factor_warning")]
-    pub bus_factor_warning: usize,
 }
 
 fn default_max_complexity() -> u32 {
@@ -91,9 +89,6 @@ fn default_hotspot_top_n() -> usize {
 fn default_coupling_min_commits() -> usize {
     5
 }
-fn default_bus_factor_warning() -> usize {
-    2
-}
 
 impl Default for HealthThresholds {
     fn default() -> Self {
@@ -101,7 +96,6 @@ impl Default for HealthThresholds {
             max_complexity: default_max_complexity(),
             hotspot_top_n: default_hotspot_top_n(),
             coupling_min_commits: default_coupling_min_commits(),
-            bus_factor_warning: default_bus_factor_warning(),
         }
     }
 }
@@ -499,12 +493,11 @@ mod tests {
         fs::create_dir_all(&cache_dir).unwrap();
         fs::write(
             cache_dir.join("barad-dur.toml"),
-            "[thresholds.health]\nmax_complexity = 30\nbus_factor_warning = 3\n",
+            "[thresholds.health]\nmax_complexity = 30\n",
         )
         .unwrap();
         let cfg = load(dir.path()).unwrap();
         assert_eq!(cfg.thresholds.health.max_complexity, 30);
-        assert_eq!(cfg.thresholds.health.bus_factor_warning, 3);
         assert_eq!(cfg.thresholds.team.silo_max_owners, 1);
     }
 
