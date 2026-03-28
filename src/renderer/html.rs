@@ -3442,7 +3442,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn html_trends_live_circle_js_uses_score_color() {
         let html = render(&make_report()).unwrap();
         assert!(
