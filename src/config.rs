@@ -462,6 +462,7 @@ mod tests {
         let cfg = load(dir.path()).unwrap();
         assert_eq!(cfg.weights.health, 40);
         assert_eq!(cfg.weights.hygiene, 10);
+        assert_eq!(cfg.weights.coupling, 20); // missing key defaults to 20
     }
 
     #[test]
