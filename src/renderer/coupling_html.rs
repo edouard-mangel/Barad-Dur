@@ -620,11 +620,25 @@ mod tests {
     }
 
     #[test]
-    fn html_escapes_closing_script_tags_in_json() {
-        let report = minimal_report();
+    fn json_data_with_closing_script_tag_in_repo_name_is_escaped() {
+        // If a repo name contains "</script>" the embedded JSON must not break out of
+        // the <script> block. Escaping "</" as "<\/" is the standard defence.
+        let mut report = minimal_report();
+        report.repos[0].name = "evil</script><script>alert(1)</script>".to_string();
+        report.pairs[0].repo_a = report.repos[0].name.clone();
+
         let html = render_coupling_html(&report);
-        // JSON embedded in script tags must escape </ to prevent premature tag closure
-        assert!(!html.contains("</script") || html.matches("</script>").count() == 2);
+
+        // The unescaped attack string must NOT appear verbatim in the output
+        assert!(
+            !html.contains("</script><script>alert(1)"),
+            "unescaped closing script tag in JSON data allows XSS"
+        );
+        // The escaped form <\/ must appear instead
+        assert!(
+            html.contains("<\\/script>"),
+            "expected <\\/ escaping in embedded JSON"
+        );
     }
 
     #[test]
