@@ -19,6 +19,8 @@ pub fn analyse(content: &str, lang: Language, ext: &str) -> Option<FileComplexit
     let cyclomatic_complexity = count_complexity(&tree, content.as_bytes(), &grammar, lang, ext);
     let public_methods = count_public_methods(&tree, content.as_bytes(), &grammar, lang, ext);
     let properties = count_properties(&tree, content.as_bytes(), &grammar, lang, ext);
+    let demeter_violations =
+        count_demeter_violations(&tree, content.as_bytes(), &grammar, lang, ext);
 
     Some(FileComplexity {
         total_lines,
@@ -26,7 +28,7 @@ pub fn analyse(content: &str, lang: Language, ext: &str) -> Option<FileComplexit
         cyclomatic_complexity,
         public_methods,
         properties,
-        demeter_violations: 0,
+        demeter_violations,
     })
 }
 
@@ -96,6 +98,30 @@ fn collect_matches(
         results.push(captures);
     }
     (Some(query), results)
+}
+
+// ── Demeter violations ─────────────────────────────────────────────
+
+fn count_demeter_violations(
+    tree: &tree_sitter::Tree,
+    source: &[u8],
+    grammar: &tree_sitter::Language,
+    lang: Language,
+    ext: &str,
+) -> u32 {
+    let query_src = match lang {
+        Language::Rust => queries::RUST_DEMETER,
+        Language::JsTs => match ext {
+            "ts" | "tsx" => queries::TS_DEMETER,
+            _ => queries::JS_DEMETER,
+        },
+        Language::Python => queries::PYTHON_DEMETER,
+        Language::Go => queries::GO_DEMETER,
+        Language::Java => queries::JAVA_DEMETER,
+        Language::CSharp => queries::CSHARP_DEMETER,
+        Language::Kotlin | Language::Generic => return 0,
+    };
+    run_query(tree, source, query_src, grammar)
 }
 
 // ── Cyclomatic complexity ───────────────────────────────────────────
@@ -564,6 +590,22 @@ mod tests {
         assert_eq!(result.cyclomatic_complexity, 0);
         assert_eq!(result.public_methods, 0);
         assert_eq!(result.properties, 0);
+        assert_eq!(result.demeter_violations, 0);
+    }
+
+    #[test]
+    fn demeter_violation_rust_depth3() {
+        // a.foo().bar().baz() — depth-3 chain: 1 violation
+        let src = r#"fn f() { let _ = a.foo().bar().baz(); }"#;
+        let result = analyse(src, Language::Rust, "rs").unwrap();
+        assert_eq!(result.demeter_violations, 1);
+    }
+
+    #[test]
+    fn demeter_no_violation_rust_depth2() {
+        // a.foo().bar() — depth-2 chain: below threshold, 0 violations
+        let src = r#"fn f() { let _ = a.foo().bar(); }"#;
+        let result = analyse(src, Language::Rust, "rs").unwrap();
         assert_eq!(result.demeter_violations, 0);
     }
 }
