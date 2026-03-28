@@ -2708,8 +2708,12 @@ fn build_js() -> String {
         var cx = x(i);
         var cy = y(scores[i]);
         var isBackfill = entry.source === 'backfill';
-        svg += '<circle class="tr-dot" cx="' + cx + '" cy="' + cy + '" r="4" fill="' + lineColor + '" '
-          + 'data-idx="' + i + '" stroke="' + bgCol + '" stroke-width="1.5"'
+        var dotFill = isBackfill ? 'none' : scoreColor(scores[i]);
+        var dotStroke = isBackfill ? scoreColor(scores[i]) : bgCol;
+        var dotStyle = isBackfill ? ' style="pointer-events:all"' : '';
+        svg += '<circle class="tr-dot" cx="' + cx + '" cy="' + cy + '" r="4" fill="' + dotFill + '" '
+          + 'data-idx="' + i + '" stroke="' + dotStroke + '" stroke-width="1.5"'
+          + dotStyle
           + (isBackfill ? ' data-backfill="1"' : '') + '/>';
       });
 
@@ -3423,7 +3427,6 @@ mod tests {
     // Milestone 1 — Circle visual encoding (AC-TG-01)
     // ---------------------------------------------------------------------------
     #[test]
-    #[ignore]
     fn html_trends_hollow_circle_js_fill_none() {
         let mut report = make_report();
         report.history = vec![make_history_entry(58, Some("backfill"))];
