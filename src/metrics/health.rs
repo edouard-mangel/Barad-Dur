@@ -321,6 +321,104 @@ mod tests {
     }
 
     #[test]
+    fn bus_factor_scores_100_when_few_dominated() {
+        // 5 files, all 50/50 split → 0% dominated → score 100
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        let now = Utc::now();
+        for i in 0..5 {
+            let lines: Vec<BlameLine> = (0..100)
+                .map(|j| BlameLine {
+                    author_id: if j < 50 { 0 } else { 1 },
+                    commit_id: format!("c{}", j),
+                    timestamp: now,
+                })
+                .collect();
+            snapshot
+                .blame_map
+                .insert(PathBuf::from(format!("f{}.rs", i)), lines);
+        }
+        let result = bus_factor(&snapshot, &HealthThresholds::default());
+        assert_eq!(result.score, 100);
+        match result.raw_value {
+            RawValue::Percentage(p) => assert!((p - 0.0).abs() < 1.0),
+            _ => panic!("Expected Percentage"),
+        }
+    }
+
+    #[test]
+    fn bus_factor_scores_75_when_some_dominated() {
+        // 5 files: 1 dominated (author 0 owns 80%) + 4 not dominated → 20% → score 75
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        let now = Utc::now();
+        // 1 dominated file: author 0 owns 80%
+        let dominated: Vec<BlameLine> = (0..100)
+            .map(|j| BlameLine {
+                author_id: if j < 80 { 0 } else { 1 },
+                commit_id: format!("c{}", j),
+                timestamp: now,
+            })
+            .collect();
+        snapshot
+            .blame_map
+            .insert(PathBuf::from("dominated.rs"), dominated);
+        // 4 balanced files: 50/50
+        for i in 0..4 {
+            let lines: Vec<BlameLine> = (0..100)
+                .map(|j| BlameLine {
+                    author_id: if j < 50 { 0 } else { 1 },
+                    commit_id: format!("c{}{}", i, j),
+                    timestamp: now,
+                })
+                .collect();
+            snapshot
+                .blame_map
+                .insert(PathBuf::from(format!("balanced{}.rs", i)), lines);
+        }
+        let result = bus_factor(&snapshot, &HealthThresholds::default());
+        assert_eq!(result.score, 75);
+    }
+
+    #[test]
+    fn bus_factor_exact_50pct_not_dominated() {
+        // A file where author 0 owns exactly 50% of lines is NOT dominated
+        // because dominance requires max * 2 > total (strict majority)
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        let now = Utc::now();
+        let lines: Vec<BlameLine> = (0..100)
+            .map(|j| BlameLine {
+                author_id: if j < 50 { 0 } else { 1 }, // exactly 50/50
+                commit_id: format!("c{}", j),
+                timestamp: now,
+            })
+            .collect();
+        snapshot
+            .blame_map
+            .insert(PathBuf::from("file.rs"), lines);
+        let result = bus_factor(&snapshot, &HealthThresholds::default());
+        // 0% dominated → score 100
+        assert_eq!(result.score, 100);
+        match result.raw_value {
+            RawValue::Percentage(p) => assert!((p - 0.0).abs() < 1.0),
+            _ => panic!("Expected Percentage"),
+        }
+    }
+
+    #[test]
     fn churn_hotspots_detects_concentration() {
         let mut snapshot = RepoSnapshot::new(
             PathBuf::from("/tmp"),
