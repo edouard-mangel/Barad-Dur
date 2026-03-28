@@ -27,13 +27,15 @@ pub struct CategoryWeights {
     pub evolution: u32,
     #[serde(default = "default_hygiene_weight")]
     pub hygiene: u32,
+    #[serde(default = "default_coupling_weight")]
+    pub coupling: u32,
 }
 
 fn default_health_weight() -> u32 {
-    40
+    25
 }
 fn default_team_weight() -> u32 {
-    15
+    10
 }
 fn default_evolution_weight() -> u32 {
     25
@@ -41,21 +43,25 @@ fn default_evolution_weight() -> u32 {
 fn default_hygiene_weight() -> u32 {
     20
 }
+fn default_coupling_weight() -> u32 {
+    20
+}
 
 impl Default for CategoryWeights {
     fn default() -> Self {
         Self {
-            health: 40,
-            team: 15,
+            health: 25,
+            team: 10,
             evolution: 25,
             hygiene: 20,
+            coupling: 20,
         }
     }
 }
 
 impl CategoryWeights {
     pub fn sum(&self) -> u32 {
-        self.health + self.team + self.evolution + self.hygiene
+        self.health + self.team + self.evolution + self.hygiene + self.coupling
     }
 
     /// Convert to the (name, f64) pairs format used by scorer.
@@ -66,6 +72,7 @@ impl CategoryWeights {
             ("Team", self.team as f64 / s),
             ("Evolution", self.evolution as f64 / s),
             ("Git Hygiene", self.hygiene as f64 / s),
+            ("Coupling", self.coupling as f64 / s),
         ]
     }
 }
@@ -346,12 +353,13 @@ pub fn validate(config: &RepoConfig) -> Result<()> {
     let sum = config.weights.sum();
     if sum != 100 {
         bail!(
-            "Category weights must sum to 100, got {} (health={}, team={}, evolution={}, hygiene={})",
+            "Category weights must sum to 100, got {} (health={}, team={}, evolution={}, hygiene={}, coupling={})",
             sum,
             config.weights.health,
             config.weights.team,
             config.weights.evolution,
             config.weights.hygiene,
+            config.weights.coupling,
         );
     }
     Ok(())
@@ -422,7 +430,7 @@ mod tests {
     fn load_missing_file_returns_defaults() {
         let dir = TempDir::new().unwrap();
         let cfg = load(dir.path()).unwrap();
-        assert_eq!(cfg.weights.health, 40);
+        assert_eq!(cfg.weights.health, 25);
         assert!(cfg.exclude_use_defaults);
     }
 
@@ -438,7 +446,7 @@ mod tests {
         .unwrap();
         let cfg = load(dir.path()).unwrap();
         assert_eq!(cfg.since, Some("3months".to_string()));
-        assert_eq!(cfg.weights.health, 40);
+        assert_eq!(cfg.weights.health, 25);
     }
 
     #[test]
