@@ -3579,7 +3579,6 @@ mod tests {
     // Milestone 4 — Edge cases and regression (AC-TG-04)
     // ---------------------------------------------------------------------------
     #[test]
-    #[ignore]
     fn html_trends_zero_backfill_window_r_has_no_source_field() {
         let mut report = make_report();
         report.history = vec![
