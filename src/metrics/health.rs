@@ -13,6 +13,7 @@ pub fn compute_health(snapshot: &RepoSnapshot, thresholds: &HealthThresholds) ->
         stale_code(snapshot),
         file_complexity(snapshot, thresholds),
         god_objects(snapshot),
+        complex_hotspots(snapshot),
     ];
 
     CategoryResult {
@@ -247,6 +248,61 @@ fn god_objects(snapshot: &RepoSnapshot) -> MetricValue {
         name: "God objects".to_string(),
         description: format!("{} oversized files detected", count),
         raw_value: RawValue::List(gods),
+        score,
+    }
+}
+
+/// Files in the top quartile of both cyclomatic complexity and churn — the Tornhill composite.
+fn complex_hotspots(snapshot: &RepoSnapshot) -> MetricValue {
+    if snapshot.file_metrics.is_empty() {
+        return MetricValue {
+            name: "Complex hotspots".to_string(),
+            description: "No AST data available".to_string(),
+            raw_value: RawValue::Count(0),
+            score: 100,
+        };
+    }
+
+    let mut cc_values: Vec<u32> = snapshot.file_metrics.values()
+        .map(|m| m.cyclomatic_complexity)
+        .collect();
+    cc_values.sort_unstable();
+    let cc_p75 = cc_values
+        .get(cc_values.len().saturating_sub(1) * 3 / 4)
+        .copied()
+        .unwrap_or(0);
+
+    let mut churn_values: Vec<usize> = snapshot.commits_by_file.values()
+        .map(|c| c.len())
+        .collect();
+    churn_values.sort_unstable();
+    let churn_p75 = churn_values
+        .get(churn_values.len().saturating_sub(1) * 3 / 4)
+        .copied()
+        .unwrap_or(0);
+
+    let hotspots: Vec<String> = snapshot
+        .file_metrics
+        .iter()
+        .filter(|(path, m)| {
+            let churn = snapshot.commits_by_file.get(*path).map(|c| c.len()).unwrap_or(0);
+            m.cyclomatic_complexity > cc_p75 && churn > churn_p75
+        })
+        .map(|(p, _)| p.display().to_string())
+        .collect();
+
+    let count = hotspots.len();
+    let score = match count {
+        0 => 100,
+        1..=2 => 75,
+        3..=5 => 50,
+        _ => 25,
+    };
+
+    MetricValue {
+        name: "Complex hotspots".to_string(),
+        description: format!("{} files with high complexity and high churn", count),
+        raw_value: RawValue::List(hotspots),
         score,
     }
 }
@@ -589,6 +645,58 @@ mod tests {
                              public_methods: 5, properties: 1, demeter_violations: 0 },
         );
         let result = god_objects(&snapshot);
+        assert_eq!(result.score, 100);
+    }
+
+    #[test]
+    fn complex_hotspots_finds_high_cc_high_churn_files() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+        );
+        // 4 files: only "bad.rs" is in top quartile of both CC and churn
+        let files: &[(&str, u32, usize)] = &[
+            ("bad.rs",  20, 20), // high CC (top 25%), high churn (top 25%)
+            ("ok1.rs",   2,  1),
+            ("ok2.rs",   3,  2),
+            ("ok3.rs",   4,  3),
+        ];
+        for (name, cc, churn) in files {
+            snapshot.file_metrics.insert(
+                PathBuf::from(name),
+                FileComplexity { total_lines: 100, loc: 80, cyclomatic_complexity: *cc,
+                                 public_methods: 2, properties: 1, demeter_violations: 0 },
+            );
+            snapshot.commits_by_file.insert(
+                PathBuf::from(name),
+                (0..*churn).map(|i| format!("c{}", i)).collect(),
+            );
+        }
+        let result = complex_hotspots(&snapshot);
+        assert_eq!(result.score, 75); // 1 hotspot → score 75
+        match &result.raw_value {
+            RawValue::List(v) => assert_eq!(v.len(), 1),
+            _ => panic!("Expected List"),
+        }
+    }
+
+    #[test]
+    fn complex_hotspots_scores_100_when_none() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+        );
+        // All files have similar CC and churn — no outliers in top quartile of BOTH
+        for i in 0..4 {
+            snapshot.file_metrics.insert(
+                PathBuf::from(format!("f{}.rs", i)),
+                FileComplexity { total_lines: 100, loc: 80, cyclomatic_complexity: 5,
+                                 public_methods: 2, properties: 1, demeter_violations: 0 },
+            );
+            snapshot.commits_by_file.insert(
+                PathBuf::from(format!("f{}.rs", i)),
+                vec![format!("c{}", i)],
+            );
+        }
+        let result = complex_hotspots(&snapshot);
         assert_eq!(result.score, 100);
     }
 
