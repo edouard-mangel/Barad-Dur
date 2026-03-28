@@ -2707,8 +2707,10 @@ fn build_js() -> String {
       history.forEach(function(entry, i) {
         var cx = x(i);
         var cy = y(scores[i]);
+        var isBackfill = entry.source === 'backfill';
         svg += '<circle class="tr-dot" cx="' + cx + '" cy="' + cy + '" r="4" fill="' + lineColor + '" '
-          + 'data-idx="' + i + '" stroke="' + bgCol + '" stroke-width="1.5"/>';
+          + 'data-idx="' + i + '" stroke="' + bgCol + '" stroke-width="1.5"'
+          + (isBackfill ? ' data-backfill="1"' : '') + '/>';
       });
 
       svg += '</svg>';
@@ -3378,6 +3380,225 @@ mod tests {
         assert!(
             html.contains("tr-chart"),
             "Should have trends chart container"
+        );
+    }
+
+    fn make_history_entry(score: u32, source: Option<&str>) -> crate::scorer::HistoryEntry {
+        crate::scorer::HistoryEntry {
+            timestamp: chrono::Utc::now(),
+            head: "a".repeat(40),
+            overall_score: score,
+            categories: std::collections::HashMap::new(),
+            metrics: std::collections::HashMap::new(),
+            counts: crate::scorer::HistoryCounts {
+                commits: 10,
+                files: 5,
+                authors: 2,
+            },
+            branch: "main".into(),
+            schema_version: 1,
+            source: source.map(|s| s.to_string()),
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Walking Skeleton — enable first (AC-TG-01, structural wiring check)
+    // ---------------------------------------------------------------------------
+    #[test]
+    fn html_trends_backfill_source_wired_through() {
+        let mut report = make_report();
+        report.history = vec![make_history_entry(58, Some("backfill"))];
+        let html = render(&report).unwrap();
+        assert!(
+            html.contains("source === 'backfill'"),
+            "JS must contain guard: entry.source === 'backfill'"
+        );
+        assert!(
+            html.contains(r#""source":"backfill""#),
+            "window.R history entry must carry source:backfill in JSON"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // Milestone 1 — Circle visual encoding (AC-TG-01)
+    // ---------------------------------------------------------------------------
+    #[test]
+    #[ignore]
+    fn html_trends_hollow_circle_js_fill_none() {
+        let mut report = make_report();
+        report.history = vec![make_history_entry(58, Some("backfill"))];
+        let html = render(&report).unwrap();
+        assert!(
+            html.contains(r#"fill="none""#) || html.contains("fill:'none'") || html.contains("fill: 'none'"),
+            "Rendered JS should contain fill=\"none\" for hollow circle encoding"
+        );
+        assert!(
+            html.contains("pointer-events:all") || html.contains("pointer-events: all"),
+            "Hollow circles need pointer-events:all for correct hover area (SVG fill=none issue)"
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn html_trends_live_circle_js_uses_score_color() {
+        let html = render(&make_report()).unwrap();
+        assert!(
+            html.contains("scoreColor(scores[i])") || html.contains("scoreColor("),
+            "Live circles must assign scoreColor to fill"
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn html_trends_hollow_circle_stroke_is_score_color() {
+        let mut report = make_report();
+        report.history = vec![make_history_entry(58, Some("backfill"))];
+        let html = render(&report).unwrap();
+        assert!(
+            html.contains("dotStroke") || html.contains("scoreColor"),
+            "Hollow circle stroke must be set to scoreColor"
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn html_trends_legacy_entry_has_no_source_in_window_r() {
+        let mut report = make_report();
+        report.history = vec![make_history_entry(65, None)];
+        let html = render(&report).unwrap();
+        assert!(
+            !html.contains(r#""source":"backfill""#),
+            "Legacy entry (source=None) must not appear as source:backfill in window.R"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // Milestone 2 — Legend (AC-TG-02)
+    // ---------------------------------------------------------------------------
+    #[test]
+    #[ignore]
+    fn html_trends_legend_labels_in_js() {
+        let html = render(&make_report()).unwrap();
+        assert!(
+            html.contains("Backfill"),
+            "Rendered JS should contain the 'Backfill' label string"
+        );
+        assert!(
+            html.contains("Live analysis"),
+            "Rendered JS should contain the 'Live analysis' label string"
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn html_trends_legend_no_inner_html() {
+        let html = render(&make_report()).unwrap();
+        // The legend-building section must not use innerHTML — check by absence in the
+        // block that creates the tr-legend element.
+        let legend_region = html
+            .find("tr-legend")
+            .map(|pos| &html[pos.saturating_sub(500)..std::cmp::min(pos + 500, html.len())]);
+        if let Some(region) = legend_region {
+            assert!(
+                !region.contains("innerHTML"),
+                "Legend construction must not use innerHTML (security constraint)"
+            );
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn html_trends_legend_css_class_present() {
+        let html = render(&make_report()).unwrap();
+        assert!(
+            html.contains("tr-legend"),
+            "CSS class .tr-legend must be present for legend styling"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // Milestone 3 — Tooltip source label (AC-TG-03)
+    // ---------------------------------------------------------------------------
+    #[test]
+    #[ignore]
+    fn html_trends_tooltip_source_backfill_label() {
+        let html = render(&make_report()).unwrap();
+        assert!(
+            html.contains("Source: Backfill"),
+            "Tooltip JS must contain the literal string 'Source: Backfill'"
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn html_trends_tooltip_source_live_label() {
+        let html = render(&make_report()).unwrap();
+        assert!(
+            html.contains("Source: Live analysis"),
+            "Tooltip JS must contain the literal string 'Source: Live analysis'"
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn html_trends_tooltip_no_inner_html() {
+        let html = render(&make_report()).unwrap();
+        // Tooltip already uses textContent — this regression test ensures it
+        // stays that way after the source-label addition.
+        let tooltip_region = html
+            .find("mouseenter")
+            .map(|pos| &html[pos..std::cmp::min(pos + 800, html.len())]);
+        if let Some(region) = tooltip_region {
+            assert!(
+                !region.contains(".innerHTML"),
+                "Tooltip handler must use textContent, not innerHTML"
+            );
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Milestone 4 — Edge cases and regression (AC-TG-04)
+    // ---------------------------------------------------------------------------
+    #[test]
+    #[ignore]
+    fn html_trends_zero_backfill_window_r_has_no_source_field() {
+        let mut report = make_report();
+        report.history = vec![
+            make_history_entry(70, None),
+            make_history_entry(72, None),
+            make_history_entry(75, None),
+        ];
+        let html = render(&report).unwrap();
+        assert!(
+            !html.contains(r#""source":"backfill""#),
+            "Zero-backfill history must not inject source:backfill into window.R"
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn html_trends_all_backfill_window_r_all_have_source() {
+        let mut report = make_report();
+        report.history = vec![
+            make_history_entry(55, Some("backfill")),
+            make_history_entry(58, Some("backfill")),
+            make_history_entry(60, Some("backfill")),
+        ];
+        let html = render(&report).unwrap();
+        let count = html.matches(r#""source":"backfill""#).count();
+        assert_eq!(
+            count, 3,
+            "All-backfill history: window.R must contain exactly 3 source:backfill entries"
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn html_trends_hollow_dot_pointer_events_all() {
+        let html = render(&make_report()).unwrap();
+        assert!(
+            html.contains("pointer-events:all") || html.contains("pointer-events: all"),
+            "Hollow circle JS must set pointer-events:all to fix hover area on fill=none circles"
         );
     }
 }
