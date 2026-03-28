@@ -3512,7 +3512,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn html_trends_legend_no_inner_html() {
         let html = render(&make_report()).unwrap();
         // The legend-building section must not use innerHTML — check by absence in the
