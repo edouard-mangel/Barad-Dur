@@ -621,9 +621,9 @@ fn temporal_coupling_filters_pairs_below_3_co_changes() {
         make_snapshot_with_commits(
             "repo-b",
             &[
-                base + one_hour,             // within 24h of repo-a[0] => overlap 1
-                base + ten_days + one_hour,  // within 24h of repo-a[1] => overlap 2
-                base + 20 * ten_days,        // far away — no overlap
+                base + one_hour,            // within 24h of repo-a[0] => overlap 1
+                base + ten_days + one_hour, // within 24h of repo-a[1] => overlap 2
+                base + 20 * ten_days,       // far away — no overlap
             ],
         ),
     ];
@@ -645,10 +645,7 @@ fn temporal_coupling_exact_boundary_3_co_changes_included() {
     let two_days: i64 = 2 * 24 * 3600;
 
     let snapshots = vec![
-        make_snapshot_with_commits(
-            "repo-a",
-            &[base, base + two_days, base + 2 * two_days],
-        ),
+        make_snapshot_with_commits("repo-a", &[base, base + two_days, base + 2 * two_days]),
         make_snapshot_with_commits(
             "repo-b",
             &[
@@ -685,10 +682,7 @@ fn temporal_coupling_window_excludes_commits_outside_range() {
     let two_days: i64 = 48 * 3600; // 48h gap — comfortably outside the 24h window
 
     let snapshots = vec![
-        make_snapshot_with_commits(
-            "repo-a",
-            &[base, base + 1, base + 2, base + 3, base + 4],
-        ),
+        make_snapshot_with_commits("repo-a", &[base, base + 1, base + 2, base + 3, base + 4]),
         make_snapshot_with_commits(
             "repo-b",
             &[
@@ -838,11 +832,13 @@ require (
 
     // gin and grpc are shared direct deps
     assert!(
-        pair.shared_deps.contains(&"github.com/gin-gonic/gin".to_string()),
+        pair.shared_deps
+            .contains(&"github.com/gin-gonic/gin".to_string()),
         "gin should be a shared dep"
     );
     assert!(
-        pair.shared_deps.contains(&"google.golang.org/grpc".to_string()),
+        pair.shared_deps
+            .contains(&"google.golang.org/grpc".to_string()),
         "grpc should be a shared dep"
     );
 
@@ -851,13 +847,17 @@ require (
     // This test asserts the actual observable behaviour: go-redis is NOT in service-b's
     // deps, so it does not appear in shared_deps regardless.
     assert!(
-        !pair.shared_deps.contains(&"github.com/go-redis/redis".to_string()),
+        !pair
+            .shared_deps
+            .contains(&"github.com/go-redis/redis".to_string()),
         "go-redis is only in service-a, so must not appear in shared deps"
     );
 
     // testify is only in service-b — not shared
     assert!(
-        !pair.shared_deps.contains(&"github.com/stretchr/testify".to_string()),
+        !pair
+            .shared_deps
+            .contains(&"github.com/stretchr/testify".to_string()),
         "testify is only in service-b, must not appear in shared deps"
     );
 
