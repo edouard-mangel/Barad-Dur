@@ -177,4 +177,58 @@ mod tests {
         let history = load_history(dir.path()).unwrap();
         assert!(history.is_empty());
     }
+
+    // --- load_history_checked ---
+
+    #[test]
+    fn load_history_checked_no_file_returns_empty_no_warning() {
+        let dir = TempDir::new().unwrap();
+        let (entries, warning) = load_history_checked(dir.path()).unwrap();
+        assert!(entries.is_empty(), "no file → no entries");
+        assert!(warning.is_none(), "no file → no warning");
+    }
+
+    #[test]
+    fn load_history_checked_empty_file_returns_empty_no_warning() {
+        // A zero-byte trends.json is valid (just no entries yet); must not trigger archiving.
+        let dir = TempDir::new().unwrap();
+        let cache_dir = dir.path().join(CACHE_DIR);
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        std::fs::write(cache_dir.join(HISTORY_FILE), "").unwrap();
+
+        let (entries, warning) = load_history_checked(dir.path()).unwrap();
+        assert!(entries.is_empty(), "empty file → no entries");
+        assert!(warning.is_none(), "empty file is valid → no warning");
+    }
+
+    #[test]
+    fn load_history_checked_valid_entries_returns_them_no_warning() {
+        let dir = TempDir::new().unwrap();
+        append_if_new_head(&make_entry("aaa", 80), dir.path()).unwrap();
+        append_if_new_head(&make_entry("bbb", 90), dir.path()).unwrap();
+
+        let (entries, warning) = load_history_checked(dir.path()).unwrap();
+        assert_eq!(entries.len(), 2, "valid file → both entries returned");
+        assert!(warning.is_none(), "valid file → no warning");
+    }
+
+    #[test]
+    fn load_history_checked_corrupt_file_triggers_archive_and_returns_warning() {
+        let dir = TempDir::new().unwrap();
+        let cache_dir = dir.path().join(CACHE_DIR);
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        std::fs::write(cache_dir.join(HISTORY_FILE), "NOT VALID JSON\n").unwrap();
+
+        let (entries, warning) = load_history_checked(dir.path()).unwrap();
+        assert!(entries.is_empty(), "corrupt file → no entries");
+        let w = warning.expect("corrupt file → warning should be Some");
+        assert!(
+            w.contains("trends.json could not be read"),
+            "warning should name the file, got: {w}"
+        );
+        assert!(
+            cache_dir.join(BAK_FILE).exists(),
+            "archive_and_replace should have created .bak"
+        );
+    }
 }

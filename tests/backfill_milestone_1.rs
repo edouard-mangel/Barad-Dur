@@ -320,6 +320,103 @@ fn backfill_schema_version_is_1() {
 }
 
 // ---------------------------------------------------------------------------
+// Regression: partial backfill stdout must say "N entries written", not "already complete"
+//
+// Given a 15-commit repo with 3 pre-existing entries already in trends.json
+// When the developer runs `barad-dur backfill <path>`
+// Then stdout contains "7 entries written" (not "Backfill already complete")
+//
+// This guards against the && → || mutation in the terminal status message:
+// `written == 0 && !existing_heads.is_empty()` must NOT fire when written > 0.
+// ---------------------------------------------------------------------------
+#[test]
+fn backfill_partial_dedup_prints_written_count() {
+    let dir = TempDir::new().unwrap();
+    let repo_path = dir.path();
+    init_git_repo_with_commits(repo_path, "main", 15);
+
+    // First run to discover sampled SHAs
+    barad_dur()
+        .args(["backfill", repo_path.to_str().unwrap()])
+        .assert()
+        .success();
+    let first_run = read_trends_entries(repo_path);
+    assert_eq!(first_run.len(), 10);
+
+    // Seed only the 3 oldest entries so 7 are still missing
+    let pre_existing: Vec<_> = first_run[first_run.len() - 3..].to_vec();
+    let ndjson: String = pre_existing
+        .iter()
+        .map(|e| {
+            let sha = e["head"].as_str().unwrap();
+            format!(
+                "{}\n",
+                r#"{"timestamp":"2020-01-01T00:00:00Z","head":""#.to_string()
+                    + sha
+                    + r#"","branch":"main","overall_score":50,"schema_version":1,"source":"backfill","categories":{}}"#
+            )
+        })
+        .collect();
+    let cache_dir = repo_path.join(".repository-analysis");
+    fs::create_dir_all(&cache_dir).unwrap();
+    fs::write(cache_dir.join("trends.json"), &ndjson).unwrap();
+
+    // Second run: 3 pre-existing, 7 new
+    let output = barad_dur()
+        .args(["backfill", repo_path.to_str().unwrap()])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(output).unwrap();
+
+    assert!(
+        stdout.contains("7 entries written"),
+        "stdout should say '7 entries written' for partial backfill, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("Backfill already complete"),
+        "stdout must NOT say 'already complete' when entries were written, got:\n{stdout}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Regression: backfill entries must carry the commit's own historical timestamp
+//
+// Given a 15-commit repo where commits are dated ~30 days apart starting 2020-01-01
+// When the developer runs `barad-dur backfill <path>`
+// Then every entry in trends.json has a timestamp year <= 2023
+// (i.e., the real commit date, not the current wall-clock time of the run)
+//
+// This guards against the == → != mutation in the SHA-lookup that sets entry.timestamp.
+// ---------------------------------------------------------------------------
+#[test]
+fn backfill_entries_use_commit_timestamps() {
+    let dir = TempDir::new().unwrap();
+    let repo_path = dir.path();
+    init_git_repo_with_commits(repo_path, "main", 15);
+
+    barad_dur()
+        .args(["backfill", repo_path.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let entries = read_trends_entries(repo_path);
+    assert!(!entries.is_empty(), "trends.json should have entries");
+
+    for (i, entry) in entries.iter().enumerate() {
+        let ts = entry["timestamp"].as_str().unwrap_or("");
+        let year: u32 = ts.get(..4).and_then(|y| y.parse().ok()).unwrap_or(9999);
+        assert!(
+            year <= 2023,
+            "entry[{i}] timestamp '{ts}' should be from the commit's historical date (≤2023), \
+             not the current run time — check SHA lookup in backfill::run"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
 // AC-BF-11: All entries record the current HEAD branch name
 //
 // Given a repository with 15 commits on branch "main"
