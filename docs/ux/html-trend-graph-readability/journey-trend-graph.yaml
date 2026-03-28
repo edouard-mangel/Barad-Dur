@@ -1,0 +1,172 @@
+journey:
+  name: "Reading the HTML Trend Graph"
+  feature_id: "html-trend-graph-readability"
+  goal: "Understand whether repository health is improving and distinguish backfill historical baseline from live analysis data points"
+  persona: "Marco Rossi — engineering lead, runs barad-dur on a schedule, shares HTML report with team"
+
+  emotional_arc:
+    start: "Purposeful — opens report knowing what he wants to see"
+    middle: "Confused — all dots look identical, cannot tell backfill from live"
+    end: "Confident — hollow/filled encoding + tooltip source field answer his question at a glance"
+
+  context:
+    platform: "HTML report rendered in browser — self-contained single file"
+    renderer: "src/renderer/html.rs — vanilla JS DOM + SVG, no external libs"
+    existing_graph: "SVG polyline + circles, one color per score range, hover tooltip with date/SHA/score"
+    data_model:
+      type: "HistoryEntry"
+      source_field: "Option<String> — 'backfill' or absent (None = live)"
+      serialization: "source field is skip_serializing_if = None; absent in JSON means live"
+      loaded_from: ".repository-analysis/trends.json (NDJSON)"
+      exposed_as: "window.R.history — array of entry objects"
+
+steps:
+  - id: 1
+    name: "Open HTML Report"
+    action: "Marco runs barad-dur analyze --html and opens the output file"
+    ui_state: "Overview tab active, gauge + radar + category cards visible"
+    emotional_state:
+      entry: "Purposeful"
+      exit: "Purposeful"
+    confusion_points: []
+    shared_artifacts:
+      - name: "report_html"
+        source: "src/renderer/html.rs"
+        role: "Self-contained output file with all data inlined as window.R"
+    integration_checkpoint: "window.R.history is populated from trends.json via AnalysisReport.history"
+
+  - id: 2
+    name: "Navigate to Trends Tab"
+    action: "Marco clicks the Trends tab"
+    ui_state: "buildTrendsTab() renders; metric selector + SVG chart visible; all dots filled uniform color"
+    emotional_state:
+      entry: "Curious"
+      exit: "Curious-turning-confused"
+    confusion_points:
+      - "12 data points when Marco only ran analyze 2 times — backfill produced the rest"
+      - "All dots look identical — hollow vs filled distinction is absent"
+    shared_artifacts:
+      - name: "history_array"
+        source: "window.R.history — JSON array serialized from AnalysisReport.history"
+        displayed_as: "SVG circles (tr-dot class)"
+        consumers: ["buildTrendsTab() renderChart()", "hover tooltip handler"]
+      - name: "source_field"
+        source: "HistoryEntry.source (Rust) -> entry.source (JS)"
+        displayed_as: "NOT CURRENTLY DISPLAYED — missing from tooltip and visual encoding"
+        consumers: ["NONE — not yet consumed by the renderer"]
+
+  - id: 3
+    name: "Try to Understand the Trend"
+    action: "Marco looks at the graph shape; the line climbs steadily then flattens"
+    ui_state: "SVG chart: polyline + N filled circles, single line color based on last score"
+    emotional_state:
+      entry: "Confused"
+      exit: "Frustrated"
+    confusion_points:
+      - "Cannot determine which points are real live runs vs reconstructed backfill"
+      - "The steady historical climb may be a backfill artifact, not real improvement"
+      - "No legend; no visual distinction between point types"
+    design_options_encountered:
+      - id: A
+        name: "Hollow vs Filled dots"
+        description: "Backfill = SVG circle with fill='none' and visible stroke; Live = SVG circle with solid fill"
+        pros: ["Shape distinction — works without color", "SVG-native, no external lib", "Colorblind-safe"]
+        cons: ["Hollow dots can be harder to click precisely — may need larger hover area"]
+      - id: B
+        name: "Color distinction only"
+        description: "Backfill = dim gray; Live = score-based color"
+        pros: ["Minimal change to existing renderer"]
+        cons: ["Color-only encoding fails accessibility", "Low contrast on dark background"]
+      - id: C
+        name: "Tooltip enhancement only"
+        description: "All dots look the same; hovering reveals 'Source: Backfill' or 'Source: Live analysis'"
+        pros: ["Zero visual change to existing graph"]
+        cons: ["Requires hover to discover distinction — invisible at a glance", "No summary reading possible"]
+      - id: D
+        name: "Hollow/filled + tooltip + legend (combined)"
+        description: "Shape distinction at a glance, tooltip confirms on hover, legend explains symbols"
+        pros: ["Redundant encoding — multiple channels reinforce the same information", "Accessible"]
+        cons: ["Slightly more implementation surface"]
+
+  - id: 4
+    name: "Hover Over a Dot (Existing Tooltip)"
+    action: "Marco hovers a dot to read its details"
+    ui_state: |
+      Tooltip (current): date (YYYY-MM-DD), SHA (7 chars), score, commits/files/authors count
+      Tooltip (missing): source type — 'Backfill' or 'Live analysis'
+    emotional_state:
+      entry: "Searching"
+      exit: "Partially reassured — tooltip helps but missing source"
+    confusion_points:
+      - "Tooltip does not expose entry.source — the one field that answers the question"
+
+  - id: 5
+    name: "Wants to Distinguish Backfill from Live"
+    action: "Marco wants a visual answer without requiring hover on each dot"
+    ui_state: "Desired: hollow circles for backfill, filled circles for live, legend in chart header area"
+    emotional_state:
+      entry: "Expectant"
+      exit: "Expectant"
+    confusion_points:
+      - "Without visual encoding, user must hover N dots to build mental model"
+
+  - id: 6
+    name: "Form a Conclusion"
+    action: "With proper visual encoding, Marco reads the full graph at a glance"
+    ui_state: |
+      Chart: hollow circles (backfill) trace historical baseline; filled circles (live) show actual runs
+      Legend: compact row — 'o Backfill' and '* Live analysis'
+      Tooltip (enhanced): adds 'Source: Backfill' or 'Source: Live analysis' line
+    emotional_state:
+      entry: "Confident"
+      exit: "Empowered"
+    confusion_points: []
+    insight: "The hollow dots show what the codebase looked like historically (backfill reconstruction). The filled dots show what Marco actually measured. The story is legible without explanation."
+
+  - id: 7
+    name: "Share or Act"
+    action: "Marco shares the report or acts on the insight"
+    ui_state: "No additional UI change"
+    emotional_state:
+      entry: "Empowered"
+      exit: "Satisfied"
+
+edge_cases:
+  - id: EC-1
+    name: "Zero backfill entries"
+    description: "User has only run analyze, never backfill. All history entries have source=None (live)."
+    expected_behavior: "All dots rendered as filled circles. Legend either absent or shows only the live symbol. No visual noise."
+
+  - id: EC-2
+    name: "Mixed source in history"
+    description: "10 backfill entries + 3 live entries, interleaved by date"
+    expected_behavior: "Backfill dots hollow, live dots filled, in correct chronological position on X axis"
+
+  - id: EC-3
+    name: "All backfill entries (no live)"
+    description: "User ran barad-dur backfill but never ran analyze after"
+    expected_behavior: "All dots hollow. Legend shown. This is technically possible; graph should not break."
+
+  - id: EC-4
+    name: "Fewer than 2 entries"
+    description: "Only 0 or 1 history entries — existing empty state handles this"
+    expected_behavior: "Existing empty state message shown; no chart rendered. No change needed."
+
+  - id: EC-5
+    name: "Legacy entries without source field"
+    description: "History entries written before source field was added — source is absent/null in JSON"
+    expected_behavior: "Treat absent/null source as 'live' (safe default — no information lost, conservative)"
+
+integration_checkpoints:
+  - step: 2
+    check: "entry.source field present in window.R.history objects when source='backfill' in trends.json"
+    failure: "Renderer cannot distinguish point types; all dots appear live"
+  - step: 6
+    check: "SVG circle for backfill has fill='none'; SVG circle for live has fill=scoreColor"
+    failure: "Visual distinction broken; feature not working"
+  - step: 6
+    check: "Tooltip text includes 'Source: Backfill' or 'Source: Live analysis' line"
+    failure: "Hover detail incomplete"
+
+gherkin_reference: "journey-trend-graph.feature"
+shared_artifacts_reference: "shared-artifacts-registry.md"
