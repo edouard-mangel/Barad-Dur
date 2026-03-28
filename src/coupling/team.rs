@@ -13,6 +13,8 @@ pub struct TeamCouplingPair {
     pub shared_authors: Vec<String>,
     /// Number of shared authors.
     pub shared_count: usize,
+    /// Total unique authors across both repos (union cardinality).
+    pub total_unique_authors: usize,
     /// True when exactly one author bridges the two repos.
     pub is_single_bridge: bool,
     /// The bridge author's name (lowercased) when `is_single_bridge` is true.
@@ -54,9 +56,9 @@ fn analyze_pair(
 ) -> TeamCouplingPair {
     let shared: Vec<String> = authors_a.intersection(authors_b).cloned().collect();
 
-    let total_unique = authors_a.union(authors_b).count();
+    let total_unique_authors = authors_a.union(authors_b).count();
     let shared_count = shared.len();
-    let team_score = compute_team_score(shared_count, total_unique);
+    let team_score = compute_team_score(shared_count, total_unique_authors);
     let (is_single_bridge, bridge_author) = detect_bridge(&shared);
 
     TeamCouplingPair {
@@ -65,6 +67,7 @@ fn analyze_pair(
         team_score,
         shared_authors: shared,
         shared_count,
+        total_unique_authors,
         is_single_bridge,
         bridge_author,
     }

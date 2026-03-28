@@ -51,7 +51,12 @@ pub fn classify_confidence(co_changes: usize) -> Confidence {
 /// Each commit in repo_a is counted at most once (it either has a neighbor in
 /// repo_b within the window or it doesn't). Both slices must be pre-sorted;
 /// uses binary search for efficiency.
-pub fn count_co_changes(
+///
+/// Note: this function is not used by `analyze_temporal_coupling`, which uses a
+/// faster merged-timeline approach. It is retained as a reference implementation
+/// for unit testing of the binary-search neighbor logic.
+#[cfg(test)]
+fn count_co_changes(
     sorted_timestamps_a: &[i64],
     sorted_timestamps_b: &[i64],
     window_secs: i64,
@@ -67,6 +72,7 @@ pub fn count_co_changes(
 }
 
 /// Check if any timestamp in `sorted_timestamps` falls within `window_secs` of `target`.
+#[cfg(test)]
 fn has_neighbor_within_window(sorted_timestamps: &[i64], target: i64, window_secs: i64) -> bool {
     let lower = target - window_secs;
     let upper = target + window_secs;

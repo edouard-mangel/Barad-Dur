@@ -385,6 +385,7 @@ fn make_team_pair(repo_a: &str, repo_b: &str, score: f64) -> TeamCouplingPair {
         team_score: score,
         shared_authors: vec!["alice".to_string()],
         shared_count: 1,
+        total_unique_authors: 1,
         is_single_bridge: true,
         bridge_author: Some("alice".to_string()),
     }

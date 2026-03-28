@@ -131,7 +131,7 @@ pub fn score_coupling_pairs(
                 .get(&key)
                 .map(|p| TeamDetails {
                     shared_authors: p.shared_count,
-                    total_authors: p.shared_count, // best available
+                    total_authors: p.total_unique_authors,
                 })
                 .unwrap_or_else(default_team_details);
 
@@ -198,6 +198,7 @@ mod tests {
             team_score: score,
             shared_authors: vec![],
             shared_count: 0,
+            total_unique_authors: 0,
             is_single_bridge: false,
             bridge_author: None,
         }

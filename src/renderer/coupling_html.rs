@@ -447,6 +447,10 @@ const JS: &str = r#"
   var filterTeam = document.getElementById('filter-team');
   var filterDependency = document.getElementById('filter-dependency');
 
+  // Compute a display score using only the checked dimensions.
+  // This is an unweighted sum of the enabled dimension scores — used for
+  // visual comparison only, not the original weighted combined_score.
+  // Returns 0 when all checkboxes are unchecked (hides all edges).
   function computeFilteredScore(edge) {
     var score = 0;
     var count = 0;

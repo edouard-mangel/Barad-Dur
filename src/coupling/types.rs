@@ -52,7 +52,7 @@ pub struct RepoInfo {
 pub struct TemporalDetails {
     /// Number of times commits in both repos fell within the coupling window.
     pub co_commit_count: usize,
-    /// Total commit pairs analyzed.
+    /// Total commit windows analyzed. Reserved for future use; currently always 0.
     pub total_windows: usize,
 }
 
