@@ -139,6 +139,76 @@ pub const CSHARP_PROPERTIES: &str = r#"(field_declaration (modifier) @mod)"#;
 
 pub const CSHARP_COMMENTS: &str = r#"(comment) @comment"#;
 
+// ── Demeter (method chains depth ≥ 3) ───────────────────────────────
+
+#[allow(dead_code)]
+/// Rust: detects `x.a().b().c()` — three nested call_expression/field_expression pairs.
+pub const RUST_DEMETER: &str = r#"(call_expression
+  function: (field_expression
+    value: (call_expression
+      function: (field_expression
+        value: (call_expression)
+      )
+    )
+  )
+) @demeter"#;
+
+#[allow(dead_code)]
+/// JavaScript: detects `a.b().c().d()` chains.
+pub const JS_DEMETER: &str = r#"(call_expression
+  function: (member_expression
+    object: (call_expression
+      function: (member_expression
+        object: (call_expression)
+      )
+    )
+  )
+) @demeter"#;
+
+#[allow(dead_code)]
+/// TypeScript shares the same query as JavaScript.
+pub const TS_DEMETER: &str = JS_DEMETER;
+
+#[allow(dead_code)]
+/// Python: detects `a.b.c.d` attribute chains (depth ≥ 3).
+pub const PYTHON_DEMETER: &str = r#"(attribute
+  object: (attribute
+    object: (attribute)
+  )
+) @demeter"#;
+
+#[allow(dead_code)]
+/// Go: detects `a.Foo().Bar().Baz()` selector chains.
+pub const GO_DEMETER: &str = r#"(call_expression
+  function: (selector_expression
+    operand: (call_expression
+      function: (selector_expression
+        operand: (call_expression)
+      )
+    )
+  )
+) @demeter"#;
+
+#[allow(dead_code)]
+/// Java: detects `a.foo().bar().baz()` method invocation chains.
+pub const JAVA_DEMETER: &str = r#"(method_invocation
+  object: (method_invocation
+    object: (method_invocation)
+  )
+) @demeter"#;
+
+#[allow(dead_code)]
+/// C#: detects `a.Foo().Bar().Baz()` invocation chains.
+pub const CSHARP_DEMETER: &str = r#"(invocation_expression
+  function: (member_access_expression
+    expression: (invocation_expression
+      function: (member_access_expression
+        expression: (invocation_expression)
+      )
+    )
+  )
+) @demeter"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
