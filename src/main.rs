@@ -8,7 +8,7 @@ use barad_dur::cache;
 use barad_dur::cli::{AnalyzeArgs, Cli, Commands, CouplingArgs, GateArgs};
 use barad_dur::collector::Collector;
 use barad_dur::config::{self, RepoConfig};
-use barad_dur::metrics::{evolution, health, hygiene, team, CategoryResult};
+use barad_dur::metrics::{coupling, evolution, health, hygiene, team, CategoryResult};
 use barad_dur::remote;
 use barad_dur::renderer;
 use barad_dur::scorer::{self, RemoteMeta};
@@ -279,6 +279,7 @@ fn run_gate(args: GateArgs) -> Result<i32> {
         team::compute_team(&snapshot, &cfg.thresholds.team),
         evolution::compute_evolution(&snapshot, &cfg.thresholds.evolution),
         hygiene::compute_hygiene(&snapshot, &cfg.thresholds.hygiene),
+        coupling::compute_coupling(&snapshot),
     ];
 
     let weight_pairs = cfg.weights.as_weight_pairs();
@@ -631,6 +632,9 @@ fn compute_selected_metrics(
     }
     if args.should_run("hygiene") {
         categories.push(hygiene::compute_hygiene(snapshot, &cfg.thresholds.hygiene));
+    }
+    if args.should_run("coupling") {
+        categories.push(coupling::compute_coupling(snapshot));
     }
 
     categories
