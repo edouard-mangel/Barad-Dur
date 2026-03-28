@@ -608,4 +608,12 @@ mod tests {
         let result = analyse(src, Language::Rust, "rs").unwrap();
         assert_eq!(result.demeter_violations, 0);
     }
+
+    #[test]
+    fn demeter_violation_rust_depth4_counts_twice() {
+        // depth-4 chain contains two overlapping depth-3 sub-patterns → 2 violations
+        let src = r#"fn f() { let _ = a.foo().bar().baz().qux(); }"#;
+        let result = analyse(src, Language::Rust, "rs").unwrap();
+        assert_eq!(result.demeter_violations, 2);
+    }
 }
