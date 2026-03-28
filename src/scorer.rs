@@ -560,10 +560,11 @@ fn generate_top_actions(categories: &[CategoryResult]) -> Vec<ActionItem> {
 fn target_tab_for_metric(metric_name: &str) -> (Option<&'static str>, Option<&'static str>) {
     match metric_name {
         "Bus factor" => (Some("ownership"), Some("authors")),
-        "Churn hotspots" => (Some("hotspots"), Some("churn")),
+        "God objects" => (Some("hotspots"), Some("complexity")),
+        "Complex hotspots" => (Some("hotspots"), Some("complexity")),
+        "Fan-out coupling" => (Some("coupling"), None),
+        "Demeter violations" => (Some("coupling"), None),
         "Temporal coupling" => (Some("coupling"), None),
-        "Stale code" => (Some("age"), Some("oldest")),
-        "File complexity" => (Some("hotspots"), Some("complexity")),
         "Knowledge distribution" => (Some("ownership"), None),
         "Ownership clarity" => (Some("ownership"), None),
         "Collaboration patterns" => (Some("ownership"), None),
@@ -578,10 +579,11 @@ fn target_tab_for_metric(metric_name: &str) -> (Option<&'static str>, Option<&'s
 fn suggest_action(metric_name: &str) -> &'static str {
     match metric_name {
         "Bus factor" => "Increase code review coverage and pair programming to spread knowledge",
-        "Churn hotspots" => "Consider splitting frequently changed files into smaller modules",
+        "God objects" => "Break down large files by extracting responsibilities into smaller modules",
+        "Complex hotspots" => "Prioritize refactoring files with both high complexity and high churn",
+        "Fan-out coupling" => "Reduce dependencies by extracting shared interfaces or facades",
+        "Demeter violations" => "Apply the Law of Demeter: only call methods on direct collaborators",
         "Temporal coupling" => "Decouple tightly paired files by extracting shared interfaces",
-        "Stale code" => "Review untouched files for removal or archival",
-        "File complexity" => "Break down large files and reduce directory nesting depth",
         "Knowledge distribution" => "Encourage cross-team contributions and rotate ownership",
         "Contributor activity" => "Onboard more active contributors or check team health",
         "Ownership clarity" => "Assign clear code owners via CODEOWNERS file",
