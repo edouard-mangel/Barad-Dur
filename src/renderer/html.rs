@@ -3462,7 +3462,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn html_trends_legacy_entry_has_no_source_in_window_r() {
         let mut report = make_report();
         report.history = vec![make_history_entry(65, None)];
