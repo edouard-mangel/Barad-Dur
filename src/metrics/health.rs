@@ -22,7 +22,7 @@ pub fn compute_health(snapshot: &RepoSnapshot, thresholds: &HealthThresholds) ->
     .compute_score()
 }
 
-/// Minimum number of authors needed to cover 50% of code knowledge.
+/// Percentage of files that are single-author dominated (one author owns >50% of lines).
 fn bus_factor(snapshot: &RepoSnapshot, _thresholds: &HealthThresholds) -> MetricValue {
     if snapshot.blame_map.is_empty() {
         return MetricValue {
@@ -33,63 +33,40 @@ fn bus_factor(snapshot: &RepoSnapshot, _thresholds: &HealthThresholds) -> Metric
         };
     }
 
-    let mut min_bus_factor = usize::MAX;
-
-    for blame_lines in snapshot.blame_map.values() {
-        if blame_lines.is_empty() {
-            continue;
-        }
-
-        // Count lines per author
-        let mut author_lines: HashMap<usize, usize> = HashMap::new();
-        for line in blame_lines {
-            *author_lines.entry(line.author_id).or_insert(0) += 1;
-        }
-
-        // Sort by lines descending
-        let mut counts: Vec<usize> = author_lines.values().copied().collect();
-        counts.sort_unstable_by(|a, b| b.cmp(a));
-
-        let total: usize = counts.iter().sum();
-        let threshold = total / 2;
-        let mut accumulated = 0;
-        let mut authors_needed = 0;
-
-        for count in &counts {
-            accumulated += count;
-            authors_needed += 1;
-            if accumulated >= threshold {
-                break;
+    let total_files = snapshot.blame_map.len();
+    let dominated = snapshot
+        .blame_map
+        .values()
+        .filter(|lines| {
+            if lines.is_empty() {
+                return false;
             }
-        }
+            let mut author_lines: HashMap<usize, usize> = HashMap::new();
+            for line in lines.iter() {
+                *author_lines.entry(line.author_id).or_insert(0) += 1;
+            }
+            let total: usize = author_lines.values().sum();
+            let max: usize = author_lines.values().copied().max().unwrap_or(0);
+            max * 2 > total
+        })
+        .count();
 
-        min_bus_factor = min_bus_factor.min(authors_needed);
-    }
+    let pct = (dominated as f64 / total_files as f64) * 100.0;
 
-    if min_bus_factor == usize::MAX {
-        min_bus_factor = 0;
-    }
-
-    let score = match min_bus_factor {
-        0 => 0,
-        1 => 20,
-        2 => 50,
-        3 => 75,
-        _ => 100,
-    };
-
-    let label = match min_bus_factor {
-        0 => "none",
-        1 => "critical",
-        2 => "risky",
-        3 => "good",
-        _ => "excellent",
+    let score = if pct < 10.0 {
+        100
+    } else if pct < 25.0 {
+        75
+    } else if pct < 50.0 {
+        50
+    } else {
+        25
     };
 
     MetricValue {
         name: "Bus factor".to_string(),
-        description: format!("{} ({})", min_bus_factor, label),
-        raw_value: RawValue::Integer(min_bus_factor as i64),
+        description: format!("{:.0}% of files single-author dominated", pct),
+        raw_value: RawValue::Percentage(pct),
         score,
     }
 }
@@ -335,11 +312,11 @@ mod tests {
     fn bus_factor_detects_single_author_dominance() {
         let snapshot = make_snapshot_with_blame();
         let result = bus_factor(&snapshot, &HealthThresholds::default());
-        // Alice owns 80% → bus factor = 1
-        assert_eq!(result.score, 20);
+        // Alice owns 80% → 1/1 file dominated → 100% → score = 25
+        assert_eq!(result.score, 25);
         match result.raw_value {
-            RawValue::Integer(v) => assert_eq!(v, 1),
-            _ => panic!("Expected Integer"),
+            RawValue::Percentage(p) => assert!((p - 100.0).abs() < 1.0),
+            _ => panic!("Expected Percentage"),
         }
     }
 
