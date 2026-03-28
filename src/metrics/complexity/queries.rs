@@ -141,7 +141,6 @@ pub const CSHARP_COMMENTS: &str = r#"(comment) @comment"#;
 
 // ── Demeter (method chains depth ≥ 3) ───────────────────────────────
 
-#[allow(dead_code)]
 /// Rust: detects `x.a().b().c()` — three nested call_expression/field_expression pairs.
 pub const RUST_DEMETER: &str = r#"(call_expression
   function: (field_expression
@@ -153,7 +152,6 @@ pub const RUST_DEMETER: &str = r#"(call_expression
   )
 ) @demeter"#;
 
-#[allow(dead_code)]
 /// JavaScript: detects `a.b().c().d()` chains.
 pub const JS_DEMETER: &str = r#"(call_expression
   function: (member_expression
@@ -165,11 +163,9 @@ pub const JS_DEMETER: &str = r#"(call_expression
   )
 ) @demeter"#;
 
-#[allow(dead_code)]
 /// TypeScript shares the same query as JavaScript.
 pub const TS_DEMETER: &str = JS_DEMETER;
 
-#[allow(dead_code)]
 /// Python: detects `a.b.c.d` attribute chains (depth ≥ 3).
 pub const PYTHON_DEMETER: &str = r#"(attribute
   object: (attribute
@@ -177,7 +173,6 @@ pub const PYTHON_DEMETER: &str = r#"(attribute
   )
 ) @demeter"#;
 
-#[allow(dead_code)]
 /// Go: detects `a.Foo().Bar().Baz()` selector chains.
 pub const GO_DEMETER: &str = r#"(call_expression
   function: (selector_expression
@@ -189,7 +184,6 @@ pub const GO_DEMETER: &str = r#"(call_expression
   )
 ) @demeter"#;
 
-#[allow(dead_code)]
 /// Java: detects `a.foo().bar().baz()` method invocation chains.
 pub const JAVA_DEMETER: &str = r#"(method_invocation
   object: (method_invocation
@@ -197,7 +191,6 @@ pub const JAVA_DEMETER: &str = r#"(method_invocation
   )
 ) @demeter"#;
 
-#[allow(dead_code)]
 /// C#: detects `a.Foo().Bar().Baz()` invocation chains.
 pub const CSHARP_DEMETER: &str = r#"(invocation_expression
   function: (member_access_expression
@@ -247,6 +240,7 @@ mod tests {
         assert_valid_query(rust(), RUST_PUBLIC_METHODS, "rust public_methods");
         assert_valid_query(rust(), RUST_PROPERTIES, "rust properties");
         assert_valid_query(rust(), RUST_COMMENTS, "rust comments");
+        assert_valid_query(rust(), RUST_DEMETER, "rust demeter");
     }
 
     #[test]
@@ -256,6 +250,7 @@ mod tests {
         assert_valid_query(js(), JS_PUBLIC_METHODS, "js public_methods");
         assert_valid_query(js(), JS_PROPERTIES, "js properties");
         assert_valid_query(js(), JS_COMMENTS, "js comments");
+        assert_valid_query(js(), JS_DEMETER, "js demeter");
     }
 
     #[test]
@@ -266,6 +261,7 @@ mod tests {
         assert_valid_query(ts(), TS_PUBLIC_METHODS, "ts public_methods");
         assert_valid_query(ts(), TS_PROPERTIES, "ts properties");
         assert_valid_query(ts(), JS_COMMENTS, "ts comments");
+        assert_valid_query(ts(), TS_DEMETER, "ts demeter");
     }
 
     #[test]
@@ -273,6 +269,7 @@ mod tests {
         assert_valid_query(python(), PYTHON_COMPLEXITY, "python complexity");
         assert_valid_query(python(), PYTHON_PUBLIC_METHODS, "python public_methods");
         assert_valid_query(python(), PYTHON_COMMENTS, "python comments");
+        assert_valid_query(python(), PYTHON_DEMETER, "python demeter");
     }
 
     #[test]
@@ -282,6 +279,7 @@ mod tests {
         assert_valid_query(go(), GO_PUBLIC_METHODS, "go public_methods");
         assert_valid_query(go(), GO_PROPERTIES, "go properties");
         assert_valid_query(go(), GO_COMMENTS, "go comments");
+        assert_valid_query(go(), GO_DEMETER, "go demeter");
     }
 
     #[test]
@@ -291,6 +289,7 @@ mod tests {
         assert_valid_query(java(), JAVA_PUBLIC_METHODS, "java public_methods");
         assert_valid_query(java(), JAVA_PROPERTIES, "java properties");
         assert_valid_query(java(), JAVA_COMMENTS, "java comments");
+        assert_valid_query(java(), JAVA_DEMETER, "java demeter");
     }
 
     #[test]
@@ -300,5 +299,6 @@ mod tests {
         assert_valid_query(csharp(), CSHARP_PUBLIC_METHODS, "csharp public_methods");
         assert_valid_query(csharp(), CSHARP_PROPERTIES, "csharp properties");
         assert_valid_query(csharp(), CSHARP_COMMENTS, "csharp comments");
+        assert_valid_query(csharp(), CSHARP_DEMETER, "csharp demeter");
     }
 }
