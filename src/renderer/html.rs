@@ -3457,11 +3457,11 @@ mod tests {
         report.history = vec![make_history_entry(58, Some("backfill"))];
         let html = render(&report).unwrap();
         assert!(
-            html.contains(r#"fill="none""#) || html.contains("fill:'none'") || html.contains("fill: 'none'"),
-            "Rendered JS should contain fill=\"none\" for hollow circle encoding"
+            html.contains("isBackfill ? 'none'"),
+            "Hollow circle conditional must assign fill='none' for backfill entries"
         );
         assert!(
-            html.contains("pointer-events:all") || html.contains("pointer-events: all"),
+            html.contains("pointer-events:all"),
             "Hollow circles need pointer-events:all for correct hover area (SVG fill=none issue)"
         );
     }
@@ -3611,9 +3611,11 @@ mod tests {
 
     #[test]
     fn html_trends_hollow_dot_pointer_events_all() {
-        let html = render(&make_report()).unwrap();
+        let mut report = make_report();
+        report.history = vec![make_history_entry(58, Some("backfill"))];
+        let html = render(&report).unwrap();
         assert!(
-            html.contains("pointer-events:all") || html.contains("pointer-events: all"),
+            html.contains("pointer-events:all"),
             "Hollow circle JS must set pointer-events:all to fix hover area on fill=none circles"
         );
     }
