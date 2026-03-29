@@ -44,7 +44,7 @@ variables:
         - .cargo/registry
         - .cargo/git
         - target/
-    - key: rust-tools-1.94
+    - key: rust-tools-1.94-v2
       policy: pull
       paths:
         - .cargo/bin
@@ -104,10 +104,11 @@ build:
 install-tools:
   stage: build
   image: rust:1.94
+  timeout: 2 hours
   before_script:
     - apt-get update -qq && apt-get install -y -qq cmake pkg-config libssl-dev
   cache:
-    key: rust-tools-1.94
+    key: rust-tools-1.94-v2
     policy: pull-push
     paths:
       - .cargo/bin
@@ -116,7 +117,7 @@ install-tools:
     - '[ -f "$CARGO_HOME/bin/cargo-tarpaulin" ]       || cargo install cargo-tarpaulin --locked'
     - '[ -f "$CARGO_HOME/bin/cargo-audit" ]           || cargo install cargo-audit --locked'
     - '[ -f "$CARGO_HOME/bin/cargo-deny" ]            || cargo install cargo-deny --locked'
-    - '[ -f "$CARGO_HOME/bin/cargo-semver-checks" ]   || cargo install cargo-semver-checks --version 0.42.0 --locked'
+    - '[ -f "$CARGO_HOME/bin/cargo-semver-checks" ]   || cargo install cargo-semver-checks --locked'
     - '[ -f "$CARGO_HOME/bin/cargo-mutants" ]         || cargo install cargo-mutants --locked'
 
 # ── Test ──────────────────────────────────────
