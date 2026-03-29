@@ -301,7 +301,8 @@ mod tests {
     #[test]
     fn collect_files_populates_blob_oid() {
         // Requires a real git repo — skips gracefully under cargo-mutants (temp dir)
-        let Ok(collector) = Collector::open(std::path::Path::new("."), TimeWindow::default()) else {
+        let Ok(collector) = Collector::open(std::path::Path::new("."), TimeWindow::default())
+        else {
             return;
         };
         let files = collector.collect_files().expect("should collect files");
@@ -319,7 +320,8 @@ mod tests {
     #[test]
     fn collect_blame_uses_cache_for_known_blobs() {
         // Requires a real git repo — skips gracefully under cargo-mutants (temp dir)
-        let Ok(collector) = Collector::open(std::path::Path::new("."), TimeWindow::default()) else {
+        let Ok(collector) = Collector::open(std::path::Path::new("."), TimeWindow::default())
+        else {
             return;
         };
         let files = collector.collect_files().expect("should collect files");
@@ -345,7 +347,8 @@ mod tests {
     #[test]
     fn collect_file_metrics_does_not_panic_on_real_repo() {
         // Requires a real git repo — skips gracefully under cargo-mutants (temp dir)
-        let Ok(collector) = Collector::open(std::path::Path::new("."), TimeWindow::default()) else {
+        let Ok(collector) = Collector::open(std::path::Path::new("."), TimeWindow::default())
+        else {
             return;
         };
         let files = collector.collect_files().expect("should collect files");
