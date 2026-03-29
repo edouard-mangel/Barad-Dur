@@ -15,9 +15,11 @@ fn git_time_to_chrono(time: &git2::Time) -> DateTime<Utc> {
 }
 
 pub fn collect_commits(repo: &Repository, time_window: &TimeWindow) -> Result<CommitCollection> {
-    // An empty repository (no commits yet) has no HEAD reference.
-    // Return an empty collection rather than propagating a confusing libgit2 error.
-    if repo.is_empty().unwrap_or(false) {
+    // An empty repository (no commits yet) either reports is_empty()=true or has no
+    // resolvable HEAD. Guard both cases: some git2 versions return is_empty()=false for
+    // a `git init -b <branch>` repo that has no commits yet, causing push_head() to fail
+    // with "reference not found" rather than the user-friendly "No commits" message.
+    if repo.is_empty().unwrap_or(false) || repo.head().is_err() {
         return Ok(CommitCollection {
             commits: vec![],
             authors: vec![],
