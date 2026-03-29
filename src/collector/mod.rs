@@ -1,9 +1,9 @@
+mod exclude;
 pub mod gitcli;
 mod libgit;
-mod exclude;
 mod progress;
-mod types;
 mod snapshot_builder;
+mod types;
 
 use anyhow::{Context, Result};
 use std::collections::HashMap;
