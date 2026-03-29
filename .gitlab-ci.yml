@@ -75,9 +75,12 @@ test:
   <<: *rust-base
   timeout: 3 hours
   script:
-    - cargo test --lib
-    - cargo test --test collector_tests
-    - cargo test --test integration_tests
+    - cargo install cargo-nextest --locked
+    - cargo nextest run --workspace --profile ci
+  artifacts:
+    reports:
+      junit: target/nextest/ci/junit.xml
+    expire_in: 1 week
 
 coverage:
   stage: test
@@ -86,7 +89,7 @@ coverage:
   script:
     - rustup component add llvm-tools-preview
     - cargo install cargo-tarpaulin --locked
-    - cargo tarpaulin --engine llvm --out xml --output-dir coverage/
+    - cargo tarpaulin --engine llvm --out xml --output-dir coverage/ --fail-under 80
   coverage: '/^\d+.\d+% coverage/'
   artifacts:
     reports:
@@ -106,7 +109,11 @@ audit:
   script:
     - cargo install cargo-audit --locked
     - cargo audit
-  allow_failure: true
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+      allow_failure: false
+    - when: always
+      allow_failure: true
 
 deny:
   stage: analysis
@@ -114,7 +121,11 @@ deny:
   script:
     - cargo install cargo-deny --locked
     - cargo deny check
-  allow_failure: true
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+      allow_failure: false
+    - when: always
+      allow_failure: true
 
 semver-check:
   stage: analysis
@@ -122,28 +133,30 @@ semver-check:
   script:
     - cargo install cargo-semver-checks --version 0.42.0 --locked
     - cargo semver-checks check-release
-  allow_failure: true
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+      allow_failure: false
+    - when: always
+      allow_failure: true
 
-# Mutation testing — runs on daily schedule only, and only when commits landed
-# in the last 25 hours. Mutations are scoped to lines changed in that window.
-# To enable: Settings > CI/CD > Schedules — add a daily trigger on main.
-# Set allow_failure: false once the baseline is established and stable.
+# Mutation testing — per-feature: scoped to the MR diff or last commit on main.
+# Runs on every MR and every push to main. Blocking (allow_failure: false).
 mutation:
   stage: analysis
   <<: *rust-base
-  timeout: 6 hours
+  timeout: 45 minutes
   script:
     - cargo install cargo-mutants --locked
     - |
-      # Skip if no commits landed in the last 25 hours
-      SINCE=$(git log --since="25 hours ago" --format="%H" | tail -1)
-      if [ -z "$SINCE" ]; then
-        echo "No commits in the last 25 hours — skipping mutation run"
+      if [ -n "$CI_MERGE_REQUEST_DIFF_BASE_SHA" ]; then
+        git diff "$CI_MERGE_REQUEST_DIFF_BASE_SHA"..HEAD > recent.diff
+      else
+        git diff HEAD~1..HEAD > recent.diff
+      fi
+      if [ ! -s recent.diff ]; then
+        echo "Empty diff — no source changes, skipping mutation run"
         exit 0
       fi
-      # Diff from just before the oldest recent commit to HEAD
-      BEFORE=$(git rev-parse "${SINCE}^" 2>/dev/null || echo "$SINCE")
-      git diff "$BEFORE"..HEAD > recent.diff
       cargo mutants --in-diff recent.diff --timeout 60 2>&1 | tee mutants.log
     - |
       python3 << 'PYEOF'
@@ -174,8 +187,49 @@ mutation:
     when: always
     expire_in: 1 week
   rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
+  allow_failure: false
+
+# Mutation testing — nightly: full codebase, no diff filter.
+# To enable: Settings > CI/CD > Schedules — add a daily trigger on main.
+# Set allow_failure: false once full-codebase kill rate ≥ 80% is confirmed.
+mutation-nightly:
+  stage: analysis
+  <<: *rust-base
+  timeout: 6 hours
+  script:
+    - cargo install cargo-mutants --locked
+    - cargo mutants --timeout 60 --jobs 4 2>&1 | tee mutants.log
+    - |
+      python3 << 'PYEOF'
+      import re, sys
+      with open('mutants.log') as f:
+          content = f.read()
+      m = re.search(r'(\d+) mutants tested.*?(\d+) caught.*?(\d+) missed.*?(\d+) timeout.*?(\d+) unviable', content)
+      if not m:
+          print('No mutants generated — skipping kill rate gate')
+          sys.exit(0)
+      total, caught, missed, timeout_n, unviable = map(int, m.groups())
+      viable = total - unviable
+      if viable == 0:
+          print('No viable mutants — skipping gate')
+          sys.exit(0)
+      rate = caught / viable * 100
+      print(f'Kill rate: {caught}/{viable} viable mutants = {rate:.1f}%')
+      if rate < 80:
+          print(f'FAIL: {rate:.1f}% < 80% required. Add tests for {missed} missed mutant(s).')
+          sys.exit(1)
+      print(f'PASS: {rate:.1f}% >= 80%')
+      PYEOF
+  artifacts:
+    paths:
+      - mutants.out/
+    when: always
+    expire_in: 1 week
+  rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
-  allow_failure: true  # Remove once baseline is established
+  allow_failure: true  # Remove once full-codebase baseline ≥ 80% is confirmed
 
 self-analysis:
   stage: analysis
@@ -275,6 +329,20 @@ release-windows:
       - dist/barad-dur-windows-x86_64.exe
     expire_in: never
 
+binary-smoke-test:
+  stage: release
+  image: alpine:3.21
+  needs:
+    - job: release-linux
+      artifacts: true
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+  script:
+    - chmod +x dist/barad-dur-linux-x86_64
+    - dist/barad-dur-linux-x86_64 --version
+    - dist/barad-dur-linux-x86_64 --help
+    - dist/barad-dur-linux-x86_64 analyze . 2>&1 | grep -q "Score"
+
 release-publish:
   stage: release
   image: registry.gitlab.com/gitlab-org/release-cli:latest
@@ -285,6 +353,7 @@ release-publish:
       artifacts: true
     - job: release-windows
       artifacts: true
+    - job: binary-smoke-test
   variables:
     PACKAGE_REGISTRY_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/barad-dur"
   before_script:

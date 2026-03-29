@@ -14,7 +14,7 @@ Concretely for Rust:
 
 ## Mutation Testing Strategy
 
-per-feature — gate ≥80% kill rate before merge.
+hybrid — per-feature on push (scoped to files changed in last 25h, kill rate ≥ 80%), full-codebase nightly (scheduled CI job).
 
 
 ## gstate 
