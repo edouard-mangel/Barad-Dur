@@ -104,7 +104,9 @@ fn complex_hotspots(snapshot: &RepoSnapshot) -> MetricValue {
         };
     }
 
-    let mut cc_values: Vec<u32> = snapshot.file_metrics.values()
+    let mut cc_values: Vec<u32> = snapshot
+        .file_metrics
+        .values()
         .map(|m| m.cyclomatic_complexity)
         .collect();
     cc_values.sort_unstable();
@@ -113,9 +115,7 @@ fn complex_hotspots(snapshot: &RepoSnapshot) -> MetricValue {
         .copied()
         .unwrap_or(0);
 
-    let mut churn_values: Vec<usize> = snapshot.commits_by_file.values()
-        .map(|c| c.len())
-        .collect();
+    let mut churn_values: Vec<usize> = snapshot.commits_by_file.values().map(|c| c.len()).collect();
     churn_values.sort_unstable();
     let churn_p75 = churn_values
         .get(churn_values.len().saturating_sub(1) * 3 / 4)
@@ -126,7 +126,11 @@ fn complex_hotspots(snapshot: &RepoSnapshot) -> MetricValue {
         .file_metrics
         .iter()
         .filter(|(path, m)| {
-            let churn = snapshot.commits_by_file.get(*path).map(|c| c.len()).unwrap_or(0);
+            let churn = snapshot
+                .commits_by_file
+                .get(*path)
+                .map(|c| c.len())
+                .unwrap_or(0);
             m.cyclomatic_complexity > cc_p75 && churn > churn_p75
         })
         .map(|(p, _)| p.display().to_string())
@@ -300,9 +304,7 @@ mod tests {
                 timestamp: now,
             })
             .collect();
-        snapshot
-            .blame_map
-            .insert(PathBuf::from("file.rs"), lines);
+        snapshot.blame_map.insert(PathBuf::from("file.rs"), lines);
         let result = bus_factor(&snapshot, &HealthThresholds::default());
         // 0% dominated → score 100
         assert_eq!(result.score, 100);
@@ -315,17 +317,32 @@ mod tests {
     #[test]
     fn god_objects_detects_large_files() {
         let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
         );
         snapshot.file_metrics.insert(
             PathBuf::from("fat.rs"),
-            FileComplexity { total_lines: 600, loc: 520, cyclomatic_complexity: 10,
-                             public_methods: 5, properties: 2, demeter_violations: 0 },
+            FileComplexity {
+                total_lines: 600,
+                loc: 520,
+                cyclomatic_complexity: 10,
+                public_methods: 5,
+                properties: 2,
+                demeter_violations: 0,
+            },
         );
         snapshot.file_metrics.insert(
             PathBuf::from("small.rs"),
-            FileComplexity { total_lines: 100, loc: 80, cyclomatic_complexity: 3,
-                             public_methods: 2, properties: 1, demeter_violations: 0 },
+            FileComplexity {
+                total_lines: 100,
+                loc: 80,
+                cyclomatic_complexity: 3,
+                public_methods: 2,
+                properties: 1,
+                demeter_violations: 0,
+            },
         );
         let result = god_objects(&snapshot);
         assert_eq!(result.score, 75); // 1 god object
@@ -338,12 +355,21 @@ mod tests {
     #[test]
     fn god_objects_detects_method_bloat() {
         let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
         );
         snapshot.file_metrics.insert(
             PathBuf::from("bloated.rs"),
-            FileComplexity { total_lines: 350, loc: 310, cyclomatic_complexity: 5,
-                             public_methods: 16, properties: 3, demeter_violations: 0 },
+            FileComplexity {
+                total_lines: 350,
+                loc: 310,
+                cyclomatic_complexity: 5,
+                public_methods: 16,
+                properties: 3,
+                demeter_violations: 0,
+            },
         );
         let result = god_objects(&snapshot);
         assert_eq!(result.score, 75); // 1 god object (LOC>300 AND methods>15)
@@ -352,12 +378,21 @@ mod tests {
     #[test]
     fn god_objects_scores_100_when_none() {
         let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
         );
         snapshot.file_metrics.insert(
             PathBuf::from("normal.rs"),
-            FileComplexity { total_lines: 100, loc: 80, cyclomatic_complexity: 3,
-                             public_methods: 5, properties: 1, demeter_violations: 0 },
+            FileComplexity {
+                total_lines: 100,
+                loc: 80,
+                cyclomatic_complexity: 3,
+                public_methods: 5,
+                properties: 1,
+                demeter_violations: 0,
+            },
         );
         let result = god_objects(&snapshot);
         assert_eq!(result.score, 100);
@@ -366,20 +401,29 @@ mod tests {
     #[test]
     fn complex_hotspots_finds_high_cc_high_churn_files() {
         let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
         );
         // 4 files: only "bad.rs" is in top quartile of both CC and churn
         let files: &[(&str, u32, usize)] = &[
-            ("bad.rs",  20, 20), // high CC (top 25%), high churn (top 25%)
-            ("ok1.rs",   2,  1),
-            ("ok2.rs",   3,  2),
-            ("ok3.rs",   4,  3),
+            ("bad.rs", 20, 20), // high CC (top 25%), high churn (top 25%)
+            ("ok1.rs", 2, 1),
+            ("ok2.rs", 3, 2),
+            ("ok3.rs", 4, 3),
         ];
         for (name, cc, churn) in files {
             snapshot.file_metrics.insert(
                 PathBuf::from(name),
-                FileComplexity { total_lines: 100, loc: 80, cyclomatic_complexity: *cc,
-                                 public_methods: 2, properties: 1, demeter_violations: 0 },
+                FileComplexity {
+                    total_lines: 100,
+                    loc: 80,
+                    cyclomatic_complexity: *cc,
+                    public_methods: 2,
+                    properties: 1,
+                    demeter_violations: 0,
+                },
             );
             snapshot.commits_by_file.insert(
                 PathBuf::from(name),
@@ -397,19 +441,27 @@ mod tests {
     #[test]
     fn complex_hotspots_scores_100_when_none() {
         let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
         );
         // All files have similar CC and churn — no outliers in top quartile of BOTH
         for i in 0..4 {
             snapshot.file_metrics.insert(
                 PathBuf::from(format!("f{}.rs", i)),
-                FileComplexity { total_lines: 100, loc: 80, cyclomatic_complexity: 5,
-                                 public_methods: 2, properties: 1, demeter_violations: 0 },
+                FileComplexity {
+                    total_lines: 100,
+                    loc: 80,
+                    cyclomatic_complexity: 5,
+                    public_methods: 2,
+                    properties: 1,
+                    demeter_violations: 0,
+                },
             );
-            snapshot.commits_by_file.insert(
-                PathBuf::from(format!("f{}.rs", i)),
-                vec![format!("c{}", i)],
-            );
+            snapshot
+                .commits_by_file
+                .insert(PathBuf::from(format!("f{}.rs", i)), vec![format!("c{}", i)]);
         }
         let result = complex_hotspots(&snapshot);
         assert_eq!(result.score, 100);
@@ -419,12 +471,21 @@ mod tests {
     fn god_objects_boundary_loc_500_not_flagged() {
         // loc = 500 is NOT > 500, so not a god object
         let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
         );
         snapshot.file_metrics.insert(
             PathBuf::from("boundary.rs"),
-            FileComplexity { total_lines: 550, loc: 500, cyclomatic_complexity: 5,
-                             public_methods: 5, properties: 1, demeter_violations: 0 },
+            FileComplexity {
+                total_lines: 550,
+                loc: 500,
+                cyclomatic_complexity: 5,
+                public_methods: 5,
+                properties: 1,
+                demeter_violations: 0,
+            },
         );
         let result = god_objects(&snapshot);
         assert_eq!(result.score, 100);
@@ -434,12 +495,21 @@ mod tests {
     fn god_objects_boundary_loc_501_flagged() {
         // loc = 501 IS > 500, so it IS a god object
         let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
         );
         snapshot.file_metrics.insert(
             PathBuf::from("boundary.rs"),
-            FileComplexity { total_lines: 550, loc: 501, cyclomatic_complexity: 5,
-                             public_methods: 5, properties: 1, demeter_violations: 0 },
+            FileComplexity {
+                total_lines: 550,
+                loc: 501,
+                cyclomatic_complexity: 5,
+                public_methods: 5,
+                properties: 1,
+                demeter_violations: 0,
+            },
         );
         let result = god_objects(&snapshot);
         assert_eq!(result.score, 75);
@@ -449,12 +519,21 @@ mod tests {
     fn god_objects_boundary_methods_15_not_flagged() {
         // loc=310, public_methods=15 — methods is NOT > 15, so not flagged
         let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
         );
         snapshot.file_metrics.insert(
             PathBuf::from("boundary.rs"),
-            FileComplexity { total_lines: 350, loc: 310, cyclomatic_complexity: 5,
-                             public_methods: 15, properties: 1, demeter_violations: 0 },
+            FileComplexity {
+                total_lines: 350,
+                loc: 310,
+                cyclomatic_complexity: 5,
+                public_methods: 15,
+                properties: 1,
+                demeter_violations: 0,
+            },
         );
         let result = god_objects(&snapshot);
         assert_eq!(result.score, 100);
@@ -464,13 +543,22 @@ mod tests {
     fn god_objects_scores_50_with_three_to_five() {
         // 3 god objects → score 50
         let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
         );
         for i in 0..3 {
             snapshot.file_metrics.insert(
                 PathBuf::from(format!("big{}.rs", i)),
-                FileComplexity { total_lines: 600, loc: 520, cyclomatic_complexity: 5,
-                                 public_methods: 5, properties: 1, demeter_violations: 0 },
+                FileComplexity {
+                    total_lines: 600,
+                    loc: 520,
+                    cyclomatic_complexity: 5,
+                    public_methods: 5,
+                    properties: 1,
+                    demeter_violations: 0,
+                },
             );
         }
         let result = god_objects(&snapshot);
@@ -481,13 +569,22 @@ mod tests {
     fn god_objects_scores_25_with_more_than_five() {
         // 6 god objects → score 25
         let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
         );
         for i in 0..6 {
             snapshot.file_metrics.insert(
                 PathBuf::from(format!("big{}.rs", i)),
-                FileComplexity { total_lines: 600, loc: 520, cyclomatic_complexity: 5,
-                                 public_methods: 5, properties: 1, demeter_violations: 0 },
+                FileComplexity {
+                    total_lines: 600,
+                    loc: 520,
+                    cyclomatic_complexity: 5,
+                    public_methods: 5,
+                    properties: 1,
+                    demeter_violations: 0,
+                },
             );
         }
         let result = god_objects(&snapshot);
@@ -498,21 +595,34 @@ mod tests {
     fn bus_factor_scores_75_at_exactly_10pct() {
         // exactly 10% dominated → NOT < 10.0, so score 75 not 100
         let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
         );
         let now = Utc::now();
         // 1 dominated out of 10 = exactly 10% → score 75
-        let dominated: Vec<BlameLine> = (0..100).map(|j| BlameLine {
-            author_id: if j < 80 { 0 } else { 1 },
-            commit_id: format!("c{}", j), timestamp: now,
-        }).collect();
-        snapshot.blame_map.insert(PathBuf::from("dominated.rs"), dominated);
+        let dominated: Vec<BlameLine> = (0..100)
+            .map(|j| BlameLine {
+                author_id: if j < 80 { 0 } else { 1 },
+                commit_id: format!("c{}", j),
+                timestamp: now,
+            })
+            .collect();
+        snapshot
+            .blame_map
+            .insert(PathBuf::from("dominated.rs"), dominated);
         for i in 0..9 {
-            let lines: Vec<BlameLine> = (0..100).map(|j| BlameLine {
-                author_id: if j < 50 { 0 } else { 1 },
-                commit_id: format!("b{}c{}", i, j), timestamp: now,
-            }).collect();
-            snapshot.blame_map.insert(PathBuf::from(format!("balanced{}.rs", i)), lines);
+            let lines: Vec<BlameLine> = (0..100)
+                .map(|j| BlameLine {
+                    author_id: if j < 50 { 0 } else { 1 },
+                    commit_id: format!("b{}c{}", i, j),
+                    timestamp: now,
+                })
+                .collect();
+            snapshot
+                .blame_map
+                .insert(PathBuf::from(format!("balanced{}.rs", i)), lines);
         }
         let result = bus_factor(&snapshot, &HealthThresholds::default());
         assert_eq!(result.score, 75); // 10% is not < 10.0
@@ -522,22 +632,35 @@ mod tests {
     fn bus_factor_scores_50_at_exactly_25pct() {
         // 5 dominated out of 20 = exactly 25% → NOT < 25.0, score 50 not 75
         let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
         );
         let now = Utc::now();
         for i in 0..5 {
-            let lines: Vec<BlameLine> = (0..100).map(|j| BlameLine {
-                author_id: if j < 80 { 0 } else { 1 },
-                commit_id: format!("d{}c{}", i, j), timestamp: now,
-            }).collect();
-            snapshot.blame_map.insert(PathBuf::from(format!("dom{}.rs", i)), lines);
+            let lines: Vec<BlameLine> = (0..100)
+                .map(|j| BlameLine {
+                    author_id: if j < 80 { 0 } else { 1 },
+                    commit_id: format!("d{}c{}", i, j),
+                    timestamp: now,
+                })
+                .collect();
+            snapshot
+                .blame_map
+                .insert(PathBuf::from(format!("dom{}.rs", i)), lines);
         }
         for i in 0..15 {
-            let lines: Vec<BlameLine> = (0..100).map(|j| BlameLine {
-                author_id: if j < 50 { 0 } else { 1 },
-                commit_id: format!("b{}c{}", i, j), timestamp: now,
-            }).collect();
-            snapshot.blame_map.insert(PathBuf::from(format!("bal{}.rs", i)), lines);
+            let lines: Vec<BlameLine> = (0..100)
+                .map(|j| BlameLine {
+                    author_id: if j < 50 { 0 } else { 1 },
+                    commit_id: format!("b{}c{}", i, j),
+                    timestamp: now,
+                })
+                .collect();
+            snapshot
+                .blame_map
+                .insert(PathBuf::from(format!("bal{}.rs", i)), lines);
         }
         let result = bus_factor(&snapshot, &HealthThresholds::default());
         assert_eq!(result.score, 50); // 25% is not < 25.0
@@ -547,12 +670,21 @@ mod tests {
     fn god_objects_boundary_loc_301_with_methods_16() {
         // loc=301, methods=16 → both conditions met: LOC > 300 AND methods > 15 → flagged
         let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
         );
         snapshot.file_metrics.insert(
             PathBuf::from("boundary.rs"),
-            FileComplexity { total_lines: 350, loc: 301, cyclomatic_complexity: 5,
-                             public_methods: 16, properties: 1, demeter_violations: 0 },
+            FileComplexity {
+                total_lines: 350,
+                loc: 301,
+                cyclomatic_complexity: 5,
+                public_methods: 16,
+                properties: 1,
+                demeter_violations: 0,
+            },
         );
         let result = god_objects(&snapshot);
         assert_eq!(result.score, 75); // flagged: 1 god object
@@ -563,20 +695,29 @@ mod tests {
         // A file with very high CC but low churn should NOT be flagged
         // (both conditions required: && not ||)
         let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
         );
         // 4 files: complex.rs has high CC but only 1 commit; churny.rs has low CC but many commits
         let files: &[(&str, u32, usize)] = &[
-            ("complex.rs", 100,  1), // high CC, low churn → NOT a hotspot
-            ("churny.rs",    1, 50), // low CC, high churn → NOT a hotspot
-            ("normal1.rs",   2,  2),
-            ("normal2.rs",   3,  3),
+            ("complex.rs", 100, 1), // high CC, low churn → NOT a hotspot
+            ("churny.rs", 1, 50),   // low CC, high churn → NOT a hotspot
+            ("normal1.rs", 2, 2),
+            ("normal2.rs", 3, 3),
         ];
         for (name, cc, churn) in files {
             snapshot.file_metrics.insert(
                 PathBuf::from(name),
-                FileComplexity { total_lines: 100, loc: 80, cyclomatic_complexity: *cc,
-                                 public_methods: 2, properties: 1, demeter_violations: 0 },
+                FileComplexity {
+                    total_lines: 100,
+                    loc: 80,
+                    cyclomatic_complexity: *cc,
+                    public_methods: 2,
+                    properties: 1,
+                    demeter_violations: 0,
+                },
             );
             snapshot.commits_by_file.insert(
                 PathBuf::from(name),
@@ -591,7 +732,10 @@ mod tests {
     fn complex_hotspots_scores_50_with_three_hotspots() {
         // 3 hotspots → score 50
         let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
         );
         // 9 normal files + 3 hotspots (high CC AND high churn)
         // 12 total: p75 index = 11*3/4 = 8, which falls in the normal range (CC=2, churn=1)
@@ -599,8 +743,14 @@ mod tests {
         for i in 0..9usize {
             snapshot.file_metrics.insert(
                 PathBuf::from(format!("normal{}.rs", i)),
-                FileComplexity { total_lines: 100, loc: 80, cyclomatic_complexity: 2,
-                                 public_methods: 2, properties: 1, demeter_violations: 0 },
+                FileComplexity {
+                    total_lines: 100,
+                    loc: 80,
+                    cyclomatic_complexity: 2,
+                    public_methods: 2,
+                    properties: 1,
+                    demeter_violations: 0,
+                },
             );
             snapshot.commits_by_file.insert(
                 PathBuf::from(format!("normal{}.rs", i)),
@@ -610,8 +760,14 @@ mod tests {
         for i in 0..3usize {
             snapshot.file_metrics.insert(
                 PathBuf::from(format!("hot{}.rs", i)),
-                FileComplexity { total_lines: 200, loc: 180, cyclomatic_complexity: 100,
-                                 public_methods: 5, properties: 1, demeter_violations: 0 },
+                FileComplexity {
+                    total_lines: 200,
+                    loc: 180,
+                    cyclomatic_complexity: 100,
+                    public_methods: 5,
+                    properties: 1,
+                    demeter_violations: 0,
+                },
             );
             snapshot.commits_by_file.insert(
                 PathBuf::from(format!("hot{}.rs", i)),
@@ -626,23 +782,36 @@ mod tests {
     fn bus_factor_scores_25_at_exactly_50pct() {
         // exactly 50% dominated → NOT < 50.0, so falls to else → score 25 not 50
         let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
         );
         let now = Utc::now();
         // 2 dominated out of 4 = exactly 50%
         for i in 0..2 {
-            let lines: Vec<BlameLine> = (0..100).map(|j| BlameLine {
-                author_id: if j < 80 { 0 } else { 1 },
-                commit_id: format!("d{}c{}", i, j), timestamp: now,
-            }).collect();
-            snapshot.blame_map.insert(PathBuf::from(format!("dom{}.rs", i)), lines);
+            let lines: Vec<BlameLine> = (0..100)
+                .map(|j| BlameLine {
+                    author_id: if j < 80 { 0 } else { 1 },
+                    commit_id: format!("d{}c{}", i, j),
+                    timestamp: now,
+                })
+                .collect();
+            snapshot
+                .blame_map
+                .insert(PathBuf::from(format!("dom{}.rs", i)), lines);
         }
         for i in 0..2 {
-            let lines: Vec<BlameLine> = (0..100).map(|j| BlameLine {
-                author_id: if j < 50 { 0 } else { 1 },
-                commit_id: format!("b{}c{}", i, j), timestamp: now,
-            }).collect();
-            snapshot.blame_map.insert(PathBuf::from(format!("bal{}.rs", i)), lines);
+            let lines: Vec<BlameLine> = (0..100)
+                .map(|j| BlameLine {
+                    author_id: if j < 50 { 0 } else { 1 },
+                    commit_id: format!("b{}c{}", i, j),
+                    timestamp: now,
+                })
+                .collect();
+            snapshot
+                .blame_map
+                .insert(PathBuf::from(format!("bal{}.rs", i)), lines);
         }
         let result = bus_factor(&snapshot, &HealthThresholds::default());
         assert_eq!(result.score, 25); // 50% is not < 50.0
@@ -652,12 +821,21 @@ mod tests {
     fn god_objects_boundary_loc_300_not_flagged() {
         // loc=300 (not > 300) with many methods → should NOT trigger the compound condition
         let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
         );
         snapshot.file_metrics.insert(
             PathBuf::from("boundary.rs"),
-            FileComplexity { total_lines: 350, loc: 300, cyclomatic_complexity: 5,
-                             public_methods: 20, properties: 1, demeter_violations: 0 },
+            FileComplexity {
+                total_lines: 350,
+                loc: 300,
+                cyclomatic_complexity: 5,
+                public_methods: 20,
+                properties: 1,
+                demeter_violations: 0,
+            },
         );
         let result = god_objects(&snapshot);
         assert_eq!(result.score, 100); // loc=300 is not > 300
@@ -671,7 +849,10 @@ mod tests {
         // files with CC=5 and churn=5 are NOT > 5 → score=100
         // (if mutated to >=, they would be flagged → score=75, killing the mutant)
         let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
         );
         let files: &[(&str, u32, usize)] = &[
             ("f1.rs", 1, 1),
@@ -682,8 +863,14 @@ mod tests {
         for (name, cc, churn) in files {
             snapshot.file_metrics.insert(
                 PathBuf::from(name),
-                FileComplexity { total_lines: 100, loc: 80, cyclomatic_complexity: *cc,
-                                 public_methods: 2, properties: 1, demeter_violations: 0 },
+                FileComplexity {
+                    total_lines: 100,
+                    loc: 80,
+                    cyclomatic_complexity: *cc,
+                    public_methods: 2,
+                    properties: 1,
+                    demeter_violations: 0,
+                },
             );
             snapshot.commits_by_file.insert(
                 PathBuf::from(name),
@@ -693,5 +880,4 @@ mod tests {
         let result = complex_hotspots(&snapshot);
         assert_eq!(result.score, 100); // no file strictly above p75 in BOTH dimensions
     }
-
 }

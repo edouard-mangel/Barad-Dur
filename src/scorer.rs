@@ -579,10 +579,16 @@ fn target_tab_for_metric(metric_name: &str) -> (Option<&'static str>, Option<&'s
 fn suggest_action(metric_name: &str) -> &'static str {
     match metric_name {
         "Bus factor" => "Increase code review coverage and pair programming to spread knowledge",
-        "God objects" => "Break down large files by extracting responsibilities into smaller modules",
-        "Complex hotspots" => "Prioritize refactoring files with both high complexity and high churn",
+        "God objects" => {
+            "Break down large files by extracting responsibilities into smaller modules"
+        }
+        "Complex hotspots" => {
+            "Prioritize refactoring files with both high complexity and high churn"
+        }
         "Fan-out coupling" => "Reduce dependencies by extracting shared interfaces or facades",
-        "Demeter violations" => "Apply the Law of Demeter: only call methods on direct collaborators",
+        "Demeter violations" => {
+            "Apply the Law of Demeter: only call methods on direct collaborators"
+        }
         "Temporal coupling" => "Decouple tightly paired files by extracting shared interfaces",
         "Knowledge distribution" => "Encourage cross-team contributions and rotate ownership",
         "Contributor activity" => "Onboard more active contributors or check team health",
