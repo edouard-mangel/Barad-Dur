@@ -30,7 +30,17 @@ pub fn collect_commits(repo: &Repository, time_window: &TimeWindow) -> Result<Co
     revwalk
         .set_sorting(Sort::TIME | Sort::TOPOLOGICAL)
         .context("Failed to set sorting")?;
-    revwalk.push_head().context("Failed to push HEAD")?;
+    // `push_head()` fails with NotFound when HEAD is an unborn branch (git init with no
+    // commits yet), even if `head()` succeeded above. Treat that as an empty repo.
+    if let Err(e) = revwalk.push_head() {
+        if e.code() == git2::ErrorCode::NotFound || e.code() == git2::ErrorCode::UnbornBranch {
+            return Ok(CommitCollection {
+                commits: vec![],
+                authors: vec![],
+            });
+        }
+        return Err(anyhow::anyhow!(e)).context("Failed to push HEAD");
+    }
 
     let mut commits = Vec::new();
     let mut email_to_id: HashMap<String, AuthorId> = HashMap::new();

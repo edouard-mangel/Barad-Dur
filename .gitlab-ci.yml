@@ -14,10 +14,13 @@ variables:
   SECRET_DETECTION_ENABLED: 'true'
   GIT_DEPTH: "0"
 
-# Cache Rust dependencies between jobs
+# Cache Rust dependencies between jobs — read-only by default.
+# Only the build job writes back (policy: pull-push), preventing downstream
+# jobs from re-uploading 85K files and hitting the 1h timeout.
 .rust-cache: &rust-cache
   cache:
     key: rust-${CI_COMMIT_REF_SLUG}
+    policy: pull
     paths:
       - .cargo/registry
       - .cargo/git
@@ -51,6 +54,13 @@ clippy:
 build:
   stage: build
   <<: *rust-base
+  cache:
+    key: rust-${CI_COMMIT_REF_SLUG}
+    policy: pull-push
+    paths:
+      - .cargo/registry
+      - .cargo/git
+      - target/
   script:
     - cargo build --release
   artifacts:
@@ -63,6 +73,7 @@ build:
 test:
   stage: test
   <<: *rust-base
+  timeout: 3 hours
   script:
     - cargo test --lib
     - cargo test --test collector_tests
@@ -71,6 +82,7 @@ test:
 coverage:
   stage: test
   <<: *rust-base
+  timeout: 3 hours
   script:
     - rustup component add llvm-tools-preview
     - cargo install cargo-tarpaulin --locked
@@ -119,6 +131,7 @@ semver-check:
 mutation:
   stage: analysis
   <<: *rust-base
+  timeout: 6 hours
   script:
     - cargo install cargo-mutants --locked
     - |
@@ -171,6 +184,7 @@ self-analysis:
     - build
   cache:
     - key: rust-${CI_COMMIT_REF_SLUG}
+      policy: pull
       paths:
         - .cargo/registry
         - .cargo/git
