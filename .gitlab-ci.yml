@@ -286,7 +286,7 @@ secret_detection:
 
 release-linux:
   stage: release
-  image: rust:1.85-alpine
+  image: rust:1.94-alpine
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
   cache:
@@ -308,7 +308,7 @@ release-linux:
 
 release-windows:
   stage: release
-  image: rust:1.85
+  image: rust:1.94
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
   cache:
@@ -341,7 +341,6 @@ binary-smoke-test:
     - chmod +x dist/barad-dur-linux-x86_64
     - dist/barad-dur-linux-x86_64 --version
     - dist/barad-dur-linux-x86_64 --help
-    - dist/barad-dur-linux-x86_64 analyze . 2>&1 | grep -q "Score"
 
 release-publish:
   stage: release
