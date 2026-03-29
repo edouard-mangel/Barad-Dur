@@ -139,7 +139,7 @@
     .install-snippet:hover { background: var(--black); }
     .install-snippet .copy-hint {
       font-size: 0.75em;
-      color: var(--gray);
+      color: #a0adcc;
       margin-left: 0.4em;
     }
 
@@ -284,7 +284,7 @@
   <div class="header-inner">
     <a class="logo-group" href="/">
       <!-- Eye of Sauron SVG logo (monochrome) -->
-      <svg viewBox="0 0 100 60" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="barad-dur logo">
+      <svg viewBox="0 0 100 60" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="barad-dur logo">
         <!-- Radiating lines -->
         <line x1="50" y1="30" x2="50" y2="2"  stroke="rgb(15,18,25)" stroke-width="1.5" stroke-linecap="round"/>
         <line x1="50" y1="30" x2="50" y2="58" stroke="rgb(15,18,25)" stroke-width="1.5" stroke-linecap="round"/>
@@ -314,7 +314,7 @@
 </header>
 
 <!-- ── Hero ─────────────────────────────────────── -->
-<section class="hero">
+<section class="hero" aria-label="intro">
   <div class="hero-logo">
     <svg viewBox="0 0 100 60" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <line x1="50" y1="30" x2="50" y2="2"  stroke="rgb(15,18,25)" stroke-width="1.5" stroke-linecap="round"/>
@@ -349,7 +349,7 @@
 <main>
 
   <!-- What it analyzes -->
-  <section>
+  <div>
     <h2>What it analyzes</h2>
     <p>barad-dur reads your git history — no code parsing required — and computes four families of metrics.</p>
     <div class="card-grid">
@@ -374,10 +374,10 @@
         <p>Commit message quality, branch discipline, and merge patterns that reflect process health.</p>
       </div>
     </div>
-  </section>
+  </div>
 
   <!-- How it works -->
-  <section>
+  <div>
     <h2>How it works</h2>
     <div class="steps">
       <div class="step">
@@ -402,10 +402,10 @@
         </div>
       </div>
     </div>
-  </section>
+  </div>
 
   <!-- Output formats -->
-  <section>
+  <div>
     <h2>Output formats</h2>
     <p>barad-dur produces three output formats from a single analysis pass.</p>
     <div class="output-grid">
@@ -426,10 +426,10 @@
     <pre><code>barad-dur analyze .                    # CLI output
 barad-dur analyze . --json --pretty    # JSON
 barad-dur analyze . --html -o report.html  # HTML</code></pre>
-  </section>
+  </div>
 
   <!-- Benefits -->
-  <section>
+  <div>
     <h2>Why use it</h2>
     <p>barad-dur is built for four use cases:</p>
     <ul style="padding-left:1.4em; color: var(--gray-dark);">
@@ -438,7 +438,7 @@ barad-dur analyze . --html -o report.html  # HTML</code></pre>
       <li style="margin-bottom:0.5em"><strong>CI/CD pipelines</strong> — track scores over time with quality gates that fail the build when health degrades.</li>
       <li><strong>Onboarding</strong> — get oriented in an unfamiliar codebase in minutes, not days.</li>
     </ul>
-  </section>
+  </div>
 
 </main>
 
