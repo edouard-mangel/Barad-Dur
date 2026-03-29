@@ -14,9 +14,8 @@ variables:
   SECRET_DETECTION_ENABLED: 'true'
   GIT_DEPTH: "0"
 
-# Cache Rust dependencies between jobs — read-only by default.
-# Only the build job writes back (policy: pull-push), preventing downstream
-# jobs from re-uploading 85K files and hitting the 1h timeout.
+# Code cache — read-only by default. Only build writes back (policy: pull-push),
+# preventing downstream jobs from re-uploading 85K files and hitting the 1h timeout.
 .rust-cache: &rust-cache
   cache:
     key: rust-${CI_COMMIT_REF_SLUG}
@@ -26,10 +25,33 @@ variables:
       - .cargo/git
       - target/
 
-# Shared base for Rust jobs
+# Tools cache — compiled CI tool binaries. Branch-independent key means tools are
+# shared across all branches. install-tools (build stage) is the sole writer.
+# Update the key suffix when pinned tool versions change.
+.tools-cache: &tools-cache
+  cache:
+    - key: rust-${CI_COMMIT_REF_SLUG}
+      policy: pull
+      paths:
+        - .cargo/registry
+        - .cargo/git
+        - target/
+    - key: rust-tools-1.94
+      policy: pull
+      paths:
+        - .cargo/bin
+
+# Shared base for Rust jobs that don't use compiled CI tools
 .rust-base: &rust-base
   image: rust:1.94
   <<: *rust-cache
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq cmake pkg-config libssl-dev
+
+# Shared base for Rust jobs that use compiled CI tools (nextest, tarpaulin, etc.)
+.rust-tools-base: &rust-tools-base
+  image: rust:1.94
+  <<: *tools-cache
   before_script:
     - apt-get update -qq && apt-get install -y -qq cmake pkg-config libssl-dev
 
@@ -68,14 +90,34 @@ build:
       - target/release/barad-dur
     expire_in: 1 week
 
+# Install compiled CI tools and cache them under rust-tools-1.94.
+# Guards skip reinstallation on cache hit — cold run installs all tools (~10 min),
+# warm run is instant. Update the cache key suffix when tool versions change.
+install-tools:
+  stage: build
+  image: rust:1.94
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq cmake pkg-config libssl-dev
+  cache:
+    key: rust-tools-1.94
+    policy: pull-push
+    paths:
+      - .cargo/bin
+  script:
+    - '[ -f "$CARGO_HOME/bin/cargo-nextest" ]        || cargo install cargo-nextest --locked'
+    - '[ -f "$CARGO_HOME/bin/cargo-tarpaulin" ]       || cargo install cargo-tarpaulin --locked'
+    - '[ -f "$CARGO_HOME/bin/cargo-audit" ]           || cargo install cargo-audit --locked'
+    - '[ -f "$CARGO_HOME/bin/cargo-deny" ]            || cargo install cargo-deny --locked'
+    - '[ -f "$CARGO_HOME/bin/cargo-semver-checks" ]   || cargo install cargo-semver-checks --version 0.42.0 --locked'
+    - '[ -f "$CARGO_HOME/bin/cargo-mutants" ]         || cargo install cargo-mutants --locked'
+
 # ── Test ──────────────────────────────────────
 
 test:
   stage: test
-  <<: *rust-base
+  <<: *rust-tools-base
   timeout: 3 hours
   script:
-    - cargo install cargo-nextest --locked
     - cargo nextest run --workspace --profile ci
   artifacts:
     reports:
@@ -84,11 +126,10 @@ test:
 
 coverage:
   stage: test
-  <<: *rust-base
+  <<: *rust-tools-base
   timeout: 3 hours
   script:
     - rustup component add llvm-tools-preview
-    - cargo install cargo-tarpaulin --locked
     - cargo tarpaulin --engine llvm --out xml --output-dir coverage/ --fail-under 80
   coverage: '/^\d+.\d+% coverage/'
   artifacts:
@@ -105,9 +146,8 @@ sast:
 
 audit:
   stage: analysis
-  <<: *rust-base
+  <<: *rust-tools-base
   script:
-    - cargo install cargo-audit --locked
     - cargo audit
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
@@ -117,9 +157,8 @@ audit:
 
 deny:
   stage: analysis
-  <<: *rust-base
+  <<: *rust-tools-base
   script:
-    - cargo install cargo-deny --locked
     - cargo deny check
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
@@ -129,9 +168,8 @@ deny:
 
 semver-check:
   stage: analysis
-  <<: *rust-base
+  <<: *rust-tools-base
   script:
-    - cargo install cargo-semver-checks --version 0.42.0 --locked
     - cargo semver-checks check-release
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
@@ -143,10 +181,9 @@ semver-check:
 # Runs on every MR and every push to main. Blocking (allow_failure: false).
 mutation:
   stage: analysis
-  <<: *rust-base
+  <<: *rust-tools-base
   timeout: 45 minutes
   script:
-    - cargo install cargo-mutants --locked
     - |
       if [ -n "$CI_MERGE_REQUEST_DIFF_BASE_SHA" ]; then
         git diff "$CI_MERGE_REQUEST_DIFF_BASE_SHA"..HEAD > recent.diff
@@ -196,10 +233,9 @@ mutation:
 # Set allow_failure: false once full-codebase kill rate ≥ 80% is confirmed.
 mutation-nightly:
   stage: analysis
-  <<: *rust-base
+  <<: *rust-tools-base
   timeout: 6 hours
   script:
-    - cargo install cargo-mutants --locked
     - cargo mutants --timeout 60 --jobs 4 2>&1 | tee mutants.log
     - |
       python3 << 'PYEOF'
