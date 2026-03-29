@@ -1,0 +1,573 @@
+# GitLab Pages Landing Page Implementation Plan
+
+> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+
+**Goal:** Replace the GitLab Pages index (currently the raw HTML report) with a marketing landing page that presents the tool, with a link to the live self-analysis report at `/report.html`.
+
+**Architecture:** A single self-contained `site/index.html` committed to the repo. The CI `pages` job copies it to `public/index.html` and places the report at `public/report.html`. No build step, no JS framework — inline CSS only, Atkinson Hyperlegible from Google Fonts.
+
+**Tech Stack:** HTML5, CSS (inline), SVG (Eye of Sauron logo), GitLab CI YAML.
+
+---
+
+### Task 1: Create the `site/` directory and `index.html`
+
+**Files:**
+- Create: `site/index.html`
+
+**Step 1: Create the directory**
+
+```bash
+mkdir -p site
+```
+
+**Step 2: Create `site/index.html` with the full landing page**
+
+The page must be fully self-contained. Use this exact structure:
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>barad-dur — Git repository health analyzer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --accent: #2337ff;
+      --accent-dark: #000d8a;
+      --black: rgb(15, 18, 25);
+      --gray: rgb(96, 115, 159);
+      --gray-light: rgb(229, 233, 240);
+      --gray-dark: rgb(34, 41, 57);
+      --bg: #ffffff;
+    }
+
+    body {
+      font-family: 'Atkinson Hyperlegible', sans-serif;
+      font-size: 20px;
+      line-height: 1.7;
+      color: var(--black);
+      background: var(--bg);
+    }
+
+    /* ── Header ───────────────────────────── */
+    header {
+      background: white;
+      border-bottom: 1px solid var(--gray-light);
+      box-shadow: 0 1px 8px rgba(96,115,159,0.10);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .header-inner {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 0.75em 1em;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .logo-group {
+      display: flex;
+      align-items: center;
+      gap: 0.6em;
+      text-decoration: none;
+      color: var(--black);
+    }
+    .logo-group svg { height: 42px; width: auto; }
+    .wordmark {
+      font-size: 1.1em;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    nav a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 0.9em;
+      border-bottom: 2px solid transparent;
+      padding-bottom: 2px;
+      transition: border-color 0.15s;
+    }
+    nav a:hover { border-color: var(--accent); }
+
+    /* ── Hero ─────────────────────────────── */
+    .hero {
+      background: linear-gradient(180deg, var(--gray-light) 0%, white 600px);
+      padding: 4em 1em 3.5em;
+      text-align: center;
+    }
+    .hero-logo { margin-bottom: 1.2em; }
+    .hero-logo svg { height: 80px; width: auto; }
+
+    h1 {
+      font-size: 3.052em;
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+      margin-bottom: 0.4em;
+    }
+    .tagline {
+      font-size: 1.25em;
+      color: var(--gray);
+      max-width: 560px;
+      margin: 0 auto 2em;
+    }
+    .cta-group {
+      display: flex;
+      gap: 1em;
+      justify-content: center;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .btn {
+      display: inline-block;
+      padding: 0.55em 1.4em;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 0.9em;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+      transition: opacity 0.15s, background 0.15s;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+      border: none;
+    }
+    .btn-primary:hover { background: var(--accent-dark); }
+    .btn-secondary {
+      background: white;
+      color: var(--accent);
+      border: 2px solid var(--accent);
+    }
+    .btn-secondary:hover { background: var(--gray-light); }
+
+    /* install snippet inside CTA */
+    .install-snippet {
+      display: flex;
+      align-items: center;
+      gap: 0.6em;
+      background: var(--gray-dark);
+      color: #e8eaf0;
+      border-radius: 6px;
+      padding: 0.5em 1em;
+      font-family: 'Courier New', monospace;
+      font-size: 0.85em;
+      cursor: pointer;
+      border: none;
+      transition: background 0.15s;
+    }
+    .install-snippet:hover { background: var(--black); }
+    .install-snippet .copy-hint {
+      font-size: 0.75em;
+      color: var(--gray);
+      margin-left: 0.4em;
+    }
+
+    /* ── Main content ─────────────────────── */
+    main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 3em 1em;
+    }
+
+    section { margin-bottom: 3.5em; }
+
+    h2 {
+      font-size: 2.441em;
+      letter-spacing: -0.025em;
+      line-height: 1.15;
+      margin-bottom: 0.5em;
+    }
+    h3 {
+      font-size: 1.25em;
+      font-weight: 700;
+      margin-bottom: 0.3em;
+    }
+    p { margin-bottom: 1em; }
+    p:last-child { margin-bottom: 0; }
+
+    /* ── What it analyzes — 4 cards ───────── */
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1.2em;
+      margin-top: 1.5em;
+    }
+    @media (max-width: 520px) {
+      .card-grid { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: white;
+      border: 1px solid var(--gray-light);
+      border-radius: 8px;
+      padding: 1.2em 1.4em;
+      box-shadow: 0 2px 8px rgba(96,115,159,0.10);
+    }
+    .card-icon { font-size: 1.5em; margin-bottom: 0.3em; }
+    .card h3 { font-size: 1.1em; margin-bottom: 0.25em; }
+    .card p { font-size: 0.88em; color: var(--gray); margin: 0; line-height: 1.5; }
+
+    /* ── How it works — 3 steps ───────────── */
+    .steps {
+      display: flex;
+      flex-direction: column;
+      gap: 1.2em;
+      margin-top: 1.5em;
+    }
+    .step {
+      display: flex;
+      gap: 1em;
+      align-items: flex-start;
+    }
+    .step-num {
+      flex-shrink: 0;
+      width: 2em;
+      height: 2em;
+      background: var(--accent);
+      color: white;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.9em;
+      margin-top: 0.15em;
+    }
+    .step-body h3 { font-size: 1em; margin-bottom: 0.15em; }
+    .step-body p { font-size: 0.9em; color: var(--gray); margin: 0; }
+
+    /* ── Code blocks ──────────────────────── */
+    pre, code {
+      font-family: 'Courier New', Courier, monospace;
+    }
+    pre {
+      background: var(--gray-light);
+      border-radius: 6px;
+      padding: 1em 1.2em;
+      font-size: 0.82em;
+      overflow-x: auto;
+      margin: 1em 0;
+      line-height: 1.6;
+    }
+    code {
+      background: var(--gray-light);
+      border-radius: 3px;
+      padding: 0.1em 0.35em;
+      font-size: 0.85em;
+    }
+    pre code { background: none; padding: 0; }
+
+    /* ── Output formats ───────────────────── */
+    .output-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.2em;
+      margin-top: 1.5em;
+    }
+    @media (max-width: 600px) {
+      .output-grid { grid-template-columns: 1fr; }
+    }
+    .output-card {
+      border-left: 4px solid var(--accent);
+      padding: 0.8em 1em;
+      background: white;
+      border-radius: 0 6px 6px 0;
+      box-shadow: 0 1px 6px rgba(96,115,159,0.09);
+    }
+    .output-card h3 { font-size: 1em; margin-bottom: 0.2em; }
+    .output-card p { font-size: 0.85em; color: var(--gray); margin: 0; }
+
+    /* ── Footer ───────────────────────────── */
+    footer {
+      border-top: 1px solid var(--gray-light);
+      padding: 2em 1em;
+      text-align: center;
+      font-size: 0.85em;
+      color: var(--gray);
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    @media (max-width: 720px) {
+      h1 { font-size: 2.2em; }
+      h2 { font-size: 1.8em; }
+      body { font-size: 18px; }
+      main { padding: 2em 1em; }
+      .hero { padding: 3em 1em 2.5em; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────── -->
+<header>
+  <div class="header-inner">
+    <a class="logo-group" href="/">
+      <!-- Eye of Sauron SVG logo (monochrome) -->
+      <svg viewBox="0 0 100 60" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="barad-dur logo">
+        <!-- Radiating lines -->
+        <line x1="50" y1="30" x2="50" y2="2"  stroke="rgb(15,18,25)" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="50" y1="30" x2="50" y2="58" stroke="rgb(15,18,25)" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="50" y1="30" x2="20" y2="8"  stroke="rgb(15,18,25)" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="50" y1="30" x2="80" y2="52" stroke="rgb(15,18,25)" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="50" y1="30" x2="80" y2="8"  stroke="rgb(15,18,25)" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="50" y1="30" x2="20" y2="52" stroke="rgb(15,18,25)" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="50" y1="30" x2="4"  y2="30" stroke="rgb(15,18,25)" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="50" y1="30" x2="96" y2="30" stroke="rgb(15,18,25)" stroke-width="1.5" stroke-linecap="round"/>
+        <!-- Outer eye ellipse -->
+        <ellipse cx="50" cy="30" rx="32" ry="18" stroke="rgb(15,18,25)" stroke-width="2" fill="none"/>
+        <!-- Iris fill -->
+        <ellipse cx="50" cy="30" rx="32" ry="18" fill="rgb(229,233,240)"/>
+        <!-- Iris ring -->
+        <ellipse cx="50" cy="30" rx="22" ry="13" stroke="rgb(34,41,57)" stroke-width="1.2" fill="white"/>
+        <!-- Slit pupil -->
+        <ellipse cx="50" cy="30" rx="5" ry="13" fill="rgb(15,18,25)"/>
+        <!-- Highlight -->
+        <ellipse cx="46" cy="24" rx="2.5" ry="3.5" fill="white" opacity="0.6" transform="rotate(-15 46 24)"/>
+      </svg>
+      <span class="wordmark">barad-dur</span>
+    </a>
+    <nav>
+      <a href="report.html">Live report →</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ── Hero ─────────────────────────────────────── -->
+<section class="hero">
+  <div class="hero-logo">
+    <svg viewBox="0 0 100 60" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <line x1="50" y1="30" x2="50" y2="2"  stroke="rgb(15,18,25)" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="50" y1="30" x2="50" y2="58" stroke="rgb(15,18,25)" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="50" y1="30" x2="20" y2="8"  stroke="rgb(15,18,25)" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="50" y1="30" x2="80" y2="52" stroke="rgb(15,18,25)" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="50" y1="30" x2="80" y2="8"  stroke="rgb(15,18,25)" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="50" y1="30" x2="20" y2="52" stroke="rgb(15,18,25)" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="50" y1="30" x2="4"  y2="30" stroke="rgb(15,18,25)" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="50" y1="30" x2="96" y2="30" stroke="rgb(15,18,25)" stroke-width="1.5" stroke-linecap="round"/>
+      <ellipse cx="50" cy="30" rx="32" ry="18" stroke="rgb(15,18,25)" stroke-width="2" fill="none"/>
+      <ellipse cx="50" cy="30" rx="32" ry="18" fill="rgb(229,233,240)"/>
+      <ellipse cx="50" cy="30" rx="22" ry="13" stroke="rgb(34,41,57)" stroke-width="1.2" fill="white"/>
+      <ellipse cx="50" cy="30" rx="5" ry="13" fill="rgb(15,18,25)"/>
+      <ellipse cx="46" cy="24" rx="2.5" ry="3.5" fill="white" opacity="0.6" transform="rotate(-15 46 24)"/>
+    </svg>
+  </div>
+
+  <h1>See everything.<br>Miss nothing.</h1>
+  <p class="tagline">barad-dur analyzes any git repository and surfaces health metrics, hotspots, team dynamics, and evolution patterns — in seconds.</p>
+
+  <div class="cta-group">
+    <button class="install-snippet" onclick="navigator.clipboard.writeText('cargo install barad-dur')" title="Copy to clipboard">
+      cargo install barad-dur
+      <span class="copy-hint">copy</span>
+    </button>
+    <a href="report.html" class="btn btn-primary">View live report →</a>
+  </div>
+</section>
+
+<!-- ── Main ──────────────────────────────────────── -->
+<main>
+
+  <!-- What it analyzes -->
+  <section>
+    <h2>What it analyzes</h2>
+    <p>barad-dur reads your git history — no code parsing required — and computes four families of metrics.</p>
+    <div class="card-grid">
+      <div class="card">
+        <div class="card-icon">❤️</div>
+        <h3>Health</h3>
+        <p>Hotspot files, coupling patterns, and an overall 0–100 score that tells you where the risk is.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">👥</div>
+        <h3>Team</h3>
+        <p>Ownership distribution, bus factor, and contribution spread across your codebase.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">📈</div>
+        <h3>Evolution</h3>
+        <p>Change frequency, age of files, and trend analysis so you can see where churn is accelerating.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🧹</div>
+        <h3>Hygiene</h3>
+        <p>Commit message quality, branch discipline, and merge patterns that reflect process health.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- How it works -->
+  <section>
+    <h2>How it works</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h3>Point it at a repo</h3>
+          <p>Run <code>barad-dur analyze .</code> inside any git repository. It walks the full history and caches the snapshot for future runs.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h3>Metrics are computed</h3>
+          <p>Each of the four metric families runs against the snapshot independently. Scores are aggregated into a single overall 0–100 grade.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h3>Pick your output</h3>
+          <p>Human-readable CLI output by default. Add <code>--json</code> for machine consumption or <code>--html</code> for a self-contained interactive report.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Output formats -->
+  <section>
+    <h2>Output formats</h2>
+    <p>barad-dur produces three output formats from a single analysis pass.</p>
+    <div class="output-grid">
+      <div class="output-card">
+        <h3>CLI</h3>
+        <p>Compact, color-coded summary. Designed for daily use and CI pipelines.</p>
+      </div>
+      <div class="output-card">
+        <h3>JSON</h3>
+        <p>Full structured output with <code>--json</code>. Pipe it, store it, diff it over time.</p>
+      </div>
+      <div class="output-card">
+        <h3>HTML</h3>
+        <p>Self-contained interactive report with <code>--html</code>. No server needed — one file, share anywhere.</p>
+      </div>
+    </div>
+
+    <pre><code>barad-dur analyze .                    # CLI output
+barad-dur analyze . --json --pretty    # JSON
+barad-dur analyze . --html -o report.html  # HTML</code></pre>
+  </section>
+
+  <!-- Benefits -->
+  <section>
+    <h2>Why use it</h2>
+    <p>barad-dur is built for four use cases:</p>
+    <ul style="padding-left:1.4em; color: var(--gray-dark);">
+      <li style="margin-bottom:0.5em"><strong>Self-assessment</strong> — understand which parts of your own codebase are drifting.</li>
+      <li style="margin-bottom:0.5em"><strong>Team leads</strong> — spot bus-factor risks and hotspots before they become incidents.</li>
+      <li style="margin-bottom:0.5em"><strong>CI/CD pipelines</strong> — track scores over time with quality gates that fail the build when health degrades.</li>
+      <li><strong>Onboarding</strong> — get oriented in an unfamiliar codebase in minutes, not days.</li>
+    </ul>
+  </section>
+
+</main>
+
+<!-- ── Footer ────────────────────────────────────── -->
+<footer>
+  <p>
+    <a href="https://lab.frogg.it/Edouard_Mangel/barad-dur" target="_blank" rel="noopener">GitLab repository</a>
+    &nbsp;·&nbsp;
+    <a href="report.html">Live self-analysis report</a>
+  </p>
+  <p style="margin-top:0.5em;">Built with Rust. MIT licensed.</p>
+</footer>
+
+</body>
+</html>
+```
+
+**Step 3: Open in a browser to verify visually**
+
+```bash
+# From the worktree root
+xdg-open site/index.html
+# or on Mac:
+open site/index.html
+```
+
+Check:
+- Header with logo + wordmark + "Live report →" link
+- Hero with Eye of Sauron, tagline, install snippet, CTA button
+- 4-card grid
+- 3-step flow
+- Output format cards + code block
+- Footer links
+
+**Step 4: Commit**
+
+```bash
+git add site/index.html
+git commit -m "feat(pages): add landing page for GitLab Pages"
+```
+
+---
+
+### Task 2: Update the CI `pages` job
+
+**Files:**
+- Modify: `.gitlab-ci.yml` (the `pages` job, lines ~297–309)
+
+**Step 1: Find the current pages job**
+
+```bash
+grep -n "^pages:" .gitlab-ci.yml
+```
+
+Expected output: something like `297:pages:`
+
+**Step 2: Update the `pages` job script**
+
+Replace the current `script` block:
+
+```yaml
+# Before
+script:
+  - mkdir -p public
+  - cp barad-dur-report.html public/index.html
+  - cp barad-dur-report.json public/report.json
+```
+
+With:
+
+```yaml
+# After
+script:
+  - mkdir -p public
+  - cp site/index.html public/index.html
+  - cp barad-dur-report.html public/report.html
+  - cp barad-dur-report.json public/report.json
+```
+
+Also update the `artifacts.paths` block to include `report.html`:
+
+```yaml
+artifacts:
+  paths:
+    - public
+```
+
+(No change needed — `public` directory covers all files.)
+
+**Step 3: Verify CI YAML is valid**
+
+```bash
+# Check it parses without error (requires gitlab-ci-lint or just eyeball it)
+grep -A 15 "^pages:" .gitlab-ci.yml
+```
+
+Expected: script has 4 lines, `cp site/index.html public/index.html` visible.
+
+**Step 4: Commit**
+
+```bash
+git add .gitlab-ci.yml
+git commit -m "feat(ci): serve landing page as Pages index, move report to /report.html"
+```
