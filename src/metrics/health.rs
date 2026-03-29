@@ -494,4 +494,204 @@ mod tests {
         assert_eq!(result.score, 25);
     }
 
+    #[test]
+    fn bus_factor_scores_75_at_exactly_10pct() {
+        // exactly 10% dominated → NOT < 10.0, so score 75 not 100
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+        );
+        let now = Utc::now();
+        // 1 dominated out of 10 = exactly 10% → score 75
+        let dominated: Vec<BlameLine> = (0..100).map(|j| BlameLine {
+            author_id: if j < 80 { 0 } else { 1 },
+            commit_id: format!("c{}", j), timestamp: now,
+        }).collect();
+        snapshot.blame_map.insert(PathBuf::from("dominated.rs"), dominated);
+        for i in 0..9 {
+            let lines: Vec<BlameLine> = (0..100).map(|j| BlameLine {
+                author_id: if j < 50 { 0 } else { 1 },
+                commit_id: format!("b{}c{}", i, j), timestamp: now,
+            }).collect();
+            snapshot.blame_map.insert(PathBuf::from(format!("balanced{}.rs", i)), lines);
+        }
+        let result = bus_factor(&snapshot, &HealthThresholds::default());
+        assert_eq!(result.score, 75); // 10% is not < 10.0
+    }
+
+    #[test]
+    fn bus_factor_scores_50_at_exactly_25pct() {
+        // 5 dominated out of 20 = exactly 25% → NOT < 25.0, score 50 not 75
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+        );
+        let now = Utc::now();
+        for i in 0..5 {
+            let lines: Vec<BlameLine> = (0..100).map(|j| BlameLine {
+                author_id: if j < 80 { 0 } else { 1 },
+                commit_id: format!("d{}c{}", i, j), timestamp: now,
+            }).collect();
+            snapshot.blame_map.insert(PathBuf::from(format!("dom{}.rs", i)), lines);
+        }
+        for i in 0..15 {
+            let lines: Vec<BlameLine> = (0..100).map(|j| BlameLine {
+                author_id: if j < 50 { 0 } else { 1 },
+                commit_id: format!("b{}c{}", i, j), timestamp: now,
+            }).collect();
+            snapshot.blame_map.insert(PathBuf::from(format!("bal{}.rs", i)), lines);
+        }
+        let result = bus_factor(&snapshot, &HealthThresholds::default());
+        assert_eq!(result.score, 50); // 25% is not < 25.0
+    }
+
+    #[test]
+    fn god_objects_boundary_loc_301_with_methods_16() {
+        // loc=301, methods=16 → both conditions met: LOC > 300 AND methods > 15 → flagged
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+        );
+        snapshot.file_metrics.insert(
+            PathBuf::from("boundary.rs"),
+            FileComplexity { total_lines: 350, loc: 301, cyclomatic_complexity: 5,
+                             public_methods: 16, properties: 1, demeter_violations: 0 },
+        );
+        let result = god_objects(&snapshot);
+        assert_eq!(result.score, 75); // flagged: 1 god object
+    }
+
+    #[test]
+    fn complex_hotspots_ignores_high_cc_low_churn() {
+        // A file with very high CC but low churn should NOT be flagged
+        // (both conditions required: && not ||)
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+        );
+        // 4 files: complex.rs has high CC but only 1 commit; churny.rs has low CC but many commits
+        let files: &[(&str, u32, usize)] = &[
+            ("complex.rs", 100,  1), // high CC, low churn → NOT a hotspot
+            ("churny.rs",    1, 50), // low CC, high churn → NOT a hotspot
+            ("normal1.rs",   2,  2),
+            ("normal2.rs",   3,  3),
+        ];
+        for (name, cc, churn) in files {
+            snapshot.file_metrics.insert(
+                PathBuf::from(name),
+                FileComplexity { total_lines: 100, loc: 80, cyclomatic_complexity: *cc,
+                                 public_methods: 2, properties: 1, demeter_violations: 0 },
+            );
+            snapshot.commits_by_file.insert(
+                PathBuf::from(name),
+                (0..*churn).map(|i| format!("c{}", i)).collect(),
+            );
+        }
+        let result = complex_hotspots(&snapshot);
+        assert_eq!(result.score, 100); // no file has BOTH high CC AND high churn
+    }
+
+    #[test]
+    fn complex_hotspots_scores_50_with_three_hotspots() {
+        // 3 hotspots → score 50
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+        );
+        // 9 normal files + 3 hotspots (high CC AND high churn)
+        // 12 total: p75 index = 11*3/4 = 8, which falls in the normal range (CC=2, churn=1)
+        // so hotspots (CC=100, churn=50) are strictly above p75
+        for i in 0..9usize {
+            snapshot.file_metrics.insert(
+                PathBuf::from(format!("normal{}.rs", i)),
+                FileComplexity { total_lines: 100, loc: 80, cyclomatic_complexity: 2,
+                                 public_methods: 2, properties: 1, demeter_violations: 0 },
+            );
+            snapshot.commits_by_file.insert(
+                PathBuf::from(format!("normal{}.rs", i)),
+                vec![format!("c{}", i)],
+            );
+        }
+        for i in 0..3usize {
+            snapshot.file_metrics.insert(
+                PathBuf::from(format!("hot{}.rs", i)),
+                FileComplexity { total_lines: 200, loc: 180, cyclomatic_complexity: 100,
+                                 public_methods: 5, properties: 1, demeter_violations: 0 },
+            );
+            snapshot.commits_by_file.insert(
+                PathBuf::from(format!("hot{}.rs", i)),
+                (0..50).map(|j| format!("h{}c{}", i, j)).collect(),
+            );
+        }
+        let result = complex_hotspots(&snapshot);
+        assert_eq!(result.score, 50);
+    }
+
+    #[test]
+    fn bus_factor_scores_25_at_exactly_50pct() {
+        // exactly 50% dominated → NOT < 50.0, so falls to else → score 25 not 50
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+        );
+        let now = Utc::now();
+        // 2 dominated out of 4 = exactly 50%
+        for i in 0..2 {
+            let lines: Vec<BlameLine> = (0..100).map(|j| BlameLine {
+                author_id: if j < 80 { 0 } else { 1 },
+                commit_id: format!("d{}c{}", i, j), timestamp: now,
+            }).collect();
+            snapshot.blame_map.insert(PathBuf::from(format!("dom{}.rs", i)), lines);
+        }
+        for i in 0..2 {
+            let lines: Vec<BlameLine> = (0..100).map(|j| BlameLine {
+                author_id: if j < 50 { 0 } else { 1 },
+                commit_id: format!("b{}c{}", i, j), timestamp: now,
+            }).collect();
+            snapshot.blame_map.insert(PathBuf::from(format!("bal{}.rs", i)), lines);
+        }
+        let result = bus_factor(&snapshot, &HealthThresholds::default());
+        assert_eq!(result.score, 25); // 50% is not < 50.0
+    }
+
+    #[test]
+    fn god_objects_boundary_loc_300_not_flagged() {
+        // loc=300 (not > 300) with many methods → should NOT trigger the compound condition
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+        );
+        snapshot.file_metrics.insert(
+            PathBuf::from("boundary.rs"),
+            FileComplexity { total_lines: 350, loc: 300, cyclomatic_complexity: 5,
+                             public_methods: 20, properties: 1, demeter_violations: 0 },
+        );
+        let result = god_objects(&snapshot);
+        assert_eq!(result.score, 100); // loc=300 is not > 300
+    }
+
+    #[test]
+    fn complex_hotspots_boundary_at_p75_not_flagged() {
+        // Files at exactly cc_p75 and churn_p75 should NOT be flagged (> not >=)
+        // 4 files: [1,3,5,5] for both CC and churn
+        // p75 index = (4-1)*3/4 = 2 → p75 = values[2] = 5
+        // files with CC=5 and churn=5 are NOT > 5 → score=100
+        // (if mutated to >=, they would be flagged → score=75, killing the mutant)
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+        );
+        let files: &[(&str, u32, usize)] = &[
+            ("f1.rs", 1, 1),
+            ("f2.rs", 3, 3),
+            ("f3.rs", 5, 5), // at exactly p75 — must NOT be flagged
+            ("f4.rs", 5, 5), // at exactly p75 — must NOT be flagged
+        ];
+        for (name, cc, churn) in files {
+            snapshot.file_metrics.insert(
+                PathBuf::from(name),
+                FileComplexity { total_lines: 100, loc: 80, cyclomatic_complexity: *cc,
+                                 public_methods: 2, properties: 1, demeter_violations: 0 },
+            );
+            snapshot.commits_by_file.insert(
+                PathBuf::from(name),
+                (0..*churn).map(|i| format!("c{}", i)).collect(),
+            );
+        }
+        let result = complex_hotspots(&snapshot);
+        assert_eq!(result.score, 100); // no file strictly above p75 in BOTH dimensions
+    }
+
 }

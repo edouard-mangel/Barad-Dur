@@ -288,4 +288,40 @@ mod tests {
         let result = demeter_violations(&snapshot);
         assert_eq!(result.score, 25);
     }
+
+    #[test]
+    fn fan_out_coupling_scores_50_with_three_to_five() {
+        // 3 high-fanout files → score 50
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+        );
+        for hub_idx in 0..3usize {
+            let hub = PathBuf::from(format!("hub{}.rs", hub_idx));
+            for i in 0..6 {
+                snapshot.file_change_pairs.push((
+                    hub.clone(), PathBuf::from(format!("h{}p{}.rs", hub_idx, i)), 2,
+                ));
+            }
+        }
+        let result = fan_out_coupling(&snapshot);
+        assert_eq!(result.score, 50);
+    }
+
+    #[test]
+    fn temporal_coupling_ignores_pair_with_zero_commits_for_one_file() {
+        // A pair where one file has 0 commits in commits_by_file: min_ch=0, excluded by min_ch > 0
+        // (if mutated to >=, 0.0 denominator → infinity > 0.7, pair would be flagged)
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"), "test".into(), "main".into(), TimeWindow::default(),
+        );
+        // a.rs has 10 commits, b.rs is absent from commits_by_file → min_ch=0
+        snapshot.file_change_pairs = vec![(PathBuf::from("a.rs"), PathBuf::from("b.rs"), 5)];
+        snapshot.commits_by_file.insert(
+            PathBuf::from("a.rs"),
+            (0..10).map(|i| format!("c{}", i)).collect(),
+        );
+        // b.rs intentionally absent → defaults to 0 commits
+        let result = temporal_coupling(&snapshot);
+        assert_eq!(result.score, 100); // min_ch=0 excludes this pair
+    }
 }
