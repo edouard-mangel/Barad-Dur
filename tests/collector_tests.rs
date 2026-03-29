@@ -2,9 +2,15 @@ use barad_dur::collector::{Collector, NoProgress};
 use barad_dur::snapshot::TimeWindow;
 use std::path::{Path, PathBuf};
 
+fn test_repo() -> PathBuf {
+    std::env::var("BARAD_DUR_TEST_REPO")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("."))
+}
+
 #[test]
 fn open_repo_succeeds() {
-    let collector = Collector::open(std::path::Path::new("."), TimeWindow::default());
+    let collector = Collector::open(&test_repo(), TimeWindow::default());
     assert!(collector.is_ok());
     let collector = collector.unwrap();
     assert!(!collector.repo_name().is_empty());
@@ -12,20 +18,20 @@ fn open_repo_succeeds() {
 
 #[test]
 fn repo_name_is_correct() {
-    let collector = Collector::open(std::path::Path::new("."), TimeWindow::default()).unwrap();
+    let collector = Collector::open(&test_repo(), TimeWindow::default()).unwrap();
     assert_eq!(collector.repo_name(), "barad-dur");
 }
 
 #[test]
 fn collect_commits_returns_nonempty() {
-    let collector = Collector::open(std::path::Path::new("."), TimeWindow::full_history()).unwrap();
+    let collector = Collector::open(&test_repo(), TimeWindow::full_history()).unwrap();
     let collection = collector.collect_commits().unwrap();
     assert!(!collection.commits.is_empty(), "Expected at least 1 commit");
 }
 
 #[test]
 fn commits_have_required_fields() {
-    let collector = Collector::open(std::path::Path::new("."), TimeWindow::full_history()).unwrap();
+    let collector = Collector::open(&test_repo(), TimeWindow::full_history()).unwrap();
     let collection = collector.collect_commits().unwrap();
     for commit in &collection.commits {
         assert!(!commit.id.is_empty(), "Commit ID should not be empty");
@@ -38,7 +44,7 @@ fn commits_have_required_fields() {
 
 #[test]
 fn authors_are_deduplicated() {
-    let collector = Collector::open(std::path::Path::new("."), TimeWindow::full_history()).unwrap();
+    let collector = Collector::open(&test_repo(), TimeWindow::full_history()).unwrap();
     let collection = collector.collect_commits().unwrap();
     assert!(!collection.authors.is_empty(), "Expected at least 1 author");
     // Check no duplicate emails
@@ -57,14 +63,14 @@ fn authors_are_deduplicated() {
 
 #[test]
 fn collect_files_returns_nonempty() {
-    let collector = Collector::open(std::path::Path::new("."), TimeWindow::default()).unwrap();
+    let collector = Collector::open(&test_repo(), TimeWindow::default()).unwrap();
     let files = collector.collect_files().unwrap();
     assert!(!files.is_empty(), "Expected at least 1 file");
 }
 
 #[test]
 fn collect_files_includes_cargo_toml() {
-    let collector = Collector::open(std::path::Path::new("."), TimeWindow::default()).unwrap();
+    let collector = Collector::open(&test_repo(), TimeWindow::default()).unwrap();
     let files = collector.collect_files().unwrap();
     let has_cargo = files
         .iter()
@@ -74,7 +80,7 @@ fn collect_files_includes_cargo_toml() {
 
 #[test]
 fn files_have_depth() {
-    let collector = Collector::open(std::path::Path::new("."), TimeWindow::default()).unwrap();
+    let collector = Collector::open(&test_repo(), TimeWindow::default()).unwrap();
     let files = collector.collect_files().unwrap();
     // Cargo.toml should have depth 1, src/main.rs should have depth 2
     let cargo = files
@@ -92,7 +98,7 @@ fn files_have_depth() {
 
 #[test]
 fn head_commit_hash_is_valid() {
-    let collector = Collector::open(std::path::Path::new("."), TimeWindow::default()).unwrap();
+    let collector = Collector::open(&test_repo(), TimeWindow::default()).unwrap();
     let hash = collector.head_commit_hash().unwrap();
     assert_eq!(hash.len(), 40, "Git hash should be 40 hex chars");
     assert!(
@@ -105,7 +111,7 @@ fn head_commit_hash_is_valid() {
 
 #[test]
 fn collect_blame_returns_data_for_cargo_toml() {
-    let collector = Collector::open(std::path::Path::new("."), TimeWindow::full_history()).unwrap();
+    let collector = Collector::open(&test_repo(), TimeWindow::full_history()).unwrap();
     let collection = collector.collect_commits().unwrap();
     let files = collector.collect_files().unwrap();
     let blame_map = collector
@@ -122,7 +128,7 @@ fn collect_blame_returns_data_for_cargo_toml() {
 
 #[test]
 fn blame_lines_have_valid_author_ids() {
-    let collector = Collector::open(std::path::Path::new("."), TimeWindow::full_history()).unwrap();
+    let collector = Collector::open(&test_repo(), TimeWindow::full_history()).unwrap();
     let collection = collector.collect_commits().unwrap();
     let files = collector.collect_files().unwrap();
     let blame_map = collector
@@ -144,7 +150,7 @@ fn blame_lines_have_valid_author_ids() {
 
 #[test]
 fn shallow_clone_detection() {
-    let collector = Collector::open(std::path::Path::new("."), TimeWindow::default()).unwrap();
+    let collector = Collector::open(&test_repo(), TimeWindow::default()).unwrap();
     // This repo is not shallow
     assert!(!collector.is_shallow());
 }
@@ -153,7 +159,7 @@ fn shallow_clone_detection() {
 
 #[test]
 fn collect_snapshot_returns_populated_snapshot() {
-    let collector = Collector::open(std::path::Path::new("."), TimeWindow::full_history()).unwrap();
+    let collector = Collector::open(&test_repo(), TimeWindow::full_history()).unwrap();
     let snapshot = collector.collect_snapshot().unwrap();
 
     assert!(!snapshot.commits.is_empty(), "Snapshot should have commits");
@@ -172,7 +178,7 @@ fn collect_snapshot_returns_populated_snapshot() {
 
 #[test]
 fn collect_snapshot_has_derived_indexes() {
-    let collector = Collector::open(std::path::Path::new("."), TimeWindow::full_history()).unwrap();
+    let collector = Collector::open(&test_repo(), TimeWindow::full_history()).unwrap();
     let snapshot = collector.collect_snapshot().unwrap();
 
     assert!(

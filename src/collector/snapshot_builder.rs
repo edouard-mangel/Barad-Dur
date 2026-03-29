@@ -298,11 +298,17 @@ mod tests {
     use super::*;
     use crate::snapshot::TimeWindow;
 
+    fn test_repo_path() -> std::path::PathBuf {
+        std::env::var("BARAD_DUR_TEST_REPO")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+    }
+
     #[test]
     fn collect_files_populates_blob_oid() {
-        // Requires a real git repo — skips gracefully under cargo-mutants (temp dir)
-        let Ok(collector) = Collector::open(std::path::Path::new("."), TimeWindow::default())
-        else {
+        // Requires a real git repo — skips gracefully under cargo-mutants (temp dir).
+        // In CI, BARAD_DUR_TEST_REPO points to CI_PROJECT_DIR for dogfooding.
+        let Ok(collector) = Collector::open(&test_repo_path(), TimeWindow::default()) else {
             return;
         };
         let files = collector.collect_files().expect("should collect files");
@@ -319,9 +325,9 @@ mod tests {
 
     #[test]
     fn collect_blame_uses_cache_for_known_blobs() {
-        // Requires a real git repo — skips gracefully under cargo-mutants (temp dir)
-        let Ok(collector) = Collector::open(std::path::Path::new("."), TimeWindow::default())
-        else {
+        // Requires a real git repo — skips gracefully under cargo-mutants (temp dir).
+        // In CI, BARAD_DUR_TEST_REPO points to CI_PROJECT_DIR for dogfooding.
+        let Ok(collector) = Collector::open(&test_repo_path(), TimeWindow::default()) else {
             return;
         };
         let files = collector.collect_files().expect("should collect files");
@@ -346,9 +352,9 @@ mod tests {
 
     #[test]
     fn collect_file_metrics_does_not_panic_on_real_repo() {
-        // Requires a real git repo — skips gracefully under cargo-mutants (temp dir)
-        let Ok(collector) = Collector::open(std::path::Path::new("."), TimeWindow::default())
-        else {
+        // Requires a real git repo — skips gracefully under cargo-mutants (temp dir).
+        // In CI, BARAD_DUR_TEST_REPO points to CI_PROJECT_DIR for dogfooding.
+        let Ok(collector) = Collector::open(&test_repo_path(), TimeWindow::default()) else {
             return;
         };
         let files = collector.collect_files().expect("should collect files");
