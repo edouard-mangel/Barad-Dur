@@ -300,7 +300,8 @@ pages:
     - self-analysis
   script:
     - mkdir -p public
-    - cp barad-dur-report.html public/index.html
+    - cp site/index.html public/index.html
+    - cp barad-dur-report.html public/report.html
     - cp barad-dur-report.json public/report.json
   artifacts:
     paths:
