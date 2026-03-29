@@ -1,0 +1,35 @@
+# barad-dur analysis template
+#
+# Include this in any GitLab project to get automatic repository analysis:
+#
+#   include:
+#     - project: Edouard_Mangel/barad-dur
+#       ref: main
+#       file: templates/analyze.yml
+#
+# The job runs on every push to the default branch and on every MR.
+# Reports are uploaded as artifacts and browsable in the GitLab UI.
+#
+# Optional variables (set in your project's CI/CD settings or job override):
+#   BARAD_DUR_FLAGS: extra flags passed to `barad-dur analyze`
+#                   e.g. "--skip-blame" to speed up large repos
+#   BARAD_DUR_IMAGE: override the image tag (default: latest)
+
+barad-dur:
+  stage: test
+  image: ${BARAD_DUR_IMAGE:-registry.lab.frogg.it/edouard_mangel/barad-dur:latest}
+  variables:
+    GIT_DEPTH: "0"
+    BARAD_DUR_FLAGS: ""
+  script:
+    - barad-dur analyze . --html --json $BARAD_DUR_FLAGS
+  artifacts:
+    name: barad-dur-report
+    paths:
+      - barad-dur-report.html
+      - barad-dur-report.json
+    expose_as: "barad-dur report"
+    expire_in: 1 month
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_MERGE_REQUEST_IID
