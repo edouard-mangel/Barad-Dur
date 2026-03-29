@@ -155,7 +155,19 @@ semver-check:
   <<: *rust-tools-base
   script:
     - cargo binstall --no-confirm cargo-semver-checks
-    - cargo semver-checks check-release
+    - |
+      # barad-dur is not on crates.io — diff against the previous git tag.
+      # On tag pipelines, exclude the current tag to get the prior release.
+      BASELINE=$(git tag --sort=-version:refname \
+        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+        | grep -v "^${CI_COMMIT_TAG}$" \
+        | head -n 1)
+      if [ -z "$BASELINE" ]; then
+        echo "No previous tag found — skipping semver check"
+        exit 0
+      fi
+      echo "Checking semver compatibility against $BASELINE"
+      cargo semver-checks check-release --baseline-rev "$BASELINE"
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
       allow_failure: false
