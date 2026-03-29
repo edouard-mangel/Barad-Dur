@@ -33,35 +33,24 @@ variables:
       - .cargo/git
       - target/
 
-# Tools cache — compiled CI tool binaries. Branch-independent key means tools are
-# shared across all branches. install-tools (build stage) is the sole writer.
-# Update the key suffix when pinned tool versions change.
-.tools-cache: &tools-cache
-  cache:
-    - key: rust-${CI_COMMIT_REF_SLUG}
-      policy: pull
-      paths:
-        - .cargo/registry
-        - .cargo/git
-        - target/
-    - key: rust-tools-1.94-v2
-      policy: pull
-      paths:
-        - .cargo/bin
-
-# Shared base for Rust jobs that don't use compiled CI tools
+# Shared base for Rust jobs that don't use CI tools
 .rust-base: &rust-base
   image: rust:1.94
   <<: *rust-cache
   before_script:
     - apt-get update -qq && apt-get install -y -qq cmake pkg-config libssl-dev
 
-# Shared base for Rust jobs that use compiled CI tools (nextest, tarpaulin, etc.)
+# Shared base for Rust jobs that use CI tools (nextest, tarpaulin, etc.)
+# cargo-binstall downloads pre-built binaries in seconds — no source compilation,
+# no shared tool cache to manage. Each job installs only what it needs.
 .rust-tools-base: &rust-tools-base
   image: rust:1.94
-  <<: *tools-cache
+  <<: *rust-cache
   before_script:
     - apt-get update -qq && apt-get install -y -qq cmake pkg-config libssl-dev
+    - curl -L --proto '=https' --tlsv1.2 -sSf
+        "https://github.com/cargo-bins/cargo-binstall/releases/latest/download/cargo-binstall-x86_64-unknown-linux-musl.tgz"
+        | tar -xz -C /usr/local/bin
 
 # ── Lint ──────────────────────────────────────
 
@@ -98,28 +87,6 @@ build:
       - target/release/barad-dur
     expire_in: 1 week
 
-# Install compiled CI tools and cache them under rust-tools-1.94.
-# Guards skip reinstallation on cache hit — cold run installs all tools (~10 min),
-# warm run is instant. Update the cache key suffix when tool versions change.
-install-tools:
-  stage: build
-  image: rust:1.94
-  timeout: 2 hours
-  before_script:
-    - apt-get update -qq && apt-get install -y -qq cmake pkg-config libssl-dev
-  cache:
-    key: rust-tools-1.94-v2
-    policy: pull-push
-    paths:
-      - .cargo/bin
-  script:
-    - '[ -f "$CARGO_HOME/bin/cargo-nextest" ]        || cargo install cargo-nextest --locked'
-    - '[ -f "$CARGO_HOME/bin/cargo-tarpaulin" ]       || cargo install cargo-tarpaulin --locked'
-    - '[ -f "$CARGO_HOME/bin/cargo-audit" ]           || cargo install cargo-audit --locked'
-    - '[ -f "$CARGO_HOME/bin/cargo-deny" ]            || cargo install cargo-deny --locked'
-    - '[ -f "$CARGO_HOME/bin/cargo-semver-checks" ]   || cargo install cargo-semver-checks --locked'
-    - '[ -f "$CARGO_HOME/bin/cargo-mutants" ]         || cargo install cargo-mutants --locked'
-
 # ── Test ──────────────────────────────────────
 
 test:
@@ -127,6 +94,7 @@ test:
   <<: *rust-tools-base
   timeout: 3 hours
   script:
+    - cargo binstall --no-confirm cargo-nextest
     - cargo nextest run --workspace --profile ci
   artifacts:
     reports:
@@ -138,6 +106,7 @@ coverage:
   <<: *rust-tools-base
   timeout: 3 hours
   script:
+    - cargo binstall --no-confirm cargo-tarpaulin
     - rustup component add llvm-tools-preview
     - cargo tarpaulin --engine llvm --out xml --output-dir coverage/ --fail-under 80
   coverage: '/^\d+.\d+% coverage/'
@@ -161,6 +130,7 @@ audit:
   stage: analysis
   <<: *rust-tools-base
   script:
+    - cargo binstall --no-confirm cargo-audit
     - cargo audit
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
@@ -172,6 +142,7 @@ deny:
   stage: analysis
   <<: *rust-tools-base
   script:
+    - cargo binstall --no-confirm cargo-deny
     - cargo deny check
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
@@ -183,6 +154,7 @@ semver-check:
   stage: analysis
   <<: *rust-tools-base
   script:
+    - cargo binstall --no-confirm cargo-semver-checks
     - cargo semver-checks check-release
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
@@ -207,6 +179,7 @@ mutation:
         echo "Empty diff — no source changes, skipping mutation run"
         exit 0
       fi
+      cargo binstall --no-confirm cargo-mutants
       cargo mutants --in-diff recent.diff --timeout 60 2>&1 | tee mutants.log
     - |
       python3 << 'PYEOF'
@@ -249,6 +222,7 @@ mutation-nightly:
   <<: *rust-tools-base
   timeout: 6 hours
   script:
+    - cargo binstall --no-confirm cargo-mutants
     - cargo mutants --timeout 60 --jobs 4 2>&1 | tee mutants.log
     - |
       python3 << 'PYEOF'
