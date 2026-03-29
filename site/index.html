@@ -349,8 +349,8 @@
 <main>
 
   <!-- What it analyzes -->
-  <div>
-    <h2>What it analyzes</h2>
+  <section aria-labelledby="section-analyzes">
+    <h2 id="section-analyzes">What it analyzes</h2>
     <p>barad-dur reads your git history — no code parsing required — and computes four families of metrics.</p>
     <div class="card-grid">
       <div class="card">
@@ -374,11 +374,11 @@
         <p>Commit message quality, branch discipline, and merge patterns that reflect process health.</p>
       </div>
     </div>
-  </div>
+  </section>
 
   <!-- How it works -->
-  <div>
-    <h2>How it works</h2>
+  <section aria-labelledby="section-how">
+    <h2 id="section-how">How it works</h2>
     <div class="steps">
       <div class="step">
         <div class="step-num">1</div>
@@ -402,11 +402,11 @@
         </div>
       </div>
     </div>
-  </div>
+  </section>
 
   <!-- Output formats -->
-  <div>
-    <h2>Output formats</h2>
+  <section aria-labelledby="section-output">
+    <h2 id="section-output">Output formats</h2>
     <p>barad-dur produces three output formats from a single analysis pass.</p>
     <div class="output-grid">
       <div class="output-card">
@@ -426,11 +426,11 @@
     <pre><code>barad-dur analyze .                    # CLI output
 barad-dur analyze . --json --pretty    # JSON
 barad-dur analyze . --html -o report.html  # HTML</code></pre>
-  </div>
+  </section>
 
   <!-- Benefits -->
-  <div>
-    <h2>Why use it</h2>
+  <section aria-labelledby="section-why">
+    <h2 id="section-why">Why use it</h2>
     <p>barad-dur is built for four use cases:</p>
     <ul style="padding-left:1.4em; color: var(--gray-dark);">
       <li style="margin-bottom:0.5em"><strong>Self-assessment</strong> — understand which parts of your own codebase are drifting.</li>
@@ -438,7 +438,7 @@ barad-dur analyze . --html -o report.html  # HTML</code></pre>
       <li style="margin-bottom:0.5em"><strong>CI/CD pipelines</strong> — track scores over time with quality gates that fail the build when health degrades.</li>
       <li><strong>Onboarding</strong> — get oriented in an unfamiliar codebase in minutes, not days.</li>
     </ul>
-  </div>
+  </section>
 
 </main>
 
