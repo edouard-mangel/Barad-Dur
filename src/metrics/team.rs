@@ -2,10 +2,35 @@ use crate::metrics::{CategoryResult, MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
 use std::collections::HashMap;
 
+const MIN_TEAM_SIZE: usize = 4;
+
 pub fn compute_team(
     snapshot: &RepoSnapshot,
     thresholds: &crate::config::TeamThresholds,
 ) -> CategoryResult {
+    if snapshot.authors.len() < MIN_TEAM_SIZE {
+        let na = |name: &str| MetricValue {
+            name: name.to_string(),
+            description: format!(
+                "Small team ({} authors, need {MIN_TEAM_SIZE}+) — not applicable",
+                snapshot.authors.len()
+            ),
+            raw_value: RawValue::Text("N/A".to_string()),
+            score: 100,
+        };
+        return CategoryResult {
+            name: "Team".to_string(),
+            score: 100,
+            metrics: vec![
+                na("Knowledge distribution"),
+                na("Contributor activity"),
+                na("Ownership clarity"),
+                na("Collaboration patterns"),
+                na("Merge patterns"),
+            ],
+        };
+    }
+
     let metrics = vec![
         knowledge_distribution(snapshot, thresholds),
         contributor_activity(snapshot, thresholds),
@@ -376,6 +401,31 @@ mod tests {
     use crate::snapshot::*;
     use chrono::{Duration, Utc};
     use std::path::PathBuf;
+
+    #[test]
+    fn compute_team_small_team_scores_100() {
+        // Fewer than MIN_TEAM_SIZE authors → all metrics N/A, category scores 100
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        for i in 0..3 {
+            snapshot.authors.push(Author {
+                id: i,
+                name: format!("Author {i}"),
+                email: format!("a{i}@t.com"),
+            });
+        }
+        let result = compute_team(&snapshot, &crate::config::TeamThresholds::default());
+        assert_eq!(result.score, 100);
+        assert!(result.metrics.iter().all(|m| m.score == 100));
+        assert!(result
+            .metrics
+            .iter()
+            .all(|m| m.description.contains("not applicable")));
+    }
 
     fn make_solo_snapshot() -> RepoSnapshot {
         let mut snapshot = RepoSnapshot::new(
