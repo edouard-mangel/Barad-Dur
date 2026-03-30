@@ -1,10 +1,15 @@
 mod actions;
+mod builders;
 mod types;
 
 pub use actions::compute_overall_score_with_weights;
 pub use types::*;
 
-use actions::{generate_top_actions, score_commit_message};
+use actions::generate_top_actions;
+use builders::{
+    build_author_cards, build_author_ownership, build_coupling_pairs, build_file_ages,
+    build_hotspots,
+};
 
 use std::collections::HashMap;
 
@@ -77,251 +82,6 @@ pub fn build_report(
     }
 }
 
-fn build_hotspots(snapshot: &RepoSnapshot) -> Vec<HotspotFile> {
-    let mut files: Vec<HotspotFile> = snapshot
-        .files
-        .iter()
-        .filter(|f| !f.is_binary)
-        .map(|f| {
-            let churn = snapshot
-                .commits_by_file
-                .get(&f.path)
-                .map(|v| v.len())
-                .unwrap_or(0);
-            let metrics = snapshot
-                .file_metrics
-                .get(&f.path)
-                .cloned()
-                .unwrap_or_default();
-            HotspotFile {
-                path: f.path.to_string_lossy().to_string(),
-                churn_count: churn,
-                loc: metrics.loc,
-                total_lines: metrics.total_lines,
-                cyclomatic_complexity: metrics.cyclomatic_complexity,
-                public_methods: metrics.public_methods,
-                properties: metrics.properties,
-                hotspot_score: 0.0,
-            }
-        })
-        .collect();
-
-    if files.is_empty() {
-        return files;
-    }
-
-    let max_churn = files
-        .iter()
-        .map(|f| f.churn_count)
-        .max()
-        .unwrap_or(1)
-        .max(1);
-    let max_cc = files
-        .iter()
-        .map(|f| f.cyclomatic_complexity as usize)
-        .max()
-        .unwrap_or(1)
-        .max(1);
-    let max_loc = files.iter().map(|f| f.loc).max().unwrap_or(1).max(1);
-
-    for f in &mut files {
-        let churn_norm = f.churn_count as f64 / max_churn as f64;
-        let cc_norm = f.cyclomatic_complexity as f64 / max_cc as f64;
-        let loc_norm = f.loc as f64 / max_loc as f64;
-        f.hotspot_score = (churn_norm * 0.5 + cc_norm * 0.3 + loc_norm * 0.2) * 100.0;
-    }
-
-    files.sort_by(|a, b| b.hotspot_score.partial_cmp(&a.hotspot_score).unwrap());
-    files
-}
-
-fn build_coupling_pairs(snapshot: &RepoSnapshot) -> Vec<CouplingPair> {
-    snapshot
-        .file_change_pairs
-        .iter()
-        .map(|(a, b, co)| {
-            let a_changes = snapshot
-                .commits_by_file
-                .get(a)
-                .map(|v| v.len())
-                .unwrap_or(0);
-            let b_changes = snapshot
-                .commits_by_file
-                .get(b)
-                .map(|v| v.len())
-                .unwrap_or(0);
-            let min_changes = a_changes.min(b_changes).max(1);
-            let coupling_pct = (*co as f64 / min_changes as f64 * 100.0).min(100.0);
-            CouplingPair {
-                file_a: a.to_string_lossy().to_string(),
-                file_b: b.to_string_lossy().to_string(),
-                co_changes: *co,
-                coupling_pct,
-            }
-        })
-        .collect()
-}
-
-fn build_author_ownership(snapshot: &RepoSnapshot) -> Vec<FileOwnership> {
-    snapshot
-        .blame_map
-        .iter()
-        .map(|(path, lines)| {
-            let mut author_counts: HashMap<usize, usize> = HashMap::new();
-            for line in lines {
-                *author_counts.entry(line.author_id).or_insert(0) += 1;
-            }
-            let total = lines.len().max(1);
-            let mut authors: Vec<AuthorShare> = author_counts
-                .into_iter()
-                .map(|(id, count)| {
-                    let name = snapshot
-                        .authors
-                        .get(id)
-                        .map(|a| a.name.clone())
-                        .unwrap_or_else(|| format!("author-{}", id));
-                    AuthorShare {
-                        name,
-                        pct: count as f64 / total as f64 * 100.0,
-                    }
-                })
-                .collect();
-            authors.sort_by(|a, b| b.pct.partial_cmp(&a.pct).unwrap());
-            FileOwnership {
-                path: path.to_string_lossy().to_string(),
-                authors,
-            }
-        })
-        .collect()
-}
-
-fn build_file_ages(snapshot: &RepoSnapshot) -> Vec<FileAge> {
-    let now = chrono::Utc::now();
-    let fallback = snapshot.created_at - chrono::Duration::days(365 * 5);
-    let mut ages: Vec<FileAge> = snapshot
-        .files
-        .iter()
-        .filter(|f| !f.is_binary)
-        .map(|f| {
-            let last_modified = snapshot
-                .commits_by_file
-                .get(&f.path)
-                .and_then(|commit_ids| {
-                    commit_ids
-                        .iter()
-                        .filter_map(|cid| snapshot.commits.iter().find(|c| &c.id == cid))
-                        .map(|c| c.timestamp)
-                        .max()
-                })
-                .unwrap_or(fallback);
-            let days = (now - last_modified).num_days().max(0);
-            FileAge {
-                path: f.path.to_string_lossy().to_string(),
-                last_modified,
-                days_since_modified: days,
-            }
-        })
-        .collect();
-    ages.sort_by(|a, b| b.days_since_modified.cmp(&a.days_since_modified));
-    ages
-}
-
-fn build_author_cards(snapshot: &RepoSnapshot) -> Vec<AuthorCard> {
-    let now = chrono::Utc::now();
-
-    // Pre-compute per-author blame lines across all files
-    let mut author_lines: HashMap<usize, usize> = HashMap::new();
-    let mut author_file_pcts: HashMap<usize, Vec<(String, f64)>> = HashMap::new();
-    let mut author_files_owned: HashMap<usize, usize> = HashMap::new();
-
-    for (path, blame_lines) in &snapshot.blame_map {
-        let total = blame_lines.len().max(1);
-        let mut counts: HashMap<usize, usize> = HashMap::new();
-        for bl in blame_lines {
-            *counts.entry(bl.author_id).or_insert(0) += 1;
-        }
-        for (&author_id, &count) in &counts {
-            *author_lines.entry(author_id).or_insert(0) += count;
-            let pct = count as f64 / total as f64 * 100.0;
-            author_file_pcts
-                .entry(author_id)
-                .or_default()
-                .push((path.to_string_lossy().to_string(), pct));
-            if pct > 50.0 {
-                *author_files_owned.entry(author_id).or_insert(0) += 1;
-            }
-        }
-    }
-
-    let mut cards: Vec<AuthorCard> = snapshot
-        .authors
-        .iter()
-        .map(|author| {
-            let commit_ids = snapshot
-                .commits_by_author
-                .get(&author.id)
-                .cloned()
-                .unwrap_or_default();
-
-            let author_commits: Vec<&crate::snapshot::Commit> = commit_ids
-                .iter()
-                .filter_map(|cid| snapshot.commits.iter().find(|c| &c.id == cid))
-                .collect();
-
-            let commit_count = author_commits.len();
-
-            let last_active = author_commits
-                .iter()
-                .map(|c| c.timestamp)
-                .max()
-                .unwrap_or(snapshot.created_at);
-            let days_since_active = (now - last_active).num_days().max(0);
-
-            let avg_commit_quality = if author_commits.is_empty() {
-                0.0
-            } else {
-                let total_q: f64 = author_commits
-                    .iter()
-                    .map(|c| score_commit_message(&c.message))
-                    .sum();
-                total_q / author_commits.len() as f64
-            };
-
-            let mut file_pcts = author_file_pcts
-                .get(&author.id)
-                .cloned()
-                .unwrap_or_default();
-            file_pcts.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            let top_files: Vec<String> = file_pcts.iter().take(5).map(|(p, _)| p.clone()).collect();
-
-            let mut dirs = std::collections::HashSet::new();
-            for commit in &author_commits {
-                for fc in &commit.files_changed {
-                    if let Some(parent) = fc.path.parent() {
-                        dirs.insert(parent.to_string_lossy().to_string());
-                    }
-                }
-            }
-
-            AuthorCard {
-                name: author.name.clone(),
-                email: author.email.clone(),
-                commit_count,
-                files_owned: *author_files_owned.get(&author.id).unwrap_or(&0),
-                lines_owned: *author_lines.get(&author.id).unwrap_or(&0),
-                avg_commit_quality,
-                top_files,
-                last_active,
-                days_since_active,
-                directories_touched: dirs.len(),
-            }
-        })
-        .collect();
-
-    cards.sort_by(|a, b| b.commit_count.cmp(&a.commit_count));
-    cards
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -376,6 +136,7 @@ mod tests {
     #[test]
     fn build_hotspots_ranks_by_score() {
         use crate::snapshot::*;
+        use builders::build_hotspots;
         let mut snapshot = RepoSnapshot::new(
             std::path::PathBuf::from("/tmp"),
             "t".into(),
@@ -413,6 +174,7 @@ mod tests {
     #[test]
     fn build_coupling_pairs_computes_pct() {
         use crate::snapshot::*;
+        use builders::build_coupling_pairs;
         let mut snapshot = RepoSnapshot::new(
             std::path::PathBuf::from("/tmp"),
             "t".into(),
@@ -434,6 +196,7 @@ mod tests {
     #[test]
     fn build_file_ages_sorts_oldest_first() {
         use crate::snapshot::*;
+        use builders::build_file_ages;
         use chrono::{Duration, Utc};
         let mut snapshot = RepoSnapshot::new(
             std::path::PathBuf::from("/tmp"),
@@ -539,6 +302,7 @@ mod tests {
 
     #[test]
     fn build_author_cards_empty_snapshot() {
+        use builders::build_author_cards;
         let snapshot = RepoSnapshot::new(
             std::path::PathBuf::from("/tmp"),
             "t".into(),
@@ -552,6 +316,7 @@ mod tests {
     #[test]
     fn build_author_cards_from_snapshot() {
         use crate::snapshot::*;
+        use builders::build_author_cards;
         use chrono::{Duration, Utc};
 
         let now = Utc::now();
