@@ -108,7 +108,8 @@ impl Collector {
 
     /// Analyse working-tree files for static complexity metrics.
     pub fn collect_file_metrics(&self, files: &[FileEntry]) -> HashMap<PathBuf, FileComplexity> {
-        self.collect_file_metrics_with_progress(files, &NoProgress)
+        let (metrics, _) = self.collect_file_metrics_with_progress(files, &NoProgress);
+        metrics
     }
 
     /// Build a complete RepoSnapshot with all data and derived indexes.

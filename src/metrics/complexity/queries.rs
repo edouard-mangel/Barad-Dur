@@ -139,68 +139,28 @@ pub const CSHARP_PROPERTIES: &str = r#"(field_declaration (modifier) @mod)"#;
 
 pub const CSHARP_COMMENTS: &str = r#"(comment) @comment"#;
 
-// ── Demeter (method chains depth ≥ 3) ───────────────────────────────
+// ── Import queries ─────────────────────────────────────────────────
 
-/// Rust: detects `x.a().b().c()` — three nested call_expression/field_expression pairs.
-pub const RUST_DEMETER: &str = r#"(call_expression
-  function: (field_expression
-    value: (call_expression
-      function: (field_expression
-        value: (call_expression)
-      )
-    )
-  )
-) @demeter"#;
+pub const RUST_IMPORTS: &str = r#"(use_declaration argument: (_) @path)"#;
 
-/// JavaScript: detects `a.b().c().d()` chains.
-pub const JS_DEMETER: &str = r#"(call_expression
-  function: (member_expression
-    object: (call_expression
-      function: (member_expression
-        object: (call_expression)
-      )
-    )
-  )
-) @demeter"#;
+pub const JS_IMPORTS: &str = r#"[
+  (import_statement source: (string) @path)
+  (call_expression
+    function: (identifier) @fn
+    arguments: (arguments (string) @path)
+    (#eq? @fn "require"))
+] "#;
 
-/// TypeScript shares the same query as JavaScript.
-pub const TS_DEMETER: &str = JS_DEMETER;
+pub const PYTHON_IMPORTS: &str = r#"[
+  (import_statement name: (dotted_name) @path)
+  (import_from_statement module_name: (dotted_name) @path)
+]"#;
 
-/// Python: detects `a.b.c.d` attribute chains (depth ≥ 3).
-pub const PYTHON_DEMETER: &str = r#"(attribute
-  object: (attribute
-    object: (attribute)
-  )
-) @demeter"#;
+pub const GO_IMPORTS: &str = r#"(import_spec path: (interpreted_string_literal) @path)"#;
 
-/// Go: detects `a.Foo().Bar().Baz()` selector chains.
-pub const GO_DEMETER: &str = r#"(call_expression
-  function: (selector_expression
-    operand: (call_expression
-      function: (selector_expression
-        operand: (call_expression)
-      )
-    )
-  )
-) @demeter"#;
+pub const JAVA_IMPORTS: &str = r#"(import_declaration (scoped_identifier) @path)"#;
 
-/// Java: detects `a.foo().bar().baz()` method invocation chains.
-pub const JAVA_DEMETER: &str = r#"(method_invocation
-  object: (method_invocation
-    object: (method_invocation)
-  )
-) @demeter"#;
-
-/// C#: detects `a.Foo().Bar().Baz()` invocation chains.
-pub const CSHARP_DEMETER: &str = r#"(invocation_expression
-  function: (member_access_expression
-    expression: (invocation_expression
-      function: (member_access_expression
-        expression: (invocation_expression)
-      )
-    )
-  )
-) @demeter"#;
+pub const CSHARP_IMPORTS: &str = r#"(using_directive (_) @path)"#;
 
 #[cfg(test)]
 mod tests {
@@ -240,7 +200,6 @@ mod tests {
         assert_valid_query(rust(), RUST_PUBLIC_METHODS, "rust public_methods");
         assert_valid_query(rust(), RUST_PROPERTIES, "rust properties");
         assert_valid_query(rust(), RUST_COMMENTS, "rust comments");
-        assert_valid_query(rust(), RUST_DEMETER, "rust demeter");
     }
 
     #[test]
@@ -250,7 +209,6 @@ mod tests {
         assert_valid_query(js(), JS_PUBLIC_METHODS, "js public_methods");
         assert_valid_query(js(), JS_PROPERTIES, "js properties");
         assert_valid_query(js(), JS_COMMENTS, "js comments");
-        assert_valid_query(js(), JS_DEMETER, "js demeter");
     }
 
     #[test]
@@ -261,7 +219,6 @@ mod tests {
         assert_valid_query(ts(), TS_PUBLIC_METHODS, "ts public_methods");
         assert_valid_query(ts(), TS_PROPERTIES, "ts properties");
         assert_valid_query(ts(), JS_COMMENTS, "ts comments");
-        assert_valid_query(ts(), TS_DEMETER, "ts demeter");
     }
 
     #[test]
@@ -269,7 +226,6 @@ mod tests {
         assert_valid_query(python(), PYTHON_COMPLEXITY, "python complexity");
         assert_valid_query(python(), PYTHON_PUBLIC_METHODS, "python public_methods");
         assert_valid_query(python(), PYTHON_COMMENTS, "python comments");
-        assert_valid_query(python(), PYTHON_DEMETER, "python demeter");
     }
 
     #[test]
@@ -279,7 +235,6 @@ mod tests {
         assert_valid_query(go(), GO_PUBLIC_METHODS, "go public_methods");
         assert_valid_query(go(), GO_PROPERTIES, "go properties");
         assert_valid_query(go(), GO_COMMENTS, "go comments");
-        assert_valid_query(go(), GO_DEMETER, "go demeter");
     }
 
     #[test]
@@ -289,7 +244,6 @@ mod tests {
         assert_valid_query(java(), JAVA_PUBLIC_METHODS, "java public_methods");
         assert_valid_query(java(), JAVA_PROPERTIES, "java properties");
         assert_valid_query(java(), JAVA_COMMENTS, "java comments");
-        assert_valid_query(java(), JAVA_DEMETER, "java demeter");
     }
 
     #[test]
@@ -299,6 +253,40 @@ mod tests {
         assert_valid_query(csharp(), CSHARP_PUBLIC_METHODS, "csharp public_methods");
         assert_valid_query(csharp(), CSHARP_PROPERTIES, "csharp properties");
         assert_valid_query(csharp(), CSHARP_COMMENTS, "csharp comments");
-        assert_valid_query(csharp(), CSHARP_DEMETER, "csharp demeter");
+    }
+
+    #[test]
+    fn rust_import_query_is_valid() {
+        assert_valid_query(rust(), RUST_IMPORTS, "rust imports");
+    }
+
+    #[test]
+    fn js_import_query_is_valid() {
+        assert_valid_query(js(), JS_IMPORTS, "js imports");
+    }
+
+    #[test]
+    fn ts_import_query_is_valid() {
+        assert_valid_query(ts(), JS_IMPORTS, "ts imports");
+    }
+
+    #[test]
+    fn python_import_query_is_valid() {
+        assert_valid_query(python(), PYTHON_IMPORTS, "python imports");
+    }
+
+    #[test]
+    fn go_import_query_is_valid() {
+        assert_valid_query(go(), GO_IMPORTS, "go imports");
+    }
+
+    #[test]
+    fn java_import_query_is_valid() {
+        assert_valid_query(java(), JAVA_IMPORTS, "java imports");
+    }
+
+    #[test]
+    fn csharp_import_query_is_valid() {
+        assert_valid_query(csharp(), CSHARP_IMPORTS, "csharp imports");
     }
 }

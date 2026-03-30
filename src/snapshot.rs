@@ -64,7 +64,6 @@ pub struct FileComplexity {
     pub cyclomatic_complexity: u32,
     pub public_methods: u32,
     pub properties: u32,
-    pub demeter_violations: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,6 +126,7 @@ pub struct RepoSnapshot {
     pub commits_by_file: HashMap<PathBuf, Vec<CommitId>>,
     pub file_change_pairs: Vec<(PathBuf, PathBuf, usize)>,
     pub file_metrics: HashMap<PathBuf, FileComplexity>,
+    pub import_graph: HashMap<PathBuf, Vec<PathBuf>>,
 }
 
 impl RepoSnapshot {
@@ -146,6 +146,7 @@ impl RepoSnapshot {
             commits_by_file: HashMap::new(),
             file_change_pairs: Vec::new(),
             file_metrics: HashMap::new(),
+            import_graph: HashMap::new(),
         }
     }
 

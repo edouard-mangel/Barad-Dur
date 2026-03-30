@@ -8,6 +8,13 @@ use crate::snapshot::FileComplexity;
 
 pub use fallback::{detect_language, Language};
 
+/// Extract raw import paths from a source file using tree-sitter.
+pub fn extract_file_imports(path: &Path, content: &str) -> Vec<String> {
+    let lang = detect_language(&path.to_string_lossy());
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    treesitter::extract_imports(content, lang, ext)
+}
+
 pub fn analyse_file(path: &Path, content: &str) -> FileComplexity {
     let lang = detect_language(&path.to_string_lossy());
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");

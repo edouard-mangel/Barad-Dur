@@ -562,9 +562,9 @@ fn target_tab_for_metric(metric_name: &str) -> (Option<&'static str>, Option<&'s
         "Bus factor" => (Some("ownership"), Some("authors")),
         "God objects" => (Some("hotspots"), Some("complexity")),
         "Complex hotspots" => (Some("hotspots"), Some("complexity")),
-        "Fan-out coupling" => (Some("coupling"), None),
-        "Demeter violations" => (Some("coupling"), None),
-        "Temporal coupling" => (Some("coupling"), None),
+        "Afferent coupling" => (Some("coupling"), None),
+        "Efferent coupling" => (Some("coupling"), None),
+        "Circular dependencies" => (Some("coupling"), None),
         "Knowledge distribution" => (Some("ownership"), None),
         "Ownership clarity" => (Some("ownership"), None),
         "Collaboration patterns" => (Some("ownership"), None),
@@ -585,11 +585,13 @@ fn suggest_action(metric_name: &str) -> &'static str {
         "Complex hotspots" => {
             "Prioritize refactoring files with both high complexity and high churn"
         }
-        "Fan-out coupling" => "Reduce dependencies by extracting shared interfaces or facades",
-        "Demeter violations" => {
-            "Apply the Law of Demeter: only call methods on direct collaborators"
+        "Afferent coupling" => {
+            "Reduce dependents on high-Ca files by introducing abstractions or splitting modules"
         }
-        "Temporal coupling" => "Decouple tightly paired files by extracting shared interfaces",
+        "Efferent coupling" => "Reduce imports by extracting shared interfaces or facades",
+        "Circular dependencies" => {
+            "Break circular imports by extracting shared types into a separate module"
+        }
         "Knowledge distribution" => "Encourage cross-team contributions and rotate ownership",
         "Contributor activity" => "Onboard more active contributors or check team health",
         "Ownership clarity" => "Assign clear code owners via CODEOWNERS file",

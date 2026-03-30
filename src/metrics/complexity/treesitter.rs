@@ -8,6 +8,55 @@ use super::queries;
 type Capture = (u32, std::ops::Range<usize>);
 type MatchResult = (Option<tree_sitter::Query>, Vec<Vec<Capture>>);
 
+/// Extract raw import paths from source content using tree-sitter.
+/// Returns an empty Vec for unsupported languages or parse failures.
+pub fn extract_imports(content: &str, lang: Language, ext: &str) -> Vec<String> {
+    let grammar = match grammar_for(lang, ext) {
+        Some(g) => g,
+        None => return Vec::new(),
+    };
+    let tree = match parse(content, &grammar) {
+        Some(t) => t,
+        None => return Vec::new(),
+    };
+    let query_src = import_query(lang, ext);
+    let query_src = match query_src {
+        Some(q) => q,
+        None => return Vec::new(),
+    };
+    let (query, matches) = collect_matches(&tree, content.as_bytes(), query_src, &grammar);
+    let query = match query {
+        Some(q) => q,
+        None => return Vec::new(),
+    };
+    let path_idx = query.capture_index_for_name("path").unwrap_or(0);
+    matches
+        .iter()
+        .flat_map(|caps| {
+            caps.iter()
+                .filter(|(idx, _)| *idx == path_idx)
+                .filter_map(|(_, range)| {
+                    let text = std::str::from_utf8(&content.as_bytes()[range.clone()]).ok()?;
+                    // Strip surrounding quotes from string literals
+                    let cleaned = text.trim_matches('"').trim_matches('\'');
+                    Some(cleaned.to_string())
+                })
+        })
+        .collect()
+}
+
+fn import_query(lang: Language, _ext: &str) -> Option<&'static str> {
+    match lang {
+        Language::Rust => Some(queries::RUST_IMPORTS),
+        Language::JsTs => Some(queries::JS_IMPORTS),
+        Language::Python => Some(queries::PYTHON_IMPORTS),
+        Language::Go => Some(queries::GO_IMPORTS),
+        Language::Java => Some(queries::JAVA_IMPORTS),
+        Language::CSharp => Some(queries::CSHARP_IMPORTS),
+        Language::Kotlin | Language::Generic => None,
+    }
+}
+
 /// Analyse source content using tree-sitter AST parsing.
 /// Returns `None` for unsupported languages or complete parse failures.
 pub fn analyse(content: &str, lang: Language, ext: &str) -> Option<FileComplexity> {
@@ -19,8 +68,6 @@ pub fn analyse(content: &str, lang: Language, ext: &str) -> Option<FileComplexit
     let cyclomatic_complexity = count_complexity(&tree, content.as_bytes(), &grammar, lang, ext);
     let public_methods = count_public_methods(&tree, content.as_bytes(), &grammar, lang, ext);
     let properties = count_properties(&tree, content.as_bytes(), &grammar, lang, ext);
-    let demeter_violations =
-        count_demeter_violations(&tree, content.as_bytes(), &grammar, lang, ext);
 
     Some(FileComplexity {
         total_lines,
@@ -28,7 +75,6 @@ pub fn analyse(content: &str, lang: Language, ext: &str) -> Option<FileComplexit
         cyclomatic_complexity,
         public_methods,
         properties,
-        demeter_violations,
     })
 }
 
@@ -98,30 +144,6 @@ fn collect_matches(
         results.push(captures);
     }
     (Some(query), results)
-}
-
-// ── Demeter violations ─────────────────────────────────────────────
-
-fn count_demeter_violations(
-    tree: &tree_sitter::Tree,
-    source: &[u8],
-    grammar: &tree_sitter::Language,
-    lang: Language,
-    ext: &str,
-) -> u32 {
-    let query_src = match lang {
-        Language::Rust => queries::RUST_DEMETER,
-        Language::JsTs => match ext {
-            "ts" | "tsx" => queries::TS_DEMETER,
-            _ => queries::JS_DEMETER,
-        },
-        Language::Python => queries::PYTHON_DEMETER,
-        Language::Go => queries::GO_DEMETER,
-        Language::Java => queries::JAVA_DEMETER,
-        Language::CSharp => queries::CSHARP_DEMETER,
-        Language::Kotlin | Language::Generic => return 0,
-    };
-    run_query(tree, source, query_src, grammar)
 }
 
 // ── Cyclomatic complexity ───────────────────────────────────────────
@@ -590,30 +612,114 @@ mod tests {
         assert_eq!(result.cyclomatic_complexity, 0);
         assert_eq!(result.public_methods, 0);
         assert_eq!(result.properties, 0);
-        assert_eq!(result.demeter_violations, 0);
+    }
+
+    // ── Import extraction ──────────────────────────────────────────
+
+    #[test]
+    fn rust_extract_imports() {
+        let content =
+            "use std::collections::HashMap;\nuse crate::snapshot::RepoSnapshot;\nfn main() {}\n";
+        let imports = extract_imports(content, Language::Rust, "rs");
+        assert_eq!(imports.len(), 2);
+        assert!(imports
+            .iter()
+            .any(|i| i.contains("std::collections::HashMap")));
+        assert!(imports
+            .iter()
+            .any(|i| i.contains("crate::snapshot::RepoSnapshot")));
     }
 
     #[test]
-    fn demeter_violation_rust_depth3() {
-        // a.foo().bar().baz() — depth-3 chain: 1 violation
-        let src = r#"fn f() { let _ = a.foo().bar().baz(); }"#;
-        let result = analyse(src, Language::Rust, "rs").unwrap();
-        assert_eq!(result.demeter_violations, 1);
+    fn js_extract_imports() {
+        let content = "import { foo } from './utils';\nconst bar = require('lodash');\n";
+        let imports = extract_imports(content, Language::JsTs, "js");
+        assert!(
+            imports.iter().any(|i| i == "./utils"),
+            "imports: {:?}",
+            imports
+        );
+        assert!(
+            imports.iter().any(|i| i == "lodash"),
+            "imports: {:?}",
+            imports
+        );
     }
 
     #[test]
-    fn demeter_no_violation_rust_depth2() {
-        // a.foo().bar() — depth-2 chain: below threshold, 0 violations
-        let src = r#"fn f() { let _ = a.foo().bar(); }"#;
-        let result = analyse(src, Language::Rust, "rs").unwrap();
-        assert_eq!(result.demeter_violations, 0);
+    fn ts_extract_imports() {
+        let content =
+            "import { Component } from '@angular/core';\nimport type { Foo } from './foo';\n";
+        let imports = extract_imports(content, Language::JsTs, "ts");
+        assert!(
+            imports.iter().any(|i| i == "@angular/core"),
+            "imports: {:?}",
+            imports
+        );
+        assert!(
+            imports.iter().any(|i| i == "./foo"),
+            "imports: {:?}",
+            imports
+        );
     }
 
     #[test]
-    fn demeter_violation_rust_depth4_counts_twice() {
-        // depth-4 chain contains two overlapping depth-3 sub-patterns → 2 violations
-        let src = r#"fn f() { let _ = a.foo().bar().baz().qux(); }"#;
-        let result = analyse(src, Language::Rust, "rs").unwrap();
-        assert_eq!(result.demeter_violations, 2);
+    fn python_extract_imports() {
+        let content = "import os\nfrom collections import defaultdict\nimport sys\n";
+        let imports = extract_imports(content, Language::Python, "py");
+        assert!(imports.iter().any(|i| i == "os"), "imports: {:?}", imports);
+        assert!(
+            imports.iter().any(|i| i == "collections"),
+            "imports: {:?}",
+            imports
+        );
+        assert!(imports.iter().any(|i| i == "sys"), "imports: {:?}", imports);
+    }
+
+    #[test]
+    fn go_extract_imports() {
+        let content = "package main\nimport (\n\t\"fmt\"\n\t\"os\"\n)\n";
+        let imports = extract_imports(content, Language::Go, "go");
+        assert!(imports.iter().any(|i| i == "fmt"), "imports: {:?}", imports);
+        assert!(imports.iter().any(|i| i == "os"), "imports: {:?}", imports);
+    }
+
+    #[test]
+    fn java_extract_imports() {
+        let content = "import java.util.HashMap;\nimport java.io.File;\nclass Foo {}\n";
+        let imports = extract_imports(content, Language::Java, "java");
+        assert!(
+            imports.iter().any(|i| i.contains("java.util.HashMap")),
+            "imports: {:?}",
+            imports
+        );
+        assert!(
+            imports.iter().any(|i| i.contains("java.io.File")),
+            "imports: {:?}",
+            imports
+        );
+    }
+
+    #[test]
+    fn csharp_extract_imports() {
+        let content = "using System;\nusing System.Collections.Generic;\nclass Foo {}\n";
+        let imports = extract_imports(content, Language::CSharp, "cs");
+        assert!(
+            imports.iter().any(|i| i.contains("System")),
+            "imports: {:?}",
+            imports
+        );
+    }
+
+    #[test]
+    fn generic_extract_imports_returns_empty() {
+        let imports = extract_imports("hello world", Language::Generic, "txt");
+        assert!(imports.is_empty());
+    }
+
+    #[test]
+    fn kotlin_extract_imports_returns_empty() {
+        let imports = extract_imports("import foo.bar", Language::Kotlin, "kt");
+        assert!(imports.is_empty());
     }
 }
