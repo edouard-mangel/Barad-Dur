@@ -320,46 +320,6 @@ secret_detection:
 
 # ── Release ───────────────────────────────────
 
-# Automatically bump the patch version on every merge to main.
-# Prerequisites: create a Project Access Token (Settings > Access Tokens) with
-# api + write_repository scopes, then store it in CI/CD variables as GITLAB_AUTO_TAG_TOKEN.
-auto-tag:
-  stage: release
-  image: alpine:3.21
-  needs:
-    - test
-    - mutation
-  rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-  before_script:
-    - apk add --no-cache curl git
-  script:
-    - |
-      # Skip if HEAD is already a release tag (e.g. manual tag pushed directly)
-      if git tag --points-at HEAD | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-        echo "HEAD is already tagged — skipping auto-tag"
-        exit 0
-      fi
-      # Find latest semver tag and bump patch
-      LATEST=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)
-      if [ -z "$LATEST" ]; then
-        echo "No existing version tag found — skipping auto-tag"
-        exit 0
-      fi
-      MAJOR=$(echo "$LATEST" | sed 's/^v//' | cut -d. -f1)
-      MINOR=$(echo "$LATEST" | cut -d. -f2)
-      PATCH=$(echo "$LATEST" | cut -d. -f3)
-      NEXT="v${MAJOR}.${MINOR}.$((PATCH + 1))"
-      echo "Latest: $LATEST  →  Next: $NEXT"
-      curl --fail-with-body --silent --show-error \
-        --request POST \
-        --header "PRIVATE-TOKEN: ${GITLAB_AUTO_TAG_TOKEN}" \
-        --data-urlencode "tag_name=${NEXT}" \
-        --data-urlencode "ref=${CI_COMMIT_SHA}" \
-        --data-urlencode "message=Auto-release ${NEXT}" \
-        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/repository/tags"
-      echo "Created tag $NEXT on ${CI_COMMIT_SHA}"
-
 release-linux:
   stage: release
   image: rust:1.94-alpine
