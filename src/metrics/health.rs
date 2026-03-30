@@ -88,6 +88,12 @@ fn is_source_file(path: &std::path::Path) -> bool {
 
 /// Files that have grown too large to maintain (god objects / bloaters).
 fn god_objects(snapshot: &RepoSnapshot) -> MetricValue {
+    let source_total = snapshot
+        .file_metrics
+        .keys()
+        .filter(|p| is_source_file(p))
+        .count();
+
     let gods: Vec<String> = snapshot
         .file_metrics
         .iter()
@@ -100,16 +106,28 @@ fn god_objects(snapshot: &RepoSnapshot) -> MetricValue {
         .collect();
 
     let count = gods.len();
-    let score = match count {
-        0 => 100,
-        1..=2 => 75,
-        3..=5 => 50,
-        _ => 25,
+    let pct = if source_total > 0 {
+        count as f64 / source_total as f64 * 100.0
+    } else {
+        0.0
+    };
+
+    let score = if count == 0 {
+        100
+    } else if pct <= 2.0 {
+        75
+    } else if pct <= 8.0 {
+        50
+    } else {
+        25
     };
 
     MetricValue {
         name: "God objects".to_string(),
-        description: format!("{} oversized files detected", count),
+        description: format!(
+            "{}/{} source files oversized ({:.1}%)",
+            count, source_total, pct
+        ),
         raw_value: RawValue::List(gods),
         score,
     }
@@ -181,6 +199,21 @@ mod tests {
     use super::*;
     use crate::snapshot::*;
     use chrono::Utc;
+
+    fn add_normal_files(snapshot: &mut RepoSnapshot, count: usize) {
+        for i in 0..count {
+            snapshot.file_metrics.insert(
+                PathBuf::from(format!("normal{}.rs", i)),
+                FileComplexity {
+                    total_lines: 100,
+                    loc: 80,
+                    cyclomatic_complexity: 3,
+                    public_methods: 2,
+                    properties: 1,
+                },
+            );
+        }
+    }
 
     fn two_authors() -> Vec<Author> {
         vec![
@@ -388,18 +421,9 @@ mod tests {
                 properties: 2,
             },
         );
-        snapshot.file_metrics.insert(
-            PathBuf::from("small.rs"),
-            FileComplexity {
-                total_lines: 100,
-                loc: 80,
-                cyclomatic_complexity: 3,
-                public_methods: 2,
-                properties: 1,
-            },
-        );
+        add_normal_files(&mut snapshot, 99); // 1/100 = 1% → score 75
         let result = god_objects(&snapshot);
-        assert_eq!(result.score, 75); // 1 god object
+        assert_eq!(result.score, 75);
         match &result.raw_value {
             RawValue::List(v) => assert_eq!(v.len(), 1),
             _ => panic!("Expected List"),
@@ -424,8 +448,9 @@ mod tests {
                 properties: 3,
             },
         );
+        add_normal_files(&mut snapshot, 99); // 1/100 = 1% → score 75
         let result = god_objects(&snapshot);
-        assert_eq!(result.score, 75); // 1 god object (LOC>300 AND methods>15)
+        assert_eq!(result.score, 75); // LOC>300 AND methods>15
     }
 
     #[test]
@@ -559,6 +584,7 @@ mod tests {
                 properties: 1,
             },
         );
+        add_normal_files(&mut snapshot, 99); // 1/100 = 1% → score 75
         let result = god_objects(&snapshot);
         assert_eq!(result.score, 75);
     }
@@ -587,15 +613,15 @@ mod tests {
     }
 
     #[test]
-    fn god_objects_scores_50_with_three_to_five() {
-        // 3 god objects → score 50
+    fn god_objects_scores_50_at_medium_pct() {
+        // 5/100 = 5% → score 50
         let mut snapshot = RepoSnapshot::new(
             PathBuf::from("/tmp"),
             "test".into(),
             "main".into(),
             TimeWindow::default(),
         );
-        for i in 0..3 {
+        for i in 0..5 {
             snapshot.file_metrics.insert(
                 PathBuf::from(format!("big{}.rs", i)),
                 FileComplexity {
@@ -607,20 +633,21 @@ mod tests {
                 },
             );
         }
+        add_normal_files(&mut snapshot, 95); // 5/100 = 5% ≤ 8% → score 50
         let result = god_objects(&snapshot);
         assert_eq!(result.score, 50);
     }
 
     #[test]
-    fn god_objects_scores_25_with_more_than_five() {
-        // 6 god objects → score 25
+    fn god_objects_scores_25_at_high_pct() {
+        // 10/100 = 10% → score 25
         let mut snapshot = RepoSnapshot::new(
             PathBuf::from("/tmp"),
             "test".into(),
             "main".into(),
             TimeWindow::default(),
         );
-        for i in 0..6 {
+        for i in 0..10 {
             snapshot.file_metrics.insert(
                 PathBuf::from(format!("big{}.rs", i)),
                 FileComplexity {
@@ -632,8 +659,35 @@ mod tests {
                 },
             );
         }
+        add_normal_files(&mut snapshot, 90); // 10/100 = 10% > 8% → score 25
         let result = god_objects(&snapshot);
         assert_eq!(result.score, 25);
+    }
+
+    #[test]
+    fn god_objects_scores_75_at_low_pct() {
+        // 2/100 = 2% → score 75 (≤2%)
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        for i in 0..2 {
+            snapshot.file_metrics.insert(
+                PathBuf::from(format!("big{}.rs", i)),
+                FileComplexity {
+                    total_lines: 600,
+                    loc: 520,
+                    cyclomatic_complexity: 5,
+                    public_methods: 5,
+                    properties: 1,
+                },
+            );
+        }
+        add_normal_files(&mut snapshot, 98); // 2/100 = 2% ≤ 2% → score 75
+        let result = god_objects(&snapshot);
+        assert_eq!(result.score, 75);
     }
 
     #[test]
@@ -732,8 +786,9 @@ mod tests {
                 properties: 1,
             },
         );
+        add_normal_files(&mut snapshot, 99); // 1/100 = 1% → score 75
         let result = god_objects(&snapshot);
-        assert_eq!(result.score, 75); // flagged: 1 god object
+        assert_eq!(result.score, 75); // flagged: 1/100 = 1%
     }
 
     #[test]
