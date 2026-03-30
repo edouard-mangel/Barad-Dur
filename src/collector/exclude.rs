@@ -3,7 +3,10 @@ use std::path::Path;
 /// Default file extensions excluded from analysis (translation/resource files).
 /// These files change together by definition and inflate coupling/churn metrics.
 const DEFAULT_EXCLUDE_EXTENSIONS: &[&str] = &[
+    // Translation / resource files
     "resx", "po", "pot", "xlf", "xliff", "strings", "arb", "lproj",
+    // Documentation files
+    "md", "txt", "rst", "adoc", "textile",
 ];
 
 /// Default path patterns excluded from analysis (tooling config, lockfiles).
@@ -155,6 +158,17 @@ mod tests {
     fn is_excluded_case_insensitive_extension() {
         assert!(is_excluded(Path::new("Strings.RESX"), &[], true));
         assert!(is_excluded(Path::new("lang.Resx"), &[], true));
+    }
+
+    #[test]
+    fn is_excluded_matches_documentation_files() {
+        assert!(is_excluded(Path::new("README.md"), &[], true));
+        assert!(is_excluded(Path::new("docs/guide.rst"), &[], true));
+        assert!(is_excluded(Path::new("CHANGELOG.txt"), &[], true));
+        assert!(is_excluded(Path::new("docs/api.adoc"), &[], true));
+        assert!(is_excluded(Path::new("notes.textile"), &[], true));
+        // Not excluded when defaults disabled
+        assert!(!is_excluded(Path::new("README.md"), &[], false));
     }
 
     #[test]

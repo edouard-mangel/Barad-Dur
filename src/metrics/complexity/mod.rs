@@ -1,4 +1,5 @@
 mod fallback;
+mod lang_dispatch;
 mod queries;
 mod treesitter;
 

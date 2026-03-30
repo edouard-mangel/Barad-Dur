@@ -1,5 +1,6 @@
 mod exclude;
 pub mod gitcli;
+mod import_resolver;
 mod libgit;
 mod progress;
 mod snapshot_builder;

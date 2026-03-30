@@ -20,7 +20,17 @@ pub fn compute_health(snapshot: &RepoSnapshot, _thresholds: &HealthThresholds) -
 }
 
 /// Percentage of files that are single-author dominated (one author owns >50% of lines).
+/// For solo projects (single author), this metric is not applicable and scores 100.
 fn bus_factor(snapshot: &RepoSnapshot, _thresholds: &HealthThresholds) -> MetricValue {
+    if snapshot.authors.len() <= 1 {
+        return MetricValue {
+            name: "Bus factor".to_string(),
+            description: "Solo project — not applicable".to_string(),
+            raw_value: RawValue::Text("N/A".to_string()),
+            score: 100,
+        };
+    }
+
     if snapshot.blame_map.is_empty() {
         return MetricValue {
             name: "Bus factor".to_string(),
@@ -160,16 +170,8 @@ mod tests {
     use crate::snapshot::*;
     use chrono::Utc;
 
-    fn make_snapshot_with_blame() -> RepoSnapshot {
-        let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"),
-            "test".into(),
-            "main".into(),
-            TimeWindow::default(),
-        );
-
-        // 2 authors
-        snapshot.authors = vec![
+    fn two_authors() -> Vec<Author> {
+        vec![
             Author {
                 id: 0,
                 name: "Alice".into(),
@@ -180,7 +182,18 @@ mod tests {
                 name: "Bob".into(),
                 email: "bob@test.com".into(),
             },
-        ];
+        ]
+    }
+
+    fn make_snapshot_with_blame() -> RepoSnapshot {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+
+        snapshot.authors = two_authors();
 
         // Blame: file1 is 80% Alice, 20% Bob (bus factor = 1)
         let now = Utc::now();
@@ -207,6 +220,34 @@ mod tests {
     }
 
     #[test]
+    fn bus_factor_solo_project_scores_100() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        snapshot.authors = vec![Author {
+            id: 0,
+            name: "Alice".into(),
+            email: "alice@test.com".into(),
+        }];
+        let now = Utc::now();
+        let blame: Vec<BlameLine> = (0..100)
+            .map(|j| BlameLine {
+                author_id: 0,
+                commit_id: format!("c{}", j),
+                timestamp: now,
+            })
+            .collect();
+        snapshot.blame_map.insert(PathBuf::from("file.rs"), blame);
+
+        let result = bus_factor(&snapshot, &HealthThresholds::default());
+        assert_eq!(result.score, 100);
+        assert!(result.description.contains("Solo project"));
+    }
+
+    #[test]
     fn bus_factor_detects_single_author_dominance() {
         let snapshot = make_snapshot_with_blame();
         let result = bus_factor(&snapshot, &HealthThresholds::default());
@@ -227,6 +268,7 @@ mod tests {
             "main".into(),
             TimeWindow::default(),
         );
+        snapshot.authors = two_authors();
         let now = Utc::now();
         for i in 0..5 {
             let lines: Vec<BlameLine> = (0..100)
@@ -257,6 +299,7 @@ mod tests {
             "main".into(),
             TimeWindow::default(),
         );
+        snapshot.authors = two_authors();
         let now = Utc::now();
         // 1 dominated file: author 0 owns 80%
         let dominated: Vec<BlameLine> = (0..100)
@@ -296,6 +339,7 @@ mod tests {
             "main".into(),
             TimeWindow::default(),
         );
+        snapshot.authors = two_authors();
         let now = Utc::now();
         let lines: Vec<BlameLine> = (0..100)
             .map(|j| BlameLine {
@@ -330,7 +374,6 @@ mod tests {
                 cyclomatic_complexity: 10,
                 public_methods: 5,
                 properties: 2,
-                demeter_violations: 0,
             },
         );
         snapshot.file_metrics.insert(
@@ -341,7 +384,6 @@ mod tests {
                 cyclomatic_complexity: 3,
                 public_methods: 2,
                 properties: 1,
-                demeter_violations: 0,
             },
         );
         let result = god_objects(&snapshot);
@@ -368,7 +410,6 @@ mod tests {
                 cyclomatic_complexity: 5,
                 public_methods: 16,
                 properties: 3,
-                demeter_violations: 0,
             },
         );
         let result = god_objects(&snapshot);
@@ -391,7 +432,6 @@ mod tests {
                 cyclomatic_complexity: 3,
                 public_methods: 5,
                 properties: 1,
-                demeter_violations: 0,
             },
         );
         let result = god_objects(&snapshot);
@@ -422,7 +462,6 @@ mod tests {
                     cyclomatic_complexity: *cc,
                     public_methods: 2,
                     properties: 1,
-                    demeter_violations: 0,
                 },
             );
             snapshot.commits_by_file.insert(
@@ -456,7 +495,6 @@ mod tests {
                     cyclomatic_complexity: 5,
                     public_methods: 2,
                     properties: 1,
-                    demeter_violations: 0,
                 },
             );
             snapshot
@@ -484,7 +522,6 @@ mod tests {
                 cyclomatic_complexity: 5,
                 public_methods: 5,
                 properties: 1,
-                demeter_violations: 0,
             },
         );
         let result = god_objects(&snapshot);
@@ -508,7 +545,6 @@ mod tests {
                 cyclomatic_complexity: 5,
                 public_methods: 5,
                 properties: 1,
-                demeter_violations: 0,
             },
         );
         let result = god_objects(&snapshot);
@@ -532,7 +568,6 @@ mod tests {
                 cyclomatic_complexity: 5,
                 public_methods: 15,
                 properties: 1,
-                demeter_violations: 0,
             },
         );
         let result = god_objects(&snapshot);
@@ -557,7 +592,6 @@ mod tests {
                     cyclomatic_complexity: 5,
                     public_methods: 5,
                     properties: 1,
-                    demeter_violations: 0,
                 },
             );
         }
@@ -583,7 +617,6 @@ mod tests {
                     cyclomatic_complexity: 5,
                     public_methods: 5,
                     properties: 1,
-                    demeter_violations: 0,
                 },
             );
         }
@@ -600,6 +633,7 @@ mod tests {
             "main".into(),
             TimeWindow::default(),
         );
+        snapshot.authors = two_authors();
         let now = Utc::now();
         // 1 dominated out of 10 = exactly 10% → score 75
         let dominated: Vec<BlameLine> = (0..100)
@@ -637,6 +671,7 @@ mod tests {
             "main".into(),
             TimeWindow::default(),
         );
+        snapshot.authors = two_authors();
         let now = Utc::now();
         for i in 0..5 {
             let lines: Vec<BlameLine> = (0..100)
@@ -683,7 +718,6 @@ mod tests {
                 cyclomatic_complexity: 5,
                 public_methods: 16,
                 properties: 1,
-                demeter_violations: 0,
             },
         );
         let result = god_objects(&snapshot);
@@ -716,7 +750,6 @@ mod tests {
                     cyclomatic_complexity: *cc,
                     public_methods: 2,
                     properties: 1,
-                    demeter_violations: 0,
                 },
             );
             snapshot.commits_by_file.insert(
@@ -749,7 +782,6 @@ mod tests {
                     cyclomatic_complexity: 2,
                     public_methods: 2,
                     properties: 1,
-                    demeter_violations: 0,
                 },
             );
             snapshot.commits_by_file.insert(
@@ -766,7 +798,6 @@ mod tests {
                     cyclomatic_complexity: 100,
                     public_methods: 5,
                     properties: 1,
-                    demeter_violations: 0,
                 },
             );
             snapshot.commits_by_file.insert(
@@ -787,6 +818,7 @@ mod tests {
             "main".into(),
             TimeWindow::default(),
         );
+        snapshot.authors = two_authors();
         let now = Utc::now();
         // 2 dominated out of 4 = exactly 50%
         for i in 0..2 {
@@ -834,7 +866,6 @@ mod tests {
                 cyclomatic_complexity: 5,
                 public_methods: 20,
                 properties: 1,
-                demeter_violations: 0,
             },
         );
         let result = god_objects(&snapshot);
@@ -869,7 +900,6 @@ mod tests {
                     cyclomatic_complexity: *cc,
                     public_methods: 2,
                     properties: 1,
-                    demeter_violations: 0,
                 },
             );
             snapshot.commits_by_file.insert(

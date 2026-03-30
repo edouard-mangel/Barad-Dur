@@ -23,11 +23,21 @@ pub fn compute_team(
 }
 
 /// Gini coefficient of code ownership across authors.
+/// For solo projects (single author), this metric is not applicable and scores 100.
 fn knowledge_distribution(
     snapshot: &RepoSnapshot,
     _thresholds: &crate::config::TeamThresholds,
 ) -> MetricValue {
-    if snapshot.blame_map.is_empty() || snapshot.authors.is_empty() {
+    if snapshot.authors.len() <= 1 {
+        return MetricValue {
+            name: "Knowledge distribution".to_string(),
+            description: "Solo project — not applicable".to_string(),
+            raw_value: RawValue::Text("N/A".to_string()),
+            score: 100,
+        };
+    }
+
+    if snapshot.blame_map.is_empty() {
         return MetricValue {
             name: "Knowledge distribution".to_string(),
             description: "No blame data available".to_string(),
@@ -155,10 +165,20 @@ fn contributor_activity(
 }
 
 /// Percentage of files with a clear owner (>50% blame to one author).
+/// For solo projects (single author), ownership is trivially clear.
 fn ownership_clarity(
     snapshot: &RepoSnapshot,
     _thresholds: &crate::config::TeamThresholds,
 ) -> MetricValue {
+    if snapshot.authors.len() <= 1 {
+        return MetricValue {
+            name: "Ownership clarity".to_string(),
+            description: "Solo project — not applicable".to_string(),
+            raw_value: RawValue::Text("N/A".to_string()),
+            score: 100,
+        };
+    }
+
     if snapshot.blame_map.is_empty() {
         return MetricValue {
             name: "Ownership clarity".to_string(),
@@ -212,10 +232,20 @@ fn ownership_clarity(
 }
 
 /// Detect directory silos where one author dominates.
+/// For solo projects (single author), silos are expected and not a concern.
 fn collaboration_patterns(
     snapshot: &RepoSnapshot,
     _thresholds: &crate::config::TeamThresholds,
 ) -> MetricValue {
+    if snapshot.authors.len() <= 1 {
+        return MetricValue {
+            name: "Collaboration patterns".to_string(),
+            description: "Solo project — not applicable".to_string(),
+            raw_value: RawValue::Text("N/A".to_string()),
+            score: 100,
+        };
+    }
+
     if snapshot.blame_map.is_empty() {
         return MetricValue {
             name: "Collaboration patterns".to_string(),
@@ -347,6 +377,45 @@ mod tests {
     use chrono::{Duration, Utc};
     use std::path::PathBuf;
 
+    fn make_solo_snapshot() -> RepoSnapshot {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        snapshot.authors = vec![Author {
+            id: 0,
+            name: "Alice".into(),
+            email: "a@t.com".into(),
+        }];
+        snapshot
+    }
+
+    #[test]
+    fn knowledge_distribution_solo_project_scores_100() {
+        let snapshot = make_solo_snapshot();
+        let result = knowledge_distribution(&snapshot, &crate::config::TeamThresholds::default());
+        assert_eq!(result.score, 100);
+        assert!(result.description.contains("Solo project"));
+    }
+
+    #[test]
+    fn ownership_clarity_solo_project_scores_100() {
+        let snapshot = make_solo_snapshot();
+        let result = ownership_clarity(&snapshot, &crate::config::TeamThresholds::default());
+        assert_eq!(result.score, 100);
+        assert!(result.description.contains("Solo project"));
+    }
+
+    #[test]
+    fn collaboration_patterns_solo_project_scores_100() {
+        let snapshot = make_solo_snapshot();
+        let result = collaboration_patterns(&snapshot, &crate::config::TeamThresholds::default());
+        assert_eq!(result.score, 100);
+        assert!(result.description.contains("Solo project"));
+    }
+
     #[test]
     fn knowledge_distribution_detects_concentration() {
         let mut snapshot = RepoSnapshot::new(
@@ -475,6 +544,18 @@ mod tests {
             "main".into(),
             TimeWindow::default(),
         );
+        snapshot.authors = vec![
+            Author {
+                id: 0,
+                name: "Alice".into(),
+                email: "a@t.com".into(),
+            },
+            Author {
+                id: 1,
+                name: "Bob".into(),
+                email: "b@t.com".into(),
+            },
+        ];
 
         let now = Utc::now();
         // File 1: Alice 80%, Bob 20% → clear owner
@@ -529,6 +610,18 @@ mod tests {
             "main".into(),
             TimeWindow::default(),
         );
+        snapshot.authors = vec![
+            Author {
+                id: 0,
+                name: "Alice".into(),
+                email: "a@t.com".into(),
+            },
+            Author {
+                id: 1,
+                name: "Bob".into(),
+                email: "b@t.com".into(),
+            },
+        ];
 
         let now = Utc::now();
         // "auth" directory: 100% Alice → silo

@@ -8,6 +8,22 @@ use crate::snapshot::{Author, AuthorId, ChangeType, Commit, FileChange, FileEntr
 
 use super::CommitCollection;
 
+/// Resolve author identity through .mailmap, falling back to the raw signature.
+fn resolve_author(sig: &git2::Signature, mailmap: Option<&git2::Mailmap>) -> (String, String) {
+    if let Some(mm) = mailmap {
+        if let Ok(resolved) = mm.resolve_signature(sig) {
+            return (
+                resolved.name().unwrap_or("Unknown").to_string(),
+                resolved.email().unwrap_or("unknown").to_lowercase(),
+            );
+        }
+    }
+    (
+        sig.name().unwrap_or("Unknown").to_string(),
+        sig.email().unwrap_or("unknown").to_lowercase(),
+    )
+}
+
 fn git_time_to_chrono(time: &git2::Time) -> DateTime<Utc> {
     Utc.timestamp_opt(time.seconds(), 0)
         .single()
@@ -25,6 +41,8 @@ pub fn collect_commits(repo: &Repository, time_window: &TimeWindow) -> Result<Co
             authors: vec![],
         });
     }
+
+    let mailmap = repo.mailmap().ok();
 
     let mut revwalk = repo.revwalk().context("Failed to create revwalk")?;
     revwalk
@@ -64,10 +82,9 @@ pub fn collect_commits(repo: &Repository, time_window: &TimeWindow) -> Result<Co
             continue;
         }
 
-        // Deduplicate author by email
+        // Deduplicate author by email, applying .mailmap if present
         let author_sig = commit.author();
-        let email = author_sig.email().unwrap_or("unknown").to_lowercase();
-        let name = author_sig.name().unwrap_or("Unknown").to_string();
+        let (name, email) = resolve_author(&author_sig, mailmap.as_ref());
 
         let author_id = if let Some(&id) = email_to_id.get(&email) {
             id
@@ -199,6 +216,8 @@ pub fn collect_commits_at(
     let sha_oid =
         git2::Oid::from_str(sha_str).with_context(|| format!("Invalid SHA: {sha_str}"))?;
 
+    let mailmap = repo.mailmap().ok();
+
     let mut revwalk = repo.revwalk().context("Failed to create revwalk")?;
     revwalk
         .set_sorting(Sort::TIME | Sort::TOPOLOGICAL)
@@ -227,8 +246,7 @@ pub fn collect_commits_at(
         }
 
         let author_sig = commit.author();
-        let email = author_sig.email().unwrap_or("unknown").to_lowercase();
-        let name = author_sig.name().unwrap_or("Unknown").to_string();
+        let (name, email) = resolve_author(&author_sig, mailmap.as_ref());
 
         let author_id = if let Some(&id) = email_to_id.get(&email) {
             id
