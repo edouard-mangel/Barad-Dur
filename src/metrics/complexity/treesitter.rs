@@ -67,10 +67,7 @@ pub fn analyse(content: &str, lang: Language, ext: &str) -> Option<FileComplexit
     })
 }
 
-pub(super) fn parse(
-    content: &str,
-    grammar: &tree_sitter::Language,
-) -> Option<tree_sitter::Tree> {
+pub(super) fn parse(content: &str, grammar: &tree_sitter::Language) -> Option<tree_sitter::Tree> {
     let mut parser = tree_sitter::Parser::new();
     parser.set_language(grammar).ok()?;
     parser.parse(content, None)

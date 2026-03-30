@@ -4,10 +4,7 @@ use crate::config::HealthThresholds;
 use crate::metrics::{MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
 
-pub(super) fn bus_factor(
-    snapshot: &RepoSnapshot,
-    _thresholds: &HealthThresholds,
-) -> MetricValue {
+pub(super) fn bus_factor(snapshot: &RepoSnapshot, _thresholds: &HealthThresholds) -> MetricValue {
     if snapshot.authors.len() <= 1 {
         return MetricValue {
             name: "Bus factor".to_string(),
