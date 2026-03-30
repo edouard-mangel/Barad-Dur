@@ -78,12 +78,24 @@ fn bus_factor(snapshot: &RepoSnapshot, _thresholds: &HealthThresholds) -> Metric
     }
 }
 
+fn is_source_file(path: &std::path::Path) -> bool {
+    matches!(
+        path.extension().and_then(|e| e.to_str()).unwrap_or(""),
+        "rs" | "py" | "go" | "java" | "cs" | "js" | "ts" | "tsx" | "jsx"
+            | "kt" | "cpp" | "c" | "h" | "hpp" | "rb" | "php" | "swift" | "scala"
+    )
+}
+
 /// Files that have grown too large to maintain (god objects / bloaters).
 fn god_objects(snapshot: &RepoSnapshot) -> MetricValue {
     let gods: Vec<String> = snapshot
         .file_metrics
         .iter()
-        .filter(|(_, m)| m.loc > 500 || (m.loc > 300 && m.public_methods > 15))
+        .filter(|(p, m)| {
+            is_source_file(p)
+                && m.cyclomatic_complexity > 0
+                && (m.loc > 500 || (m.loc > 300 && m.public_methods > 15))
+        })
         .map(|(p, _)| p.display().to_string())
         .collect();
 
@@ -870,6 +882,51 @@ mod tests {
         );
         let result = god_objects(&snapshot);
         assert_eq!(result.score, 100); // loc=300 is not > 300
+    }
+
+    #[test]
+    fn god_objects_skips_non_source_files() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        // JSON data file — excluded by is_source_file
+        snapshot.file_metrics.insert(
+            PathBuf::from("dashboard/report.json"),
+            FileComplexity {
+                total_lines: 1600,
+                loc: 1589,
+                cyclomatic_complexity: 0,
+                public_methods: 0,
+                properties: 0,
+            },
+        );
+        // SQL migration file — excluded by is_source_file
+        snapshot.file_metrics.insert(
+            PathBuf::from("migrations/001_init.sql"),
+            FileComplexity {
+                total_lines: 700,
+                loc: 650,
+                cyclomatic_complexity: 0,
+                public_methods: 0,
+                properties: 0,
+            },
+        );
+        // Rust file that is a pure constant (CC=0, no logic) — excluded by cyclomatic_complexity guard
+        snapshot.file_metrics.insert(
+            PathBuf::from("src/renderer/html/css.rs"),
+            FileComplexity {
+                total_lines: 650,
+                loc: 641,
+                cyclomatic_complexity: 0,
+                public_methods: 0,
+                properties: 0,
+            },
+        );
+        let result = god_objects(&snapshot);
+        assert_eq!(result.score, 100);
     }
 
     #[test]
