@@ -1,0 +1,549 @@
+use super::*;
+use crate::metrics::{CategoryResult, MetricValue, RawValue};
+use crate::scorer::{ActionItem, AnalysisReport};
+
+fn make_report() -> AnalysisReport {
+    AnalysisReport {
+        repo_name: "my-repo".into(),
+        branch: "main".into(),
+        time_window_months: 6,
+        total_commits: 42,
+        total_authors: 3,
+        total_files: 20,
+        overall_score: 75,
+        categories: vec![CategoryResult {
+            name: "Health".into(),
+            score: 75,
+            metrics: vec![MetricValue {
+                name: "Bus factor".into(),
+                description: "OK".into(),
+                raw_value: RawValue::Integer(3),
+                score: 75,
+            }],
+        }],
+        top_actions: vec![ActionItem {
+            text: "Improve test coverage".into(),
+            target_tab: Some("hotspots".into()),
+            sort_by: None,
+        }],
+        remote_meta: None,
+        file_hotspots: vec![],
+        coupling_pairs: vec![],
+        author_ownership: vec![],
+        file_ages: vec![],
+        author_cards: vec![],
+        history: vec![],
+    }
+}
+
+#[test]
+fn html_is_valid_document() {
+    let report = make_report();
+    let html = render(&report).unwrap();
+    assert!(html.starts_with("<!DOCTYPE html>"));
+    assert!(html.contains("</html>"));
+}
+
+#[test]
+fn html_embeds_report_data() {
+    let report = make_report();
+    let html = render(&report).unwrap();
+    assert!(html.contains("my-repo"));
+}
+
+#[test]
+fn html_contains_tab_markers() {
+    let report = make_report();
+    let html = render(&report).unwrap();
+    assert!(html.contains("Hotspots"));
+    assert!(html.contains("Coupling"));
+    assert!(html.contains("Ownership"));
+    assert!(html.contains("Age"));
+}
+
+#[test]
+fn html_title_contains_repo_name() {
+    let report = make_report();
+    let html = render(&report).unwrap();
+    assert!(html.contains("<title>my-repo"));
+}
+
+#[test]
+fn score_color_thresholds() {
+    assert_eq!(score_color(71), "#10b981");
+    assert_eq!(score_color(70), "#f59e0b");
+    assert_eq!(score_color(41), "#f59e0b");
+    assert_eq!(score_color(40), "#ef4444");
+    assert_eq!(score_color(0), "#ef4444");
+}
+
+// ---- Treemap tests ----
+
+fn make_treemap_report() -> AnalysisReport {
+    use crate::scorer::{AuthorShare, FileAge, FileOwnership, HotspotFile};
+    use chrono::Utc;
+
+    let mut report = make_report();
+    report.file_hotspots = vec![
+        HotspotFile {
+            path: "src/main.rs".into(),
+            churn_count: 12,
+            loc: 200,
+            total_lines: 210,
+            cyclomatic_complexity: 15,
+            public_methods: 3,
+            properties: 1,
+            hotspot_score: 72.0,
+        },
+        HotspotFile {
+            path: "src/lib.rs".into(),
+            churn_count: 8,
+            loc: 150,
+            total_lines: 160,
+            cyclomatic_complexity: 10,
+            public_methods: 5,
+            properties: 2,
+            hotspot_score: 45.0,
+        },
+        HotspotFile {
+            path: "tests/test_a.rs".into(),
+            churn_count: 3,
+            loc: 80,
+            total_lines: 85,
+            cyclomatic_complexity: 4,
+            public_methods: 2,
+            properties: 0,
+            hotspot_score: 20.0,
+        },
+        HotspotFile {
+            path: "tests/test_b.rs".into(),
+            churn_count: 1,
+            loc: 60,
+            total_lines: 65,
+            cyclomatic_complexity: 2,
+            public_methods: 1,
+            properties: 0,
+            hotspot_score: 10.0,
+        },
+    ];
+    report.file_ages = vec![
+        FileAge {
+            path: "src/main.rs".into(),
+            last_modified: Utc::now(),
+            days_since_modified: 5,
+        },
+        FileAge {
+            path: "src/lib.rs".into(),
+            last_modified: Utc::now(),
+            days_since_modified: 30,
+        },
+        FileAge {
+            path: "tests/test_a.rs".into(),
+            last_modified: Utc::now(),
+            days_since_modified: 90,
+        },
+        FileAge {
+            path: "tests/test_b.rs".into(),
+            last_modified: Utc::now(),
+            days_since_modified: 200,
+        },
+    ];
+    report.author_ownership = vec![
+        FileOwnership {
+            path: "src/main.rs".into(),
+            authors: vec![
+                AuthorShare {
+                    name: "Alice".into(),
+                    pct: 70.0,
+                },
+                AuthorShare {
+                    name: "Bob".into(),
+                    pct: 30.0,
+                },
+            ],
+        },
+        FileOwnership {
+            path: "src/lib.rs".into(),
+            authors: vec![
+                AuthorShare {
+                    name: "Bob".into(),
+                    pct: 60.0,
+                },
+                AuthorShare {
+                    name: "Alice".into(),
+                    pct: 40.0,
+                },
+            ],
+        },
+        FileOwnership {
+            path: "tests/test_a.rs".into(),
+            authors: vec![AuthorShare {
+                name: "Alice".into(),
+                pct: 100.0,
+            }],
+        },
+        FileOwnership {
+            path: "tests/test_b.rs".into(),
+            authors: vec![AuthorShare {
+                name: "Bob".into(),
+                pct: 100.0,
+            }],
+        },
+    ];
+    report
+}
+
+#[test]
+fn html_contains_treemap_tab() {
+    let html = render(&make_treemap_report()).unwrap();
+    assert!(html.contains("Treemap"), "Should contain Treemap tab name");
+}
+
+#[test]
+fn html_treemap_has_svg() {
+    let html = render(&make_treemap_report()).unwrap();
+    assert!(
+        html.contains("tm-svg"),
+        "Should contain tm-svg container id"
+    );
+}
+
+#[test]
+fn html_treemap_has_metric_select() {
+    let html = render(&make_treemap_report()).unwrap();
+    assert!(
+        html.contains("tm-metric-select"),
+        "Should contain tm-metric-select dropdown id"
+    );
+}
+
+#[test]
+fn html_treemap_has_squarify() {
+    let html = render(&make_treemap_report()).unwrap();
+    assert!(
+        html.contains("squarify"),
+        "Should contain squarify layout function"
+    );
+}
+
+#[test]
+fn html_treemap_has_color_scales() {
+    let html = render(&make_treemap_report()).unwrap();
+    assert!(
+        html.contains("metricScales"),
+        "Should contain metricScales color scale object"
+    );
+}
+
+#[test]
+fn html_treemap_has_breadcrumb() {
+    let html = render(&make_treemap_report()).unwrap();
+    assert!(
+        html.contains("tm-breadcrumb"),
+        "Should contain tm-breadcrumb navigation"
+    );
+}
+
+#[test]
+fn html_treemap_has_detail_panel() {
+    let html = render(&make_treemap_report()).unwrap();
+    assert!(html.contains("tm-detail"), "Should contain tm-detail panel");
+}
+
+#[test]
+fn html_treemap_has_animated_transition() {
+    let html = render(&make_treemap_report()).unwrap();
+    assert!(
+        html.contains("animateTransition"),
+        "Should contain animated transition function"
+    );
+}
+
+#[test]
+fn html_treemap_has_circle_pack() {
+    let html = render(&make_treemap_report()).unwrap();
+    assert!(
+        html.contains("circlePack"),
+        "Should contain circlePack layout function"
+    );
+}
+
+#[test]
+fn html_treemap_has_layout_toggle() {
+    let html = render(&make_treemap_report()).unwrap();
+    assert!(
+        html.contains("tm-layout-toggle"),
+        "Should contain layout toggle control"
+    );
+}
+
+#[test]
+fn html_tabs_have_info_banners() {
+    let html = render(&make_treemap_report()).unwrap();
+    assert!(
+        html.contains("tab-info"),
+        "Should contain tab info banner CSS class"
+    );
+    assert!(
+        html.contains("Hotspot Score"),
+        "Hotspots tab should explain hotspot scoring"
+    );
+    assert!(
+        html.contains("temporal coupling"),
+        "Coupling tab should explain temporal coupling"
+    );
+    assert!(
+        html.contains("knowledge distribution"),
+        "Ownership tab should explain knowledge distribution"
+    );
+    assert!(
+        html.contains("days since"),
+        "Age tab should explain file age measurement"
+    );
+}
+
+#[test]
+fn html_hotspot_scatter_is_clickable() {
+    let html = render(&make_treemap_report()).unwrap();
+    assert!(
+        html.contains("hs-scatter-dot"),
+        "Scatter plot circles should have hs-scatter-dot class for click targeting"
+    );
+    assert!(
+        html.contains("hs-row-highlight"),
+        "Should have CSS class for highlighting table rows"
+    );
+}
+
+#[test]
+fn html_coupling_has_auto_exclude() {
+    let html = render(&make_treemap_report()).unwrap();
+    assert!(
+        html.contains("isAutoExcluded"),
+        "Coupling tab should have auto-exclude logic for interface/implementation pairs"
+    );
+}
+
+#[test]
+fn html_coupling_rows_are_dismissable() {
+    let html = render(&make_treemap_report()).unwrap();
+    assert!(
+        html.contains("cp-dismiss"),
+        "Coupling tab rows should have dismiss buttons"
+    );
+}
+
+// ---- Trends tab tests ----
+
+#[test]
+fn html_contains_trends_tab() {
+    let html = render(&make_report()).unwrap();
+    assert!(html.contains("Trends"), "Should have Trends tab");
+}
+
+#[test]
+fn html_trends_has_metric_select() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("tr-metric-select"),
+        "Should have metric selector dropdown"
+    );
+}
+
+#[test]
+fn html_trends_has_chart() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("tr-chart"),
+        "Should have trends chart container"
+    );
+}
+
+fn make_history_entry(score: u32, source: Option<&str>) -> crate::scorer::HistoryEntry {
+    crate::scorer::HistoryEntry {
+        timestamp: chrono::Utc::now(),
+        head: "a".repeat(40),
+        overall_score: score,
+        categories: std::collections::HashMap::new(),
+        metrics: std::collections::HashMap::new(),
+        counts: crate::scorer::HistoryCounts {
+            commits: 10,
+            files: 5,
+            authors: 2,
+        },
+        branch: "main".into(),
+        schema_version: 1,
+        source: source.map(|s| s.to_string()),
+    }
+}
+
+#[test]
+fn html_trends_backfill_source_wired_through() {
+    let mut report = make_report();
+    report.history = vec![make_history_entry(58, Some("backfill"))];
+    let html = render(&report).unwrap();
+    assert!(
+        html.contains("source === 'backfill'"),
+        "JS must contain guard: entry.source === 'backfill'"
+    );
+    assert!(
+        html.contains(r#""source":"backfill""#),
+        "window.R history entry must carry source:backfill in JSON"
+    );
+}
+
+#[test]
+fn html_trends_hollow_circle_js_fill_none() {
+    let mut report = make_report();
+    report.history = vec![make_history_entry(58, Some("backfill"))];
+    let html = render(&report).unwrap();
+    assert!(
+        html.contains("isBackfill ? 'none'"),
+        "Hollow circle conditional must assign fill='none' for backfill entries"
+    );
+    assert!(
+        html.contains("pointer-events:all"),
+        "Hollow circles need pointer-events:all for correct hover area (SVG fill=none issue)"
+    );
+}
+
+#[test]
+fn html_trends_live_circle_js_uses_score_color() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("scoreColor(scores[i])") || html.contains("scoreColor("),
+        "Live circles must assign scoreColor to fill"
+    );
+}
+
+#[test]
+fn html_trends_hollow_circle_stroke_is_score_color() {
+    let mut report = make_report();
+    report.history = vec![make_history_entry(58, Some("backfill"))];
+    let html = render(&report).unwrap();
+    assert!(
+        html.contains("dotStroke") || html.contains("scoreColor"),
+        "Hollow circle stroke must be set to scoreColor"
+    );
+}
+
+#[test]
+fn html_trends_legacy_entry_has_no_source_in_window_r() {
+    let mut report = make_report();
+    report.history = vec![make_history_entry(65, None)];
+    let html = render(&report).unwrap();
+    assert!(
+        !html.contains(r#""source":"backfill""#),
+        "Legacy entry (source=None) must not appear as source:backfill in window.R"
+    );
+}
+
+#[test]
+fn html_trends_legend_labels_in_js() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("Backfill"),
+        "Rendered JS should contain the 'Backfill' label string"
+    );
+    assert!(
+        html.contains("Live analysis"),
+        "Rendered JS should contain the 'Live analysis' label string"
+    );
+}
+
+#[test]
+fn html_trends_legend_no_inner_html() {
+    let html = render(&make_report()).unwrap();
+    let legend_region = html
+        .find("tr-legend")
+        .map(|pos| &html[pos.saturating_sub(500)..std::cmp::min(pos + 500, html.len())]);
+    if let Some(region) = legend_region {
+        assert!(
+            !region.contains("innerHTML"),
+            "Legend construction must not use innerHTML (security constraint)"
+        );
+    }
+}
+
+#[test]
+fn html_trends_legend_css_class_present() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("tr-legend"),
+        "CSS class .tr-legend must be present for legend styling"
+    );
+}
+
+#[test]
+fn html_trends_tooltip_source_backfill_label() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("Source: Backfill"),
+        "Tooltip JS must contain the literal string 'Source: Backfill'"
+    );
+}
+
+#[test]
+fn html_trends_tooltip_source_live_label() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("Source: Live analysis"),
+        "Tooltip JS must contain the literal string 'Source: Live analysis'"
+    );
+}
+
+#[test]
+fn html_trends_tooltip_no_inner_html() {
+    let html = render(&make_report()).unwrap();
+    let tooltip_region = html
+        .find("mouseenter")
+        .map(|pos| &html[pos..std::cmp::min(pos + 800, html.len())]);
+    if let Some(region) = tooltip_region {
+        assert!(
+            !region.contains(".innerHTML"),
+            "Tooltip handler must use textContent, not innerHTML"
+        );
+    }
+}
+
+#[test]
+fn html_trends_zero_backfill_window_r_has_no_source_field() {
+    let mut report = make_report();
+    report.history = vec![
+        make_history_entry(70, None),
+        make_history_entry(72, None),
+        make_history_entry(75, None),
+    ];
+    let html = render(&report).unwrap();
+    assert!(
+        !html.contains(r#""source":"backfill""#),
+        "Zero-backfill history must not inject source:backfill into window.R"
+    );
+}
+
+#[test]
+fn html_trends_all_backfill_window_r_all_have_source() {
+    let mut report = make_report();
+    report.history = vec![
+        make_history_entry(55, Some("backfill")),
+        make_history_entry(58, Some("backfill")),
+        make_history_entry(60, Some("backfill")),
+    ];
+    let html = render(&report).unwrap();
+    let count = html.matches(r#""source":"backfill""#).count();
+    assert_eq!(
+        count, 3,
+        "All-backfill history: window.R must contain exactly 3 source:backfill entries"
+    );
+}
+
+#[test]
+fn html_trends_hollow_dot_pointer_events_all() {
+    let mut report = make_report();
+    report.history = vec![make_history_entry(58, Some("backfill"))];
+    let html = render(&report).unwrap();
+    assert!(
+        html.contains("pointer-events:all"),
+        "Hollow circle JS must set pointer-events:all to fix hover area on fill=none circles"
+    );
+}
