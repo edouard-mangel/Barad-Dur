@@ -1,3 +1,4 @@
+mod counters;
 mod fallback;
 mod lang_dispatch;
 mod queries;
