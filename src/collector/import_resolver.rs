@@ -29,11 +29,7 @@ pub fn resolve_imports(
         .collect()
 }
 
-fn resolve_single_import(
-    raw: &str,
-    source: &Path,
-    known: &HashSet<&PathBuf>,
-) -> Option<PathBuf> {
+fn resolve_single_import(raw: &str, source: &Path, known: &HashSet<&PathBuf>) -> Option<PathBuf> {
     let ext = source.extension().and_then(|e| e.to_str()).unwrap_or("");
     let candidates = match ext {
         "rs" => resolve_rust_import(raw),

@@ -307,7 +307,6 @@ impl Collector {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

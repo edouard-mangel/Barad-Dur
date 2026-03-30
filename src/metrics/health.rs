@@ -81,8 +81,23 @@ fn bus_factor(snapshot: &RepoSnapshot, _thresholds: &HealthThresholds) -> Metric
 fn is_source_file(path: &std::path::Path) -> bool {
     matches!(
         path.extension().and_then(|e| e.to_str()).unwrap_or(""),
-        "rs" | "py" | "go" | "java" | "cs" | "js" | "ts" | "tsx" | "jsx"
-            | "kt" | "cpp" | "c" | "h" | "hpp" | "rb" | "php" | "swift" | "scala"
+        "rs" | "py"
+            | "go"
+            | "java"
+            | "cs"
+            | "js"
+            | "ts"
+            | "tsx"
+            | "jsx"
+            | "kt"
+            | "cpp"
+            | "c"
+            | "h"
+            | "hpp"
+            | "rb"
+            | "php"
+            | "swift"
+            | "scala"
     )
 }
 

@@ -73,7 +73,6 @@ fn parse(content: &str, grammar: &tree_sitter::Language) -> Option<tree_sitter::
     parser.parse(content, None)
 }
 
-
 /// Count matches for a simple query (no capture filtering needed).
 fn run_query(
     tree: &tree_sitter::Tree,
@@ -136,7 +135,6 @@ fn count_complexity(
         .unwrap_or(0);
     stmts + ops
 }
-
 
 // ── Public methods ──────────────────────────────────────────────────
 
@@ -320,7 +318,6 @@ fn count_loc(
         .filter(|(i, line)| !line.trim().is_empty() && !comment_lines.contains(i))
         .count()
 }
-
 
 #[cfg(test)]
 mod tests {
