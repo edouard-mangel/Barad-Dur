@@ -34,7 +34,9 @@ fn commits_have_required_fields() {
     let collector = Collector::open(&test_repo(), TimeWindow::full_history()).unwrap();
     let collection = collector.collect_commits().unwrap();
     for commit in &collection.commits {
-        assert!(!commit.id.is_empty(), "Commit ID should not be empty");
+        // CommitId is now a u32 newtype; verify the interner can resolve it
+        let sha = collection.interner.resolve(commit.id);
+        assert!(!sha.is_empty(), "Resolved commit SHA should not be empty");
         assert!(
             !commit.message.is_empty(),
             "Commit message should not be empty"

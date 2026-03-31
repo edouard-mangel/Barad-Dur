@@ -331,7 +331,7 @@ mod tests {
 
         // 15 files added, 0 deleted → +15% growth
         snapshot.commits.push(Commit {
-            id: "c1".into(),
+            id: CommitId(0),
             author: 0,
             timestamp: now - Duration::days(10),
             message: "add files".into(),
@@ -363,9 +363,9 @@ mod tests {
         )
     }
 
-    fn plain_commit(id: &str, msg: &str, ts: chrono::DateTime<Utc>) -> Commit {
+    fn plain_commit(id: u32, msg: &str, ts: chrono::DateTime<Utc>) -> Commit {
         Commit {
-            id: id.into(),
+            id: CommitId(id),
             author: 0,
             timestamp: ts,
             message: msg.into(),
@@ -387,14 +387,14 @@ mod tests {
         let now = Utc::now();
         for i in 0..7 {
             snapshot.commits.push(plain_commit(
-                &format!("p{}", i),
+                i as u32,
                 "add feature",
                 now - Duration::days(i + 1),
             ));
         }
         for i in 0..3 {
             snapshot.commits.push(plain_commit(
-                &format!("r{}", i),
+                (i + 7) as u32,
                 "refactor module layout",
                 now - Duration::days(i + 8),
             ));
@@ -414,14 +414,14 @@ mod tests {
         let now = Utc::now();
         for i in 0..8 {
             snapshot.commits.push(plain_commit(
-                &format!("p{}", i),
+                i as u32,
                 "fix bug",
                 now - Duration::days(i + 1),
             ));
         }
         for i in 0..2 {
             snapshot.commits.push(Commit {
-                id: format!("rn{}", i),
+                id: CommitId((i + 8) as u32),
                 author: 0,
                 timestamp: now - Duration::days(i as i64 + 9),
                 message: "update path".into(),
@@ -450,13 +450,13 @@ mod tests {
         let now = Utc::now();
         for i in 0..9 {
             snapshot.commits.push(plain_commit(
-                &format!("p{}", i),
+                i as u32,
                 "add stuff",
                 now - Duration::days(i + 1),
             ));
         }
         snapshot.commits.push(Commit {
-            id: "del1".into(),
+            id: CommitId(9),
             author: 0,
             timestamp: now - Duration::days(10),
             message: "remove unused module".into(),
@@ -484,7 +484,7 @@ mod tests {
         let now = Utc::now();
         for i in 0..10 {
             snapshot.commits.push(Commit {
-                id: format!("a{}", i),
+                id: CommitId(i as u32),
                 author: 0,
                 timestamp: now - Duration::days(i + 1),
                 message: "add new file".into(),
@@ -553,7 +553,7 @@ mod tests {
         for day in 0..30 {
             for i in 0..4 {
                 snapshot.commits.push(Commit {
-                    id: format!("c{}_{}", day, i),
+                    id: CommitId((day * 4 + i) as u32),
                     author: 0,
                     timestamp: now - Duration::days(day) + Duration::hours(i),
                     message: "work".into(),

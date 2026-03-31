@@ -4,7 +4,9 @@ use git2::{DiffOptions, Repository, Sort};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::snapshot::{Author, AuthorId, ChangeType, Commit, FileChange, FileEntry, TimeWindow};
+use crate::snapshot::{
+    Author, AuthorId, ChangeType, Commit, CommitInterner, FileChange, FileEntry, TimeWindow,
+};
 
 use super::CommitCollection;
 
@@ -39,6 +41,7 @@ pub fn collect_commits(repo: &Repository, time_window: &TimeWindow) -> Result<Co
         return Ok(CommitCollection {
             commits: vec![],
             authors: vec![],
+            interner: CommitInterner::default(),
         });
     }
 
@@ -55,6 +58,7 @@ pub fn collect_commits(repo: &Repository, time_window: &TimeWindow) -> Result<Co
             return Ok(CommitCollection {
                 commits: vec![],
                 authors: vec![],
+                interner: CommitInterner::default(),
             });
         }
         return Err(anyhow::anyhow!(e)).context("Failed to push HEAD");
@@ -63,6 +67,7 @@ pub fn collect_commits(repo: &Repository, time_window: &TimeWindow) -> Result<Co
     let mut commits = Vec::new();
     let mut email_to_id: HashMap<String, AuthorId> = HashMap::new();
     let mut authors: Vec<Author> = Vec::new();
+    let mut interner = CommitInterner::default();
 
     for oid_result in revwalk {
         let oid = oid_result.context("Failed to get commit oid")?;
@@ -103,8 +108,9 @@ pub fn collect_commits(repo: &Repository, time_window: &TimeWindow) -> Result<Co
         let files_changed = collect_file_changes(repo, &commit)?;
         let parent_count = commit.parent_count();
 
+        let commit_id = interner.intern(&oid.to_string());
         commits.push(Commit {
-            id: oid.to_string(),
+            id: commit_id,
             author: author_id,
             timestamp,
             message: commit.message().unwrap_or("").to_string(),
@@ -114,7 +120,11 @@ pub fn collect_commits(repo: &Repository, time_window: &TimeWindow) -> Result<Co
         });
     }
 
-    Ok(CommitCollection { commits, authors })
+    Ok(CommitCollection {
+        commits,
+        authors,
+        interner,
+    })
 }
 
 fn collect_file_changes(repo: &Repository, commit: &git2::Commit) -> Result<Vec<FileChange>> {
@@ -229,6 +239,7 @@ pub fn collect_commits_at(
     let mut commits = Vec::new();
     let mut email_to_id: HashMap<String, AuthorId> = HashMap::new();
     let mut authors: Vec<Author> = Vec::new();
+    let mut interner = CommitInterner::default();
 
     for oid_result in revwalk {
         let oid = oid_result.context("Failed to get commit oid")?;
@@ -260,8 +271,9 @@ pub fn collect_commits_at(
         let files_changed = collect_file_changes(repo, &commit)?;
         let parent_count = commit.parent_count();
 
+        let commit_id = interner.intern(&oid.to_string());
         commits.push(Commit {
-            id: oid.to_string(),
+            id: commit_id,
             author: author_id,
             timestamp,
             message: commit.message().unwrap_or("").to_string(),
@@ -271,7 +283,11 @@ pub fn collect_commits_at(
         });
     }
 
-    Ok(CommitCollection { commits, authors })
+    Ok(CommitCollection {
+        commits,
+        authors,
+        interner,
+    })
 }
 
 /// Collect the file tree at a specific commit SHA (without modifying working tree).

@@ -159,7 +159,7 @@ fn contributor_activity(
                         snapshot
                             .commits
                             .iter()
-                            .any(|c| &c.id == cid && snapshot.time_window.contains(&c.timestamp))
+                            .any(|c| c.id == *cid && snapshot.time_window.contains(&c.timestamp))
                     })
                 })
                 .unwrap_or(false)
@@ -565,7 +565,7 @@ mod tests {
         // Only 3 authors have recent commits
         for i in 0..3 {
             snapshot.commits.push(Commit {
-                id: format!("c{}", i),
+                id: CommitId(i as u32),
                 author: i,
                 timestamp: now - Duration::days(10),
                 message: "msg".into(),
@@ -716,7 +716,7 @@ mod tests {
         let now = Utc::now();
         for i in 0..20 {
             snapshot.commits.push(Commit {
-                id: format!("c{}", i),
+                id: CommitId(i as u32),
                 author: 0,
                 timestamp: now - Duration::hours(i * 24),
                 message: "msg".into(),

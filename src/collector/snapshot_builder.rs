@@ -240,6 +240,7 @@ impl Collector {
             file_change_pairs: Vec::new(),
             file_metrics,
             import_graph,
+            commit_interner: collection.interner,
         };
         snapshot.build_indexes();
         let indexes_ms = t.elapsed().as_millis();
@@ -301,6 +302,7 @@ impl Collector {
             file_change_pairs: Vec::new(),
             file_metrics: HashMap::new(),
             import_graph: HashMap::new(),
+            commit_interner: collection.interner,
         };
         snapshot.build_indexes();
         Ok(snapshot)

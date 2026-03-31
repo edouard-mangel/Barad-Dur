@@ -137,7 +137,7 @@ pub(super) fn build_file_ages(snapshot: &RepoSnapshot) -> Vec<FileAge> {
                 .and_then(|commit_ids| {
                     commit_ids
                         .iter()
-                        .filter_map(|cid| snapshot.commits.iter().find(|c| &c.id == cid))
+                        .filter_map(|cid| snapshot.commits.iter().find(|c| c.id == *cid))
                         .map(|c| c.timestamp)
                         .max()
                 })
@@ -193,7 +193,7 @@ pub(super) fn build_author_cards(snapshot: &RepoSnapshot) -> Vec<AuthorCard> {
 
             let author_commits: Vec<&crate::snapshot::Commit> = commit_ids
                 .iter()
-                .filter_map(|cid| snapshot.commits.iter().find(|c| &c.id == cid))
+                .filter_map(|cid| snapshot.commits.iter().find(|c| c.id == *cid))
                 .collect();
 
             let commit_count = author_commits.len();

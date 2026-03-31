@@ -26,7 +26,7 @@ pub fn run(args: &BackfillArgs, repo_path: &Path) -> Result<()> {
     let commit_refs: Vec<sampling::CommitRef> = collection
         .commits
         .iter()
-        .map(|c| (c.id.clone(), c.timestamp))
+        .map(|c| (collection.interner.resolve(c.id).to_string(), c.timestamp))
         .collect();
 
     if commit_refs.is_empty() {
@@ -66,7 +66,7 @@ pub fn run(args: &BackfillArgs, repo_path: &Path) -> Result<()> {
         let commit_ts = snapshot
             .commits
             .iter()
-            .find(|c| c.id == *sha)
+            .find(|c| snapshot.resolve_commit(c.id) == sha.as_str())
             .map(|c| c.timestamp);
         if let Some(ts) = commit_ts {
             entry.timestamp = ts;

@@ -8,7 +8,7 @@ use barad_dur::coupling::team::TeamCouplingPair;
 use barad_dur::coupling::temporal::{analyze_temporal_coupling, TemporalCouplingPair};
 use barad_dur::coupling::{CouplingReport, CouplingReportSummary, RepoInfo};
 use barad_dur::renderer::coupling_json::render_coupling_json;
-use barad_dur::snapshot::{Author, ChangeType, Commit, FileChange, RepoSnapshot, TimeWindow};
+use barad_dur::snapshot::{Author, ChangeType, Commit, CommitId, FileChange, RepoSnapshot, TimeWindow};
 use chrono::DateTime;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -523,12 +523,12 @@ fn combined_scoring_and_json_output() {
 // ===========================================================================
 
 /// Build a minimal Commit with a controlled timestamp (Unix seconds).
-fn make_commit_at(id: &str, unix_ts: i64) -> Commit {
+fn make_commit_at(id: u32, unix_ts: i64) -> Commit {
     Commit {
-        id: id.to_string(),
+        id: CommitId(id),
         author: 0,
         timestamp: DateTime::from_timestamp(unix_ts, 0).unwrap(),
-        message: format!("commit {id}"),
+        message: format!("commit {}", id),
         files_changed: vec![FileChange {
             path: PathBuf::from("main.rs"),
             additions: 1,
@@ -551,7 +551,7 @@ fn make_snapshot_with_commits(name: &str, unix_timestamps: &[i64]) -> (String, R
     snapshot.commits = unix_timestamps
         .iter()
         .enumerate()
-        .map(|(i, &ts)| make_commit_at(&format!("{name}-c{i}"), ts))
+        .map(|(i, &ts)| make_commit_at(i as u32, ts))
         .collect();
     (name.to_string(), snapshot)
 }

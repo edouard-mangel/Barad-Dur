@@ -95,7 +95,7 @@ mod tests {
             );
             snapshot.commits_by_file.insert(
                 PathBuf::from(name),
-                (0..*churn).map(|i| format!("c{}", i)).collect(),
+                (0..*churn).map(|i| CommitId(i as u32)).collect(),
             );
         }
         let result = complex_hotspots(&snapshot);
@@ -128,7 +128,7 @@ mod tests {
             );
             snapshot
                 .commits_by_file
-                .insert(PathBuf::from(format!("f{}.rs", i)), vec![format!("c{}", i)]);
+                .insert(PathBuf::from(format!("f{}.rs", i)), vec![CommitId(i as u32)]);
         }
         let result = complex_hotspots(&snapshot);
         assert_eq!(result.score, 100);
@@ -163,7 +163,7 @@ mod tests {
             );
             snapshot.commits_by_file.insert(
                 PathBuf::from(name),
-                (0..*churn).map(|i| format!("c{}", i)).collect(),
+                (0..*churn).map(|i| CommitId(i as u32)).collect(),
             );
         }
         let result = complex_hotspots(&snapshot);
@@ -192,7 +192,7 @@ mod tests {
             );
             snapshot.commits_by_file.insert(
                 PathBuf::from(format!("normal{}.rs", i)),
-                vec![format!("c{}", i)],
+                vec![CommitId(i as u32)],
             );
         }
         for i in 0..3usize {
@@ -208,7 +208,7 @@ mod tests {
             );
             snapshot.commits_by_file.insert(
                 PathBuf::from(format!("hot{}.rs", i)),
-                (0..50).map(|j| format!("h{}c{}", i, j)).collect(),
+                (0..50).map(|j| CommitId((i * 50 + j) as u32)).collect(),
             );
         }
         let result = complex_hotspots(&snapshot);
@@ -246,7 +246,7 @@ mod tests {
             );
             snapshot.commits_by_file.insert(
                 PathBuf::from(name),
-                (0..*churn).map(|i| format!("c{}", i)).collect(),
+                (0..*churn).map(|i| CommitId(i as u32)).collect(),
             );
         }
         let result = complex_hotspots(&snapshot);

@@ -161,11 +161,11 @@ mod tests {
         ];
         snapshot.commits_by_file.insert(
             "hot.rs".into(),
-            (0..10).map(|i| format!("c{}", i)).collect(),
+            (0..10).map(|i| CommitId(i)).collect(),
         );
         snapshot
             .commits_by_file
-            .insert("cold.rs".into(), vec!["c0".into()]);
+            .insert("cold.rs".into(), vec![CommitId(0)]);
         let hotspots = build_hotspots(&snapshot);
         assert_eq!(hotspots[0].path, "hot.rs");
         assert!(hotspots[0].hotspot_score > hotspots[1].hotspot_score);
@@ -184,10 +184,10 @@ mod tests {
         snapshot.file_change_pairs = vec![("a.rs".into(), "b.rs".into(), 8)];
         snapshot
             .commits_by_file
-            .insert("a.rs".into(), (0..10).map(|i| format!("c{}", i)).collect());
+            .insert("a.rs".into(), (0..10).map(|i| CommitId(i)).collect());
         snapshot
             .commits_by_file
-            .insert("b.rs".into(), (0..10).map(|i| format!("c{}", i)).collect());
+            .insert("b.rs".into(), (0..10).map(|i| CommitId(i)).collect());
         let pairs = build_coupling_pairs(&snapshot);
         assert_eq!(pairs.len(), 1);
         assert!((pairs[0].coupling_pct - 80.0).abs() < 1.0);
@@ -223,7 +223,7 @@ mod tests {
         ];
         snapshot.commits = vec![
             Commit {
-                id: "c1".into(),
+                id: CommitId(0),
                 author: 0,
                 timestamp: now - Duration::days(5),
                 message: "".into(),
@@ -232,7 +232,7 @@ mod tests {
                 parent_count: 1,
             },
             Commit {
-                id: "c2".into(),
+                id: CommitId(1),
                 author: 0,
                 timestamp: now - Duration::days(100),
                 message: "".into(),
@@ -243,10 +243,10 @@ mod tests {
         ];
         snapshot
             .commits_by_file
-            .insert("new.rs".into(), vec!["c1".into()]);
+            .insert("new.rs".into(), vec![CommitId(0)]);
         snapshot
             .commits_by_file
-            .insert("old.rs".into(), vec!["c2".into()]);
+            .insert("old.rs".into(), vec![CommitId(1)]);
         let ages = build_file_ages(&snapshot);
         assert_eq!(ages[0].path, "old.rs");
         assert!(ages[0].days_since_modified > ages[1].days_since_modified);
@@ -340,7 +340,7 @@ mod tests {
         ];
         snapshot.commits = vec![
             Commit {
-                id: "c1".into(),
+                id: CommitId(0),
                 author: 0,
                 timestamp: now - Duration::days(10),
                 message: "feat: add login flow with validation".into(),
@@ -362,7 +362,7 @@ mod tests {
                 parent_count: 1,
             },
             Commit {
-                id: "c2".into(),
+                id: CommitId(1),
                 author: 0,
                 timestamp: now - Duration::days(5),
                 message: "fix: handle edge case in auth".into(),
@@ -376,7 +376,7 @@ mod tests {
                 parent_count: 1,
             },
             Commit {
-                id: "c3".into(),
+                id: CommitId(2),
                 author: 1,
                 timestamp: now - Duration::days(100),
                 message: "wip".into(),

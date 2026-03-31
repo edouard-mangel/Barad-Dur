@@ -4,7 +4,38 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 pub type AuthorId = usize;
-pub type CommitId = String;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CommitId(pub u32);
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CommitInterner {
+    strings: Vec<String>,
+}
+
+impl CommitInterner {
+    pub fn intern(&mut self, sha: &str) -> CommitId {
+        if let Some(pos) = self.strings.iter().position(|s| s == sha) {
+            CommitId(pos as u32)
+        } else {
+            let id = CommitId(self.strings.len() as u32);
+            self.strings.push(sha.to_string());
+            id
+        }
+    }
+
+    pub fn resolve(&self, id: CommitId) -> &str {
+        &self.strings[id.0 as usize]
+    }
+
+    pub fn len(&self) -> usize {
+        self.strings.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.strings.is_empty()
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ChangeType {
@@ -126,6 +157,7 @@ pub struct RepoSnapshot {
     pub file_change_pairs: Vec<(PathBuf, PathBuf, usize)>,
     pub file_metrics: HashMap<PathBuf, FileComplexity>,
     pub import_graph: HashMap<PathBuf, Vec<PathBuf>>,
+    pub commit_interner: CommitInterner,
 }
 
 impl RepoSnapshot {
@@ -146,7 +178,13 @@ impl RepoSnapshot {
             file_change_pairs: Vec::new(),
             file_metrics: HashMap::new(),
             import_graph: HashMap::new(),
+            commit_interner: CommitInterner::default(),
         }
+    }
+
+    /// Resolve a `CommitId` back to its SHA string.
+    pub fn resolve_commit(&self, id: CommitId) -> &str {
+        self.commit_interner.resolve(id)
     }
 
     /// Build all derived indexes from the core data.
@@ -162,7 +200,7 @@ impl RepoSnapshot {
             self.commits_by_author
                 .entry(commit.author)
                 .or_default()
-                .push(commit.id.clone());
+                .push(commit.id);
         }
     }
 
@@ -173,7 +211,7 @@ impl RepoSnapshot {
                 self.commits_by_file
                     .entry(fc.path.clone())
                     .or_default()
-                    .push(commit.id.clone());
+                    .push(commit.id);
             }
         }
     }
@@ -305,9 +343,9 @@ mod tests {
         assert!(snapshot.file_metrics.is_empty());
     }
 
-    fn make_commit(id: &str, author: AuthorId, files: Vec<&str>) -> Commit {
+    fn make_commit(id: u32, author: AuthorId, files: Vec<&str>) -> Commit {
         Commit {
-            id: id.to_string(),
+            id: CommitId(id),
             author,
             timestamp: Utc::now(),
             message: format!("Commit {}", id),
@@ -334,9 +372,9 @@ mod tests {
             TimeWindow::default(),
         );
         snapshot.commits = vec![
-            make_commit("a1", 0, vec!["f1"]),
-            make_commit("a2", 0, vec!["f2"]),
-            make_commit("b1", 1, vec!["f1"]),
+            make_commit(0, 0, vec!["f1"]),
+            make_commit(1, 0, vec!["f2"]),
+            make_commit(2, 1, vec!["f1"]),
         ];
         snapshot.build_indexes();
 
@@ -353,8 +391,8 @@ mod tests {
             TimeWindow::default(),
         );
         snapshot.commits = vec![
-            make_commit("c1", 0, vec!["a.rs", "b.rs"]),
-            make_commit("c2", 1, vec!["a.rs"]),
+            make_commit(0, 0, vec!["a.rs", "b.rs"]),
+            make_commit(1, 1, vec!["a.rs"]),
         ];
         snapshot.build_indexes();
 
@@ -383,11 +421,11 @@ mod tests {
         snapshot.files = vec![make_file("a.rs"), make_file("b.rs"), make_file("c.rs")];
         // Files A and B change together in 5 commits, C only once
         snapshot.commits = vec![
-            make_commit("c1", 0, vec!["a.rs", "b.rs"]),
-            make_commit("c2", 0, vec!["a.rs", "b.rs"]),
-            make_commit("c3", 0, vec!["a.rs", "b.rs"]),
-            make_commit("c4", 0, vec!["a.rs", "b.rs", "c.rs"]),
-            make_commit("c5", 0, vec!["a.rs", "b.rs"]),
+            make_commit(0, 0, vec!["a.rs", "b.rs"]),
+            make_commit(1, 0, vec!["a.rs", "b.rs"]),
+            make_commit(2, 0, vec!["a.rs", "b.rs"]),
+            make_commit(3, 0, vec!["a.rs", "b.rs", "c.rs"]),
+            make_commit(4, 0, vec!["a.rs", "b.rs"]),
         ];
         snapshot.build_indexes();
 
@@ -421,9 +459,9 @@ mod tests {
         // Only a.rs and b.rs are in the file tree; i18n file is excluded
         snapshot.files = vec![make_file("a.rs"), make_file("b.rs")];
         snapshot.commits = vec![
-            make_commit("c1", 0, vec!["a.rs", "b.rs", "src/i18n/en.ts"]),
-            make_commit("c2", 0, vec!["a.rs", "b.rs", "src/i18n/en.ts"]),
-            make_commit("c3", 0, vec!["a.rs", "b.rs", "src/i18n/en.ts"]),
+            make_commit(0, 0, vec!["a.rs", "b.rs", "src/i18n/en.ts"]),
+            make_commit(1, 0, vec!["a.rs", "b.rs", "src/i18n/en.ts"]),
+            make_commit(2, 0, vec!["a.rs", "b.rs", "src/i18n/en.ts"]),
         ];
         snapshot.build_indexes();
 

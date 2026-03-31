@@ -286,7 +286,7 @@ mod tests {
 
         for (i, msg) in messages.iter().enumerate() {
             snapshot.commits.push(Commit {
-                id: format!("c{}", i),
+                id: CommitId(i as u32),
                 author: 0,
                 timestamp: now - Duration::days(i as i64 + 1),
                 message: msg.to_string(),
@@ -317,7 +317,7 @@ mod tests {
         // 1 octopus merge + 1 empty message
         snapshot.commits = vec![
             Commit {
-                id: "c1".into(),
+                id: CommitId(0),
                 author: 0,
                 timestamp: now,
                 message: "msg".into(),
@@ -326,7 +326,7 @@ mod tests {
                 parent_count: 3, // octopus
             },
             Commit {
-                id: "c2".into(),
+                id: CommitId(1),
                 author: 0,
                 timestamp: now,
                 message: "".into(), // empty
@@ -335,7 +335,7 @@ mod tests {
                 parent_count: 1,
             },
             Commit {
-                id: "c3".into(),
+                id: CommitId(2),
                 author: 0,
                 timestamp: now,
                 message: "Normal commit".into(),
