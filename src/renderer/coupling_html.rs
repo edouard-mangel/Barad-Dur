@@ -24,6 +24,7 @@ pub fn render_coupling_html(report: &CouplingReport) -> String {
          <nav class=\"tabs\">\n\
            <button class=\"tab active\" data-tab=\"tab-graph\">Graph</button>\n\
            <button class=\"tab\" data-tab=\"tab-matrix\">Matrix</button>\n\
+           <button class=\"tab\" data-tab=\"tab-methodology\">Methodology</button>\n\
          </nav>\n\
          <div class=\"filters\">\n\
            <label><input type=\"checkbox\" id=\"filter-temporal\" checked> Temporal</label>\n\
@@ -56,6 +57,83 @@ pub fn render_coupling_html(report: &CouplingReport) -> String {
          </div>\n\
          <div id=\"tab-matrix\" class=\"tab-content\">\n\
            <div id=\"matrix\"></div>\n\
+         </div>\n\
+         <div id=\"tab-methodology\" class=\"tab-content\">\n\
+           <div class=\"methodology\">\n\
+             <h2>How Coupling Scores Are Calculated</h2>\n\
+             <p class=\"intro\">Each pair of repositories is scored on three independent dimensions, \
+              then combined into a single 0&ndash;100 score. Higher means tighter coupling &mdash; \
+              changes in one repo are more likely to require changes in the other.</p>\n\
+             <div class=\"method-section\">\n\
+               <h3>1. Temporal Coupling (35% of combined score)</h3>\n\
+               <p><strong>What it measures:</strong> How often commits happen in both repos within \
+                the same time window (default: 24 hours).</p>\n\
+               <p><strong>How it works:</strong></p>\n\
+               <ol>\n\
+                 <li>All commits across all repos are merged into a single timeline.</li>\n\
+                 <li>For each commit, we look for commits in other repos within &plusmn;24h.</li>\n\
+                 <li><strong>Same-author boost:</strong> If the <em>same person</em> committed to \
+                  both repos within the window, that co-change counts <strong>3&times;</strong> more \
+                  than different-author co-changes. A developer intentionally working across repos \
+                  is strong evidence of real coupling.</li>\n\
+                 <li><strong>Statistical baseline:</strong> We subtract the number of co-changes you \
+                  would expect <em>by pure coincidence</em> given how often each repo is committed to. \
+                  This filters out false positives from teams that simply commit during the same \
+                  business hours.</li>\n\
+                 <li>The adjusted count is divided by the smaller repo&rsquo;s commit count and \
+                  expressed as a percentage (0&ndash;100).</li>\n\
+               </ol>\n\
+               <p class=\"formula\">score = min(100, max(0, weighted_co_changes &minus; expected_random) \
+                / min(commits_A, commits_B) &times; 100)</p>\n\
+             </div>\n\
+             <div class=\"method-section\">\n\
+               <h3>2. Team Coupling (30% of combined score)</h3>\n\
+               <p><strong>What it measures:</strong> How much the contributor pools overlap between \
+                two repos.</p>\n\
+               <p><strong>How it works:</strong></p>\n\
+               <ol>\n\
+                 <li>Authors are matched by display name (case-insensitive).</li>\n\
+                 <li>The score is the ratio of shared authors to total unique authors across \
+                  both repos.</li>\n\
+               </ol>\n\
+               <p class=\"formula\">score = shared_authors / (unique_authors_A &cup; unique_authors_B) \
+                &times; 100</p>\n\
+               <p>A high team score means the same people maintain both repos &mdash; changes in one \
+                are likely understood (and possibly required) by someone who also works on the other.</p>\n\
+             </div>\n\
+             <div class=\"method-section\">\n\
+               <h3>3. Dependency Coupling (35% of combined score)</h3>\n\
+               <p><strong>What it measures:</strong> Structural dependencies between repos based on \
+                their declared packages and imports.</p>\n\
+               <p><strong>How it works:</strong></p>\n\
+               <ol>\n\
+                 <li>Manifest files are scanned (Cargo.toml, package.json, go.mod, requirements.txt).</li>\n\
+                 <li>Shared third-party dependencies are counted.</li>\n\
+                 <li>Direct repo-to-repo dependencies are detected (repo A imports repo B).</li>\n\
+               </ol>\n\
+               <p>A high dependency score means both repos rely on the same libraries or directly \
+                depend on each other &mdash; a breaking change in a shared dependency affects both.</p>\n\
+             </div>\n\
+             <div class=\"method-section\">\n\
+               <h3>Combined Score</h3>\n\
+               <p>The three dimension scores are combined with fixed weights:</p>\n\
+               <p class=\"formula\">combined = temporal &times; 0.35 + team &times; 0.30 + dependency \
+                &times; 0.35</p>\n\
+               <p>Temporal is weighted lower because commit-timing correlation is inherently noisy. \
+                Team and dependency signals are structural facts rather than statistical inferences.</p>\n\
+             </div>\n\
+             <div class=\"method-section\">\n\
+               <h3>Confidence Levels</h3>\n\
+               <p>Temporal coupling pairs also carry a confidence rating based on raw co-change count:</p>\n\
+               <ul>\n\
+                 <li><strong>Low:</strong> 3&ndash;9 co-changes &mdash; could be coincidence, treat \
+                  with caution</li>\n\
+                 <li><strong>Medium:</strong> 10&ndash;29 co-changes &mdash; likely real coupling</li>\n\
+                 <li><strong>High:</strong> 30+ co-changes &mdash; strong evidence of coupled \
+                  development</li>\n\
+               </ul>\n\
+             </div>\n\
+           </div>\n\
          </div>\n\
          <div id=\"tooltip\" class=\"tooltip\"></div>\n\
          <script>window.__COUPLING_DATA__={json};</script>\n\
@@ -191,6 +269,60 @@ header .summary {
 }
 #matrix td.diagonal {
   background: #0d1117;
+}
+.methodology {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 32px 24px;
+  line-height: 1.6;
+}
+.methodology h2 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #f1f5f9;
+  margin-bottom: 8px;
+}
+.methodology .intro {
+  color: #94a3b8;
+  margin-bottom: 24px;
+  font-size: 14px;
+}
+.method-section {
+  margin-bottom: 28px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #1e293b;
+}
+.method-section:last-child {
+  border-bottom: none;
+}
+.method-section h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #e2e8f0;
+  margin-bottom: 8px;
+}
+.method-section p {
+  color: #cbd5e1;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.method-section ol, .method-section ul {
+  color: #cbd5e1;
+  margin: 8px 0 12px 20px;
+  font-size: 13px;
+}
+.method-section li {
+  margin-bottom: 4px;
+}
+.method-section .formula {
+  background: #0d1117;
+  border: 1px solid #1e293b;
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  color: #7dd3fc;
+  margin: 8px 0;
 }
 .legend {
   position: absolute;
