@@ -8,7 +8,9 @@ use barad_dur::coupling::team::TeamCouplingPair;
 use barad_dur::coupling::temporal::{analyze_temporal_coupling, TemporalCouplingPair};
 use barad_dur::coupling::{CouplingReport, CouplingReportSummary, RepoInfo};
 use barad_dur::renderer::coupling_json::render_coupling_json;
-use barad_dur::snapshot::{Author, ChangeType, Commit, CommitId, FileChange, RepoSnapshot, TimeWindow};
+use barad_dur::snapshot::{
+    Author, ChangeType, Commit, CommitId, FileChange, RepoSnapshot, TimeWindow,
+};
 use chrono::DateTime;
 use std::path::PathBuf;
 use std::time::Duration;

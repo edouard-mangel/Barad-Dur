@@ -126,9 +126,10 @@ mod tests {
                     properties: 1,
                 },
             );
-            snapshot
-                .commits_by_file
-                .insert(PathBuf::from(format!("f{}.rs", i)), vec![CommitId(i as u32)]);
+            snapshot.commits_by_file.insert(
+                PathBuf::from(format!("f{}.rs", i)),
+                vec![CommitId(i as u32)],
+            );
         }
         let result = complex_hotspots(&snapshot);
         assert_eq!(result.score, 100);

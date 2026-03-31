@@ -159,10 +159,9 @@ mod tests {
                 blob_oid: String::new(),
             },
         ];
-        snapshot.commits_by_file.insert(
-            "hot.rs".into(),
-            (0..10).map(|i| CommitId(i)).collect(),
-        );
+        snapshot
+            .commits_by_file
+            .insert("hot.rs".into(), (0..10).map(|i| CommitId(i)).collect());
         snapshot
             .commits_by_file
             .insert("cold.rs".into(), vec![CommitId(0)]);
