@@ -195,10 +195,7 @@ fn parse_csproj(content: &str) -> (Vec<String>, Vec<String>) {
                 // Extract project name from path. .NET uses backslash separators
                 // even on Linux, so split on both / and \.
                 // "..\Foo\Foo.csproj" → "Foo.csproj" → "Foo"
-                let file_part = raw_path
-                    .rsplit(['/', '\\'])
-                    .next()
-                    .unwrap_or("");
+                let file_part = raw_path.rsplit(['/', '\\']).next().unwrap_or("");
                 let stem = file_part
                     .strip_suffix(".csproj")
                     .or_else(|| file_part.strip_suffix(".fsproj"))
