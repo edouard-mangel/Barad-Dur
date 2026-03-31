@@ -8,9 +8,11 @@ use crate::coupling::types::{
 };
 
 /// Weights for combining the three coupling dimensions.
-const TEMPORAL_WEIGHT: f64 = 0.50;
-const TEAM_WEIGHT: f64 = 0.25;
-const DEPENDENCY_WEIGHT: f64 = 0.25;
+/// Temporal is reduced (0.35) because commit-timing correlation is noisy;
+/// team and dependency signals are more structurally meaningful.
+const TEMPORAL_WEIGHT: f64 = 0.35;
+const TEAM_WEIGHT: f64 = 0.30;
+const DEPENDENCY_WEIGHT: f64 = 0.35;
 
 /// Canonical key for a repo pair (alphabetically sorted).
 fn pair_key(a: &str, b: &str) -> (String, String) {
@@ -234,7 +236,7 @@ mod tests {
         let pairs = score_coupling_pairs(&temporal, &team, &dep);
 
         assert_eq!(pairs.len(), 1);
-        let expected = 80.0 * 0.50 + 60.0 * 0.25 + 40.0 * 0.25;
+        let expected = 80.0 * TEMPORAL_WEIGHT + 60.0 * TEAM_WEIGHT + 40.0 * DEPENDENCY_WEIGHT;
         assert!(
             (pairs[0].combined_score - expected).abs() < 0.01,
             "expected {}, got {}",
@@ -250,7 +252,7 @@ mod tests {
         let pairs = score_coupling_pairs(&temporal, &[], &empty_dep_analysis());
 
         assert_eq!(pairs.len(), 1);
-        let expected = 100.0 * 0.50;
+        let expected = 100.0 * TEMPORAL_WEIGHT;
         assert!(
             (pairs[0].combined_score - expected).abs() < 0.01,
             "expected {}, got {}",
@@ -279,12 +281,20 @@ mod tests {
         let pairs = score_coupling_pairs(&temporal, &team, &empty_dep_analysis());
 
         assert_eq!(pairs.len(), 2);
-        // (c,d) has higher combined: 0 + 70*0.25 + 0 = 17.5
-        // (a,b) has: 50*0.50 + 0 + 0 = 25.0
         let ab = pairs.iter().find(|p| p.repo_a == "a").unwrap();
         let cd = pairs.iter().find(|p| p.repo_a == "c").unwrap();
-        assert!((ab.combined_score - 25.0).abs() < 0.01);
-        assert!((cd.combined_score - 17.5).abs() < 0.01);
+        let expected_ab = 50.0 * TEMPORAL_WEIGHT;
+        let expected_cd = 70.0 * TEAM_WEIGHT;
+        assert!(
+            (ab.combined_score - expected_ab).abs() < 0.01,
+            "expected {expected_ab}, got {}",
+            ab.combined_score
+        );
+        assert!(
+            (cd.combined_score - expected_cd).abs() < 0.01,
+            "expected {expected_cd}, got {}",
+            cd.combined_score
+        );
     }
 
     #[test]

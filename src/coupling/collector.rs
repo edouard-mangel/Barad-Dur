@@ -14,6 +14,8 @@ use crate::snapshot::TimeWindow;
 pub struct CouplingSnapshot {
     pub path: PathBuf,
     pub commit_timestamps: Vec<i64>,
+    /// Per-commit author index into `author_names` (parallel to `commit_timestamps`).
+    pub commit_author_indices: Vec<usize>,
     pub author_names: Vec<String>,
     pub commit_count: usize,
     pub author_count: usize,
@@ -59,23 +61,26 @@ fn collect_single_repo(
         reason: SkipReason::Other(format!("CollectionFailed: {e}")),
     })?;
 
-    let commit_timestamps: Vec<i64> = collection
-        .commits
-        .iter()
-        .map(|c| c.timestamp.timestamp())
-        .collect();
-
     let author_names: Vec<String> = collection
         .authors
         .iter()
         .map(|a| a.name.to_lowercase())
         .collect();
 
+    // Build per-commit parallel vectors: timestamp + author index
+    let mut commit_timestamps: Vec<i64> = Vec::with_capacity(collection.commits.len());
+    let mut commit_author_indices: Vec<usize> = Vec::with_capacity(collection.commits.len());
+    for commit in &collection.commits {
+        commit_timestamps.push(commit.timestamp.timestamp());
+        commit_author_indices.push(commit.author);
+    }
+
     let snapshot = CouplingSnapshot {
         path: repo.path.clone(),
         commit_count: commit_timestamps.len(),
         author_count: author_names.len(),
         commit_timestamps,
+        commit_author_indices,
         author_names,
     };
 

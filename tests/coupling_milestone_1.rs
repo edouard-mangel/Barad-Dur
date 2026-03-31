@@ -18,11 +18,20 @@ fn make_coupling_snapshot(
     authors: Vec<&str>,
 ) -> (String, CouplingSnapshot) {
     let author_names: Vec<String> = authors.iter().map(|a| a.to_lowercase()).collect();
+    // Assign commits to authors round-robin (author 0, 1, 2, 0, 1, ...)
+    let commit_author_indices: Vec<usize> = if author_names.is_empty() {
+        vec![0; timestamps.len()]
+    } else {
+        (0..timestamps.len())
+            .map(|i| i % author_names.len())
+            .collect()
+    };
     let snapshot = CouplingSnapshot {
         path: PathBuf::from(format!("/tmp/{}", name)),
         commit_count: timestamps.len(),
         author_count: author_names.len(),
         commit_timestamps: timestamps,
+        commit_author_indices,
         author_names,
     };
     (name.to_string(), snapshot)
@@ -403,10 +412,10 @@ fn combined_scoring_and_json_output() {
     // WHEN the combined score is computed
     let pairs = score_coupling_pairs(&temporal, &team, &dependency);
 
-    // THEN it equals temporal * 0.50 + team * 0.25 + dependency * 0.25
+    // THEN it equals temporal * 0.35 + team * 0.30 + dependency * 0.35
     assert_eq!(pairs.len(), 1);
     let pair = &pairs[0];
-    let expected = 80.0 * 0.50 + 60.0 * 0.25 + 40.0 * 0.25;
+    let expected = 80.0 * 0.35 + 60.0 * 0.30 + 40.0 * 0.35;
     assert!(
         (pair.combined_score - expected).abs() < 0.01,
         "expected combined_score ~{}, got {}",
@@ -679,16 +688,12 @@ fn score_coupling_pairs_with_all_three_dimensions() {
     let pairs = score_coupling_pairs(&temporal, &team, &dependency);
 
     assert_eq!(pairs.len(), 1);
-    // Exact formula: 60*0.50 + 40*0.25 + 20*0.25 = 30 + 10 + 5 = 45.0
-    let expected = 60.0_f64 * 0.50 + 40.0_f64 * 0.25 + 20.0_f64 * 0.25;
+    // Exact formula: 60*0.35 + 40*0.30 + 20*0.35 = 21 + 12 + 7 = 40.0
+    let expected = 60.0_f64 * 0.35 + 40.0_f64 * 0.30 + 20.0_f64 * 0.35;
     assert!(
         (pairs[0].combined_score - expected).abs() < 0.001,
         "expected combined_score = {expected:.3}, got {:.3}",
         pairs[0].combined_score
-    );
-    assert_eq!(
-        pairs[0].combined_score, expected,
-        "combined_score must equal 45.0 exactly under IEEE 754"
     );
 }
 

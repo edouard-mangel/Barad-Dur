@@ -1,6 +1,6 @@
 use crate::coupling::collector::CouplingSnapshot;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::time::Duration;
 
@@ -99,17 +99,22 @@ fn directed_key(a: usize, b: usize) -> (usize, usize) {
     }
 }
 
+/// Weight multiplier for co-changes where the same author committed to both repos.
+const SAME_AUTHOR_WEIGHT: f64 = 3.0;
+
 /// Analyze temporal coupling across all pairs of repository snapshots.
 ///
 /// Merges all commits into a single sorted timeline and uses binary search
-/// per commit to find neighbors within `window`. This is O(M log M + M × W_avg)
-/// where M = total commits and W_avg = average commits per window, replacing
-/// the previous O(n² × m) pairwise approach.
+/// per commit to find neighbors within `window`. For each pair (A, B):
 ///
-/// For each pair (A, B), counts commits in A that have at least one commit
-/// from B within the window (and vice versa, taking the max). Pairs with
-/// fewer than 3 co-changes are filtered out.
+/// 1. Counts co-changes (commits in A within ±window of a commit in B).
+/// 2. Same-author co-changes (same person committed to both) are weighted 3×
+///    higher than different-author co-changes.
+/// 3. A statistical baseline (expected coincidental co-changes given commit
+///    frequencies) is subtracted to filter out "office hours" false positives.
+/// 4. The adjusted count is normalized into a 0-100 score.
 ///
+/// Pairs with fewer than 3 raw co-changes are filtered out.
 /// Returns pairs sorted by temporal_score descending.
 pub fn analyze_temporal_coupling(
     snapshots: &[(String, CouplingSnapshot)],
@@ -121,81 +126,129 @@ pub fn analyze_temporal_coupling(
 
     let window_secs = window.as_secs() as i64;
 
-    // Collect commit counts per repo (needed for scoring)
     let commit_counts: Vec<usize> = snapshots.iter().map(|(_, s)| s.commit_count).collect();
 
-    // Step 1: Merge all commits into a single timeline tagged with repo index
+    // Step 1: Merge all commits into a sorted timeline: (timestamp, repo_idx, author_name)
     let total_commits: usize = commit_counts.iter().sum();
-    let mut timeline: Vec<(i64, usize)> = Vec::with_capacity(total_commits);
+    let mut timeline: Vec<(i64, usize, String)> = Vec::with_capacity(total_commits);
     for (repo_idx, (_, snap)) in snapshots.iter().enumerate() {
-        for &ts in &snap.commit_timestamps {
-            timeline.push((ts, repo_idx));
+        for (i, &ts) in snap.commit_timestamps.iter().enumerate() {
+            let author_idx = snap.commit_author_indices.get(i).copied().unwrap_or(0);
+            let author_name = snap
+                .author_names
+                .get(author_idx)
+                .cloned()
+                .unwrap_or_default();
+            timeline.push((ts, repo_idx, author_name));
         }
     }
+    timeline.sort_unstable_by_key(|&(ts, _, _)| ts);
 
-    // Step 2: Sort by timestamp
-    timeline.sort_unstable_by_key(|&(ts, _)| ts);
+    let timestamps_only: Vec<i64> = timeline.iter().map(|&(ts, _, _)| ts).collect();
 
-    // Step 3: For each commit, find neighbors within ±window via binary search,
-    // collect distinct repos in that range, and increment directed co-change counts.
-    // Key: (source_repo, neighbor_repo) → count of source commits that have a neighbor.
-    let mut directed_counts: HashMap<(usize, usize), usize> = HashMap::new();
+    // Step 2: For each commit, find neighbors within ±window.
+    // Track both same-author and different-author co-changes per directed pair.
+    // Key: (source_repo, neighbor_repo) → (same_author_count, diff_author_count)
+    let mut directed_counts: HashMap<(usize, usize), (usize, usize)> = HashMap::new();
 
-    let timestamps_only: Vec<i64> = timeline.iter().map(|&(ts, _)| ts).collect();
-
-    for &(ts, repo) in &timeline {
+    for (idx, &(ts, repo, ref author)) in timeline.iter().enumerate() {
+        let _ = idx;
         let lower = ts - window_secs;
         let upper = ts + window_secs;
 
         let start = timestamps_only.partition_point(|&t| t < lower);
         let end = timestamps_only.partition_point(|&t| t <= upper);
 
-        // Scan window and collect distinct neighbor repos (skip self-repo)
-        let mut seen_repos = Vec::new();
-        for &(_, other_repo) in &timeline[start..end] {
-            if other_repo != repo && !seen_repos.contains(&other_repo) {
-                seen_repos.push(other_repo);
+        // For each neighbor repo, check if any neighbor has the same author
+        let mut same_author_repos: HashSet<usize> = HashSet::new();
+        let mut diff_author_repos: HashSet<usize> = HashSet::new();
+
+        for &(_, other_repo, ref other_author) in &timeline[start..end] {
+            if other_repo != repo {
+                if other_author == author {
+                    same_author_repos.insert(other_repo);
+                } else {
+                    diff_author_repos.insert(other_repo);
+                }
             }
         }
 
-        // This commit from `repo` has at least one neighbor in each `other_repo`
-        for other_repo in seen_repos {
-            *directed_counts.entry((repo, other_repo)).or_insert(0) += 1;
+        // A repo with same-author match is not also counted as diff-author
+        for other_repo in &same_author_repos {
+            let entry = directed_counts.entry((repo, *other_repo)).or_insert((0, 0));
+            entry.0 += 1;
+        }
+        for other_repo in &diff_author_repos {
+            if !same_author_repos.contains(other_repo) {
+                let entry = directed_counts.entry((repo, *other_repo)).or_insert((0, 0));
+                entry.1 += 1;
+            }
         }
     }
 
-    // Step 4: Build pairs — for each canonical pair, take max of both directions
-    let mut seen_pairs: HashMap<(usize, usize), (usize, usize)> = HashMap::new();
-    for (&(src, dst), &count) in &directed_counts {
+    // Step 3: Compute analysis period for statistical baseline
+    let (min_ts, max_ts) = timeline
+        .iter()
+        .fold((i64::MAX, i64::MIN), |(lo, hi), &(ts, _, _)| {
+            (lo.min(ts), hi.max(ts))
+        });
+    let analysis_period_secs = (max_ts - min_ts).max(1) as f64;
+
+    // Step 4: Build pairs — merge both directions, apply weighting and baseline
+    let mut seen_pairs: HashMap<(usize, usize), (usize, usize, usize, usize)> = HashMap::new();
+    for (&(src, dst), &(same, diff)) in &directed_counts {
         let key = directed_key(src, dst);
-        let entry = seen_pairs.entry(key).or_insert((0, 0));
+        let entry = seen_pairs.entry(key).or_insert((0, 0, 0, 0));
         if src == key.0 {
-            entry.0 = entry.0.max(count);
+            entry.0 = entry.0.max(same);
+            entry.1 = entry.1.max(diff);
         } else {
-            entry.1 = entry.1.max(count);
+            entry.2 = entry.2.max(same);
+            entry.3 = entry.3.max(diff);
         }
     }
 
     let mut pairs: Vec<TemporalCouplingPair> = seen_pairs
         .into_iter()
-        .filter_map(|((idx_a, idx_b), (count_a_to_b, count_b_to_a))| {
-            let co_changes = count_a_to_b.max(count_b_to_a);
-            if co_changes < 3 {
-                return None;
-            }
+        .filter_map(
+            |((idx_a, idx_b), (same_a_to_b, diff_a_to_b, same_b_to_a, diff_b_to_a))| {
+                let raw_co_changes_a = same_a_to_b + diff_a_to_b;
+                let raw_co_changes_b = same_b_to_a + diff_b_to_a;
+                let co_changes = raw_co_changes_a.max(raw_co_changes_b);
 
-            let temporal_score =
-                compute_temporal_score(co_changes, commit_counts[idx_a], commit_counts[idx_b]);
-            let confidence = classify_confidence(co_changes);
+                if co_changes < 3 {
+                    return None;
+                }
 
-            Some(TemporalCouplingPair {
-                repo_a: snapshots[idx_a].0.clone(),
-                repo_b: snapshots[idx_b].0.clone(),
-                co_changes,
-                temporal_score,
-                confidence,
-            })
-        })
+                // Weighted co-changes: same-author counts 3×
+                let same_author = same_a_to_b.max(same_b_to_a);
+                let diff_author = diff_a_to_b.max(diff_b_to_a);
+                let weighted = same_author as f64 * SAME_AUTHOR_WEIGHT + diff_author as f64;
+
+                // Statistical baseline: expected coincidental co-changes
+                let n_a = commit_counts[idx_a] as f64;
+                let n_b = commit_counts[idx_b] as f64;
+                let expected = n_a * n_b * (2.0 * window_secs as f64) / analysis_period_secs;
+
+                let adjusted = (weighted - expected).max(0.0);
+                let min_commits = n_a.min(n_b);
+                let temporal_score = if min_commits > 0.0 {
+                    (adjusted / min_commits * 100.0).min(100.0)
+                } else {
+                    0.0
+                };
+
+                let confidence = classify_confidence(co_changes);
+
+                Some(TemporalCouplingPair {
+                    repo_a: snapshots[idx_a].0.clone(),
+                    repo_b: snapshots[idx_b].0.clone(),
+                    co_changes,
+                    temporal_score,
+                    confidence,
+                })
+            },
+        )
         .collect();
 
     pairs.sort_by(|a, b| {

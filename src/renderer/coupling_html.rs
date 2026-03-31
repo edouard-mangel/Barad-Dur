@@ -32,6 +32,27 @@ pub fn render_coupling_html(report: &CouplingReport) -> String {
          </div>\n\
          <div id=\"tab-graph\" class=\"tab-content active\">\n\
            <div id=\"graph\"></div>\n\
+           <div class=\"legend\">\n\
+             <h3>How to read this graph</h3>\n\
+             <div class=\"legend-section\">\n\
+               <div class=\"label\">Line color = coupling strength</div>\n\
+               <div class=\"legend-row\"><span class=\"legend-swatch\" style=\"background:#22c55e\"></span> Low (&lt; 40)</div>\n\
+               <div class=\"legend-row\"><span class=\"legend-swatch\" style=\"background:#f59e0b\"></span> Medium (40 &ndash; 70)</div>\n\
+               <div class=\"legend-row\"><span class=\"legend-swatch\" style=\"background:#ef4444\"></span> High (&gt; 70)</div>\n\
+             </div>\n\
+             <div class=\"legend-section\">\n\
+               <div class=\"label\">Line thickness = coupling score</div>\n\
+               <div style=\"color:#64748b\">Thicker lines mean a higher combined score</div>\n\
+             </div>\n\
+             <div class=\"legend-section\">\n\
+               <div class=\"label\">Circle size = number of connections</div>\n\
+               <div class=\"legend-row\"><span class=\"legend-circle\" style=\"width:10px;height:10px\"></span> Few connections</div>\n\
+               <div class=\"legend-row\"><span class=\"legend-circle\" style=\"width:18px;height:18px\"></span> Many connections</div>\n\
+             </div>\n\
+             <div class=\"legend-section\" style=\"color:#64748b\">\n\
+               Hover a node for details. Drag to rearrange.\n\
+             </div>\n\
+           </div>\n\
          </div>\n\
          <div id=\"tab-matrix\" class=\"tab-content\">\n\
            <div id=\"matrix\"></div>\n\
@@ -171,6 +192,71 @@ header .summary {
 #matrix td.diagonal {
   background: #0d1117;
 }
+.legend {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  background: rgba(13,17,23,0.92);
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 12px;
+  color: #94a3b8;
+  z-index: 50;
+  max-width: 260px;
+}
+.legend h3 {
+  font-size: 12px;
+  font-weight: 600;
+  color: #e2e8f0;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.legend-section {
+  margin-bottom: 10px;
+}
+.legend-section:last-child {
+  margin-bottom: 0;
+}
+.legend-section .label {
+  font-weight: 600;
+  color: #cbd5e1;
+  margin-bottom: 4px;
+}
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+.legend-swatch {
+  width: 24px;
+  height: 4px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.legend-circle {
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #3b82f6;
+  border: 1.5px solid #60a5fa;
+}
+.matrix-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 auto 16px auto;
+  justify-content: center;
+  font-size: 12px;
+  color: #94a3b8;
+}
+.matrix-legend .gradient {
+  width: 180px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid #1e293b;
+}
 "#;
 
 const JS: &str = r#"
@@ -222,7 +308,7 @@ const JS: &str = r#"
   var cx = W / 2, cy = H / 2;
   nodes.forEach(function(n, i) {
     var angle = (2 * Math.PI * i) / Math.max(nodes.length, 1);
-    var radius = Math.min(W, H) * 0.3;
+    var radius = Math.min(W, H) * 0.4;
     n.x = cx + radius * Math.cos(angle);
     n.y = cy + radius * Math.sin(angle);
     n.vx = 0;
@@ -244,7 +330,7 @@ const JS: &str = r#"
 
   // Node radius based on coupling count
   function nodeRadius(n) {
-    return 12 + n.couplingCount * 4;
+    return 6 + Math.sqrt(n.couplingCount) * 4;
   }
 
   // Create SVG elements for edges
@@ -318,11 +404,11 @@ const JS: &str = r#"
   });
 
   // Force simulation (simple spring-charge model)
-  var REPULSION = 5000;
-  var SPRING_K = 0.005;
-  var SPRING_REST = 150;
+  var REPULSION = 8000;
+  var SPRING_K = 0.003;
+  var SPRING_REST = 250;
   var DAMPING = 0.9;
-  var CENTER_PULL = 0.01;
+  var CENTER_PULL = 0.008;
 
   function simulate() {
     // Repulsion between all node pairs
@@ -422,7 +508,7 @@ const JS: &str = r#"
     simulate();
     render();
     iterations++;
-    if (iterations < 300) {
+    if (iterations < 500) {
       requestAnimationFrame(tick);
     }
   }
@@ -498,6 +584,27 @@ const JS: &str = r#"
   function renderMatrix() {
     var container = document.getElementById('matrix');
     container.textContent = '';
+
+    // Matrix legend: gradient bar with labels
+    var legendDiv = document.createElement('div');
+    legendDiv.className = 'matrix-legend';
+    var labelLow = document.createElement('span');
+    labelLow.textContent = '0 (independent)';
+    var gradientBar = document.createElement('div');
+    gradientBar.className = 'gradient';
+    gradientBar.style.background = 'linear-gradient(to right, rgba(34,197,94,0.2), #f59e0b, #ef4444)';
+    var labelHigh = document.createElement('span');
+    labelHigh.textContent = '100 (tightly coupled)';
+    legendDiv.appendChild(labelLow);
+    legendDiv.appendChild(gradientBar);
+    legendDiv.appendChild(labelHigh);
+    container.appendChild(legendDiv);
+
+    var desc = document.createElement('div');
+    desc.style.cssText = 'text-align:center;color:#64748b;font-size:12px;margin-bottom:16px';
+    desc.textContent = 'Each cell shows the coupling score between two repos. Higher scores mean changes in one repo often require changes in the other.';
+    container.appendChild(desc);
+
     var repoNames = repos.map(function(r) { return r.name; });
     var n = repoNames.length;
 
