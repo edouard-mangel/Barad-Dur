@@ -163,6 +163,70 @@ fn parse_requirements_txt(content: &str) -> Vec<String> {
         .collect()
 }
 
+/// Parse NuGet package names from a Directory.Packages.props file.
+/// Extracts `Include` attribute from `<PackageVersion Include="...">` elements.
+fn parse_directory_packages_props(content: &str) -> Vec<String> {
+    content
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if !trimmed.contains("PackageVersion") && !trimmed.contains("PackageReference") {
+                return None;
+            }
+            extract_xml_include_attr(trimmed)
+        })
+        .collect()
+}
+
+/// Parse NuGet package and project references from a .csproj file.
+/// Returns (package_names, project_references).
+fn parse_csproj(content: &str) -> (Vec<String>, Vec<String>) {
+    let mut packages = Vec::new();
+    let mut project_refs = Vec::new();
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.contains("PackageReference") {
+            if let Some(name) = extract_xml_include_attr(trimmed) {
+                packages.push(name);
+            }
+        } else if trimmed.contains("ProjectReference") {
+            if let Some(raw_path) = extract_xml_include_attr(trimmed) {
+                // Extract project name from path. .NET uses backslash separators
+                // even on Linux, so split on both / and \.
+                // "..\Foo\Foo.csproj" → "Foo.csproj" → "Foo"
+                let file_part = raw_path
+                    .rsplit(['/', '\\'])
+                    .next()
+                    .unwrap_or("");
+                let stem = file_part
+                    .strip_suffix(".csproj")
+                    .or_else(|| file_part.strip_suffix(".fsproj"))
+                    .or_else(|| file_part.strip_suffix(".vbproj"))
+                    .unwrap_or(file_part);
+                if !stem.is_empty() {
+                    project_refs.push(stem.to_string());
+                }
+            }
+        }
+    }
+
+    (packages, project_refs)
+}
+
+/// Extract the value of `Include="..."` from an XML element string.
+fn extract_xml_include_attr(line: &str) -> Option<String> {
+    let marker = "Include=\"";
+    let start = line.find(marker)? + marker.len();
+    let end = line[start..].find('"')? + start;
+    let value = &line[start..end];
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Repo dependency extraction — reads filesystem
 // ---------------------------------------------------------------------------
@@ -174,6 +238,54 @@ struct RepoDeps {
     deps: HashSet<String>,
     /// Direct references to other repos (from Cargo.toml path/git deps).
     direct_refs: Vec<CargoDep>,
+}
+
+/// Collect .NET NuGet dependencies from a repo.
+///
+/// Prefers `Directory.Packages.props` (central package management) if found
+/// at depth 0-2. Falls back to scanning all `*.csproj` files for
+/// `<PackageReference>` elements.
+fn collect_dotnet_deps(repo_path: &Path) -> Vec<String> {
+    // Look for Directory.Packages.props at root, or one/two levels down
+    let candidates = [
+        repo_path.join("Directory.Packages.props"),
+        repo_path.join("src/Directory.Packages.props"),
+    ];
+    for path in &candidates {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            let deps = parse_directory_packages_props(&content);
+            if !deps.is_empty() {
+                return deps;
+            }
+        }
+    }
+
+    // Fallback: scan *.csproj files up to depth 4
+    let mut deps = Vec::new();
+    collect_csproj_files(repo_path, 0, 4, &mut deps);
+    deps
+}
+
+/// Recursively find and parse *.csproj files up to `max_depth`.
+fn collect_csproj_files(dir: &Path, depth: usize, max_depth: usize, deps: &mut Vec<String>) {
+    if depth > max_depth {
+        return;
+    }
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_csproj_files(&path, depth + 1, max_depth, deps);
+        } else if path.extension().and_then(|e| e.to_str()) == Some("csproj") {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                let (packages, _project_refs) = parse_csproj(&content);
+                deps.extend(packages);
+            }
+        }
+    }
 }
 
 /// Read all manifest files from a repo path and extract dependency names.
@@ -206,6 +318,10 @@ fn extract_repo_deps(repo_name: &str, repo_path: &Path) -> RepoDeps {
     if let Ok(content) = std::fs::read_to_string(&req_path) {
         all_deps.extend(parse_requirements_txt(&content));
     }
+
+    // Try .NET: Directory.Packages.props (search up to depth 2), then *.csproj
+    let dotnet_deps = collect_dotnet_deps(repo_path);
+    all_deps.extend(dotnet_deps);
 
     RepoDeps {
         name: repo_name.to_string(),
@@ -297,9 +413,9 @@ fn compute_blast_radius(repo_deps: &[RepoDeps]) -> Vec<BlastRadiusEntry> {
 
 /// Analyze dependency coupling across all provided repositories.
 ///
-/// Scans manifest files (Cargo.toml, package.json, go.mod, requirements.txt)
-/// in each repo path to detect shared dependencies and direct repo-to-repo
-/// dependencies.
+/// Scans manifest files (Cargo.toml, package.json, go.mod, requirements.txt,
+/// Directory.Packages.props, *.csproj) in each repo path to detect shared
+/// dependencies and direct repo-to-repo dependencies.
 pub fn analyze_dependency_coupling(repo_paths: &[(String, PathBuf)]) -> DependencyAnalysis {
     let repo_deps: Vec<RepoDeps> = repo_paths
         .iter()
@@ -482,5 +598,52 @@ my-lib = { git = "https://github.com/org/my-lib.git" }
         assert_eq!(blast.len(), 1);
         assert_eq!(blast[0].dependency_name, "x");
         assert_eq!(blast[0].consumer_count, 3);
+    }
+
+    #[test]
+    fn parse_directory_packages_props_extracts_nuget_names() {
+        let content = r#"
+<Project>
+  <ItemGroup>
+    <PackageVersion Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageVersion Include="Serilog" Version="4.0.0" />
+  </ItemGroup>
+</Project>
+"#;
+        let deps = parse_directory_packages_props(content);
+        assert_eq!(deps, vec!["Newtonsoft.Json", "Serilog"]);
+    }
+
+    #[test]
+    fn parse_csproj_extracts_package_and_project_refs() {
+        let content = r#"
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Divalto.Exceptions" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Shared\MyLib.csproj" />
+  </ItemGroup>
+</Project>
+"#;
+        let (packages, project_refs) = parse_csproj(content);
+        assert_eq!(
+            packages,
+            vec!["Divalto.Exceptions", "Microsoft.AspNetCore.OpenApi"]
+        );
+        assert_eq!(project_refs, vec!["MyLib"]);
+    }
+
+    #[test]
+    fn extract_xml_include_attr_returns_value() {
+        let line = r#"    <PackageReference Include="Foo.Bar" />"#;
+        assert_eq!(extract_xml_include_attr(line), Some("Foo.Bar".to_string()));
+    }
+
+    #[test]
+    fn extract_xml_include_attr_returns_none_without_include() {
+        let line = r#"    <PropertyGroup>"#;
+        assert_eq!(extract_xml_include_attr(line), None);
     }
 }
