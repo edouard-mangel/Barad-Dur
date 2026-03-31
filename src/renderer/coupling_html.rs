@@ -17,7 +17,7 @@ pub fn render_coupling_html(report: &CouplingReport) -> String {
          </head>\n\
          <body>\n\
          <header>\n\
-           <h1>Repository Coupling Analysis</h1>\n\
+           <h1>Multi-Repository Coupling Analysis</h1>\n\
            <p class=\"summary\">{repo_count} repos &middot; {pair_count} coupling pairs \
             &middot; highest score: {highest:.1}</p>\n\
          </header>\n\
@@ -156,12 +156,16 @@ body {
   color: #e2e8f0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 14px;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 header {
   background: #0d1117;
   border-bottom: 1px solid #1e293b;
-  padding: 16px 24px;
+  padding: 12px 24px;
+  flex-shrink: 0;
 }
 header h1 {
   font-size: 20px;
@@ -175,12 +179,17 @@ header .summary {
 }
 #graph {
   width: 100%;
-  height: calc(100vh - 140px);
+  flex: 1;
   position: relative;
+  overflow: hidden;
 }
 #graph svg {
   width: 100%;
   height: 100%;
+  cursor: grab;
+}
+#graph svg.panning {
+  cursor: grabbing;
 }
 .tooltip {
   position: absolute;
@@ -204,6 +213,7 @@ header .summary {
   background: #0d1117;
   border-bottom: 1px solid #1e293b;
   padding: 0 24px;
+  flex-shrink: 0;
 }
 .tab {
   background: transparent;
@@ -220,14 +230,16 @@ header .summary {
   color: #3b82f6;
   border-bottom-color: #3b82f6;
 }
-.tab-content { display: none; }
-.tab-content.active { display: block; }
+.tab-content { display: none; flex: 1; overflow: hidden; }
+.tab-content.active { display: flex; flex-direction: column; }
+#tab-matrix, #tab-methodology { overflow-y: auto; }
 .filters {
   background: #0d1117;
   padding: 8px 24px;
   display: flex;
   gap: 16px;
   border-bottom: 1px solid #1e293b;
+  flex-shrink: 0;
 }
 .filters label {
   color: #94a3b8;
@@ -242,7 +254,8 @@ header .summary {
 }
 #matrix {
   padding: 24px;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: visible;
 }
 #matrix table {
   border-collapse: collapse;
@@ -271,10 +284,12 @@ header .summary {
   background: #0d1117;
 }
 .methodology {
-  max-width: 760px;
+  max-width: 700px;
   margin: 0 auto;
   padding: 32px 24px;
   line-height: 1.6;
+  overflow-x: hidden;
+  word-wrap: break-word;
 }
 .methodology h2 {
   font-size: 18px;
@@ -323,6 +338,8 @@ header .summary {
   font-size: 12px;
   color: #7dd3fc;
   margin: 8px 0;
+  overflow-x: auto;
+  white-space: nowrap;
 }
 .legend {
   position: absolute;
@@ -426,15 +443,81 @@ const JS: &str = r#"
     };
   });
 
-  // SVG setup
+  // SVG setup with pan/zoom support
   var container = document.getElementById('graph');
   var W = container.clientWidth || 800;
   var H = container.clientHeight || 600;
   var svgNS = 'http://www.w3.org/2000/svg';
   var svg = document.createElementNS(svgNS, 'svg');
-  svg.setAttribute('width', W);
-  svg.setAttribute('height', H);
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('height', '100%');
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
   container.appendChild(svg);
+
+  // All graph content goes inside a transform group for pan/zoom
+  var graphGroup = document.createElementNS(svgNS, 'g');
+  svg.appendChild(graphGroup);
+
+  // Pan/zoom state
+  var viewX = 0, viewY = 0, viewScale = 1;
+  var isPanning = false, panStartX = 0, panStartY = 0, panStartViewX = 0, panStartViewY = 0;
+
+  function updateViewBox() {
+    var vw = W / viewScale;
+    var vh = H / viewScale;
+    svg.setAttribute('viewBox', viewX + ' ' + viewY + ' ' + vw + ' ' + vh);
+  }
+
+  // Mouse wheel zoom — zoom toward cursor position
+  container.addEventListener('wheel', function(ev) {
+    ev.preventDefault();
+    var rect = svg.getBoundingClientRect();
+    var mouseX = ev.clientX - rect.left;
+    var mouseY = ev.clientY - rect.top;
+
+    // Convert mouse position to SVG coordinates
+    var svgX = viewX + (mouseX / rect.width) * (W / viewScale);
+    var svgY = viewY + (mouseY / rect.height) * (H / viewScale);
+
+    var factor = ev.deltaY < 0 ? 1.15 : 1 / 1.15;
+    var newScale = Math.max(0.2, Math.min(5, viewScale * factor));
+
+    // Adjust viewX/viewY so the point under the cursor stays fixed
+    viewX = svgX - (mouseX / rect.width) * (W / newScale);
+    viewY = svgY - (mouseY / rect.height) * (H / newScale);
+    viewScale = newScale;
+    updateViewBox();
+  }, { passive: false });
+
+  // Pan: mousedown on SVG background (not on a node)
+  svg.addEventListener('mousedown', function(ev) {
+    if (dragging) return; // node drag takes priority
+    isPanning = true;
+    panStartX = ev.clientX;
+    panStartY = ev.clientY;
+    panStartViewX = viewX;
+    panStartViewY = viewY;
+    svg.classList.add('panning');
+    ev.preventDefault();
+  });
+
+  document.addEventListener('mousemove', function(ev) {
+    if (isPanning && !dragging) {
+      var rect = svg.getBoundingClientRect();
+      var dx = (ev.clientX - panStartX) / rect.width * (W / viewScale);
+      var dy = (ev.clientY - panStartY) / rect.height * (H / viewScale);
+      viewX = panStartViewX - dx;
+      viewY = panStartViewY - dy;
+      updateViewBox();
+    }
+  });
+
+  document.addEventListener('mouseup', function() {
+    if (isPanning) {
+      isPanning = false;
+      svg.classList.remove('panning');
+    }
+  });
 
   // Initialize positions in a circle
   var cx = W / 2, cy = H / 2;
@@ -472,7 +555,7 @@ const JS: &str = r#"
     line.setAttribute('stroke-width', edgeWidth(e.score));
     line.setAttribute('stroke-opacity', '0.6');
     line.setAttribute('stroke-linecap', 'round');
-    svg.appendChild(line);
+    graphGroup.appendChild(line);
     return { el: line, data: e };
   });
 
@@ -496,7 +579,7 @@ const JS: &str = r#"
     text.textContent = n.name;
     g.appendChild(text);
 
-    svg.appendChild(g);
+    graphGroup.appendChild(g);
     return { el: g, circle: circle, data: n };
   });
 
@@ -588,10 +671,6 @@ const JS: &str = r#"
       n.vy *= DAMPING;
       n.x += n.vx;
       n.y += n.vy;
-      // Constrain to viewport
-      var r = nodeRadius(n);
-      n.x = Math.max(r, Math.min(W - r, n.x));
-      n.y = Math.max(r + 60, Math.min(H - r, n.y));
     });
   }
 
@@ -610,20 +689,22 @@ const JS: &str = r#"
     });
   }
 
-  // Drag support
+  // Drag support — converts screen coordinates to SVG space via viewBox
   var dragging = null;
   nodeEls.forEach(function(ne) {
     ne.el.addEventListener('mousedown', function(ev) {
       dragging = ne.data;
       ne.el.style.cursor = 'grabbing';
+      ev.stopPropagation(); // prevent pan
       ev.preventDefault();
     });
   });
   document.addEventListener('mousemove', function(ev) {
     if (!dragging) return;
     var rect = svg.getBoundingClientRect();
-    dragging.x = ev.clientX - rect.left;
-    dragging.y = ev.clientY - rect.top;
+    // Convert screen position to SVG coordinates
+    dragging.x = viewX + ((ev.clientX - rect.left) / rect.width) * (W / viewScale);
+    dragging.y = viewY + ((ev.clientY - rect.top) / rect.height) * (H / viewScale);
     dragging.vx = 0;
     dragging.vy = 0;
   });
