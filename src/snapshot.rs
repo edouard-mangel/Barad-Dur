@@ -86,13 +86,7 @@ pub struct BlameLine {
     pub author_id: AuthorId,
     pub timestamp: DateTime<Utc>,
     /// Number of consecutive lines this entry represents (run-length encoding).
-    /// Defaults to 1 for uncompressed blame data.
-    #[serde(default = "default_line_count")]
     pub line_count: usize,
-}
-
-fn default_line_count() -> usize {
-    1
 }
 
 impl BlameLine {
