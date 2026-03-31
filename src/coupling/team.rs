@@ -150,10 +150,7 @@ mod tests {
         let snapshot = CouplingSnapshot {
             path: PathBuf::from("/tmp/test"),
             commit_timestamps: vec![],
-            author_names: vec![
-                "alice smith".to_string(),
-                "bob jones".to_string(),
-            ],
+            author_names: vec!["alice smith".to_string(), "bob jones".to_string()],
             commit_count: 0,
             author_count: 2,
         };

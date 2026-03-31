@@ -593,7 +593,11 @@ fn temporal_coupling_exact_boundary_3_co_changes_included() {
     let two_days: i64 = 2 * 24 * 3600;
 
     let snapshots = vec![
-        make_coupling_snapshot("repo-a", vec![base, base + two_days, base + 2 * two_days], vec![]),
+        make_coupling_snapshot(
+            "repo-a",
+            vec![base, base + two_days, base + 2 * two_days],
+            vec![],
+        ),
         make_coupling_snapshot(
             "repo-b",
             vec![
@@ -631,7 +635,11 @@ fn temporal_coupling_window_excludes_commits_outside_range() {
     let two_days: i64 = 48 * 3600; // 48h gap — comfortably outside the 24h window
 
     let snapshots = vec![
-        make_coupling_snapshot("repo-a", vec![base, base + 1, base + 2, base + 3, base + 4], vec![]),
+        make_coupling_snapshot(
+            "repo-a",
+            vec![base, base + 1, base + 2, base + 3, base + 4],
+            vec![],
+        ),
         make_coupling_snapshot(
             "repo-b",
             vec![
