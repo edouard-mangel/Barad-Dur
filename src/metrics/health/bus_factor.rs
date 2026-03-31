@@ -127,7 +127,7 @@ mod tests {
         }];
         let now = Utc::now();
         let blame: Vec<BlameLine> = (0..100)
-            .map(|j| BlameLine {
+            .map(|_| BlameLine {
                 author_id: 0,
                 timestamp: now,
             })

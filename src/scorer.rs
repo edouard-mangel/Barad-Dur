@@ -161,7 +161,7 @@ mod tests {
         ];
         snapshot
             .commits_by_file
-            .insert("hot.rs".into(), (0..10).map(|i| CommitId(i)).collect());
+            .insert("hot.rs".into(), (0..10).map(CommitId).collect());
         snapshot
             .commits_by_file
             .insert("cold.rs".into(), vec![CommitId(0)]);
@@ -183,10 +183,10 @@ mod tests {
         snapshot.file_change_pairs = vec![("a.rs".into(), "b.rs".into(), 8)];
         snapshot
             .commits_by_file
-            .insert("a.rs".into(), (0..10).map(|i| CommitId(i)).collect());
+            .insert("a.rs".into(), (0..10).map(CommitId).collect());
         snapshot
             .commits_by_file
-            .insert("b.rs".into(), (0..10).map(|i| CommitId(i)).collect());
+            .insert("b.rs".into(), (0..10).map(CommitId).collect());
         let pairs = build_coupling_pairs(&snapshot);
         assert_eq!(pairs.len(), 1);
         assert!((pairs[0].coupling_pct - 80.0).abs() < 1.0);
