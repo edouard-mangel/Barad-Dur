@@ -106,15 +106,13 @@ fn parse_porcelain_blame(
     email_to_id: &HashMap<&str, AuthorId>,
 ) -> Result<Vec<BlameLine>> {
     let mut lines = Vec::new();
-    let mut current_commit: Option<String> = None;
     let mut current_email: Option<String> = None;
     let mut current_timestamp: Option<DateTime<Utc>> = None;
 
     for line in output.lines() {
         if line.len() >= 40 && line.chars().take(40).all(|c| c.is_ascii_hexdigit()) {
             // This is a commit header line: <hash> <orig_line> <final_line> [<num_lines>]
-            let hash = &line[..40];
-            current_commit = Some(hash.to_string());
+            // No fields to extract from the hash line
         } else if let Some(mail) = line.strip_prefix("author-mail <") {
             let email = mail.trim_end_matches('>').to_lowercase();
             current_email = Some(email);
@@ -124,14 +122,11 @@ fn parse_porcelain_blame(
             }
         } else if line.starts_with('\t') {
             // This is the actual source line — finalize the blame entry
-            if let (Some(commit_id), Some(email), Some(timestamp)) =
-                (&current_commit, &current_email, &current_timestamp)
-            {
+            if let (Some(email), Some(timestamp)) = (&current_email, &current_timestamp) {
                 let author_id = email_to_id.get(email.as_str()).copied().unwrap_or(0); // Fall back to first author if unknown
 
                 lines.push(BlameLine {
                     author_id,
-                    commit_id: commit_id.clone(),
                     timestamp: *timestamp,
                 });
             }
@@ -177,10 +172,6 @@ filename test.rs
         let lines = parse_porcelain_blame(porcelain, &email_to_id).unwrap();
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].author_id, 0);
-        assert_eq!(
-            lines[0].commit_id,
-            "abc1234567890123456789012345678901234567"
-        );
     }
 
     #[test]

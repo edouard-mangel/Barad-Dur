@@ -395,27 +395,22 @@ mod tests {
             vec![
                 BlameLine {
                     author_id: 0,
-                    commit_id: "c1".into(),
                     timestamp: now,
                 },
                 BlameLine {
                     author_id: 0,
-                    commit_id: "c1".into(),
                     timestamp: now,
                 },
                 BlameLine {
                     author_id: 0,
-                    commit_id: "c1".into(),
                     timestamp: now,
                 },
                 BlameLine {
                     author_id: 0,
-                    commit_id: "c1".into(),
                     timestamp: now,
                 },
                 BlameLine {
                     author_id: 1,
-                    commit_id: "c3".into(),
                     timestamp: now,
                 },
             ],
@@ -425,27 +420,22 @@ mod tests {
             vec![
                 BlameLine {
                     author_id: 1,
-                    commit_id: "c3".into(),
                     timestamp: now,
                 },
                 BlameLine {
                     author_id: 1,
-                    commit_id: "c3".into(),
                     timestamp: now,
                 },
                 BlameLine {
                     author_id: 1,
-                    commit_id: "c3".into(),
                     timestamp: now,
                 },
                 BlameLine {
                     author_id: 0,
-                    commit_id: "c1".into(),
                     timestamp: now,
                 },
                 BlameLine {
                     author_id: 0,
-                    commit_id: "c1".into(),
                     timestamp: now,
                 },
             ],

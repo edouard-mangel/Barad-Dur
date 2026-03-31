@@ -97,14 +97,12 @@ mod tests {
         for _ in 0..80 {
             blame_file1.push(BlameLine {
                 author_id: 0,
-                commit_id: "c1".into(),
                 timestamp: now,
             });
         }
         for _ in 0..20 {
             blame_file1.push(BlameLine {
                 author_id: 1,
-                commit_id: "c2".into(),
                 timestamp: now,
             });
         }
@@ -131,7 +129,6 @@ mod tests {
         let blame: Vec<BlameLine> = (0..100)
             .map(|j| BlameLine {
                 author_id: 0,
-                commit_id: format!("c{}", j),
                 timestamp: now,
             })
             .collect();
@@ -169,7 +166,6 @@ mod tests {
             let lines: Vec<BlameLine> = (0..100)
                 .map(|j| BlameLine {
                     author_id: if j < 50 { 0 } else { 1 },
-                    commit_id: format!("c{}", j),
                     timestamp: now,
                 })
                 .collect();
@@ -199,7 +195,6 @@ mod tests {
         let dominated: Vec<BlameLine> = (0..100)
             .map(|j| BlameLine {
                 author_id: if j < 80 { 0 } else { 1 },
-                commit_id: format!("c{}", j),
                 timestamp: now,
             })
             .collect();
@@ -210,7 +205,6 @@ mod tests {
             let lines: Vec<BlameLine> = (0..100)
                 .map(|j| BlameLine {
                     author_id: if j < 50 { 0 } else { 1 },
-                    commit_id: format!("c{}{}", i, j),
                     timestamp: now,
                 })
                 .collect();
@@ -237,7 +231,6 @@ mod tests {
         let lines: Vec<BlameLine> = (0..100)
             .map(|j| BlameLine {
                 author_id: if j < 50 { 0 } else { 1 }, // exactly 50/50
-                commit_id: format!("c{}", j),
                 timestamp: now,
             })
             .collect();
@@ -265,7 +258,6 @@ mod tests {
         let dominated: Vec<BlameLine> = (0..100)
             .map(|j| BlameLine {
                 author_id: if j < 80 { 0 } else { 1 },
-                commit_id: format!("c{}", j),
                 timestamp: now,
             })
             .collect();
@@ -276,7 +268,6 @@ mod tests {
             let lines: Vec<BlameLine> = (0..100)
                 .map(|j| BlameLine {
                     author_id: if j < 50 { 0 } else { 1 },
-                    commit_id: format!("b{}c{}", i, j),
                     timestamp: now,
                 })
                 .collect();
@@ -303,7 +294,6 @@ mod tests {
             let lines: Vec<BlameLine> = (0..100)
                 .map(|j| BlameLine {
                     author_id: if j < 80 { 0 } else { 1 },
-                    commit_id: format!("d{}c{}", i, j),
                     timestamp: now,
                 })
                 .collect();
@@ -315,7 +305,6 @@ mod tests {
             let lines: Vec<BlameLine> = (0..100)
                 .map(|j| BlameLine {
                     author_id: if j < 50 { 0 } else { 1 },
-                    commit_id: format!("b{}c{}", i, j),
                     timestamp: now,
                 })
                 .collect();
@@ -342,7 +331,6 @@ mod tests {
             let lines: Vec<BlameLine> = (0..100)
                 .map(|j| BlameLine {
                     author_id: if j < 80 { 0 } else { 1 },
-                    commit_id: format!("d{}c{}", i, j),
                     timestamp: now,
                 })
                 .collect();
@@ -354,7 +342,6 @@ mod tests {
             let lines: Vec<BlameLine> = (0..100)
                 .map(|j| BlameLine {
                     author_id: if j < 50 { 0 } else { 1 },
-                    commit_id: format!("b{}c{}", i, j),
                     timestamp: now,
                 })
                 .collect();

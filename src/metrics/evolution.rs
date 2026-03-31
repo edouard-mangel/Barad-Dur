@@ -521,7 +521,6 @@ mod tests {
         for _ in 0..100 {
             blame.push(BlameLine {
                 author_id: 0,
-                commit_id: "c1".into(),
                 timestamp: eight_months_ago,
             });
         }

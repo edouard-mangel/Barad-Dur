@@ -57,7 +57,6 @@ mod tests {
     fn make_blame_line() -> BlameLine {
         BlameLine {
             author_id: 0,
-            commit_id: "abc123".to_string(),
             timestamp: Utc::now(),
         }
     }

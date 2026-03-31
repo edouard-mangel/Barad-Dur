@@ -53,7 +53,6 @@ pub struct Author {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlameLine {
     pub author_id: AuthorId,
-    pub commit_id: CommitId,
     pub timestamp: DateTime<Utc>,
 }
 

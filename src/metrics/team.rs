@@ -499,21 +499,18 @@ mod tests {
         for _ in 0..95 {
             blame.push(BlameLine {
                 author_id: 0,
-                commit_id: "c1".into(),
                 timestamp: now,
             });
         }
         for _ in 0..4 {
             blame.push(BlameLine {
                 author_id: 1,
-                commit_id: "c2".into(),
                 timestamp: now,
             });
         }
         for _ in 0..1 {
             blame.push(BlameLine {
                 author_id: 2,
-                commit_id: "c3".into(),
                 timestamp: now,
             });
         }
@@ -613,14 +610,12 @@ mod tests {
         for _ in 0..80 {
             blame1.push(BlameLine {
                 author_id: 0,
-                commit_id: "c1".into(),
                 timestamp: now,
             });
         }
         for _ in 0..20 {
             blame1.push(BlameLine {
                 author_id: 1,
-                commit_id: "c2".into(),
                 timestamp: now,
             });
         }
@@ -631,14 +626,12 @@ mod tests {
         for _ in 0..50 {
             blame2.push(BlameLine {
                 author_id: 0,
-                commit_id: "c1".into(),
                 timestamp: now,
             });
         }
         for _ in 0..50 {
             blame2.push(BlameLine {
                 author_id: 1,
-                commit_id: "c2".into(),
                 timestamp: now,
             });
         }
@@ -679,7 +672,6 @@ mod tests {
         for _ in 0..100 {
             blame_auth.push(BlameLine {
                 author_id: 0,
-                commit_id: "c1".into(),
                 timestamp: now,
             });
         }
@@ -692,14 +684,12 @@ mod tests {
         for _ in 0..60 {
             blame_api.push(BlameLine {
                 author_id: 0,
-                commit_id: "c1".into(),
                 timestamp: now,
             });
         }
         for _ in 0..40 {
             blame_api.push(BlameLine {
                 author_id: 1,
-                commit_id: "c2".into(),
                 timestamp: now,
             });
         }
