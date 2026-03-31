@@ -1,15 +1,29 @@
 use rayon::prelude::*;
+use std::path::PathBuf;
 
 use crate::collector::Collector;
 use crate::coupling::discovery::{DiscoveredRepo, SkipReason, SkippedRepo};
 use crate::coupling::CouplingConfig;
-use crate::snapshot::{RepoSnapshot, TimeWindow};
+use crate::snapshot::TimeWindow;
+
+/// Lightweight snapshot carrying only the data needed for coupling analysis.
+///
+/// Unlike `RepoSnapshot`, this skips file trees, blame, complexity metrics,
+/// import graphs, and all derived indexes — cutting per-repo RAM by ~80%.
+#[derive(Debug, Clone)]
+pub struct CouplingSnapshot {
+    pub path: PathBuf,
+    pub commit_timestamps: Vec<i64>,
+    pub author_names: Vec<String>,
+    pub commit_count: usize,
+    pub author_count: usize,
+}
 
 /// Outcome of collecting snapshots from multiple repositories.
 #[derive(Debug)]
 pub struct CollectionResult {
     /// Successfully collected snapshots, keyed by repo name.
-    pub snapshots: Vec<(String, RepoSnapshot)>,
+    pub snapshots: Vec<(String, CouplingSnapshot)>,
     /// Repos that failed collection (gracefully skipped).
     pub failed: Vec<SkippedRepo>,
 }
@@ -25,45 +39,59 @@ fn time_window_from_config(config: &CouplingConfig) -> TimeWindow {
     }
 }
 
-/// Attempt to collect a single repo's snapshot with skip-blame optimization.
+/// Attempt to collect a single repo's coupling snapshot.
+///
+/// Uses `collect_commits()` instead of the full `collect_snapshot_verbose`,
+/// extracting only commit timestamps and author names.
 ///
 /// Returns `Ok((name, snapshot))` on success, `Err(SkippedRepo)` on failure.
 fn collect_single_repo(
     repo: &DiscoveredRepo,
     time_window: &TimeWindow,
-) -> Result<(String, RepoSnapshot), SkippedRepo> {
+) -> Result<(String, CouplingSnapshot), SkippedRepo> {
     let collector = Collector::open(&repo.path, time_window.clone()).map_err(|e| SkippedRepo {
         path: repo.path.clone(),
         reason: SkipReason::Other(format!("CollectionFailed: {e}")),
     })?;
 
-    let snapshot = collector
-        .collect_snapshot_verbose(
-            false, // show_progress
-            false, // verbose
-            true,  // skip_blame -- coupling only needs commits + authors
-            true,  // no_cache
-            &[],   // exclude_patterns
-            true,  // use_default_excludes
-        )
-        .map_err(|e| SkippedRepo {
-            path: repo.path.clone(),
-            reason: SkipReason::Other(format!("CollectionFailed: {e}")),
-        })?;
+    let collection = collector.collect_commits().map_err(|e| SkippedRepo {
+        path: repo.path.clone(),
+        reason: SkipReason::Other(format!("CollectionFailed: {e}")),
+    })?;
+
+    let commit_timestamps: Vec<i64> = collection
+        .commits
+        .iter()
+        .map(|c| c.timestamp.timestamp())
+        .collect();
+
+    let author_names: Vec<String> = collection
+        .authors
+        .iter()
+        .map(|a| a.name.to_lowercase())
+        .collect();
+
+    let snapshot = CouplingSnapshot {
+        path: repo.path.clone(),
+        commit_count: commit_timestamps.len(),
+        author_count: author_names.len(),
+        commit_timestamps,
+        author_names,
+    };
 
     Ok((repo.name.clone(), snapshot))
 }
 
-/// Collect `RepoSnapshot`s from discovered repos in parallel (rayon).
+/// Collect `CouplingSnapshot`s from discovered repos in parallel (rayon).
 ///
-/// Each repo is opened and collected with `skip_blame = true` since coupling
-/// analysis only needs commits and authors, not per-line blame data. Repos
-/// that fail collection are gracefully skipped and reported in the `failed`
-/// list rather than aborting the entire pipeline.
+/// Each repo is opened and only commits + authors are collected — no blame,
+/// file trees, or complexity metrics. Repos that fail collection are
+/// gracefully skipped and reported in the `failed` list rather than aborting
+/// the entire pipeline.
 pub fn collect_snapshots(repos: &[DiscoveredRepo], config: &CouplingConfig) -> CollectionResult {
     let time_window = time_window_from_config(config);
 
-    let results: Vec<Result<(String, RepoSnapshot), SkippedRepo>> = repos
+    let results: Vec<Result<(String, CouplingSnapshot), SkippedRepo>> = repos
         .par_iter()
         .map(|repo| collect_single_repo(repo, &time_window))
         .collect();

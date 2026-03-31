@@ -1,4 +1,4 @@
-use crate::snapshot::RepoSnapshot;
+use crate::coupling::collector::CouplingSnapshot;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -112,7 +112,7 @@ fn directed_key(a: usize, b: usize) -> (usize, usize) {
 ///
 /// Returns pairs sorted by temporal_score descending.
 pub fn analyze_temporal_coupling(
-    snapshots: &[(String, RepoSnapshot)],
+    snapshots: &[(String, CouplingSnapshot)],
     window: Duration,
 ) -> Vec<TemporalCouplingPair> {
     if snapshots.len() < 2 {
@@ -122,14 +122,14 @@ pub fn analyze_temporal_coupling(
     let window_secs = window.as_secs() as i64;
 
     // Collect commit counts per repo (needed for scoring)
-    let commit_counts: Vec<usize> = snapshots.iter().map(|(_, s)| s.commits.len()).collect();
+    let commit_counts: Vec<usize> = snapshots.iter().map(|(_, s)| s.commit_count).collect();
 
     // Step 1: Merge all commits into a single timeline tagged with repo index
     let total_commits: usize = commit_counts.iter().sum();
     let mut timeline: Vec<(i64, usize)> = Vec::with_capacity(total_commits);
     for (repo_idx, (_, snap)) in snapshots.iter().enumerate() {
-        for commit in &snap.commits {
-            timeline.push((commit.timestamp.timestamp(), repo_idx));
+        for &ts in &snap.commit_timestamps {
+            timeline.push((ts, repo_idx));
         }
     }
 

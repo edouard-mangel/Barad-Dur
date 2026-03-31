@@ -1,3 +1,4 @@
+use barad_dur::coupling::collector::CouplingSnapshot;
 use barad_dur::coupling::dependency::analyze_dependency_coupling;
 use barad_dur::coupling::dependency::{
     BlastRadiusEntry, DependencyAnalysis, DependencyCouplingPair,
@@ -8,51 +9,38 @@ use barad_dur::coupling::team::TeamCouplingPair;
 use barad_dur::coupling::temporal::{analyze_temporal_coupling, TemporalCouplingPair};
 use barad_dur::coupling::{CouplingReport, CouplingReportSummary, RepoInfo};
 use barad_dur::renderer::coupling_json::render_coupling_json;
-use barad_dur::snapshot::{
-    Author, ChangeType, Commit, CommitId, FileChange, RepoSnapshot, TimeWindow,
-};
-use chrono::DateTime;
 use std::path::PathBuf;
 use std::time::Duration;
 
-fn make_snapshot(name: &str, authors: Vec<Author>) -> (String, RepoSnapshot) {
-    let mut snapshot = RepoSnapshot::new(
-        PathBuf::from(format!("/tmp/{}", name)),
-        name.to_string(),
-        "main".to_string(),
-        TimeWindow::full_history(),
-    );
-    snapshot.authors = authors;
+fn make_coupling_snapshot(
+    name: &str,
+    timestamps: Vec<i64>,
+    authors: Vec<&str>,
+) -> (String, CouplingSnapshot) {
+    let author_names: Vec<String> = authors.iter().map(|a| a.to_lowercase()).collect();
+    let snapshot = CouplingSnapshot {
+        path: PathBuf::from(format!("/tmp/{}", name)),
+        commit_count: timestamps.len(),
+        author_count: author_names.len(),
+        commit_timestamps: timestamps,
+        author_names,
+    };
     (name.to_string(), snapshot)
-}
-
-fn make_author(id: usize, name: &str, email: &str) -> Author {
-    Author {
-        id,
-        name: name.to_string(),
-        email: email.to_string(),
-    }
 }
 
 #[test]
 fn team_coupling_detects_shared_authors() {
     // GIVEN two repos with overlapping authors (matched by lowercase display name)
     let snapshots = vec![
-        make_snapshot(
+        make_coupling_snapshot(
             "repo-alpha",
-            vec![
-                make_author(0, "Alice Smith", "alice@alpha.com"),
-                make_author(1, "Bob Jones", "bob@alpha.com"),
-                make_author(2, "Charlie Brown", "charlie@alpha.com"),
-            ],
+            vec![],
+            vec!["Alice Smith", "Bob Jones", "Charlie Brown"],
         ),
-        make_snapshot(
+        make_coupling_snapshot(
             "repo-beta",
-            vec![
-                make_author(0, "alice smith", "alice@beta.com"), // same person, different case
-                make_author(1, "Bob Jones", "bob.j@beta.com"),   // same person, different email
-                make_author(2, "Diana Prince", "diana@beta.com"), // unique to beta
-            ],
+            vec![],
+            vec!["alice smith", "Bob Jones", "Diana Prince"],
         ),
     ];
 
@@ -91,20 +79,8 @@ fn team_coupling_detects_shared_authors() {
 fn team_coupling_single_bridge_author() {
     // GIVEN exactly one shared author between two repos
     let snapshots = vec![
-        make_snapshot(
-            "repo-one",
-            vec![
-                make_author(0, "Alice Smith", "alice@one.com"),
-                make_author(1, "Bob Jones", "bob@one.com"),
-            ],
-        ),
-        make_snapshot(
-            "repo-two",
-            vec![
-                make_author(0, "alice smith", "alice@two.com"),
-                make_author(1, "Eve Wilson", "eve@two.com"),
-            ],
-        ),
+        make_coupling_snapshot("repo-one", vec![], vec!["Alice Smith", "Bob Jones"]),
+        make_coupling_snapshot("repo-two", vec![], vec!["alice smith", "Eve Wilson"]),
     ];
 
     let pairs = analyze_team_coupling(&snapshots);
@@ -132,8 +108,8 @@ fn team_coupling_single_bridge_author() {
 fn team_coupling_no_shared_authors() {
     // GIVEN two repos with no shared authors
     let snapshots = vec![
-        make_snapshot("repo-x", vec![make_author(0, "Alice", "alice@x.com")]),
-        make_snapshot("repo-y", vec![make_author(0, "Bob", "bob@y.com")]),
+        make_coupling_snapshot("repo-x", vec![], vec!["Alice"]),
+        make_coupling_snapshot("repo-y", vec![], vec!["Bob"]),
     ];
 
     let pairs = analyze_team_coupling(&snapshots);
@@ -521,42 +497,8 @@ fn combined_scoring_and_json_output() {
 }
 
 // ===========================================================================
-// Temporal coupling unit tests using synthetic RepoSnapshot data
+// Temporal coupling unit tests using synthetic CouplingSnapshot data
 // ===========================================================================
-
-/// Build a minimal Commit with a controlled timestamp (Unix seconds).
-fn make_commit_at(id: u32, unix_ts: i64) -> Commit {
-    Commit {
-        id: CommitId(id),
-        author: 0,
-        timestamp: DateTime::from_timestamp(unix_ts, 0).unwrap(),
-        message: format!("commit {}", id),
-        files_changed: vec![FileChange {
-            path: PathBuf::from("main.rs"),
-            additions: 1,
-            deletions: 0,
-            change_type: ChangeType::Modified,
-        }],
-        is_merge: false,
-        parent_count: 1,
-    }
-}
-
-/// Build a (name, RepoSnapshot) pair populated with commits at the given timestamps.
-fn make_snapshot_with_commits(name: &str, unix_timestamps: &[i64]) -> (String, RepoSnapshot) {
-    let mut snapshot = RepoSnapshot::new(
-        PathBuf::from(format!("/tmp/{name}")),
-        name.to_string(),
-        "main".to_string(),
-        TimeWindow::full_history(),
-    );
-    snapshot.commits = unix_timestamps
-        .iter()
-        .enumerate()
-        .map(|(i, &ts)| make_commit_at(i as u32, ts))
-        .collect();
-    (name.to_string(), snapshot)
-}
 
 #[test]
 fn temporal_coupling_returns_pairs_for_co_committed_repos() {
@@ -566,25 +508,27 @@ fn temporal_coupling_returns_pairs_for_co_committed_repos() {
     let two_days: i64 = 2 * 24 * 3600;
 
     let snapshots = vec![
-        make_snapshot_with_commits(
+        make_coupling_snapshot(
             "repo-a",
-            &[
+            vec![
                 base,
                 base + two_days,
                 base + 2 * two_days,
                 base + 3 * two_days,
                 base + 4 * two_days,
             ],
+            vec![],
         ),
-        make_snapshot_with_commits(
+        make_coupling_snapshot(
             "repo-b",
-            &[
+            vec![
                 base + one_hour,
                 base + two_days + one_hour,
                 base + 2 * two_days + one_hour,
                 base + 3 * two_days + one_hour,
                 base + 4 * two_days + one_hour,
             ],
+            vec![],
         ),
     ];
 
@@ -610,23 +554,25 @@ fn temporal_coupling_filters_pairs_below_3_co_changes() {
     let ten_days: i64 = 10 * 24 * 3600;
 
     let snapshots = vec![
-        make_snapshot_with_commits(
+        make_coupling_snapshot(
             "repo-a",
-            &[
+            vec![
                 base,
                 base + ten_days,
                 base + 2 * ten_days,
                 base + 3 * ten_days,
                 base + 4 * ten_days,
             ],
+            vec![],
         ),
-        make_snapshot_with_commits(
+        make_coupling_snapshot(
             "repo-b",
-            &[
+            vec![
                 base + one_hour,            // within 24h of repo-a[0] => overlap 1
                 base + ten_days + one_hour, // within 24h of repo-a[1] => overlap 2
                 base + 20 * ten_days,       // far away — no overlap
             ],
+            vec![],
         ),
     ];
 
@@ -647,14 +593,15 @@ fn temporal_coupling_exact_boundary_3_co_changes_included() {
     let two_days: i64 = 2 * 24 * 3600;
 
     let snapshots = vec![
-        make_snapshot_with_commits("repo-a", &[base, base + two_days, base + 2 * two_days]),
-        make_snapshot_with_commits(
+        make_coupling_snapshot("repo-a", vec![base, base + two_days, base + 2 * two_days], vec![]),
+        make_coupling_snapshot(
             "repo-b",
-            &[
+            vec![
                 base + one_hour,
                 base + two_days + one_hour,
                 base + 2 * two_days + one_hour,
             ],
+            vec![],
         ),
     ];
 
@@ -684,16 +631,17 @@ fn temporal_coupling_window_excludes_commits_outside_range() {
     let two_days: i64 = 48 * 3600; // 48h gap — comfortably outside the 24h window
 
     let snapshots = vec![
-        make_snapshot_with_commits("repo-a", &[base, base + 1, base + 2, base + 3, base + 4]),
-        make_snapshot_with_commits(
+        make_coupling_snapshot("repo-a", vec![base, base + 1, base + 2, base + 3, base + 4], vec![]),
+        make_coupling_snapshot(
             "repo-b",
-            &[
+            vec![
                 base + two_days,
                 base + two_days + 1,
                 base + two_days + 2,
                 base + two_days + 3,
                 base + two_days + 4,
             ],
+            vec![],
         ),
     ];
 
@@ -747,22 +695,8 @@ fn team_coupling_score_exact_formula() {
     // total_unique = {alice, bob, carol, dave} => 4
     // expected score = (2/4) * 100 = 50.0
     let snapshots = vec![
-        make_snapshot(
-            "repo-a",
-            vec![
-                make_author(0, "Alice", "alice@a.com"),
-                make_author(1, "Bob", "bob@a.com"),
-                make_author(2, "Carol", "carol@a.com"),
-            ],
-        ),
-        make_snapshot(
-            "repo-b",
-            vec![
-                make_author(0, "Bob", "bob@b.com"),
-                make_author(1, "Carol", "carol@b.com"),
-                make_author(2, "Dave", "dave@b.com"),
-            ],
-        ),
+        make_coupling_snapshot("repo-a", vec![], vec!["Alice", "Bob", "Carol"]),
+        make_coupling_snapshot("repo-b", vec![], vec!["Bob", "Carol", "Dave"]),
     ];
 
     let pairs = analyze_team_coupling(&snapshots);

@@ -231,19 +231,13 @@ fn collector_skips_blame_and_handles_failures() {
     // Each snapshot should have commits and authors populated
     for (name, snapshot) in &result.snapshots {
         assert!(
-            !snapshot.commits.is_empty(),
+            !snapshot.commit_timestamps.is_empty(),
             "snapshot for '{}' should have commits",
             name
         );
         assert!(
-            !snapshot.authors.is_empty(),
+            !snapshot.author_names.is_empty(),
             "snapshot for '{}' should have authors",
-            name
-        );
-        // blame_map MUST be empty (skip-blame optimization)
-        assert!(
-            snapshot.blame_map.is_empty(),
-            "snapshot for '{}' should have empty blame_map (skip-blame)",
             name
         );
     }

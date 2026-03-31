@@ -1,4 +1,4 @@
-use crate::snapshot::RepoSnapshot;
+use crate::coupling::collector::CouplingSnapshot;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -21,13 +21,12 @@ pub struct TeamCouplingPair {
     pub bridge_author: Option<String>,
 }
 
-/// Extract unique author names (lowercased) from a snapshot.
-fn extract_normalized_authors(snapshot: &RepoSnapshot) -> HashSet<String> {
-    snapshot
-        .authors
-        .iter()
-        .map(|author| author.name.to_lowercase())
-        .collect()
+/// Extract unique author names from a coupling snapshot.
+///
+/// Names are already lowercased during collection, so no further
+/// normalization is needed.
+fn extract_normalized_authors(snapshot: &CouplingSnapshot) -> HashSet<String> {
+    snapshot.author_names.iter().cloned().collect()
 }
 
 /// Compute the team score: (shared / total_unique) * 100.
@@ -78,7 +77,7 @@ fn analyze_pair(
 /// For each pair (A, B), computes the ratio of shared authors (by lowercase
 /// display name) to total unique authors across both repos, expressed as a
 /// percentage. Returns all pairs sorted by team_score descending.
-pub fn analyze_team_coupling(snapshots: &[(String, RepoSnapshot)]) -> Vec<TeamCouplingPair> {
+pub fn analyze_team_coupling(snapshots: &[(String, CouplingSnapshot)]) -> Vec<TeamCouplingPair> {
     // Pre-compute normalized authors once per repo (avoids O(n²) redundant work)
     let cached: Vec<(&str, HashSet<String>)> = snapshots
         .iter()
@@ -145,28 +144,19 @@ mod tests {
     }
 
     #[test]
-    fn extract_normalized_authors_lowercases_names() {
-        use crate::snapshot::{Author, TimeWindow};
+    fn extract_normalized_authors_returns_pre_lowercased_names() {
         use std::path::PathBuf;
 
-        let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp/test"),
-            "test".to_string(),
-            "main".to_string(),
-            TimeWindow::full_history(),
-        );
-        snapshot.authors = vec![
-            Author {
-                id: 0,
-                name: "Alice Smith".to_string(),
-                email: "a@x.com".to_string(),
-            },
-            Author {
-                id: 1,
-                name: "BOB JONES".to_string(),
-                email: "b@x.com".to_string(),
-            },
-        ];
+        let snapshot = CouplingSnapshot {
+            path: PathBuf::from("/tmp/test"),
+            commit_timestamps: vec![],
+            author_names: vec![
+                "alice smith".to_string(),
+                "bob jones".to_string(),
+            ],
+            commit_count: 0,
+            author_count: 2,
+        };
 
         let normalized = extract_normalized_authors(&snapshot);
         assert!(normalized.contains("alice smith"));

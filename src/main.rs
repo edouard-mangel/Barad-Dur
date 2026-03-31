@@ -548,8 +548,8 @@ fn run_coupling(args: CouplingArgs) -> Result<()> {
             .map(|(name, snap)| RepoInfo {
                 name: name.clone(),
                 path: snap.path.clone(),
-                commit_count: snap.commits.len(),
-                author_count: snap.authors.len(),
+                commit_count: snap.commit_count,
+                author_count: snap.author_count,
             })
             .collect();
 
