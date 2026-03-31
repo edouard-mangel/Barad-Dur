@@ -163,10 +163,14 @@ pub(super) fn build_author_cards(snapshot: &RepoSnapshot) -> Vec<AuthorCard> {
     let mut author_files_owned: HashMap<usize, usize> = HashMap::new();
 
     for (path, blame_lines) in &snapshot.blame_map {
-        let total = blame_lines.len().max(1);
+        let total: usize = blame_lines
+            .iter()
+            .map(|b| b.line_count)
+            .sum::<usize>()
+            .max(1);
         let mut counts: HashMap<usize, usize> = HashMap::new();
         for bl in blame_lines {
-            *counts.entry(bl.author_id).or_insert(0) += 1;
+            *counts.entry(bl.author_id).or_insert(0) += bl.line_count;
         }
         for (&author_id, &count) in &counts {
             *author_lines.entry(author_id).or_insert(0) += count;

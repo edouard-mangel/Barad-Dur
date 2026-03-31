@@ -188,13 +188,14 @@ fn code_age(
     snapshot: &RepoSnapshot,
     _thresholds: &crate::config::EvolutionThresholds,
 ) -> MetricValue {
-    let mut timestamps: Vec<_> = snapshot
+    // Collect (timestamp, line_count) pairs and compute weighted median
+    let mut weighted: Vec<_> = snapshot
         .blame_map
         .values()
-        .flat_map(|lines| lines.iter().map(|l| l.timestamp))
+        .flat_map(|lines| lines.iter().map(|l| (l.timestamp, l.line_count)))
         .collect();
 
-    if timestamps.is_empty() {
+    if weighted.is_empty() {
         return MetricValue {
             name: "Code age".to_string(),
             description: "No blame data".to_string(),
@@ -203,8 +204,18 @@ fn code_age(
         };
     }
 
-    timestamps.sort();
-    let median = timestamps[timestamps.len() / 2];
+    weighted.sort_by_key(|&(ts, _)| ts);
+    let total_lines: usize = weighted.iter().map(|&(_, c)| c).sum();
+    let mid = total_lines / 2;
+    let mut cumulative = 0;
+    let median = weighted
+        .iter()
+        .find(|&&(_, c)| {
+            cumulative += c;
+            cumulative > mid
+        })
+        .map(|&(ts, _)| ts)
+        .unwrap_or(weighted[0].0);
     let now = Utc::now();
     let age_days = (now - median).num_days();
     let age_months = age_days as f64 / 30.0;
@@ -519,10 +530,7 @@ mod tests {
         let eight_months_ago = now - Duration::days(240);
         let mut blame = Vec::new();
         for _ in 0..100 {
-            blame.push(BlameLine {
-                author_id: 0,
-                timestamp: eight_months_ago,
-            });
+            blame.push(BlameLine::new(0, eight_months_ago));
         }
         snapshot.blame_map.insert(PathBuf::from("f.rs"), blame);
 

@@ -392,51 +392,21 @@ mod tests {
         snapshot.blame_map.insert(
             "src/auth.rs".into(),
             vec![
-                BlameLine {
-                    author_id: 0,
-                    timestamp: now,
-                },
-                BlameLine {
-                    author_id: 0,
-                    timestamp: now,
-                },
-                BlameLine {
-                    author_id: 0,
-                    timestamp: now,
-                },
-                BlameLine {
-                    author_id: 0,
-                    timestamp: now,
-                },
-                BlameLine {
-                    author_id: 1,
-                    timestamp: now,
-                },
+                BlameLine::new(0, now),
+                BlameLine::new(0, now),
+                BlameLine::new(0, now),
+                BlameLine::new(0, now),
+                BlameLine::new(1, now),
             ],
         );
         snapshot.blame_map.insert(
             "src/main.rs".into(),
             vec![
-                BlameLine {
-                    author_id: 1,
-                    timestamp: now,
-                },
-                BlameLine {
-                    author_id: 1,
-                    timestamp: now,
-                },
-                BlameLine {
-                    author_id: 1,
-                    timestamp: now,
-                },
-                BlameLine {
-                    author_id: 0,
-                    timestamp: now,
-                },
-                BlameLine {
-                    author_id: 0,
-                    timestamp: now,
-                },
+                BlameLine::new(1, now),
+                BlameLine::new(1, now),
+                BlameLine::new(1, now),
+                BlameLine::new(0, now),
+                BlameLine::new(0, now),
             ],
         );
         snapshot.build_indexes();

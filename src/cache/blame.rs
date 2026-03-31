@@ -55,10 +55,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn make_blame_line() -> BlameLine {
-        BlameLine {
-            author_id: 0,
-            timestamp: Utc::now(),
-        }
+        BlameLine::new(0, Utc::now())
     }
 
     #[test]

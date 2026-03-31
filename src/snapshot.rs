@@ -85,6 +85,44 @@ pub struct Author {
 pub struct BlameLine {
     pub author_id: AuthorId,
     pub timestamp: DateTime<Utc>,
+    /// Number of consecutive lines this entry represents (run-length encoding).
+    /// Defaults to 1 for uncompressed blame data.
+    #[serde(default = "default_line_count")]
+    pub line_count: usize,
+}
+
+fn default_line_count() -> usize {
+    1
+}
+
+impl BlameLine {
+    pub fn new(author_id: AuthorId, timestamp: DateTime<Utc>) -> Self {
+        Self {
+            author_id,
+            timestamp,
+            line_count: 1,
+        }
+    }
+}
+
+/// Compress a sequence of blame lines by merging consecutive runs with the same author.
+/// Reduces memory: 500 lines by one author become 1 entry with `line_count = 500`.
+pub fn compress_blame(lines: Vec<BlameLine>) -> Vec<BlameLine> {
+    if lines.is_empty() {
+        return lines;
+    }
+    let mut compressed = Vec::with_capacity(lines.len() / 4);
+    let mut current = lines[0].clone();
+    for line in lines.into_iter().skip(1) {
+        if line.author_id == current.author_id {
+            current.line_count += line.line_count;
+        } else {
+            compressed.push(current);
+            current = line;
+        }
+    }
+    compressed.push(current);
+    compressed
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

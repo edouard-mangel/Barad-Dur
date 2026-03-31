@@ -75,7 +75,7 @@ fn knowledge_distribution(
     let mut lines_per_author: HashMap<usize, usize> = HashMap::new();
     for blame_lines in snapshot.blame_map.values() {
         for line in blame_lines {
-            *lines_per_author.entry(line.author_id).or_insert(0) += 1;
+            *lines_per_author.entry(line.author_id).or_insert(0) += line.line_count;
         }
     }
 
@@ -220,12 +220,12 @@ fn ownership_clarity(
         if blame_lines.is_empty() {
             continue;
         }
-        let mut author_lines: HashMap<usize, usize> = HashMap::new();
+        let mut author_counts: HashMap<usize, usize> = HashMap::new();
         for line in blame_lines {
-            *author_lines.entry(line.author_id).or_insert(0) += 1;
+            *author_counts.entry(line.author_id).or_insert(0) += line.line_count;
         }
-        let total: usize = author_lines.values().sum();
-        let max: usize = *author_lines.values().max().unwrap_or(&0);
+        let total: usize = author_counts.values().sum();
+        let max: usize = *author_counts.values().max().unwrap_or(&0);
         if total > 0 && (max as f64 / total as f64) > 0.5 {
             files_with_owner += 1;
         }
@@ -292,7 +292,7 @@ fn collaboration_patterns(
 
         let entry = dir_author_lines.entry(dir).or_default();
         for line in blame_lines {
-            *entry.entry(line.author_id).or_insert(0) += 1;
+            *entry.entry(line.author_id).or_insert(0) += line.line_count;
         }
     }
 
@@ -497,22 +497,13 @@ mod tests {
         // Alice owns 95 lines, Bob 4, Carol 1 → very high Gini
         let mut blame = Vec::new();
         for _ in 0..95 {
-            blame.push(BlameLine {
-                author_id: 0,
-                timestamp: now,
-            });
+            blame.push(BlameLine::new(0, now));
         }
         for _ in 0..4 {
-            blame.push(BlameLine {
-                author_id: 1,
-                timestamp: now,
-            });
+            blame.push(BlameLine::new(1, now));
         }
         for _ in 0..1 {
-            blame.push(BlameLine {
-                author_id: 2,
-                timestamp: now,
-            });
+            blame.push(BlameLine::new(2, now));
         }
         snapshot.blame_map.insert(PathBuf::from("file.rs"), blame);
 
@@ -608,32 +599,20 @@ mod tests {
         // File 1: Alice 80%, Bob 20% → clear owner
         let mut blame1 = Vec::new();
         for _ in 0..80 {
-            blame1.push(BlameLine {
-                author_id: 0,
-                timestamp: now,
-            });
+            blame1.push(BlameLine::new(0, now));
         }
         for _ in 0..20 {
-            blame1.push(BlameLine {
-                author_id: 1,
-                timestamp: now,
-            });
+            blame1.push(BlameLine::new(1, now));
         }
         snapshot.blame_map.insert(PathBuf::from("f1.rs"), blame1);
 
         // File 2: 50/50 → no clear owner
         let mut blame2 = Vec::new();
         for _ in 0..50 {
-            blame2.push(BlameLine {
-                author_id: 0,
-                timestamp: now,
-            });
+            blame2.push(BlameLine::new(0, now));
         }
         for _ in 0..50 {
-            blame2.push(BlameLine {
-                author_id: 1,
-                timestamp: now,
-            });
+            blame2.push(BlameLine::new(1, now));
         }
         snapshot.blame_map.insert(PathBuf::from("f2.rs"), blame2);
 
@@ -670,10 +649,7 @@ mod tests {
         // "auth" directory: 100% Alice → silo
         let mut blame_auth = Vec::new();
         for _ in 0..100 {
-            blame_auth.push(BlameLine {
-                author_id: 0,
-                timestamp: now,
-            });
+            blame_auth.push(BlameLine::new(0, now));
         }
         snapshot
             .blame_map
@@ -682,16 +658,10 @@ mod tests {
         // "api" directory: 60/40 split → NOT a silo
         let mut blame_api = Vec::new();
         for _ in 0..60 {
-            blame_api.push(BlameLine {
-                author_id: 0,
-                timestamp: now,
-            });
+            blame_api.push(BlameLine::new(0, now));
         }
         for _ in 0..40 {
-            blame_api.push(BlameLine {
-                author_id: 1,
-                timestamp: now,
-            });
+            blame_api.push(BlameLine::new(1, now));
         }
         snapshot
             .blame_map

@@ -7,7 +7,7 @@ use std::process::Command;
 
 use super::Progress;
 use crate::cache::blame::BlameCache;
-use crate::snapshot::{Author, AuthorId, BlameLine, FileEntry};
+use crate::snapshot::{compress_blame, Author, AuthorId, BlameLine, FileEntry};
 
 /// Collect blame data for all non-binary files in parallel using git CLI.
 pub fn collect_blame(
@@ -69,7 +69,7 @@ pub fn collect_blame_cached(
     let mut blame_map = HashMap::new();
     for (path, lines, oid) in results {
         new_cache.entries.insert(oid, lines.clone());
-        blame_map.insert(path, lines);
+        blame_map.insert(path, compress_blame(lines));
     }
 
     Ok((blame_map, new_cache))
@@ -128,6 +128,7 @@ fn parse_porcelain_blame(
                 lines.push(BlameLine {
                     author_id,
                     timestamp: *timestamp,
+                    line_count: 1,
                 });
             }
         }

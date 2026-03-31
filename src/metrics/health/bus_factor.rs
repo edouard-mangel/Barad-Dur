@@ -33,7 +33,7 @@ pub(super) fn bus_factor(snapshot: &RepoSnapshot, _thresholds: &HealthThresholds
             }
             let mut author_lines: HashMap<usize, usize> = HashMap::new();
             for line in lines.iter() {
-                *author_lines.entry(line.author_id).or_insert(0) += 1;
+                *author_lines.entry(line.author_id).or_insert(0) += line.line_count;
             }
             let total: usize = author_lines.values().sum();
             let max: usize = author_lines.values().copied().max().unwrap_or(0);
@@ -95,16 +95,10 @@ mod tests {
         let now = Utc::now();
         let mut blame_file1 = Vec::new();
         for _ in 0..80 {
-            blame_file1.push(BlameLine {
-                author_id: 0,
-                timestamp: now,
-            });
+            blame_file1.push(BlameLine::new(0, now));
         }
         for _ in 0..20 {
-            blame_file1.push(BlameLine {
-                author_id: 1,
-                timestamp: now,
-            });
+            blame_file1.push(BlameLine::new(1, now));
         }
         snapshot
             .blame_map
@@ -126,12 +120,7 @@ mod tests {
             email: "alice@test.com".into(),
         }];
         let now = Utc::now();
-        let blame: Vec<BlameLine> = (0..100)
-            .map(|_| BlameLine {
-                author_id: 0,
-                timestamp: now,
-            })
-            .collect();
+        let blame: Vec<BlameLine> = (0..100).map(|_| BlameLine::new(0, now)).collect();
         snapshot.blame_map.insert(PathBuf::from("file.rs"), blame);
 
         let result = bus_factor(&snapshot, &HealthThresholds::default());
@@ -164,10 +153,7 @@ mod tests {
         let now = Utc::now();
         for i in 0..5 {
             let lines: Vec<BlameLine> = (0..100)
-                .map(|j| BlameLine {
-                    author_id: if j < 50 { 0 } else { 1 },
-                    timestamp: now,
-                })
+                .map(|j| BlameLine::new(if j < 50 { 0 } else { 1 }, now))
                 .collect();
             snapshot
                 .blame_map
@@ -193,20 +179,14 @@ mod tests {
         snapshot.authors = two_authors();
         let now = Utc::now();
         let dominated: Vec<BlameLine> = (0..100)
-            .map(|j| BlameLine {
-                author_id: if j < 80 { 0 } else { 1 },
-                timestamp: now,
-            })
+            .map(|j| BlameLine::new(if j < 80 { 0 } else { 1 }, now))
             .collect();
         snapshot
             .blame_map
             .insert(PathBuf::from("dominated.rs"), dominated);
         for i in 0..4 {
             let lines: Vec<BlameLine> = (0..100)
-                .map(|j| BlameLine {
-                    author_id: if j < 50 { 0 } else { 1 },
-                    timestamp: now,
-                })
+                .map(|j| BlameLine::new(if j < 50 { 0 } else { 1 }, now))
                 .collect();
             snapshot
                 .blame_map
@@ -229,10 +209,7 @@ mod tests {
         snapshot.authors = two_authors();
         let now = Utc::now();
         let lines: Vec<BlameLine> = (0..100)
-            .map(|j| BlameLine {
-                author_id: if j < 50 { 0 } else { 1 }, // exactly 50/50
-                timestamp: now,
-            })
+            .map(|j| BlameLine::new(if j < 50 { 0 } else { 1 }, now)) // exactly 50/50
             .collect();
         snapshot.blame_map.insert(PathBuf::from("file.rs"), lines);
         let result = bus_factor(&snapshot, &HealthThresholds::default());
@@ -256,20 +233,14 @@ mod tests {
         snapshot.authors = two_authors();
         let now = Utc::now();
         let dominated: Vec<BlameLine> = (0..100)
-            .map(|j| BlameLine {
-                author_id: if j < 80 { 0 } else { 1 },
-                timestamp: now,
-            })
+            .map(|j| BlameLine::new(if j < 80 { 0 } else { 1 }, now))
             .collect();
         snapshot
             .blame_map
             .insert(PathBuf::from("dominated.rs"), dominated);
         for i in 0..9 {
             let lines: Vec<BlameLine> = (0..100)
-                .map(|j| BlameLine {
-                    author_id: if j < 50 { 0 } else { 1 },
-                    timestamp: now,
-                })
+                .map(|j| BlameLine::new(if j < 50 { 0 } else { 1 }, now))
                 .collect();
             snapshot
                 .blame_map
@@ -292,10 +263,7 @@ mod tests {
         let now = Utc::now();
         for i in 0..5 {
             let lines: Vec<BlameLine> = (0..100)
-                .map(|j| BlameLine {
-                    author_id: if j < 80 { 0 } else { 1 },
-                    timestamp: now,
-                })
+                .map(|j| BlameLine::new(if j < 80 { 0 } else { 1 }, now))
                 .collect();
             snapshot
                 .blame_map
@@ -303,10 +271,7 @@ mod tests {
         }
         for i in 0..15 {
             let lines: Vec<BlameLine> = (0..100)
-                .map(|j| BlameLine {
-                    author_id: if j < 50 { 0 } else { 1 },
-                    timestamp: now,
-                })
+                .map(|j| BlameLine::new(if j < 50 { 0 } else { 1 }, now))
                 .collect();
             snapshot
                 .blame_map
@@ -329,10 +294,7 @@ mod tests {
         let now = Utc::now();
         for i in 0..2 {
             let lines: Vec<BlameLine> = (0..100)
-                .map(|j| BlameLine {
-                    author_id: if j < 80 { 0 } else { 1 },
-                    timestamp: now,
-                })
+                .map(|j| BlameLine::new(if j < 80 { 0 } else { 1 }, now))
                 .collect();
             snapshot
                 .blame_map
@@ -340,10 +302,7 @@ mod tests {
         }
         for i in 0..2 {
             let lines: Vec<BlameLine> = (0..100)
-                .map(|j| BlameLine {
-                    author_id: if j < 50 { 0 } else { 1 },
-                    timestamp: now,
-                })
+                .map(|j| BlameLine::new(if j < 50 { 0 } else { 1 }, now))
                 .collect();
             snapshot
                 .blame_map
