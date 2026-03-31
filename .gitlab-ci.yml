@@ -56,7 +56,9 @@ variables:
 
 fmt-check:
   stage: lint
-  <<: *rust-base
+  image: rust:1.94
+  cache: []
+  before_script: []
   script:
     - rustup component add rustfmt
     - cargo fmt -- --check

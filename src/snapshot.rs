@@ -81,6 +81,7 @@ pub struct Author {
     pub email: String,
 }
 
+#[non_exhaustive]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlameLine {
     pub author_id: AuthorId,
@@ -119,6 +120,7 @@ pub fn compress_blame(lines: Vec<BlameLine>) -> Vec<BlameLine> {
     compressed
 }
 
+#[non_exhaustive]
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FileComplexity {
     pub total_lines: usize,
@@ -170,6 +172,7 @@ impl TimeWindow {
     }
 }
 
+#[non_exhaustive]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RepoSnapshot {
     pub path: PathBuf,
