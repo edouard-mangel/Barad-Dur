@@ -215,7 +215,11 @@ fn ac_01_6_trend_recording_overhead_under_500ms() {
         std::time::Duration::ZERO
     };
 
-    let threshold_ms: u128 = if std::env::var("CI").is_ok() { 2000 } else { 500 };
+    let threshold_ms: u128 = if std::env::var("CI").is_ok() {
+        2000
+    } else {
+        500
+    };
     assert!(
         overhead.as_millis() < threshold_ms,
         "trend recording overhead should be under {threshold_ms}ms, got {}ms",
