@@ -22,6 +22,7 @@ pub fn compute_coupling(snapshot: &RepoSnapshot) -> CategoryResult {
 fn median(values: &mut [usize]) -> f64 {
     values.sort_unstable();
     let len = values.len();
+    #[allow(clippy::manual_is_multiple_of)] // is_multiple_of is unstable on CI's stable Rust
     if len % 2 == 0 {
         (values[len / 2 - 1] + values[len / 2]) as f64 / 2.0
     } else {
