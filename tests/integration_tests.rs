@@ -1,5 +1,9 @@
 use assert_cmd::Command;
 
+fn test_repo() -> String {
+    std::env::var("BARAD_DUR_TEST_REPO").unwrap_or_else(|_| ".".to_string())
+}
+
 fn barad_dur() -> Command {
     #[allow(deprecated)]
     Command::cargo_bin("barad-dur").unwrap()
@@ -8,7 +12,7 @@ fn barad_dur() -> Command {
 #[test]
 fn analyze_current_dir_exits_zero() {
     barad_dur()
-        .args(["analyze", "."])
+        .args(["analyze", &test_repo()])
         .assert()
         .success()
         .stdout(predicates::str::contains("Barad-dur"));
@@ -17,7 +21,7 @@ fn analyze_current_dir_exits_zero() {
 #[test]
 fn analyze_json_is_valid() {
     let output = barad_dur()
-        .args(["analyze", ".", "--json"])
+        .args(["analyze", &test_repo(), "--json"])
         .assert()
         .success()
         .get_output()
@@ -34,7 +38,7 @@ fn analyze_json_is_valid() {
 #[test]
 fn analyze_json_pretty_is_indented() {
     let output = barad_dur()
-        .args(["analyze", ".", "--json", "--pretty"])
+        .args(["analyze", &test_repo(), "--json", "--pretty"])
         .assert()
         .success()
         .get_output()
@@ -56,7 +60,7 @@ fn analyze_nonexistent_path_exits_nonzero() {
 #[test]
 fn analyze_health_only_shows_health() {
     let output = barad_dur()
-        .args(["analyze", ".", "--health", "-v"])
+        .args(["analyze", &test_repo(), "--health", "-v"])
         .assert()
         .success()
         .get_output()
@@ -74,7 +78,7 @@ fn analyze_health_only_shows_health() {
 #[test]
 fn analyze_verbose_shows_metrics() {
     let output = barad_dur()
-        .args(["analyze", ".", "-v"])
+        .args(["analyze", &test_repo(), "-v"])
         .assert()
         .success()
         .get_output()
@@ -88,7 +92,7 @@ fn analyze_verbose_shows_metrics() {
 #[test]
 fn analyze_with_since_flag() {
     barad_dur()
-        .args(["analyze", ".", "--since", "1month"])
+        .args(["analyze", &test_repo(), "--since", "1month"])
         .assert()
         .success();
 }
@@ -101,7 +105,7 @@ fn analyze_output_to_file() {
     barad_dur()
         .args([
             "analyze",
-            ".",
+            &test_repo(),
             "--json",
             "-o",
             output_path.to_str().unwrap(),

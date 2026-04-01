@@ -11,9 +11,9 @@ _Items actively being designed or scheduled for implementation._
 **Priority**: High (blame is 95% of runtime on large repos)
 **Context**: See ADR-001.11 for full performance profile.
 
-### Per-Blob Blame Cache
+### ~~Per-Blob Blame Cache~~ ✓ Done
 
-Store blame output keyed by blob OID. On incremental runs, only re-blame files whose blob OID differs from the cached version. Requires adding blob OID to `FileEntry` (available from the tree walk in `libgit.rs`). Expected to reduce blame from ~85s to <10s on typical incremental updates where only a few files changed.
+Implemented in `src/cache/blame.rs`. Blame output cached by blob OID in `.repository-analysis/blame_cache.bin`. `FileEntry.blob_oid` populated from tree walk. Cache is loaded, used, pruned, and saved during each collection cycle in `snapshot_builder.rs`.
 
 ### libgit2 In-Process Blame
 
