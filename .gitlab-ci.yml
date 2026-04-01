@@ -22,16 +22,17 @@ variables:
   SECRET_DETECTION_ENABLED: 'true'
   GIT_DEPTH: "0"
 
-# Code cache — read-only by default. Only build writes back (policy: pull-push),
-# preventing downstream jobs from re-uploading 85K files and hitting the 1h timeout.
+# Code cache — only registry index + git checkouts. The target/ dir is too large
+# (30k+ files) and stalls Froggit's shared runners on upload. Instead, each job
+# recompiles from source (~2 min) which is faster than downloading a stale cache.
 .rust-cache: &rust-cache
   cache:
-    key: rust-${CI_COMMIT_REF_SLUG}
+    key: rust-registry
     policy: pull
     paths:
-      - .cargo/registry
-      - .cargo/git
-      - target/
+      - .cargo/registry/cache
+      - .cargo/registry/index
+      - .cargo/git/db
 
 # Shared base for Rust jobs that don't use CI tools
 .rust-base: &rust-base
@@ -76,12 +77,12 @@ build:
   stage: build
   <<: *rust-base
   cache:
-    key: rust-${CI_COMMIT_REF_SLUG}
+    key: rust-registry
     policy: pull-push
     paths:
-      - .cargo/registry
-      - .cargo/git
-      - target/
+      - .cargo/registry/cache
+      - .cargo/registry/index
+      - .cargo/git/db
   script:
     - cargo build --release
   artifacts:
@@ -274,12 +275,12 @@ self-analysis:
   needs:
     - build
   cache:
-    - key: rust-${CI_COMMIT_REF_SLUG}
+    - key: rust-registry
       policy: pull
       paths:
-        - .cargo/registry
-        - .cargo/git
-        - target/
+        - .cargo/registry/cache
+        - .cargo/registry/index
+        - .cargo/git/db
     - key: barad-dur-analysis
       paths:
         - .repository-analysis/blame_cache.bin
