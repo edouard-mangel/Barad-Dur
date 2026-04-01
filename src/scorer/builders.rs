@@ -97,9 +97,9 @@ pub(super) fn build_author_ownership(snapshot: &RepoSnapshot) -> Vec<FileOwnersh
         .map(|(path, lines)| {
             let mut author_counts: HashMap<usize, usize> = HashMap::new();
             for line in lines {
-                *author_counts.entry(line.author_id).or_insert(0) += 1;
+                *author_counts.entry(line.author_id).or_insert(0) += line.line_count;
             }
-            let total = lines.len().max(1);
+            let total: usize = lines.iter().map(|l| l.line_count).sum::<usize>().max(1);
             let mut authors: Vec<AuthorShare> = author_counts
                 .into_iter()
                 .map(|(id, count)| {
@@ -252,4 +252,120 @@ pub(super) fn build_author_cards(snapshot: &RepoSnapshot) -> Vec<AuthorCard> {
 
     cards.sort_by(|a, b| b.commit_count.cmp(&a.commit_count));
     cards
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::snapshot::{Author, BlameLine, TimeWindow};
+    use chrono::Utc;
+    use std::path::PathBuf;
+
+    fn make_test_snapshot_with_blame(
+        authors: Vec<(&str, &str)>,
+        blame_entries: Vec<(&str, Vec<BlameLine>)>,
+    ) -> RepoSnapshot {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp/test"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        snapshot.authors = authors
+            .into_iter()
+            .enumerate()
+            .map(|(i, (name, email))| Author {
+                id: i,
+                name: name.to_string(),
+                email: email.to_string(),
+            })
+            .collect();
+        snapshot.blame_map = blame_entries
+            .into_iter()
+            .map(|(path, lines)| (PathBuf::from(path), lines))
+            .collect();
+        snapshot
+    }
+
+    fn blame(author_id: usize, line_count: usize) -> BlameLine {
+        BlameLine {
+            author_id,
+            timestamp: Utc::now(),
+            line_count,
+        }
+    }
+
+    #[test]
+    fn ownership_single_author_uncompressed() {
+        let snapshot = make_test_snapshot_with_blame(
+            vec![("Alice", "alice@x.com")],
+            vec![("main.rs", vec![blame(0, 1), blame(0, 1), blame(0, 1)])],
+        );
+
+        let ownership = build_author_ownership(&snapshot);
+        assert_eq!(ownership.len(), 1);
+        assert_eq!(ownership[0].authors.len(), 1);
+        assert!((ownership[0].authors[0].pct - 100.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn ownership_single_author_rle_compressed() {
+        let snapshot = make_test_snapshot_with_blame(
+            vec![("Alice", "alice@x.com")],
+            vec![("main.rs", vec![blame(0, 50)])],
+        );
+
+        let ownership = build_author_ownership(&snapshot);
+        assert_eq!(ownership[0].authors[0].pct, 100.0);
+    }
+
+    #[test]
+    fn ownership_two_authors_uncompressed() {
+        let snapshot = make_test_snapshot_with_blame(
+            vec![("Alice", "alice@x.com"), ("Bob", "bob@x.com")],
+            vec![(
+                "main.rs",
+                vec![blame(0, 1), blame(0, 1), blame(0, 1), blame(1, 1)],
+            )],
+        );
+
+        let ownership = build_author_ownership(&snapshot);
+        let file = &ownership[0];
+        // Alice: 3/4 = 75%, Bob: 1/4 = 25%
+        assert_eq!(file.authors[0].name, "Alice");
+        assert!((file.authors[0].pct - 75.0).abs() < f64::EPSILON);
+        assert_eq!(file.authors[1].name, "Bob");
+        assert!((file.authors[1].pct - 25.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn ownership_two_authors_rle_gives_same_result_as_uncompressed() {
+        // RLE: Alice owns 30 lines, Bob owns 10 lines → 75% / 25%
+        let snapshot_rle = make_test_snapshot_with_blame(
+            vec![("Alice", "alice@x.com"), ("Bob", "bob@x.com")],
+            vec![("main.rs", vec![blame(0, 30), blame(1, 10)])],
+        );
+        // Uncompressed equivalent: same 40 lines, one entry per line
+        let mut uncompressed_lines = vec![blame(0, 1); 30];
+        uncompressed_lines.extend(vec![blame(1, 1); 10]);
+        let snapshot_flat = make_test_snapshot_with_blame(
+            vec![("Alice", "alice@x.com"), ("Bob", "bob@x.com")],
+            vec![("main.rs", uncompressed_lines)],
+        );
+
+        let own_rle = build_author_ownership(&snapshot_rle);
+        let own_flat = build_author_ownership(&snapshot_flat);
+
+        for (r, f) in own_rle[0].authors.iter().zip(own_flat[0].authors.iter()) {
+            assert_eq!(r.name, f.name);
+            assert!((r.pct - f.pct).abs() < f64::EPSILON);
+        }
+    }
+
+    #[test]
+    fn ownership_empty_blame_map_returns_empty() {
+        let snapshot = make_test_snapshot_with_blame(vec![("Alice", "alice@x.com")], vec![]);
+        let ownership = build_author_ownership(&snapshot);
+        assert!(ownership.is_empty());
+    }
 }
