@@ -91,6 +91,7 @@ mod tests {
                     cyclomatic_complexity: *cc,
                     public_methods: 2,
                     properties: 1,
+                    ..Default::default()
                 },
             );
             snapshot.commits_by_file.insert(
@@ -124,6 +125,7 @@ mod tests {
                     cyclomatic_complexity: 5,
                     public_methods: 2,
                     properties: 1,
+                    ..Default::default()
                 },
             );
             snapshot.commits_by_file.insert(
@@ -160,6 +162,7 @@ mod tests {
                     cyclomatic_complexity: *cc,
                     public_methods: 2,
                     properties: 1,
+                    ..Default::default()
                 },
             );
             snapshot.commits_by_file.insert(
@@ -189,6 +192,7 @@ mod tests {
                     cyclomatic_complexity: 2,
                     public_methods: 2,
                     properties: 1,
+                    ..Default::default()
                 },
             );
             snapshot.commits_by_file.insert(
@@ -205,6 +209,7 @@ mod tests {
                     cyclomatic_complexity: 100,
                     public_methods: 5,
                     properties: 1,
+                    ..Default::default()
                 },
             );
             snapshot.commits_by_file.insert(
@@ -243,6 +248,7 @@ mod tests {
                     cyclomatic_complexity: *cc,
                     public_methods: 2,
                     properties: 1,
+                    ..Default::default()
                 },
             );
             snapshot.commits_by_file.insert(

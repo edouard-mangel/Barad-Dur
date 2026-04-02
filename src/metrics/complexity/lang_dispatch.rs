@@ -65,6 +65,32 @@ pub fn complexity_queries(lang: Language, ext: &str) -> (&'static str, Option<&'
     }
 }
 
+/// Map a language to its function-node query string, if supported.
+pub fn function_query(lang: Language, _ext: &str) -> Option<&'static str> {
+    match lang {
+        Language::Rust => Some(queries::RUST_FUNCTIONS),
+        Language::JsTs => Some(queries::JS_FUNCTIONS),
+        Language::Python => Some(queries::PYTHON_FUNCTIONS),
+        Language::Go => Some(queries::GO_FUNCTIONS),
+        Language::Java => Some(queries::JAVA_FUNCTIONS),
+        Language::CSharp => Some(queries::CSHARP_FUNCTIONS),
+        Language::Kotlin | Language::Generic => None,
+    }
+}
+
+/// Map a language to its nesting query string, if supported.
+pub fn nesting_query(lang: Language, _ext: &str) -> Option<&'static str> {
+    match lang {
+        Language::Rust => Some(queries::RUST_NESTING),
+        Language::JsTs => Some(queries::JS_NESTING),
+        Language::Python => Some(queries::PYTHON_NESTING),
+        Language::Go => Some(queries::GO_NESTING),
+        Language::Java => Some(queries::JAVA_NESTING),
+        Language::CSharp => Some(queries::CSHARP_NESTING),
+        Language::Kotlin | Language::Generic => None,
+    }
+}
+
 /// Map a language to its comment query string (used for LOC calculation).
 pub fn comment_query(lang: Language, ext: &str) -> &'static str {
     match lang {

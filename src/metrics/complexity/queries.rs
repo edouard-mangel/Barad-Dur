@@ -17,6 +17,16 @@ pub const RUST_PROPERTIES: &str = r#"(field_declaration (visibility_modifier) @v
 
 pub const RUST_COMMENTS: &str = r#"[(line_comment) (block_comment)] @comment"#;
 
+pub const RUST_FUNCTIONS: &str = r#"(function_item name: (identifier) @name) @func"#;
+
+pub const RUST_NESTING: &str = r#"[
+  (if_expression)
+  (for_expression)
+  (while_expression)
+  (loop_expression)
+  (match_expression)
+] @nest"#;
+
 // ── JavaScript ──────────────────────────────────────────────────────
 
 pub const JS_COMPLEXITY: &str = r#"[
@@ -42,6 +52,20 @@ pub const JS_PUBLIC_METHODS: &str = r#"(export_statement
 pub const JS_PROPERTIES: &str = r#"(field_definition) @prop"#;
 
 pub const JS_COMMENTS: &str = r#"(comment) @comment"#;
+
+pub const JS_FUNCTIONS: &str = r#"[
+  (function_declaration name: (identifier) @name)
+  (method_definition name: (property_identifier) @name)
+] @func"#;
+
+pub const JS_NESTING: &str = r#"[
+  (if_statement)
+  (for_statement)
+  (for_in_statement)
+  (while_statement)
+  (do_statement)
+  (switch_statement)
+] @nest"#;
 
 // ── TypeScript ──────────────────────────────────────────────────────
 // TypeScript shares the same complexity and comment queries as JavaScript.
@@ -75,6 +99,15 @@ pub const PYTHON_PUBLIC_METHODS: &str = r#"(function_definition name: (identifie
 
 pub const PYTHON_COMMENTS: &str = r#"(comment) @comment"#;
 
+pub const PYTHON_FUNCTIONS: &str = r#"(function_definition name: (identifier) @name) @func"#;
+
+pub const PYTHON_NESTING: &str = r#"[
+  (if_statement)
+  (for_statement)
+  (while_statement)
+  (with_statement)
+] @nest"#;
+
 // ── Go ──────────────────────────────────────────────────────────────
 
 pub const GO_COMPLEXITY: &str = r#"[
@@ -94,6 +127,18 @@ pub const GO_PUBLIC_METHODS: &str = r#"[
 pub const GO_PROPERTIES: &str = r#"(field_declaration name: (field_identifier) @name)"#;
 
 pub const GO_COMMENTS: &str = r#"(comment) @comment"#;
+
+pub const GO_FUNCTIONS: &str = r#"[
+  (function_declaration name: (identifier) @name)
+  (method_declaration name: (field_identifier) @name)
+] @func"#;
+
+pub const GO_NESTING: &str = r#"[
+  (if_statement)
+  (for_statement)
+  (expression_switch_statement)
+  (type_switch_statement)
+] @nest"#;
 
 // ── Java ────────────────────────────────────────────────────────────
 
@@ -117,6 +162,17 @@ pub const JAVA_PROPERTIES: &str = r#"(field_declaration (modifiers) @mods)"#;
 
 pub const JAVA_COMMENTS: &str = r#"[(line_comment) (block_comment)] @comment"#;
 
+pub const JAVA_FUNCTIONS: &str = r#"(method_declaration name: (identifier) @name) @func"#;
+
+pub const JAVA_NESTING: &str = r#"[
+  (if_statement)
+  (for_statement)
+  (enhanced_for_statement)
+  (while_statement)
+  (do_statement)
+  (switch_expression)
+] @nest"#;
+
 // ── C# ──────────────────────────────────────────────────────────────
 
 pub const CSHARP_COMPLEXITY: &str = r#"[
@@ -138,6 +194,17 @@ pub const CSHARP_PUBLIC_METHODS: &str =
 pub const CSHARP_PROPERTIES: &str = r#"(field_declaration (modifier) @mod)"#;
 
 pub const CSHARP_COMMENTS: &str = r#"(comment) @comment"#;
+
+pub const CSHARP_FUNCTIONS: &str = r#"(method_declaration name: (identifier) @name) @func"#;
+
+pub const CSHARP_NESTING: &str = r#"[
+  (if_statement)
+  (for_statement)
+  (foreach_statement)
+  (while_statement)
+  (do_statement)
+  (switch_statement)
+] @nest"#;
 
 // ── Import queries ─────────────────────────────────────────────────
 
@@ -200,6 +267,8 @@ mod tests {
         assert_valid_query(rust(), RUST_PUBLIC_METHODS, "rust public_methods");
         assert_valid_query(rust(), RUST_PROPERTIES, "rust properties");
         assert_valid_query(rust(), RUST_COMMENTS, "rust comments");
+        assert_valid_query(rust(), RUST_FUNCTIONS, "rust functions");
+        assert_valid_query(rust(), RUST_NESTING, "rust nesting");
     }
 
     #[test]
@@ -209,6 +278,8 @@ mod tests {
         assert_valid_query(js(), JS_PUBLIC_METHODS, "js public_methods");
         assert_valid_query(js(), JS_PROPERTIES, "js properties");
         assert_valid_query(js(), JS_COMMENTS, "js comments");
+        assert_valid_query(js(), JS_FUNCTIONS, "js functions");
+        assert_valid_query(js(), JS_NESTING, "js nesting");
     }
 
     #[test]
@@ -225,6 +296,8 @@ mod tests {
     fn python_queries_are_valid() {
         assert_valid_query(python(), PYTHON_COMPLEXITY, "python complexity");
         assert_valid_query(python(), PYTHON_PUBLIC_METHODS, "python public_methods");
+        assert_valid_query(python(), PYTHON_FUNCTIONS, "python functions");
+        assert_valid_query(python(), PYTHON_NESTING, "python nesting");
         assert_valid_query(python(), PYTHON_COMMENTS, "python comments");
     }
 
@@ -235,6 +308,8 @@ mod tests {
         assert_valid_query(go(), GO_PUBLIC_METHODS, "go public_methods");
         assert_valid_query(go(), GO_PROPERTIES, "go properties");
         assert_valid_query(go(), GO_COMMENTS, "go comments");
+        assert_valid_query(go(), GO_FUNCTIONS, "go functions");
+        assert_valid_query(go(), GO_NESTING, "go nesting");
     }
 
     #[test]
@@ -244,6 +319,8 @@ mod tests {
         assert_valid_query(java(), JAVA_PUBLIC_METHODS, "java public_methods");
         assert_valid_query(java(), JAVA_PROPERTIES, "java properties");
         assert_valid_query(java(), JAVA_COMMENTS, "java comments");
+        assert_valid_query(java(), JAVA_FUNCTIONS, "java functions");
+        assert_valid_query(java(), JAVA_NESTING, "java nesting");
     }
 
     #[test]
@@ -253,6 +330,8 @@ mod tests {
         assert_valid_query(csharp(), CSHARP_PUBLIC_METHODS, "csharp public_methods");
         assert_valid_query(csharp(), CSHARP_PROPERTIES, "csharp properties");
         assert_valid_query(csharp(), CSHARP_COMMENTS, "csharp comments");
+        assert_valid_query(csharp(), CSHARP_FUNCTIONS, "csharp functions");
+        assert_valid_query(csharp(), CSHARP_NESTING, "csharp nesting");
     }
 
     #[test]

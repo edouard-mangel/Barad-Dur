@@ -120,6 +120,14 @@ pub fn compress_blame(lines: Vec<BlameLine>) -> Vec<BlameLine> {
     compressed
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FunctionMetrics {
+    pub name: String,
+    pub loc: usize,
+    pub cyclomatic_complexity: u32,
+    pub max_nesting_depth: u32,
+}
+
 #[non_exhaustive]
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FileComplexity {
@@ -128,6 +136,9 @@ pub struct FileComplexity {
     pub cyclomatic_complexity: u32,
     pub public_methods: u32,
     pub properties: u32,
+    pub functions: Vec<FunctionMetrics>,
+    pub max_nesting_depth: u32,
+    pub nesting_variance: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

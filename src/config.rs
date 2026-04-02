@@ -85,6 +85,14 @@ pub struct HealthThresholds {
     pub hotspot_top_n: usize,
     #[serde(default = "default_coupling_min_commits")]
     pub coupling_min_commits: usize,
+    #[serde(default = "default_long_method_loc")]
+    pub long_method_loc: usize,
+    #[serde(default = "default_long_method_cc")]
+    pub long_method_cc: u32,
+    #[serde(default = "default_biomarker_max_depth")]
+    pub biomarker_max_depth: u32,
+    #[serde(default = "default_biomarker_max_variance")]
+    pub biomarker_max_variance: f64,
 }
 
 fn default_max_complexity() -> u32 {
@@ -96,6 +104,18 @@ fn default_hotspot_top_n() -> usize {
 fn default_coupling_min_commits() -> usize {
     5
 }
+fn default_long_method_loc() -> usize {
+    40
+}
+fn default_long_method_cc() -> u32 {
+    10
+}
+fn default_biomarker_max_depth() -> u32 {
+    4
+}
+fn default_biomarker_max_variance() -> f64 {
+    2.0
+}
 
 impl Default for HealthThresholds {
     fn default() -> Self {
@@ -103,6 +123,10 @@ impl Default for HealthThresholds {
             max_complexity: default_max_complexity(),
             hotspot_top_n: default_hotspot_top_n(),
             coupling_min_commits: default_coupling_min_commits(),
+            long_method_loc: default_long_method_loc(),
+            long_method_cc: default_long_method_cc(),
+            biomarker_max_depth: default_biomarker_max_depth(),
+            biomarker_max_variance: default_biomarker_max_variance(),
         }
     }
 }

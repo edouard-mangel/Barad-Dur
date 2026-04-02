@@ -68,6 +68,8 @@ fn target_tab_for_metric(metric_name: &str) -> (Option<&'static str>, Option<&'s
         "Bus factor" => (Some("ownership"), Some("authors")),
         "God objects" => (Some("hotspots"), Some("complexity")),
         "Complex hotspots" => (Some("hotspots"), Some("complexity")),
+        "Long methods" => (Some("hotspots"), Some("complexity")),
+        "Code biomarkers" => (Some("hotspots"), Some("complexity")),
         "Afferent coupling" => (Some("coupling"), None),
         "Efferent coupling" => (Some("coupling"), None),
         "Circular dependencies" => (Some("coupling"), None),
@@ -91,6 +93,10 @@ fn suggest_action(metric_name: &str) -> &'static str {
         "Complex hotspots" => {
             "Prioritize refactoring files with both high complexity and high churn"
         }
+        "Long methods" => {
+            "Extract smaller functions from the longest methods to improve readability"
+        }
+        "Code biomarkers" => "Reduce nesting depth by applying early returns and guard clauses",
         "Afferent coupling" => {
             "Reduce dependents on high-Ca files by introducing abstractions or splitting modules"
         }

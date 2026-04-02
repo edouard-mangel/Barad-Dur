@@ -88,6 +88,7 @@ mod tests {
                     cyclomatic_complexity: 3,
                     public_methods: 2,
                     properties: 1,
+                    ..Default::default()
                 },
             );
         }
@@ -109,6 +110,7 @@ mod tests {
                 cyclomatic_complexity: 10,
                 public_methods: 5,
                 properties: 2,
+                ..Default::default()
             },
         );
         add_normal_files(&mut snapshot, 99); // 1/100 = 1% → score 75
@@ -136,6 +138,7 @@ mod tests {
                 cyclomatic_complexity: 5,
                 public_methods: 16,
                 properties: 3,
+                ..Default::default()
             },
         );
         add_normal_files(&mut snapshot, 99); // 1/100 = 1% → score 75
@@ -159,6 +162,7 @@ mod tests {
                 cyclomatic_complexity: 3,
                 public_methods: 5,
                 properties: 1,
+                ..Default::default()
             },
         );
         let result = god_objects(&snapshot);
@@ -182,6 +186,7 @@ mod tests {
                 cyclomatic_complexity: 5,
                 public_methods: 5,
                 properties: 1,
+                ..Default::default()
             },
         );
         let result = god_objects(&snapshot);
@@ -205,6 +210,7 @@ mod tests {
                 cyclomatic_complexity: 5,
                 public_methods: 5,
                 properties: 1,
+                ..Default::default()
             },
         );
         add_normal_files(&mut snapshot, 99); // 1/100 = 1% → score 75
@@ -229,6 +235,7 @@ mod tests {
                 cyclomatic_complexity: 5,
                 public_methods: 15,
                 properties: 1,
+                ..Default::default()
             },
         );
         let result = god_objects(&snapshot);
@@ -253,6 +260,7 @@ mod tests {
                     cyclomatic_complexity: 5,
                     public_methods: 5,
                     properties: 1,
+                    ..Default::default()
                 },
             );
         }
@@ -279,6 +287,7 @@ mod tests {
                     cyclomatic_complexity: 5,
                     public_methods: 5,
                     properties: 1,
+                    ..Default::default()
                 },
             );
         }
@@ -305,6 +314,7 @@ mod tests {
                     cyclomatic_complexity: 5,
                     public_methods: 5,
                     properties: 1,
+                    ..Default::default()
                 },
             );
         }
@@ -330,6 +340,7 @@ mod tests {
                 cyclomatic_complexity: 5,
                 public_methods: 16,
                 properties: 1,
+                ..Default::default()
             },
         );
         add_normal_files(&mut snapshot, 99); // 1/100 = 1% → score 75
@@ -354,6 +365,7 @@ mod tests {
                 cyclomatic_complexity: 5,
                 public_methods: 20,
                 properties: 1,
+                ..Default::default()
             },
         );
         let result = god_objects(&snapshot);
@@ -377,6 +389,7 @@ mod tests {
                 cyclomatic_complexity: 0,
                 public_methods: 0,
                 properties: 0,
+                ..Default::default()
             },
         );
         // SQL migration file — excluded by is_source_file
@@ -388,6 +401,7 @@ mod tests {
                 cyclomatic_complexity: 0,
                 public_methods: 0,
                 properties: 0,
+                ..Default::default()
             },
         );
         // Rust file that is a pure constant (CC=0, no logic) — excluded by cyclomatic_complexity guard
@@ -399,6 +413,7 @@ mod tests {
                 cyclomatic_complexity: 0,
                 public_methods: 0,
                 properties: 0,
+                ..Default::default()
             },
         );
         let result = god_objects(&snapshot);

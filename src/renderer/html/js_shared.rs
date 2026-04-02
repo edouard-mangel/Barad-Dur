@@ -276,8 +276,78 @@ pub const JS: &str = r#"
       toggle.textContent = expanded ? '▼' : '▶';
     });
 
+    if (cat.name === 'Health') {
+      body.append(buildHealthMethodology());
+    }
+
     card.append(header, body);
     return card;
+  }
+
+  function buildHealthMethodology() {
+    var details = document.createElement('details');
+    details.style.cssText = 'margin-top:12px;border-top:1px solid #1e293b;padding-top:10px;';
+    var summary = document.createElement('summary');
+    summary.style.cssText = 'cursor:pointer;color:#94a3b8;font-size:12px;font-weight:600;letter-spacing:0.03em;user-select:none;padding:4px 0;';
+    summary.append(txt('Methodology'));
+    details.append(summary);
+
+    var wrap = el('div', { style: { fontSize: '12px', lineHeight: '1.6', color: '#94a3b8', marginTop: '8px' } });
+
+    var metrics = [
+      { name: 'Bus Factor',
+        what: 'Percentage of files where a single author owns >50% of lines.',
+        scoring: '<10% \u2192 100 | <25% \u2192 75 | <50% \u2192 50 | >50% \u2192 25',
+        why: 'Low bus factor means critical knowledge is concentrated in too few people.' },
+      { name: 'God Objects',
+        what: 'Files with LOC > 500, or LOC > 300 with >15 public methods.',
+        scoring: '0% \u2192 100 | \u22642% \u2192 75 | \u22648% \u2192 50 | >8% \u2192 25',
+        why: 'Large classes with many responsibilities are hard to understand and change (Fowler: Large Class).' },
+      { name: 'Complex Hotspots',
+        what: 'Files above the 75th percentile in both cyclomatic complexity and churn.',
+        scoring: '0 \u2192 100 | 1\u20132 \u2192 75 | 3\u20135 \u2192 50 | >5 \u2192 25',
+        why: 'Code that is both complex and frequently changed is the highest-risk area for bugs (Tornhill).' },
+      { name: 'Long Methods',
+        what: 'Functions with LOC > 40 or cyclomatic complexity > 10.',
+        scoring: '0% \u2192 100 | \u22645% \u2192 75 | \u226415% \u2192 50 | >15% \u2192 25',
+        why: 'Long or complex functions are harder to test, understand, and maintain (Fowler: Long Method).' },
+      { name: 'Code Biomarkers',
+        what: 'Files with nesting depth > 4 or nesting variance > 2.0.',
+        scoring: '0% \u2192 100 | \u22643% \u2192 75 | \u226410% \u2192 50 | >10% \u2192 25',
+        why: 'Deeply nested code signals accumulated complexity. High variance indicates erratic structure (Tornhill: Code Biomarkers).' }
+    ];
+
+    metrics.forEach(function(m) {
+      var block = el('div', { style: { marginBottom: '10px' } });
+      var title = el('div', { style: { color: '#e2e8f0', fontWeight: '600', marginBottom: '2px' } });
+      title.append(txt(m.name));
+      block.append(title);
+
+      var what = el('div');
+      var whatLabel = el('span', { style: { color: '#64748b' } });
+      whatLabel.append(txt('What: '));
+      what.append(whatLabel, txt(m.what));
+      block.append(what);
+
+      var scoring = el('div');
+      var scoringLabel = el('span', { style: { color: '#64748b' } });
+      scoringLabel.append(txt('Scoring: '));
+      var scoringCode = el('span', { style: { fontFamily: 'monospace', fontSize: '11px' } });
+      scoringCode.append(txt(m.scoring));
+      scoring.append(scoringLabel, scoringCode);
+      block.append(scoring);
+
+      var why = el('div');
+      var whyLabel = el('span', { style: { color: '#64748b' } });
+      whyLabel.append(txt('Why: '));
+      why.append(whyLabel, txt(m.why));
+      block.append(why);
+
+      wrap.append(block);
+    });
+
+    details.append(wrap);
+    return details;
   }
 
   function formatRaw(rv) {

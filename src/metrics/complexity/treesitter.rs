@@ -2,7 +2,10 @@ use tree_sitter::StreamingIterator;
 
 use crate::snapshot::FileComplexity;
 
-use super::counters::{count_complexity, count_loc, count_properties, count_public_methods};
+use super::counters::{
+    compute_nesting_biomarkers, count_complexity, count_loc, count_properties,
+    count_public_methods, extract_functions,
+};
 use super::fallback::Language;
 use super::lang_dispatch::{grammar_for, import_query};
 
@@ -57,6 +60,9 @@ pub fn analyse(content: &str, lang: Language, ext: &str) -> Option<FileComplexit
     let cyclomatic_complexity = count_complexity(&tree, content.as_bytes(), &grammar, lang, ext);
     let public_methods = count_public_methods(&tree, content.as_bytes(), &grammar, lang, ext);
     let properties = count_properties(&tree, content.as_bytes(), &grammar, lang, ext);
+    let functions = extract_functions(&tree, content.as_bytes(), content, &grammar, lang, ext);
+    let (max_nesting_depth, nesting_variance) =
+        compute_nesting_biomarkers(&tree, content.as_bytes(), &grammar, lang, ext, total_lines);
 
     Some(FileComplexity {
         total_lines,
@@ -64,6 +70,10 @@ pub fn analyse(content: &str, lang: Language, ext: &str) -> Option<FileComplexit
         cyclomatic_complexity,
         public_methods,
         properties,
+        functions,
+        max_nesting_depth,
+        nesting_variance,
+        ..Default::default()
     })
 }
 
@@ -446,5 +456,104 @@ mod tests {
     fn kotlin_extract_imports_returns_empty() {
         let imports = extract_imports("import foo.bar", Language::Kotlin, "kt");
         assert!(imports.is_empty());
+    }
+
+    // ── Per-function extraction ────────────────────────────────────
+
+    #[test]
+    fn rust_extracts_function_metrics() {
+        let content = "fn short() { 1 }\nfn long() {\n    if x {\n        if y {\n            for z in v {\n                match a {\n                    _ => {}\n                }\n            }\n        }\n    }\n}\n";
+        let result = analyse(content, Language::Rust, "rs").unwrap();
+        assert_eq!(result.functions.len(), 2);
+        let short = result.functions.iter().find(|f| f.name == "short").unwrap();
+        assert_eq!(short.loc, 1);
+        let long = result.functions.iter().find(|f| f.name == "long").unwrap();
+        assert!(long.loc > 5);
+        assert!(long.cyclomatic_complexity >= 3);
+        assert!(long.max_nesting_depth >= 3);
+    }
+
+    #[test]
+    fn js_extracts_function_metrics() {
+        let content = "function short() { return 1; }\nfunction long() {\n    if (x) {\n        for (let i = 0; i < 10; i++) {\n            console.log(i);\n        }\n    }\n}\n";
+        let result = analyse(content, Language::JsTs, "js").unwrap();
+        assert!(
+            result.functions.len() >= 2,
+            "got {} functions",
+            result.functions.len()
+        );
+        let long = result.functions.iter().find(|f| f.name == "long").unwrap();
+        assert!(long.cyclomatic_complexity >= 2);
+    }
+
+    #[test]
+    fn python_extracts_function_metrics() {
+        let content = "def short():\n    return 1\ndef long():\n    if x:\n        for i in v:\n            pass\n";
+        let result = analyse(content, Language::Python, "py").unwrap();
+        assert!(
+            result.functions.len() >= 2,
+            "got {} functions",
+            result.functions.len()
+        );
+    }
+
+    #[test]
+    fn go_extracts_function_metrics() {
+        let content = "package main\nfunc Short() int { return 1 }\nfunc Long() {\n    if x {\n        for i := range v {\n            _ = i\n        }\n    }\n}\n";
+        let result = analyse(content, Language::Go, "go").unwrap();
+        assert!(
+            result.functions.len() >= 2,
+            "got {} functions",
+            result.functions.len()
+        );
+    }
+
+    #[test]
+    fn java_extracts_function_metrics() {
+        let content = "class Foo {\n    void shortMethod() { return; }\n    void longMethod() {\n        if (x) {\n            for (int i = 0; i < 10; i++) {\n                System.out.println(i);\n            }\n        }\n    }\n}\n";
+        let result = analyse(content, Language::Java, "java").unwrap();
+        assert!(
+            result.functions.len() >= 2,
+            "got {} functions",
+            result.functions.len()
+        );
+    }
+
+    #[test]
+    fn csharp_extracts_function_metrics() {
+        let content = "class Foo {\n    void ShortMethod() { return; }\n    void LongMethod() {\n        if (x) {\n            for (int i = 0; i < 10; i++) {\n                Console.WriteLine(i);\n            }\n        }\n    }\n}\n";
+        let result = analyse(content, Language::CSharp, "cs").unwrap();
+        assert!(
+            result.functions.len() >= 2,
+            "got {} functions",
+            result.functions.len()
+        );
+    }
+
+    #[test]
+    fn rust_nesting_biomarkers() {
+        let content = "fn deep() {\n    if x {\n        for i in v {\n            match a {\n                _ => {\n                    if y {\n                        loop {\n                        }\n                    }\n                }\n            }\n        }\n    }\n}\nfn shallow() { let x = 1; }\n";
+        let result = analyse(content, Language::Rust, "rs").unwrap();
+        assert!(
+            result.max_nesting_depth >= 5,
+            "expected depth >= 5, got {}",
+            result.max_nesting_depth
+        );
+        assert!(result.nesting_variance > 0.0, "expected non-zero variance");
+    }
+
+    #[test]
+    fn flat_file_has_zero_nesting() {
+        let content = "fn a() {}\nfn b() {}\nfn c() {}\n";
+        let result = analyse(content, Language::Rust, "rs").unwrap();
+        assert_eq!(result.max_nesting_depth, 0);
+        assert!((result.nesting_variance - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn no_functions_returns_empty() {
+        let content = "let x = 1;\nlet y = 2;\n";
+        let result = analyse(content, Language::Rust, "rs").unwrap();
+        assert!(result.functions.is_empty());
     }
 }
