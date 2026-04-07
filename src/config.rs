@@ -78,6 +78,7 @@ impl CategoryWeights {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct HealthThresholds {
     #[serde(default = "default_max_complexity")]
     pub max_complexity: u32,

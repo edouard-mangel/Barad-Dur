@@ -231,6 +231,11 @@ const NESTING_KINDS: &[&str] = &[
 ];
 
 /// Extract per-function metrics (name, LOC, CC, nesting) from the AST.
+///
+/// Compiles the function/complexity/nesting queries once, then reuses them
+/// across all functions in the file. Compiling tree-sitter queries is expensive
+/// (~ms per call), so doing it once per function would dominate runtime on
+/// large files.
 pub(super) fn extract_functions(
     tree: &tree_sitter::Tree,
     source: &[u8],
@@ -243,15 +248,22 @@ pub(super) fn extract_functions(
         Some(q) => q,
         None => return Vec::new(),
     };
-    let query = match tree_sitter::Query::new(grammar, func_query_src) {
+    let func_query = match tree_sitter::Query::new(grammar, func_query_src) {
         Ok(q) => q,
         Err(_) => return Vec::new(),
     };
-    let func_idx = query.capture_index_for_name("func").unwrap_or(0);
-    let name_idx = query.capture_index_for_name("name").unwrap_or(1);
+    let func_idx = func_query.capture_index_for_name("func").unwrap_or(0);
+    let name_idx = func_query.capture_index_for_name("name").unwrap_or(1);
+
+    // Compile complexity and nesting queries once for the file.
+    let (stmt_query_src, op_query_src) = complexity_queries(lang, ext);
+    let stmt_query = tree_sitter::Query::new(grammar, stmt_query_src).ok();
+    let op_query = op_query_src.and_then(|s| tree_sitter::Query::new(grammar, s).ok());
+    let nest_query =
+        nesting_query(lang, ext).and_then(|s| tree_sitter::Query::new(grammar, s).ok());
 
     let mut cursor = tree_sitter::QueryCursor::new();
-    let mut stream = cursor.matches(&query, tree.root_node(), source);
+    let mut stream = cursor.matches(&func_query, tree.root_node(), source);
 
     let mut functions = Vec::new();
     while let Some(m) = stream.next() {
@@ -283,8 +295,14 @@ pub(super) fn extract_functions(
             .filter(|(i, line)| *i >= start_line && *i <= end_line && !line.trim().is_empty())
             .count();
 
-        let cc = count_cc_in_range(tree, source, grammar, lang, ext, func_node.byte_range());
-        let max_nesting = compute_max_nesting(tree, source, grammar, lang, ext, &func_node);
+        let cc = count_cc_in_range(
+            tree,
+            source,
+            stmt_query.as_ref(),
+            op_query.as_ref(),
+            func_node.byte_range(),
+        );
+        let max_nesting = compute_max_nesting(tree, source, nest_query.as_ref(), &func_node);
 
         functions.push(FunctionMetrics {
             name,
@@ -297,24 +315,18 @@ pub(super) fn extract_functions(
 }
 
 /// Count cyclomatic complexity decision nodes within a byte range (function subtree).
+/// Takes pre-compiled queries to avoid recompiling per function.
 fn count_cc_in_range(
     tree: &tree_sitter::Tree,
     source: &[u8],
-    grammar: &tree_sitter::Language,
-    lang: Language,
-    ext: &str,
+    stmt_query: Option<&tree_sitter::Query>,
+    op_query: Option<&tree_sitter::Query>,
     byte_range: std::ops::Range<usize>,
 ) -> u32 {
-    let (stmt_query, op_query) = complexity_queries(lang, ext);
-
-    let count_in_range = |query_src: &str| -> u32 {
-        let query = match tree_sitter::Query::new(grammar, query_src) {
-            Ok(q) => q,
-            Err(_) => return 0,
-        };
+    let count_in_range = |query: &tree_sitter::Query| -> u32 {
         let mut cursor = tree_sitter::QueryCursor::new();
         cursor.set_byte_range(byte_range.clone());
-        let mut stream = cursor.matches(&query, tree.root_node(), source);
+        let mut stream = cursor.matches(query, tree.root_node(), source);
         let mut count = 0u32;
         while stream.next().is_some() {
             count += 1;
@@ -322,32 +334,26 @@ fn count_cc_in_range(
         count
     };
 
-    let stmts = count_in_range(stmt_query);
+    let stmts = stmt_query.map(count_in_range).unwrap_or(0);
     let ops = op_query.map(count_in_range).unwrap_or(0);
     stmts + ops
 }
 
 /// Compute the maximum nesting depth of nesting nodes within a function node.
-/// Depth is measured relative to the function node itself.
+/// Takes a pre-compiled nesting query to avoid recompiling per function.
 fn compute_max_nesting(
     tree: &tree_sitter::Tree,
     source: &[u8],
-    grammar: &tree_sitter::Language,
-    lang: Language,
-    ext: &str,
+    nest_query: Option<&tree_sitter::Query>,
     func_node: &tree_sitter::Node,
 ) -> u32 {
-    let nesting_query_src = match nesting_query(lang, ext) {
+    let query = match nest_query {
         Some(q) => q,
         None => return 0,
     };
-    let query = match tree_sitter::Query::new(grammar, nesting_query_src) {
-        Ok(q) => q,
-        Err(_) => return 0,
-    };
     let mut cursor = tree_sitter::QueryCursor::new();
     cursor.set_byte_range(func_node.byte_range());
-    let mut stream = cursor.matches(&query, tree.root_node(), source);
+    let mut stream = cursor.matches(query, tree.root_node(), source);
 
     let func_id = func_node.id();
     let mut max_depth = 0u32;
