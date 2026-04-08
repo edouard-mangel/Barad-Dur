@@ -204,6 +204,31 @@ impl Default for HygieneThresholds {
     }
 }
 
+#[non_exhaustive]
+#[derive(Debug, Clone, Deserialize)]
+pub struct CouplingThresholds {
+    #[serde(default = "default_component_depth")]
+    pub component_depth: usize,
+    #[serde(default = "default_change_coupling_min_ratio")]
+    pub change_coupling_min_ratio: f64,
+}
+
+fn default_component_depth() -> usize {
+    2
+}
+fn default_change_coupling_min_ratio() -> f64 {
+    0.30
+}
+
+impl Default for CouplingThresholds {
+    fn default() -> Self {
+        Self {
+            component_depth: default_component_depth(),
+            change_coupling_min_ratio: default_change_coupling_min_ratio(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct Thresholds {
     #[serde(default)]
@@ -214,6 +239,8 @@ pub struct Thresholds {
     pub evolution: EvolutionThresholds,
     #[serde(default)]
     pub hygiene: HygieneThresholds,
+    #[serde(default)]
+    pub coupling: CouplingThresholds,
 }
 
 /// TOML file structure — maps 1:1 to the .repository-analysis/barad-dur.toml sections.
@@ -385,6 +412,16 @@ pub fn validate(config: &RepoConfig) -> Result<()> {
             config.weights.evolution,
             config.weights.hygiene,
             config.weights.coupling,
+        );
+    }
+    if config.thresholds.coupling.component_depth == 0 {
+        bail!("thresholds.coupling.component_depth must be >= 1, got 0");
+    }
+    let ratio = config.thresholds.coupling.change_coupling_min_ratio;
+    if !(0.0..=1.0).contains(&ratio) {
+        bail!(
+            "thresholds.coupling.change_coupling_min_ratio must be in [0.0, 1.0], got {}",
+            ratio
         );
     }
     Ok(())
@@ -588,5 +625,44 @@ mod tests {
     fn merge_skip_blame_cli_absent_keeps_toml() {
         let merged = merge_bool(true, None);
         assert!(merged);
+    }
+
+    #[test]
+    fn load_coupling_thresholds_defaults() {
+        let dir = TempDir::new().unwrap();
+        let cfg = load(dir.path()).unwrap();
+        assert_eq!(cfg.thresholds.coupling.component_depth, 2);
+        assert!((cfg.thresholds.coupling.change_coupling_min_ratio - 0.30).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn load_coupling_thresholds_from_toml() {
+        let dir = TempDir::new().unwrap();
+        let cache_dir = dir.path().join(".repository-analysis");
+        fs::create_dir_all(&cache_dir).unwrap();
+        fs::write(
+            cache_dir.join("barad-dur.toml"),
+            "[thresholds.coupling]\ncomponent_depth = 3\nchange_coupling_min_ratio = 0.50\n",
+        )
+        .unwrap();
+        let cfg = load(dir.path()).unwrap();
+        assert_eq!(cfg.thresholds.coupling.component_depth, 3);
+        assert!((cfg.thresholds.coupling.change_coupling_min_ratio - 0.50).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn validate_coupling_depth_zero_errors() {
+        let mut cfg = RepoConfig::default();
+        cfg.thresholds.coupling.component_depth = 0;
+        let err = validate(&cfg).unwrap_err();
+        assert!(err.to_string().contains("component_depth"));
+    }
+
+    #[test]
+    fn validate_coupling_ratio_out_of_range_errors() {
+        let mut cfg = RepoConfig::default();
+        cfg.thresholds.coupling.change_coupling_min_ratio = 1.5;
+        let err = validate(&cfg).unwrap_err();
+        assert!(err.to_string().contains("change_coupling_min_ratio"));
     }
 }
