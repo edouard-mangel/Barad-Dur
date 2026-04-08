@@ -15,9 +15,16 @@ _Items actively being designed or scheduled for implementation._
 
 Implemented in `src/cache/blame.rs`. Blame output cached by blob OID in `.repository-analysis/blame_cache.bin`. `FileEntry.blob_oid` populated from tree walk. Cache is loaded, used, pruned, and saved during each collection cycle in `snapshot_builder.rs`.
 
-### libgit2 In-Process Blame
+### ~~libgit2 In-Process Blame~~ ✗ Investigated, Rejected (2026-04-08)
 
-Replace `git blame --porcelain` subprocess spawning with libgit2's `Blame::new()` API. Eliminates ~8k fork/exec calls. Trade-off: libgit2 blame can be slower per-file for files with very long histories, but removes the process spawn overhead that dominates wall-clock time on multi-core machines.
+Investigated replacing `git blame --porcelain` subprocess with `git2::Repository::blame_file`. Benchmark and parity verification both failed:
+
+- **barad-dur** (229 files, ~300 commits, Linux-native): libgit2 was **0.70x** (slower) than subprocess porcelain. 36% of files diverged on timestamps — `git blame` correctly attributes renamed lines to the rename commit, while libgit2 walks to the original commit where the line's pre-rename content was added.
+- **FW.Runtime** (8306 non-binary files, 6118 commits, Linux-native): libgit2 processed only 600/8306 files in 47 minutes before being killed — catastrophically slow (>10 hour extrapolation). The subprocess path completes the same repo in seconds. Pathological files with deep edit histories dominate libgit2's runtime.
+
+`BlameOptions::track_copies_same_file(true)` and `use_mailmap(true)` did not close the parity gap. The divergence is a fundamental difference in how libgit2's blame walker traverses parents vs git CLI's blame implementation (which has optimizations libgit2 lacks).
+
+**Conclusion:** The per-blob blame cache already solves the incremental case. For cold runs, the subprocess path remains both faster and more compatible with git CLI semantics. Revisit only if a future version of libgit2 closes the perf gap.
 
 ### Selective Blame
 
