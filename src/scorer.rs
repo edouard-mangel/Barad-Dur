@@ -53,11 +53,12 @@ pub fn build_report(
     categories: Vec<CategoryResult>,
     remote_meta: Option<RemoteMeta>,
     weights: &[(&str, f64)],
+    component_depth: usize,
 ) -> AnalysisReport {
     let overall_score = compute_overall_score_with_weights(&categories, weights);
     let top_actions = generate_top_actions(&categories);
     let file_hotspots = build_hotspots(snapshot);
-    let coupling_pairs = build_coupling_pairs(snapshot);
+    let coupling_pairs = build_coupling_pairs(snapshot, component_depth);
     let author_ownership = build_author_ownership(snapshot);
     let file_ages = build_file_ages(snapshot);
     let author_cards = build_author_cards(snapshot);
@@ -120,7 +121,7 @@ mod tests {
         );
 
         let categories = vec![make_category("Health", 80)];
-        let report = build_report(&snapshot, categories, None, WEIGHTS);
+        let report = build_report(&snapshot, categories, None, WEIGHTS, 2);
 
         assert_eq!(report.repo_name, "test-repo");
         assert_eq!(report.branch, "main");
@@ -187,7 +188,7 @@ mod tests {
         snapshot
             .commits_by_file
             .insert("b.rs".into(), (0..10).map(CommitId).collect());
-        let pairs = build_coupling_pairs(&snapshot);
+        let pairs = build_coupling_pairs(&snapshot, 2);
         assert_eq!(pairs.len(), 1);
         assert!((pairs[0].coupling_pct - 80.0).abs() < 1.0);
     }
@@ -275,7 +276,7 @@ mod tests {
             TimeWindow::default(),
         );
         let categories = vec![make_category("Health", 80)];
-        let report = build_report(&snapshot, categories, None, WEIGHTS);
+        let report = build_report(&snapshot, categories, None, WEIGHTS, 2);
         let entry = build_history_entry(&report, "abc123", None);
 
         assert_eq!(entry.head, "abc123");
@@ -295,7 +296,7 @@ mod tests {
             TimeWindow::default(),
         );
         let categories = vec![make_category("Health", 80)];
-        let report = build_report(&snapshot, categories, None, WEIGHTS);
+        let report = build_report(&snapshot, categories, None, WEIGHTS, 2);
         assert!(report.author_cards.is_empty());
     }
 

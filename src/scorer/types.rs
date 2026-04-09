@@ -22,6 +22,7 @@ pub struct CouplingPair {
     pub file_b: String,
     pub co_changes: usize,
     pub coupling_pct: f64,
+    pub cross_boundary: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

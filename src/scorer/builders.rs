@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::metrics::coupling::extract_component;
 use crate::snapshot::RepoSnapshot;
 
 use super::actions::score_commit_message;
@@ -63,7 +64,7 @@ pub(super) fn build_hotspots(snapshot: &RepoSnapshot) -> Vec<HotspotFile> {
     files
 }
 
-pub(super) fn build_coupling_pairs(snapshot: &RepoSnapshot) -> Vec<CouplingPair> {
+pub(super) fn build_coupling_pairs(snapshot: &RepoSnapshot, component_depth: usize) -> Vec<CouplingPair> {
     snapshot
         .file_change_pairs
         .iter()
@@ -80,11 +81,14 @@ pub(super) fn build_coupling_pairs(snapshot: &RepoSnapshot) -> Vec<CouplingPair>
                 .unwrap_or(0);
             let min_changes = a_changes.min(b_changes).max(1);
             let coupling_pct = (*co as f64 / min_changes as f64 * 100.0).min(100.0);
+            let cross_boundary =
+                extract_component(a, component_depth) != extract_component(b, component_depth);
             CouplingPair {
                 file_a: a.to_string_lossy().to_string(),
                 file_b: b.to_string_lossy().to_string(),
                 co_changes: *co,
                 coupling_pct,
+                cross_boundary,
             }
         })
         .collect()
