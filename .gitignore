@@ -25,3 +25,4 @@ dashboard/dist/
 mutants.out/
 mutants.out.old/
 .worktrees/
+.nwave/
