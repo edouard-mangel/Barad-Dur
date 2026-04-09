@@ -132,6 +132,7 @@ impl Default for HealthThresholds {
     }
 }
 
+#[non_exhaustive]
 #[derive(Debug, Clone, Deserialize)]
 pub struct TeamThresholds {
     #[serde(default = "default_silo_max_owners")]
@@ -156,6 +157,7 @@ impl Default for TeamThresholds {
     }
 }
 
+#[non_exhaustive]
 #[derive(Debug, Clone, Deserialize)]
 pub struct EvolutionThresholds {
     #[serde(default = "default_growth_baseline_months")]
@@ -180,6 +182,7 @@ impl Default for EvolutionThresholds {
     }
 }
 
+#[non_exhaustive]
 #[derive(Debug, Clone, Deserialize)]
 pub struct HygieneThresholds {
     #[serde(default = "default_min_message_length")]
