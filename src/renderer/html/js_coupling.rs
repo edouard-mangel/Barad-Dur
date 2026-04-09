@@ -85,7 +85,7 @@ pub const JS: &str = r#"
       var table = el('table');
       var thead = el('thead');
       var hRow = el('tr');
-      ['File A', 'File B', 'Co-changes', 'Coupling %', '', ''].forEach(function(h) {
+      ['File A', 'File B', 'Co-changes', 'Coupling %', 'Cross-boundary', '', ''].forEach(function(h) {
         var t = el('th');
         t.append(txt(h));
         hRow.append(t);
@@ -135,6 +135,13 @@ pub const JS: &str = r#"
         pctSpan.append(txt(p.coupling_pct.toFixed(1) + '%'));
         pctCell.append(pctSpan);
 
+        var cbCell = el('td');
+        if (p.cross_boundary) {
+          var cbBadge = el('span', { style: { color: '#f59e0b', fontWeight: '600', fontSize: '0.75rem' } });
+          cbBadge.append(txt('\u26a0 cross-boundary'));
+          cbCell.append(cbBadge);
+        }
+
         var barCell = el('td', { className: 'inline-bar' });
         barCell.append(inlineBar(p.coupling_pct, p.coupling_pct > 70 ? '#ef4444' : p.coupling_pct > 40 ? '#f59e0b' : '#10b981'));
 
@@ -146,7 +153,7 @@ pub const JS: &str = r#"
         })(idx));
         dismissCell.append(dismissBtn);
 
-        row.append(aCell, bCell, coCell, pctCell, barCell, dismissCell);
+        row.append(aCell, bCell, coCell, pctCell, cbCell, barCell, dismissCell);
         tbody.append(row);
       });
       table.append(tbody);
