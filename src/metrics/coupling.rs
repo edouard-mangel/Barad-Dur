@@ -5,7 +5,10 @@ use crate::config::CouplingThresholds;
 use crate::metrics::{CategoryResult, MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
 
-pub fn compute_coupling(snapshot: &RepoSnapshot, thresholds: &CouplingThresholds) -> CategoryResult {
+pub fn compute_coupling(
+    snapshot: &RepoSnapshot,
+    thresholds: &CouplingThresholds,
+) -> CategoryResult {
     let metrics = vec![
         afferent_coupling(snapshot),
         efferent_coupling(snapshot),
@@ -154,10 +157,7 @@ fn efferent_coupling(snapshot: &RepoSnapshot) -> MetricValue {
 /// the configured ratio threshold.
 ///
 /// Scored on smell count: 0 → 100, 1–2 → 75, 3–5 → 50, >5 → 25
-fn change_coupling_smells(
-    snapshot: &RepoSnapshot,
-    thresholds: &CouplingThresholds,
-) -> MetricValue {
+fn change_coupling_smells(snapshot: &RepoSnapshot, thresholds: &CouplingThresholds) -> MetricValue {
     let smell_count = snapshot
         .file_change_pairs
         .iter()
@@ -167,14 +167,8 @@ fn change_coupling_smells(
             if comp_a == comp_b {
                 return false;
             }
-            let commits_a = snapshot
-                .commits_by_file
-                .get(path_a)
-                .map_or(0, |v| v.len());
-            let commits_b = snapshot
-                .commits_by_file
-                .get(path_b)
-                .map_or(0, |v| v.len());
+            let commits_a = snapshot.commits_by_file.get(path_a).map_or(0, |v| v.len());
+            let commits_b = snapshot.commits_by_file.get(path_b).map_or(0, |v| v.len());
             let min_commits = commits_a.min(commits_b);
             if min_commits == 0 {
                 return false;
@@ -484,13 +478,6 @@ mod tests {
         }
     }
 
-    fn thresholds_with_ratio(ratio: f64) -> CouplingThresholds {
-        CouplingThresholds {
-            change_coupling_min_ratio: ratio,
-            ..CouplingThresholds::default()
-        }
-    }
-
     #[test]
     fn extract_component_depth2() {
         let path = std::path::Path::new("src/metrics/coupling.rs");
@@ -518,8 +505,14 @@ mod tests {
             PathBuf::from("src/module/b.rs"),
             5,
         ));
-        snapshot.commits_by_file.insert(PathBuf::from("src/module/a.rs"), (0u32..10).map(CommitId).collect::<Vec<_>>());
-        snapshot.commits_by_file.insert(PathBuf::from("src/module/b.rs"), (0u32..10).map(CommitId).collect::<Vec<_>>());
+        snapshot.commits_by_file.insert(
+            PathBuf::from("src/module/a.rs"),
+            (0u32..10).map(CommitId).collect::<Vec<_>>(),
+        );
+        snapshot.commits_by_file.insert(
+            PathBuf::from("src/module/b.rs"),
+            (0u32..10).map(CommitId).collect::<Vec<_>>(),
+        );
         let result = change_coupling_smells(&snapshot, &default_thresholds());
         assert_eq!(result.score, 100);
     }
@@ -532,8 +525,14 @@ mod tests {
             PathBuf::from("tests/b.rs"),
             5,
         ));
-        snapshot.commits_by_file.insert(PathBuf::from("src/a.rs"), (0u32..10).map(CommitId).collect::<Vec<_>>());
-        snapshot.commits_by_file.insert(PathBuf::from("tests/b.rs"), (0u32..10).map(CommitId).collect::<Vec<_>>());
+        snapshot.commits_by_file.insert(
+            PathBuf::from("src/a.rs"),
+            (0u32..10).map(CommitId).collect::<Vec<_>>(),
+        );
+        snapshot.commits_by_file.insert(
+            PathBuf::from("tests/b.rs"),
+            (0u32..10).map(CommitId).collect::<Vec<_>>(),
+        );
         let result = change_coupling_smells(&snapshot, &default_thresholds());
         assert_eq!(result.score, 75); // 1 smell
     }
@@ -546,8 +545,14 @@ mod tests {
             PathBuf::from("tests/b.rs"),
             2,
         ));
-        snapshot.commits_by_file.insert(PathBuf::from("src/a.rs"), (0u32..10).map(CommitId).collect::<Vec<_>>());
-        snapshot.commits_by_file.insert(PathBuf::from("tests/b.rs"), (0u32..10).map(CommitId).collect::<Vec<_>>());
+        snapshot.commits_by_file.insert(
+            PathBuf::from("src/a.rs"),
+            (0u32..10).map(CommitId).collect::<Vec<_>>(),
+        );
+        snapshot.commits_by_file.insert(
+            PathBuf::from("tests/b.rs"),
+            (0u32..10).map(CommitId).collect::<Vec<_>>(),
+        );
         let result = change_coupling_smells(&snapshot, &default_thresholds());
         assert_eq!(result.score, 100);
     }
@@ -571,30 +576,50 @@ mod tests {
             let a = PathBuf::from(format!("src/f{}.rs", i));
             let b = PathBuf::from(format!("tests/f{}.rs", i));
             snapshot.file_change_pairs.push((a.clone(), b.clone(), 5));
-            snapshot.commits_by_file.insert(a, (0u32..10).map(CommitId).collect::<Vec<_>>());
-            snapshot.commits_by_file.insert(b, (0u32..10).map(CommitId).collect::<Vec<_>>());
+            snapshot
+                .commits_by_file
+                .insert(a, (0u32..10).map(CommitId).collect::<Vec<_>>());
+            snapshot
+                .commits_by_file
+                .insert(b, (0u32..10).map(CommitId).collect::<Vec<_>>());
         }
         snapshot
     }
 
     #[test]
     fn change_coupling_scoring_bands() {
-        assert_eq!(change_coupling_smells(&empty_snapshot(), &default_thresholds()).score, 100);
-        assert_eq!(change_coupling_smells(&make_cross_boundary_snapshot(2), &default_thresholds()).score, 75);
-        assert_eq!(change_coupling_smells(&make_cross_boundary_snapshot(4), &default_thresholds()).score, 50);
-        assert_eq!(change_coupling_smells(&make_cross_boundary_snapshot(6), &default_thresholds()).score, 25);
+        assert_eq!(
+            change_coupling_smells(&empty_snapshot(), &default_thresholds()).score,
+            100
+        );
+        assert_eq!(
+            change_coupling_smells(&make_cross_boundary_snapshot(2), &default_thresholds()).score,
+            75
+        );
+        assert_eq!(
+            change_coupling_smells(&make_cross_boundary_snapshot(4), &default_thresholds()).score,
+            50
+        );
+        assert_eq!(
+            change_coupling_smells(&make_cross_boundary_snapshot(6), &default_thresholds()).score,
+            25
+        );
     }
 
     #[test]
     fn change_coupling_depth1_same_component() {
         let mut snapshot = empty_snapshot();
-        snapshot.file_change_pairs.push((
+        snapshot
+            .file_change_pairs
+            .push((PathBuf::from("src/a.rs"), PathBuf::from("src/b.rs"), 5));
+        snapshot.commits_by_file.insert(
             PathBuf::from("src/a.rs"),
+            (0u32..10).map(CommitId).collect::<Vec<_>>(),
+        );
+        snapshot.commits_by_file.insert(
             PathBuf::from("src/b.rs"),
-            5,
-        ));
-        snapshot.commits_by_file.insert(PathBuf::from("src/a.rs"), (0u32..10).map(CommitId).collect::<Vec<_>>());
-        snapshot.commits_by_file.insert(PathBuf::from("src/b.rs"), (0u32..10).map(CommitId).collect::<Vec<_>>());
+            (0u32..10).map(CommitId).collect::<Vec<_>>(),
+        );
         let result = change_coupling_smells(&snapshot, &thresholds_with_depth(1));
         assert_eq!(result.score, 100);
     }
@@ -607,23 +632,20 @@ mod tests {
             PathBuf::from("a/b/d/file.rs"),
             5,
         ));
-        snapshot.commits_by_file.insert(PathBuf::from("a/b/c/file.rs"), (0u32..10).map(CommitId).collect::<Vec<_>>());
-        snapshot.commits_by_file.insert(PathBuf::from("a/b/d/file.rs"), (0u32..10).map(CommitId).collect::<Vec<_>>());
+        snapshot.commits_by_file.insert(
+            PathBuf::from("a/b/c/file.rs"),
+            (0u32..10).map(CommitId).collect::<Vec<_>>(),
+        );
+        snapshot.commits_by_file.insert(
+            PathBuf::from("a/b/d/file.rs"),
+            (0u32..10).map(CommitId).collect::<Vec<_>>(),
+        );
         let result = change_coupling_smells(&snapshot, &thresholds_with_depth(3));
         assert_eq!(result.score, 75); // 1 smell
     }
 
     #[test]
     fn compute_coupling_returns_four_metrics() {
-        let snapshot = empty_snapshot();
-        let result = compute_coupling(&snapshot, &CouplingThresholds::default());
-        assert_eq!(result.metrics.len(), 4);
-        assert_eq!(result.name, "Coupling");
-    }
-
-    // Keep old test name as alias to avoid breaking test history
-    #[test]
-    fn compute_coupling_returns_three_metrics() {
         let snapshot = empty_snapshot();
         let result = compute_coupling(&snapshot, &CouplingThresholds::default());
         assert_eq!(result.metrics.len(), 4);
