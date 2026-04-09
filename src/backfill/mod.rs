@@ -58,7 +58,13 @@ pub fn run(args: &BackfillArgs, repo_path: &Path) -> Result<()> {
             hygiene::compute_hygiene(&snapshot, &cfg.thresholds.hygiene),
         ];
 
-        let report = scorer::build_report(&snapshot, categories, None, &weight_pairs, cfg.thresholds.coupling.component_depth);
+        let report = scorer::build_report(
+            &snapshot,
+            categories,
+            None,
+            &weight_pairs,
+            cfg.thresholds.coupling.component_depth,
+        );
         let mut entry = scorer::build_history_entry(&report, sha, Some("backfill".to_string()));
 
         // Use the commit's actual timestamp instead of "now" so the trend

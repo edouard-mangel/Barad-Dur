@@ -64,7 +64,10 @@ pub(super) fn build_hotspots(snapshot: &RepoSnapshot) -> Vec<HotspotFile> {
     files
 }
 
-pub(super) fn build_coupling_pairs(snapshot: &RepoSnapshot, component_depth: usize) -> Vec<CouplingPair> {
+pub(super) fn build_coupling_pairs(
+    snapshot: &RepoSnapshot,
+    component_depth: usize,
+) -> Vec<CouplingPair> {
     snapshot
         .file_change_pairs
         .iter()

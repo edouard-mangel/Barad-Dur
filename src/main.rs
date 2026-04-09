@@ -155,7 +155,13 @@ fn run_analyze(args: AnalyzeArgs) -> Result<()> {
     // Score
     let t = std::time::Instant::now();
     let weight_pairs = cfg.weights.as_weight_pairs();
-    let mut report = scorer::build_report(&snapshot, categories, remote_meta, &weight_pairs, cfg.thresholds.coupling.component_depth);
+    let mut report = scorer::build_report(
+        &snapshot,
+        categories,
+        remote_meta,
+        &weight_pairs,
+        cfg.thresholds.coupling.component_depth,
+    );
     if args.verbose > 0 {
         eprintln!("  Scoring: {}ms", t.elapsed().as_millis());
     }
@@ -283,7 +289,13 @@ fn run_gate(args: GateArgs) -> Result<i32> {
     ];
 
     let weight_pairs = cfg.weights.as_weight_pairs();
-    let report = scorer::build_report(&snapshot, categories, None, &weight_pairs, cfg.thresholds.coupling.component_depth);
+    let report = scorer::build_report(
+        &snapshot,
+        categories,
+        None,
+        &weight_pairs,
+        cfg.thresholds.coupling.component_depth,
+    );
 
     let threshold = args.min_score;
     let mut failed = false;
@@ -634,7 +646,10 @@ fn compute_selected_metrics(
         categories.push(hygiene::compute_hygiene(snapshot, &cfg.thresholds.hygiene));
     }
     if args.should_run("coupling") {
-        categories.push(coupling::compute_coupling(snapshot, &cfg.thresholds.coupling));
+        categories.push(coupling::compute_coupling(
+            snapshot,
+            &cfg.thresholds.coupling,
+        ));
     }
 
     categories
