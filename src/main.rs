@@ -279,7 +279,7 @@ fn run_gate(args: GateArgs) -> Result<i32> {
         team::compute_team(&snapshot, &cfg.thresholds.team),
         evolution::compute_evolution(&snapshot, &cfg.thresholds.evolution),
         hygiene::compute_hygiene(&snapshot, &cfg.thresholds.hygiene),
-        coupling::compute_coupling(&snapshot),
+        coupling::compute_coupling(&snapshot, &cfg.thresholds.coupling),
     ];
 
     let weight_pairs = cfg.weights.as_weight_pairs();
@@ -634,7 +634,7 @@ fn compute_selected_metrics(
         categories.push(hygiene::compute_hygiene(snapshot, &cfg.thresholds.hygiene));
     }
     if args.should_run("coupling") {
-        categories.push(coupling::compute_coupling(snapshot));
+        categories.push(coupling::compute_coupling(snapshot, &cfg.thresholds.coupling));
     }
 
     categories
