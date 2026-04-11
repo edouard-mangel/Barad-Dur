@@ -23,7 +23,7 @@ echo ">>> Windows executable (x86_64-pc-windows-gnu)"
 docker run --rm \
   -v "$(pwd)":/build \
   -w /build \
-  rust:1.85-alpine sh -c '
+  rust:1.94-alpine sh -c '
     apk add --no-cache musl-dev openssl-dev openssl-libs-static pkgconf cmake make perl git mingw-w64-gcc &&
     rustup target add x86_64-pc-windows-gnu &&
     OPENSSL_STATIC=1 cargo build --release --target x86_64-pc-windows-gnu

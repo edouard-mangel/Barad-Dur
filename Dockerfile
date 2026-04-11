@@ -1,5 +1,5 @@
 # --- Build stage: static Rust binary via musl ---
-FROM rust:1.85-alpine AS builder
+FROM rust:1.94-alpine AS builder
 
 RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static pkgconf cmake make perl git
 
