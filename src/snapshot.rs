@@ -540,6 +540,75 @@ mod tests {
         );
     }
 
+    // --- count_co_changed_pairs ---
+
+    #[test]
+    fn co_changed_pairs_empty_commits_returns_empty() {
+        let known: std::collections::HashSet<&PathBuf> = std::collections::HashSet::new();
+        assert!(count_co_changed_pairs(&[], &known).is_empty());
+    }
+
+    #[test]
+    fn co_changed_pairs_below_threshold_excluded() {
+        // 2 co-changes — below the minimum of 3
+        let a = PathBuf::from("a.rs");
+        let b = PathBuf::from("b.rs");
+        let known: std::collections::HashSet<&PathBuf> = [&a, &b].into_iter().collect();
+        let commits = vec![
+            make_commit(0, 0, vec!["a.rs", "b.rs"]),
+            make_commit(1, 0, vec!["a.rs", "b.rs"]),
+        ];
+        assert!(count_co_changed_pairs(&commits, &known).is_empty());
+    }
+
+    #[test]
+    fn co_changed_pairs_at_threshold_included() {
+        // Exactly 3 co-changes — should be included
+        let a = PathBuf::from("a.rs");
+        let b = PathBuf::from("b.rs");
+        let known: std::collections::HashSet<&PathBuf> = [&a, &b].into_iter().collect();
+        let commits = vec![
+            make_commit(0, 0, vec!["a.rs", "b.rs"]),
+            make_commit(1, 0, vec!["a.rs", "b.rs"]),
+            make_commit(2, 0, vec!["a.rs", "b.rs"]),
+        ];
+        let pairs = count_co_changed_pairs(&commits, &known);
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].2, 3);
+    }
+
+    #[test]
+    fn co_changed_pairs_unknown_files_excluded() {
+        // "unknown.rs" is not in known_files — should be ignored
+        let a = PathBuf::from("a.rs");
+        let b = PathBuf::from("b.rs");
+        let known: std::collections::HashSet<&PathBuf> = [&a, &b].into_iter().collect();
+        let commits = vec![
+            make_commit(0, 0, vec!["a.rs", "b.rs", "unknown.rs"]),
+            make_commit(1, 0, vec!["a.rs", "b.rs", "unknown.rs"]),
+            make_commit(2, 0, vec!["a.rs", "b.rs", "unknown.rs"]),
+        ];
+        let pairs = count_co_changed_pairs(&commits, &known);
+        // Only the a/b pair; no pairs involving unknown.rs
+        assert!(pairs.iter().all(|(x, y, _)| x != &PathBuf::from("unknown.rs")
+            && y != &PathBuf::from("unknown.rs")));
+        assert_eq!(pairs.len(), 1);
+    }
+
+    #[test]
+    fn co_changed_pairs_normalized_a_less_than_b() {
+        // Regardless of commit order, pair should always be (smaller, larger)
+        let a = PathBuf::from("a.rs");
+        let b = PathBuf::from("z.rs");
+        let known: std::collections::HashSet<&PathBuf> = [&a, &b].into_iter().collect();
+        let commits = (0..3)
+            .map(|i| make_commit(i, 0, vec!["z.rs", "a.rs"]))
+            .collect::<Vec<_>>();
+        let pairs = count_co_changed_pairs(&commits, &known);
+        assert_eq!(pairs.len(), 1);
+        assert!(pairs[0].0 < pairs[0].1, "pair should be normalized a < b");
+    }
+
     #[test]
     fn repo_snapshot_serialization_roundtrip() {
         let snapshot = RepoSnapshot::new(

@@ -160,6 +160,81 @@ pub fn is_shallow_clone(repo_path: &Path) -> bool {
 mod tests {
     use super::*;
 
+    // --- BlameParserState / parse_porcelain_blame ---
+
+    #[test]
+    fn parse_porcelain_blame_unknown_email_falls_back_to_author_zero() {
+        let porcelain = "\
+abc1234567890123456789012345678901234567 1 1 1
+author Unknown
+author-mail <nobody@nowhere.com>
+author-time 1700000000
+author-tz +0000
+committer Unknown
+committer-mail <nobody@nowhere.com>
+committer-time 1700000000
+committer-tz +0000
+summary msg
+filename f.rs
+\tcode line
+";
+        // email_to_id is empty — unknown email should fall back to id 0
+        let email_to_id: HashMap<&str, AuthorId> = HashMap::new();
+        let lines = parse_porcelain_blame(porcelain, &email_to_id).unwrap();
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].author_id, 0);
+    }
+
+    #[test]
+    fn parse_porcelain_blame_tab_line_without_author_emits_nothing() {
+        // A tab line that arrives before any author-mail should not emit a blame entry
+        let porcelain = "\
+abc1234567890123456789012345678901234567 1 1 1
+\torphan line
+";
+        let email_to_id: HashMap<&str, AuthorId> = HashMap::new();
+        let lines = parse_porcelain_blame(porcelain, &email_to_id).unwrap();
+        assert!(lines.is_empty(), "no entry without preceding author info");
+    }
+
+    #[test]
+    fn parse_porcelain_blame_two_authors_attributed_correctly() {
+        let porcelain = "\
+aaaa234567890123456789012345678901234567 1 1 1
+author Alice
+author-mail <alice@example.com>
+author-time 1700000000
+author-tz +0000
+committer Alice
+committer-mail <alice@example.com>
+committer-time 1700000000
+committer-tz +0000
+summary Alice's commit
+filename f.rs
+\talice line
+bbbb234567890123456789012345678901234567 2 2 1
+author Bob
+author-mail <bob@example.com>
+author-time 1700000001
+author-tz +0000
+committer Bob
+committer-mail <bob@example.com>
+committer-time 1700000001
+committer-tz +0000
+summary Bob's commit
+filename f.rs
+\tbob line
+";
+        let email_to_id: HashMap<&str, AuthorId> =
+            [("alice@example.com", 0), ("bob@example.com", 1)]
+                .into_iter()
+                .collect();
+        let lines = parse_porcelain_blame(porcelain, &email_to_id).unwrap();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].author_id, 0);
+        assert_eq!(lines[1].author_id, 1);
+    }
+
     #[test]
     fn parse_porcelain_blame_extracts_lines() {
         let porcelain = "\

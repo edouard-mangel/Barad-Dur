@@ -67,6 +67,36 @@ mod tests {
     use super::*;
     use crate::snapshot::*;
 
+    // --- percentile_75 ---
+
+    #[test]
+    fn percentile_75_empty_returns_default() {
+        assert_eq!(percentile_75::<u32>(vec![]), 0);
+    }
+
+    #[test]
+    fn percentile_75_single_element() {
+        assert_eq!(percentile_75(vec![42u32]), 42);
+    }
+
+    #[test]
+    fn percentile_75_four_elements() {
+        // sorted: [1, 2, 3, 4] — index = (4-1)*3/4 = 2 → value 3
+        assert_eq!(percentile_75(vec![4u32, 1, 3, 2]), 3);
+    }
+
+    #[test]
+    fn percentile_75_eight_elements() {
+        // sorted: [1,2,3,4,5,6,7,8] — index = (8-1)*3/4 = 5 → value 6
+        assert_eq!(percentile_75(vec![8u32, 3, 1, 6, 2, 7, 4, 5]), 6);
+    }
+
+    #[test]
+    fn percentile_75_unsorted_input_sorted_before_lookup() {
+        // Same values in reverse — must sort first
+        assert_eq!(percentile_75(vec![10u32, 8, 6, 4, 2]), percentile_75(vec![2u32, 4, 6, 8, 10]));
+    }
+
     #[test]
     fn complex_hotspots_finds_high_cc_high_churn_files() {
         let mut snapshot = RepoSnapshot::new(

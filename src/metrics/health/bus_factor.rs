@@ -66,6 +66,48 @@ mod tests {
     use crate::snapshot::*;
     use chrono::Utc;
 
+    // --- is_file_author_dominated ---
+
+    #[test]
+    fn dominated_empty_slice_is_false() {
+        assert!(!is_file_author_dominated(&[]));
+    }
+
+    #[test]
+    fn dominated_single_author_all_lines_is_true() {
+        let now = Utc::now();
+        let lines: Vec<BlameLine> = (0..10).map(|_| BlameLine::new(0, now)).collect();
+        assert!(is_file_author_dominated(&lines));
+    }
+
+    #[test]
+    fn dominated_exact_50_50_split_is_false() {
+        // max * 2 == total (not strictly greater) → not dominated
+        let now = Utc::now();
+        let lines: Vec<BlameLine> = (0..100)
+            .map(|i| BlameLine::new(if i < 50 { 0 } else { 1 }, now))
+            .collect();
+        assert!(!is_file_author_dominated(&lines));
+    }
+
+    #[test]
+    fn dominated_51_49_split_is_true() {
+        let now = Utc::now();
+        let lines: Vec<BlameLine> = (0..100)
+            .map(|i| BlameLine::new(if i < 51 { 0 } else { 1 }, now))
+            .collect();
+        assert!(is_file_author_dominated(&lines));
+    }
+
+    #[test]
+    fn dominated_80_20_split_is_true() {
+        let now = Utc::now();
+        let lines: Vec<BlameLine> = (0..100)
+            .map(|i| BlameLine::new(if i < 80 { 0 } else { 1 }, now))
+            .collect();
+        assert!(is_file_author_dominated(&lines));
+    }
+
     fn two_authors() -> Vec<Author> {
         vec![
             Author {
