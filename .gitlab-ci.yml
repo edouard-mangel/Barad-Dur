@@ -65,7 +65,7 @@ fmt-check:
     - cargo fmt -- --check
 
 clippy:
-  stage: lint
+  stage: build
   <<: *rust-base
   script:
     - rustup component add clippy
