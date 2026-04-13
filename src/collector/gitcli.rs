@@ -9,6 +9,10 @@ use super::Progress;
 use crate::cache::blame::BlameCache;
 use crate::snapshot::{compress_blame, Author, AuthorId, BlameLine, FileEntry};
 
+fn build_email_map(authors: &[Author]) -> HashMap<&str, AuthorId> {
+    authors.iter().map(|a| (a.email.as_str(), a.id)).collect()
+}
+
 /// Collect blame data for all non-binary files in parallel using git CLI.
 pub fn collect_blame(
     repo_path: &Path,
@@ -16,24 +20,9 @@ pub fn collect_blame(
     authors: &[Author],
     progress: &dyn Progress,
 ) -> Result<HashMap<PathBuf, Vec<BlameLine>>> {
-    let email_to_id: HashMap<&str, AuthorId> =
-        authors.iter().map(|a| (a.email.as_str(), a.id)).collect();
-
-    let results: Vec<(PathBuf, Vec<BlameLine>)> = files
-        .par_iter()
-        .filter(|f| !f.is_binary)
-        .filter_map(|f| {
-            let result = match blame_file(repo_path, &f.path, &email_to_id, None) {
-                Ok(lines) if !lines.is_empty() => Some((f.path.clone(), lines)),
-                Ok(_) => None,
-                Err(_) => None, // Skip files that fail to blame (e.g., submodules)
-            };
-            progress.inc(1);
-            result
-        })
-        .collect();
-
-    Ok(results.into_iter().collect())
+    let (map, _) =
+        collect_blame_cached(repo_path, files, authors, &BlameCache::default(), progress)?;
+    Ok(map)
 }
 
 /// Collect blame, reusing cached entries where blob OID matches.
@@ -44,8 +33,7 @@ pub fn collect_blame_cached(
     cache: &BlameCache,
     progress: &dyn Progress,
 ) -> Result<(HashMap<PathBuf, Vec<BlameLine>>, BlameCache)> {
-    let email_to_id: HashMap<&str, AuthorId> =
-        authors.iter().map(|a| (a.email.as_str(), a.id)).collect();
+    let email_to_id = build_email_map(authors);
 
     let results: Vec<(PathBuf, Vec<BlameLine>, String)> = files
         .par_iter()
@@ -101,31 +89,38 @@ fn blame_file(
     parse_porcelain_blame(&stdout, email_to_id)
 }
 
-fn parse_porcelain_blame(
-    output: &str,
-    email_to_id: &HashMap<&str, AuthorId>,
-) -> Result<Vec<BlameLine>> {
-    let mut lines = Vec::new();
-    let mut current_email: Option<String> = None;
-    let mut current_timestamp: Option<DateTime<Utc>> = None;
+struct BlameParserState<'a> {
+    email_to_id: &'a HashMap<&'a str, AuthorId>,
+    current_email: Option<String>,
+    current_timestamp: Option<DateTime<Utc>>,
+    lines: Vec<BlameLine>,
+}
 
-    for line in output.lines() {
+impl<'a> BlameParserState<'a> {
+    fn new(email_to_id: &'a HashMap<&'a str, AuthorId>) -> Self {
+        Self {
+            email_to_id,
+            current_email: None,
+            current_timestamp: None,
+            lines: Vec::new(),
+        }
+    }
+
+    fn process_line(&mut self, line: &str) {
         if line.len() >= 40 && line.chars().take(40).all(|c| c.is_ascii_hexdigit()) {
-            // This is a commit header line: <hash> <orig_line> <final_line> [<num_lines>]
-            // No fields to extract from the hash line
+            // commit header line — no fields to extract
         } else if let Some(mail) = line.strip_prefix("author-mail <") {
-            let email = mail.trim_end_matches('>').to_lowercase();
-            current_email = Some(email);
+            self.current_email = Some(mail.trim_end_matches('>').to_lowercase());
         } else if let Some(time_str) = line.strip_prefix("author-time ") {
             if let Ok(ts) = time_str.parse::<i64>() {
-                current_timestamp = Utc.timestamp_opt(ts, 0).single();
+                self.current_timestamp = Utc.timestamp_opt(ts, 0).single();
             }
         } else if line.starts_with('\t') {
-            // This is the actual source line — finalize the blame entry
-            if let (Some(email), Some(timestamp)) = (&current_email, &current_timestamp) {
-                let author_id = email_to_id.get(email.as_str()).copied().unwrap_or(0); // Fall back to first author if unknown
-
-                lines.push(BlameLine {
+            // actual source line — finalize the blame entry
+            if let (Some(email), Some(timestamp)) = (&self.current_email, &self.current_timestamp)
+            {
+                let author_id = self.email_to_id.get(email.as_str()).copied().unwrap_or(0);
+                self.lines.push(BlameLine {
                     author_id,
                     timestamp: *timestamp,
                     line_count: 1,
@@ -134,7 +129,20 @@ fn parse_porcelain_blame(
         }
     }
 
-    Ok(lines)
+    fn finish(self) -> Vec<BlameLine> {
+        self.lines
+    }
+}
+
+fn parse_porcelain_blame(
+    output: &str,
+    email_to_id: &HashMap<&str, AuthorId>,
+) -> Result<Vec<BlameLine>> {
+    let mut state = BlameParserState::new(email_to_id);
+    for line in output.lines() {
+        state.process_line(line);
+    }
+    Ok(state.finish())
 }
 
 /// Check if the repository is a shallow clone.
