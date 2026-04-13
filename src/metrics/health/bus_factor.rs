@@ -1,6 +1,16 @@
 use crate::config::HealthThresholds;
 use crate::metrics::{author_line_counts, MetricValue, RawValue};
-use crate::snapshot::RepoSnapshot;
+use crate::snapshot::{BlameLine, RepoSnapshot};
+
+fn is_file_author_dominated(lines: &[BlameLine]) -> bool {
+    if lines.is_empty() {
+        return false;
+    }
+    let author_lines = author_line_counts(lines);
+    let total: usize = author_lines.values().sum();
+    let max: usize = author_lines.values().copied().max().unwrap_or(0);
+    max * 2 > total
+}
 
 pub(super) fn bus_factor(snapshot: &RepoSnapshot, _thresholds: &HealthThresholds) -> MetricValue {
     if snapshot.authors.len() <= 1 {
@@ -25,15 +35,7 @@ pub(super) fn bus_factor(snapshot: &RepoSnapshot, _thresholds: &HealthThresholds
     let dominated = snapshot
         .blame_map
         .values()
-        .filter(|lines| {
-            if lines.is_empty() {
-                return false;
-            }
-            let author_lines = author_line_counts(lines);
-            let total: usize = author_lines.values().sum();
-            let max: usize = author_lines.values().copied().max().unwrap_or(0);
-            max * 2 > total
-        })
+        .filter(|lines| is_file_author_dominated(lines))
         .count();
 
     let pct = (dominated as f64 / total_files as f64) * 100.0;

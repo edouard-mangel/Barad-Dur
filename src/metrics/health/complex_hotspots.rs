@@ -1,6 +1,14 @@
 use crate::metrics::{score_count_bands, MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
 
+fn percentile_75<T: Ord + Copy + Default>(mut values: Vec<T>) -> T {
+    values.sort_unstable();
+    values
+        .get(values.len().saturating_sub(1) * 3 / 4)
+        .copied()
+        .unwrap_or_default()
+}
+
 /// Files in the top quartile of both cyclomatic complexity and churn — the Tornhill composite.
 pub(super) fn complex_hotspots(snapshot: &RepoSnapshot) -> MetricValue {
     if snapshot.file_metrics.is_empty() {
@@ -12,23 +20,20 @@ pub(super) fn complex_hotspots(snapshot: &RepoSnapshot) -> MetricValue {
         };
     }
 
-    let mut cc_values: Vec<u32> = snapshot
-        .file_metrics
-        .values()
-        .map(|m| m.cyclomatic_complexity)
-        .collect();
-    cc_values.sort_unstable();
-    let cc_p75 = cc_values
-        .get(cc_values.len().saturating_sub(1) * 3 / 4)
-        .copied()
-        .unwrap_or(0);
-
-    let mut churn_values: Vec<usize> = snapshot.commits_by_file.values().map(|c| c.len()).collect();
-    churn_values.sort_unstable();
-    let churn_p75 = churn_values
-        .get(churn_values.len().saturating_sub(1) * 3 / 4)
-        .copied()
-        .unwrap_or(0);
+    let cc_p75 = percentile_75(
+        snapshot
+            .file_metrics
+            .values()
+            .map(|m| m.cyclomatic_complexity)
+            .collect(),
+    );
+    let churn_p75 = percentile_75(
+        snapshot
+            .commits_by_file
+            .values()
+            .map(|c| c.len())
+            .collect(),
+    );
 
     let hotspots: Vec<String> = snapshot
         .file_metrics
