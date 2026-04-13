@@ -64,15 +64,10 @@ fmt-check:
     - rustup component add rustfmt
     - cargo fmt -- --check
 
-clippy:
-  stage: build
-  <<: *rust-base
-  script:
-    - rustup component add clippy
-    - cargo clippy --all-targets -- -D warnings
-
 # ── Build ─────────────────────────────────────
 
+# Clippy and release build share one runner: clippy (debug) runs first,
+# then the release build reuses the already-compiled dependency artifacts.
 build:
   stage: build
   <<: *rust-base
@@ -84,6 +79,8 @@ build:
       - .cargo/registry/index
       - .cargo/git/db
   script:
+    - rustup component add clippy
+    - cargo clippy --all-targets -- -D warnings
     - cargo build --release
   artifacts:
     paths:
