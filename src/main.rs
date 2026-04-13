@@ -91,54 +91,23 @@ fn run_analyze(args: AnalyzeArgs) -> Result<()> {
     // so it never interferes with JSON/HTML output on stdout or -o file).
     let show_progress = std::io::stderr().is_terminal();
 
-    // Cache logic
     let current_head = collector.head_commit_hash()?;
     let exclude_patterns = &cfg.exclude_patterns;
     let use_default_excludes = cfg.exclude_use_defaults;
 
-    let snapshot = if args.no_cache {
-        collect_and_cache(
-            &collector,
+    let snapshot = resolve_snapshot(
+        &collector,
+        &current_head,
+        &CollectOptions {
             show_progress,
-            args.verbose > 0,
-            cfg.skip_blame,
-            true,
+            verbose: args.verbose > 0,
+            skip_blame: cfg.skip_blame,
+            no_cache: args.no_cache,
+            cache_only: args.cache_only,
             exclude_patterns,
             use_default_excludes,
-        )?
-    } else if let Some(cached) = cache::load(collector.repo_path())? {
-        if !cache::is_stale(&cached, &current_head) {
-            if args.verbose > 0 {
-                eprintln!("Using cached snapshot.");
-            }
-            cached
-        } else {
-            if args.verbose > 0 {
-                eprintln!("Cache stale, re-collecting...");
-            }
-            collect_and_cache(
-                &collector,
-                show_progress,
-                args.verbose > 0,
-                cfg.skip_blame,
-                false,
-                exclude_patterns,
-                use_default_excludes,
-            )?
-        }
-    } else if args.cache_only {
-        bail!("No cache found. Run without --cache-only first.");
-    } else {
-        collect_and_cache(
-            &collector,
-            show_progress,
-            args.verbose > 0,
-            cfg.skip_blame,
-            false,
-            exclude_patterns,
-            use_default_excludes,
-        )?
-    };
+        },
+    )?;
 
     // Check for empty data
     if snapshot.commits.is_empty() {
@@ -252,33 +221,21 @@ fn run_gate(args: GateArgs) -> Result<i32> {
 
     let exclude_patterns = &cfg.exclude_patterns;
     let use_default_excludes = cfg.exclude_use_defaults;
+    let current_head = collector.head_commit_hash()?;
 
-    let snapshot = if let Some(cached) = cache::load(collector.repo_path())? {
-        let current_head = collector.head_commit_hash()?;
-        if !cache::is_stale(&cached, &current_head) {
-            cached
-        } else {
-            collect_and_cache(
-                &collector,
-                false,
-                false,
-                skip_blame,
-                false,
-                exclude_patterns,
-                use_default_excludes,
-            )?
-        }
-    } else {
-        collect_and_cache(
-            &collector,
-            false,
-            false,
+    let snapshot = resolve_snapshot(
+        &collector,
+        &current_head,
+        &CollectOptions {
+            show_progress: false,
+            verbose: false,
             skip_blame,
-            false,
+            no_cache: false,
+            cache_only: false,
             exclude_patterns,
             use_default_excludes,
-        )?
-    };
+        },
+    )?;
 
     let categories = vec![
         health::compute_health(&snapshot, &cfg.thresholds.health),
@@ -441,22 +398,54 @@ fn parse_time_spec(
     None
 }
 
-fn collect_and_cache(
-    collector: &Collector,
+struct CollectOptions<'a> {
     show_progress: bool,
     verbose: bool,
     skip_blame: bool,
     no_cache: bool,
-    exclude_patterns: &[String],
+    cache_only: bool,
+    exclude_patterns: &'a [String],
     use_default_excludes: bool,
+}
+
+fn resolve_snapshot(
+    collector: &Collector,
+    current_head: &str,
+    opts: &CollectOptions<'_>,
+) -> Result<RepoSnapshot> {
+    if opts.no_cache {
+        return collect_and_cache(collector, opts, true);
+    }
+
+    if let Some(cached) = cache::load(collector.repo_path())? {
+        if !cache::is_stale(&cached, current_head) {
+            if opts.verbose {
+                eprintln!("Using cached snapshot.");
+            }
+            return Ok(cached);
+        }
+        if opts.verbose {
+            eprintln!("Cache stale, re-collecting...");
+        }
+    } else if opts.cache_only {
+        bail!("No cache found. Run without --cache-only first.");
+    }
+
+    collect_and_cache(collector, opts, false)
+}
+
+fn collect_and_cache(
+    collector: &Collector,
+    opts: &CollectOptions<'_>,
+    no_cache: bool,
 ) -> Result<RepoSnapshot> {
     let snapshot = collector.collect_snapshot_verbose(
-        show_progress,
-        verbose,
-        skip_blame,
+        opts.show_progress,
+        opts.verbose,
+        opts.skip_blame,
         no_cache,
-        exclude_patterns,
-        use_default_excludes,
+        opts.exclude_patterns,
+        opts.use_default_excludes,
     )?;
     if let Err(e) = cache::save(&snapshot, collector.repo_path()) {
         eprintln!("Warning: Failed to save cache: {}", e);
