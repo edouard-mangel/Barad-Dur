@@ -1,4 +1,4 @@
-use crate::metrics::{MetricValue, RawValue};
+use crate::metrics::{score_count_bands, MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
 
 /// Files in the top quartile of both cyclomatic complexity and churn — the Tornhill composite.
@@ -45,12 +45,7 @@ pub(super) fn complex_hotspots(snapshot: &RepoSnapshot) -> MetricValue {
         .collect();
 
     let count = hotspots.len();
-    let score = match count {
-        0 => 100,
-        1..=2 => 75,
-        3..=5 => 50,
-        _ => 25,
-    };
+    let score = score_count_bands(count);
 
     MetricValue {
         name: "Complex hotspots".to_string(),

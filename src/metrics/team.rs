@@ -1,4 +1,4 @@
-use crate::metrics::{CategoryResult, MetricValue, RawValue};
+use crate::metrics::{author_line_counts, CategoryResult, MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
 use std::collections::HashMap;
 
@@ -220,10 +220,7 @@ fn ownership_clarity(
         if blame_lines.is_empty() {
             continue;
         }
-        let mut author_counts: HashMap<usize, usize> = HashMap::new();
-        for line in blame_lines {
-            *author_counts.entry(line.author_id).or_insert(0) += line.line_count;
-        }
+        let author_counts = author_line_counts(blame_lines);
         let total: usize = author_counts.values().sum();
         let max: usize = *author_counts.values().max().unwrap_or(&0);
         if total > 0 && (max as f64 / total as f64) > 0.5 {

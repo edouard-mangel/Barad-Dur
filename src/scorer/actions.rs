@@ -73,6 +73,7 @@ fn target_tab_for_metric(metric_name: &str) -> (Option<&'static str>, Option<&'s
         "Afferent coupling" => (Some("coupling"), None),
         "Efferent coupling" => (Some("coupling"), None),
         "Circular dependencies" => (Some("coupling"), None),
+        "Change coupling smells" => (Some("coupling"), None),
         "Knowledge distribution" => (Some("ownership"), None),
         "Ownership clarity" => (Some("ownership"), None),
         "Collaboration patterns" => (Some("ownership"), None),
@@ -103,6 +104,9 @@ fn suggest_action(metric_name: &str) -> &'static str {
         "Efferent coupling" => "Reduce imports by extracting shared interfaces or facades",
         "Circular dependencies" => {
             "Break circular imports by extracting shared types into a separate module"
+        }
+        "Change coupling smells" => {
+            "Decouple cross-boundary co-changing files by introducing interfaces or shared abstractions"
         }
         "Knowledge distribution" => "Encourage cross-team contributions and rotate ownership",
         "Contributor activity" => "Onboard more active contributors or check team health",

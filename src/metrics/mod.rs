@@ -5,7 +5,11 @@ pub mod health;
 pub mod hygiene;
 pub mod team;
 
+use std::collections::HashMap;
+
 use serde::Serialize;
+
+use crate::snapshot::{AuthorId, BlameLine};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct MetricValue {
@@ -43,6 +47,25 @@ pub struct CategoryResult {
     pub name: String,
     pub score: u32,
     pub metrics: Vec<MetricValue>,
+}
+
+/// Score a count using the standard four-band scale: 0→100, 1-2→75, 3-5→50, _→25.
+pub(crate) fn score_count_bands(count: usize) -> u32 {
+    match count {
+        0 => 100,
+        1..=2 => 75,
+        3..=5 => 50,
+        _ => 25,
+    }
+}
+
+/// Accumulate blame line counts per author from a slice of blame lines.
+pub(crate) fn author_line_counts(lines: &[BlameLine]) -> HashMap<AuthorId, usize> {
+    let mut counts: HashMap<AuthorId, usize> = HashMap::new();
+    for line in lines {
+        *counts.entry(line.author_id).or_insert(0) += line.line_count;
+    }
+    counts
 }
 
 impl CategoryResult {

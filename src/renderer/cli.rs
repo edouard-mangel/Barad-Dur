@@ -10,8 +10,16 @@ use crate::trend::TrendSummary;
 /// `trend.delta.is_first`, the first-snapshot notice is emitted instead.
 pub fn render(report: &AnalysisReport, verbosity: u8, trend: Option<&TrendSummary>) -> String {
     let mut out = String::new();
+    out.push_str(&render_repo_info(report));
+    out.push_str(&render_score_and_trend(report, trend));
+    out.push_str(&render_categories(report, trend, verbosity));
+    out.push_str(&render_actions_and_footer(report));
+    out
+}
 
-    // Header
+fn render_repo_info(report: &AnalysisReport) -> String {
+    let mut out = String::new();
+
     out.push_str(&format!(
         "\n{}\n",
         "━━━ Barad-dur ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━".bold()
@@ -57,6 +65,12 @@ pub fn render(report: &AnalysisReport, verbosity: u8, trend: Option<&TrendSummar
             }
         }
     }
+
+    out
+}
+
+fn render_score_and_trend(report: &AnalysisReport, trend: Option<&TrendSummary>) -> String {
+    let mut out = String::new();
 
     // Branch mismatch warning — suppresses delta and notifies the user.
     if let Some(summary) = trend {
@@ -114,7 +128,16 @@ pub fn render(report: &AnalysisReport, verbosity: u8, trend: Option<&TrendSummar
         }
     }
 
-    // Categories
+    out
+}
+
+fn render_categories(
+    report: &AnalysisReport,
+    trend: Option<&TrendSummary>,
+    verbosity: u8,
+) -> String {
+    let mut out = String::new();
+
     out.push_str(&format!(
         "\n{}\n",
         "───────────────────────────────────────────────────".dimmed()
@@ -165,7 +188,12 @@ pub fn render(report: &AnalysisReport, verbosity: u8, trend: Option<&TrendSummar
         }
     }
 
-    // Top actions
+    out
+}
+
+fn render_actions_and_footer(report: &AnalysisReport) -> String {
+    let mut out = String::new();
+
     if !report.top_actions.is_empty() {
         out.push_str(&format!(
             "\n{}\n",
@@ -203,39 +231,31 @@ fn direction_word(direction: &crate::trend::VelocityDirection) -> &'static str {
     }
 }
 
+fn colorize_by_score(s: &str, score: u32) -> colored::ColoredString {
+    if score >= 71 {
+        s.green()
+    } else if score >= 41 {
+        s.yellow()
+    } else {
+        s.red()
+    }
+}
+
 fn format_score_bar(score: u32, width: usize) -> String {
     let filled = (score as usize * width) / 100;
     let empty = width - filled;
     let bar = format!("{}{}", "█".repeat(filled), "░".repeat(empty));
-
-    if score >= 71 {
-        bar.green().to_string()
-    } else if score >= 41 {
-        bar.yellow().to_string()
-    } else {
-        bar.red().to_string()
-    }
+    colorize_by_score(&bar, score).to_string()
 }
 
 fn format_score_number(score: u32) -> String {
-    let text = format!("{}/100", score);
-    if score >= 71 {
-        text.green().bold().to_string()
-    } else if score >= 41 {
-        text.yellow().bold().to_string()
-    } else {
-        text.red().bold().to_string()
-    }
+    colorize_by_score(&format!("{}/100", score), score)
+        .bold()
+        .to_string()
 }
 
 fn format_score_dot(score: u32) -> String {
-    if score >= 71 {
-        "●".green().to_string()
-    } else if score >= 41 {
-        "●".yellow().to_string()
-    } else {
-        "●".red().to_string()
-    }
+    colorize_by_score("●", score).to_string()
 }
 
 #[cfg(test)]

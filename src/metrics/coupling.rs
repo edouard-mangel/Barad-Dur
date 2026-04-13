@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::config::CouplingThresholds;
-use crate::metrics::{CategoryResult, MetricValue, RawValue};
+use crate::metrics::{score_count_bands, CategoryResult, MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
 
 pub fn compute_coupling(
@@ -177,12 +177,7 @@ fn change_coupling_smells(snapshot: &RepoSnapshot, thresholds: &CouplingThreshol
         })
         .count();
 
-    let score = match smell_count {
-        0 => 100,
-        1..=2 => 75,
-        3..=5 => 50,
-        _ => 25,
-    };
+    let score = score_count_bands(smell_count);
 
     MetricValue {
         name: "Change coupling smells".to_string(),
@@ -230,12 +225,7 @@ fn circular_dependencies(snapshot: &RepoSnapshot) -> MetricValue {
     }
 
     let count = cycles.len();
-    let score = match count {
-        0 => 100,
-        1..=2 => 75,
-        3..=5 => 50,
-        _ => 25,
-    };
+    let score = score_count_bands(count);
 
     let cycle_list: Vec<String> = cycles
         .iter()

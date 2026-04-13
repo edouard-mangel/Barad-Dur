@@ -1,7 +1,5 @@
-use std::collections::HashMap;
-
 use crate::config::HealthThresholds;
-use crate::metrics::{MetricValue, RawValue};
+use crate::metrics::{author_line_counts, MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
 
 pub(super) fn bus_factor(snapshot: &RepoSnapshot, _thresholds: &HealthThresholds) -> MetricValue {
@@ -31,10 +29,7 @@ pub(super) fn bus_factor(snapshot: &RepoSnapshot, _thresholds: &HealthThresholds
             if lines.is_empty() {
                 return false;
             }
-            let mut author_lines: HashMap<usize, usize> = HashMap::new();
-            for line in lines.iter() {
-                *author_lines.entry(line.author_id).or_insert(0) += line.line_count;
-            }
+            let author_lines = author_line_counts(lines);
             let total: usize = author_lines.values().sum();
             let max: usize = author_lines.values().copied().max().unwrap_or(0);
             max * 2 > total

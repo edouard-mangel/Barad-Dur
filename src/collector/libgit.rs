@@ -64,6 +64,15 @@ pub fn collect_commits(repo: &Repository, time_window: &TimeWindow) -> Result<Co
         return Err(anyhow::anyhow!(e)).context("Failed to push HEAD");
     }
 
+    collect_commits_from_revwalk(repo, revwalk, mailmap, time_window)
+}
+
+fn collect_commits_from_revwalk(
+    repo: &Repository,
+    revwalk: git2::Revwalk<'_>,
+    mailmap: Option<git2::Mailmap>,
+    time_window: &TimeWindow,
+) -> Result<CommitCollection> {
     let mut commits = Vec::new();
     let mut email_to_id: HashMap<String, AuthorId> = HashMap::new();
     let mut authors: Vec<Author> = Vec::new();
@@ -75,10 +84,7 @@ pub fn collect_commits(repo: &Repository, time_window: &TimeWindow) -> Result<Co
 
         let timestamp = git_time_to_chrono(&commit.time());
 
-        // Filter by time window
         if !time_window.contains(&timestamp) {
-            // If commit is before the window start, we can stop
-            // (commits are sorted by time descending)
             if let Some(since) = &time_window.since {
                 if &timestamp < since {
                     break;
@@ -87,7 +93,6 @@ pub fn collect_commits(repo: &Repository, time_window: &TimeWindow) -> Result<Co
             continue;
         }
 
-        // Deduplicate author by email, applying .mailmap if present
         let author_sig = commit.author();
         let (name, email) = resolve_author(&author_sig, mailmap.as_ref());
 
@@ -104,7 +109,6 @@ pub fn collect_commits(repo: &Repository, time_window: &TimeWindow) -> Result<Co
             id
         };
 
-        // Compute file changes by diffing against parent
         let files_changed = collect_file_changes(repo, &commit)?;
         let parent_count = commit.parent_count();
 
@@ -236,58 +240,48 @@ pub fn collect_commits_at(
         .push(sha_oid)
         .context("Failed to push SHA to revwalk")?;
 
-    let mut commits = Vec::new();
-    let mut email_to_id: HashMap<String, AuthorId> = HashMap::new();
-    let mut authors: Vec<Author> = Vec::new();
-    let mut interner = CommitInterner::default();
+    collect_commits_from_revwalk(repo, revwalk, mailmap, time_window)
+}
 
-    for oid_result in revwalk {
-        let oid = oid_result.context("Failed to get commit oid")?;
-        let commit = repo.find_commit(oid).context("Failed to find commit")?;
+fn collect_files_from_tree(repo: &Repository, tree: git2::Tree<'_>) -> Result<Vec<FileEntry>> {
+    let mut files = Vec::new();
 
-        let timestamp = git_time_to_chrono(&commit.time());
+    tree.walk(git2::TreeWalkMode::PreOrder, |dir, entry| {
+        if entry.kind() == Some(git2::ObjectType::Blob) {
+            let name = entry.name().unwrap_or("");
+            let path = if dir.is_empty() {
+                PathBuf::from(name)
+            } else {
+                PathBuf::from(format!("{}{}", dir, name))
+            };
 
-        if !time_window.contains(&timestamp) {
-            if let Some(since) = &time_window.since {
-                if &timestamp < since {
-                    break;
-                }
-            }
-            continue;
+            let depth = path.components().count();
+
+            let is_binary = entry
+                .to_object(repo)
+                .ok()
+                .and_then(|obj| obj.as_blob().map(|b| b.is_binary()))
+                .unwrap_or(false);
+
+            let size_bytes = entry
+                .to_object(repo)
+                .ok()
+                .and_then(|obj| obj.as_blob().map(|b| b.size()))
+                .unwrap_or(0) as u64;
+
+            files.push(FileEntry {
+                path,
+                size_bytes,
+                is_binary,
+                depth,
+                blob_oid: entry.id().to_string(),
+            });
         }
-
-        let author_sig = commit.author();
-        let (name, email) = resolve_author(&author_sig, mailmap.as_ref());
-
-        let author_id = if let Some(&id) = email_to_id.get(&email) {
-            id
-        } else {
-            let id = authors.len();
-            email_to_id.insert(email.clone(), id);
-            authors.push(Author { id, name, email });
-            id
-        };
-
-        let files_changed = collect_file_changes(repo, &commit)?;
-        let parent_count = commit.parent_count();
-
-        let commit_id = interner.intern(&oid.to_string());
-        commits.push(Commit {
-            id: commit_id,
-            author: author_id,
-            timestamp,
-            message: commit.message().unwrap_or("").to_string(),
-            files_changed,
-            is_merge: parent_count > 1,
-            parent_count,
-        });
-    }
-
-    Ok(CommitCollection {
-        commits,
-        authors,
-        interner,
+        git2::TreeWalkResult::Ok
     })
+    .context("Failed to walk tree")?;
+
+    Ok(files)
 }
 
 /// Collect the file tree at a specific commit SHA (without modifying working tree).
@@ -298,87 +292,11 @@ pub fn collect_files_at(repo: &Repository, sha_str: &str) -> Result<Vec<FileEntr
         .find_commit(sha_oid)
         .with_context(|| format!("Failed to find commit {sha_str}"))?;
     let tree = commit.tree().context("Failed to get commit tree")?;
-
-    let mut files = Vec::new();
-
-    tree.walk(git2::TreeWalkMode::PreOrder, |dir, entry| {
-        if entry.kind() == Some(git2::ObjectType::Blob) {
-            let name = entry.name().unwrap_or("");
-            let path = if dir.is_empty() {
-                PathBuf::from(name)
-            } else {
-                PathBuf::from(format!("{}{}", dir, name))
-            };
-
-            let depth = path.components().count();
-
-            let is_binary = entry
-                .to_object(repo)
-                .ok()
-                .and_then(|obj| obj.as_blob().map(|b| b.is_binary()))
-                .unwrap_or(false);
-
-            let size_bytes = entry
-                .to_object(repo)
-                .ok()
-                .and_then(|obj| obj.as_blob().map(|b| b.size()))
-                .unwrap_or(0) as u64;
-
-            files.push(FileEntry {
-                path,
-                size_bytes,
-                is_binary,
-                depth,
-                blob_oid: entry.id().to_string(),
-            });
-        }
-        git2::TreeWalkResult::Ok
-    })
-    .context("Failed to walk tree")?;
-
-    Ok(files)
+    collect_files_from_tree(repo, tree)
 }
 
 pub fn collect_files(repo: &Repository) -> Result<Vec<FileEntry>> {
     let head = repo.head().context("Failed to get HEAD")?;
     let tree = head.peel_to_tree().context("Failed to peel HEAD to tree")?;
-
-    let mut files = Vec::new();
-
-    tree.walk(git2::TreeWalkMode::PreOrder, |dir, entry| {
-        if entry.kind() == Some(git2::ObjectType::Blob) {
-            let name = entry.name().unwrap_or("");
-            let path = if dir.is_empty() {
-                PathBuf::from(name)
-            } else {
-                PathBuf::from(format!("{}{}", dir, name))
-            };
-
-            let depth = path.components().count();
-
-            let is_binary = entry
-                .to_object(repo)
-                .ok()
-                .and_then(|obj| obj.as_blob().map(|b| b.is_binary()))
-                .unwrap_or(false);
-
-            let size_bytes = entry
-                .to_object(repo)
-                .ok()
-                .and_then(|obj| obj.as_blob().map(|b| b.size()))
-                .unwrap_or(0) as u64;
-
-            files.push(FileEntry {
-                path,
-                size_bytes,
-                is_binary,
-                depth,
-                blob_oid: entry.id().to_string(),
-            });
-        }
-        git2::TreeWalkResult::Ok
-    })
-    .context("Failed to walk tree")?;
-
-    Ok(files)
+    collect_files_from_tree(repo, tree)
 }
