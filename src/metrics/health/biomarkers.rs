@@ -71,16 +71,8 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+    use crate::metrics::testutil::make_snapshot;
     use crate::snapshot::*;
-
-    fn make_snapshot() -> RepoSnapshot {
-        RepoSnapshot::new(
-            PathBuf::from("/tmp"),
-            "test".into(),
-            "main".into(),
-            TimeWindow::default(),
-        )
-    }
 
     fn add_normal_files(snapshot: &mut RepoSnapshot, count: usize) {
         for i in 0..count {

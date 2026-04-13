@@ -244,38 +244,20 @@ fn circular_dependencies(snapshot: &RepoSnapshot) -> MetricValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metrics::testutil::{make_file, make_snapshot};
     use crate::snapshot::*;
     use std::path::PathBuf;
 
-    fn empty_snapshot() -> RepoSnapshot {
-        RepoSnapshot::new(
-            PathBuf::from("/tmp"),
-            "test".into(),
-            "main".into(),
-            TimeWindow::default(),
-        )
-    }
-
-    fn make_file(name: &str) -> FileEntry {
-        FileEntry {
-            path: PathBuf::from(name),
-            size_bytes: 100,
-            is_binary: false,
-            depth: 1,
-            blob_oid: String::new(),
-        }
-    }
-
     #[test]
     fn afferent_coupling_empty_graph() {
-        let snapshot = empty_snapshot();
+        let snapshot = make_snapshot();
         let result = afferent_coupling(&snapshot);
         assert_eq!(result.score, 100);
     }
 
     #[test]
     fn afferent_coupling_single_hub_scores_well() {
-        let mut snapshot = empty_snapshot();
+        let mut snapshot = make_snapshot();
         // 20 source files + 1 hub → 21 files total, only core.rs has Ca=20
         // Median Ca across all 21 files = 0 (most have zero dependents) → score 100
         snapshot.files.push(make_file("core.rs"));
@@ -292,7 +274,7 @@ mod tests {
 
     #[test]
     fn afferent_coupling_widespread_deps_scores_lower() {
-        let mut snapshot = empty_snapshot();
+        let mut snapshot = make_snapshot();
         // 6 hub files, each depended on by 30 source files
         // All files in the repo: 6 hubs + 30 sources = 36
         // Ca distribution: 6 files with Ca=30, 30 files with Ca=0
@@ -317,7 +299,7 @@ mod tests {
 
     #[test]
     fn afferent_coupling_description_shows_distribution() {
-        let mut snapshot = empty_snapshot();
+        let mut snapshot = make_snapshot();
         snapshot.files.push(make_file("core.rs"));
         for i in 0..5 {
             let name = format!("f{}.rs", i);
@@ -334,14 +316,14 @@ mod tests {
 
     #[test]
     fn efferent_coupling_empty_graph() {
-        let snapshot = empty_snapshot();
+        let snapshot = make_snapshot();
         let result = efferent_coupling(&snapshot);
         assert_eq!(result.score, 100);
     }
 
     #[test]
     fn efferent_coupling_single_heavy_file_scores_well() {
-        let mut snapshot = empty_snapshot();
+        let mut snapshot = make_snapshot();
         // 36 files total: 1 heavy (25 imports), 10 light (1 import), 25 deps
         // Median Ce across 36 files: mostly 0 → score 100
         snapshot.files.push(make_file("main.rs"));
@@ -367,7 +349,7 @@ mod tests {
 
     #[test]
     fn efferent_coupling_all_heavy_scores_low() {
-        let mut snapshot = empty_snapshot();
+        let mut snapshot = make_snapshot();
         // 10 files, each imports 15 unique deps (all files in the repo)
         // All 10 files have Ce=15, no other files → median Ce=15 → score 25
         for i in 0..10 {
@@ -386,7 +368,7 @@ mod tests {
 
     #[test]
     fn efferent_coupling_description_shows_distribution() {
-        let mut snapshot = empty_snapshot();
+        let mut snapshot = make_snapshot();
         snapshot.files.push(make_file("a.rs"));
         snapshot.files.push(make_file("b.rs"));
         snapshot.files.push(make_file("c.rs"));
@@ -402,7 +384,7 @@ mod tests {
 
     #[test]
     fn circular_deps_none() {
-        let mut snapshot = empty_snapshot();
+        let mut snapshot = make_snapshot();
         snapshot
             .import_graph
             .insert(PathBuf::from("a.rs"), vec![PathBuf::from("b.rs")]);
@@ -413,7 +395,7 @@ mod tests {
 
     #[test]
     fn circular_deps_direct() {
-        let mut snapshot = empty_snapshot();
+        let mut snapshot = make_snapshot();
         snapshot
             .import_graph
             .insert(PathBuf::from("a.rs"), vec![PathBuf::from("b.rs")]);
@@ -426,7 +408,7 @@ mod tests {
 
     #[test]
     fn circular_deps_transitive_depth2() {
-        let mut snapshot = empty_snapshot();
+        let mut snapshot = make_snapshot();
         // A→B→C→A
         snapshot
             .import_graph
@@ -443,7 +425,7 @@ mod tests {
 
     #[test]
     fn circular_deps_many() {
-        let mut snapshot = empty_snapshot();
+        let mut snapshot = make_snapshot();
         // 6 direct cycles → score 25
         for i in 0..6 {
             let a = PathBuf::from(format!("a{}.rs", i));
@@ -488,7 +470,7 @@ mod tests {
 
     #[test]
     fn change_coupling_same_component_excluded() {
-        let mut snapshot = empty_snapshot();
+        let mut snapshot = make_snapshot();
         // Both files share the same depth-2 component "src/module"
         snapshot.file_change_pairs.push((
             PathBuf::from("src/module/a.rs"),
@@ -509,7 +491,7 @@ mod tests {
 
     #[test]
     fn change_coupling_cross_component_above_threshold_counted() {
-        let mut snapshot = empty_snapshot();
+        let mut snapshot = make_snapshot();
         snapshot.file_change_pairs.push((
             PathBuf::from("src/a.rs"),
             PathBuf::from("tests/b.rs"),
@@ -529,7 +511,7 @@ mod tests {
 
     #[test]
     fn change_coupling_ratio_below_threshold_excluded() {
-        let mut snapshot = empty_snapshot();
+        let mut snapshot = make_snapshot();
         snapshot.file_change_pairs.push((
             PathBuf::from("src/a.rs"),
             PathBuf::from("tests/b.rs"),
@@ -549,7 +531,7 @@ mod tests {
 
     #[test]
     fn change_coupling_missing_commits_entry_excluded() {
-        let mut snapshot = empty_snapshot();
+        let mut snapshot = make_snapshot();
         snapshot.file_change_pairs.push((
             PathBuf::from("src/a.rs"),
             PathBuf::from("tests/b.rs"),
@@ -561,7 +543,7 @@ mod tests {
     }
 
     fn make_cross_boundary_snapshot(n: usize) -> RepoSnapshot {
-        let mut snapshot = empty_snapshot();
+        let mut snapshot = make_snapshot();
         for i in 0..n {
             let a = PathBuf::from(format!("src/f{}.rs", i));
             let b = PathBuf::from(format!("tests/f{}.rs", i));
@@ -579,7 +561,7 @@ mod tests {
     #[test]
     fn change_coupling_scoring_bands() {
         assert_eq!(
-            change_coupling_smells(&empty_snapshot(), &default_thresholds()).score,
+            change_coupling_smells(&make_snapshot(), &default_thresholds()).score,
             100
         );
         assert_eq!(
@@ -598,7 +580,7 @@ mod tests {
 
     #[test]
     fn change_coupling_depth1_same_component() {
-        let mut snapshot = empty_snapshot();
+        let mut snapshot = make_snapshot();
         snapshot
             .file_change_pairs
             .push((PathBuf::from("src/a.rs"), PathBuf::from("src/b.rs"), 5));
@@ -616,7 +598,7 @@ mod tests {
 
     #[test]
     fn change_coupling_depth3_different_component() {
-        let mut snapshot = empty_snapshot();
+        let mut snapshot = make_snapshot();
         snapshot.file_change_pairs.push((
             PathBuf::from("a/b/c/file.rs"),
             PathBuf::from("a/b/d/file.rs"),
@@ -636,7 +618,7 @@ mod tests {
 
     #[test]
     fn compute_coupling_returns_four_metrics() {
-        let snapshot = empty_snapshot();
+        let snapshot = make_snapshot();
         let result = compute_coupling(&snapshot, &CouplingThresholds::default());
         assert_eq!(result.metrics.len(), 4);
         assert_eq!(result.name, "Coupling");

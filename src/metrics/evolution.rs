@@ -316,6 +316,7 @@ fn commit_cadence(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metrics::testutil::make_snapshot;
     use crate::snapshot::*;
     use chrono::Duration;
     use std::path::PathBuf;
@@ -363,15 +364,6 @@ mod tests {
             RawValue::Integer(v) => assert_eq!(v, 15),
             _ => panic!("Expected Integer"),
         }
-    }
-
-    fn make_snapshot() -> RepoSnapshot {
-        RepoSnapshot::new(
-            PathBuf::from("/tmp"),
-            "test".into(),
-            "main".into(),
-            TimeWindow::default(),
-        )
     }
 
     fn plain_commit(id: u32, msg: &str, ts: chrono::DateTime<Utc>) -> Commit {

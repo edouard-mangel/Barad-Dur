@@ -4,6 +4,8 @@ pub mod evolution;
 pub mod health;
 pub mod hygiene;
 pub mod team;
+#[cfg(test)]
+pub mod testutil;
 
 use std::collections::HashMap;
 

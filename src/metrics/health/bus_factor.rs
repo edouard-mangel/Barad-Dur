@@ -63,6 +63,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+    use crate::metrics::testutil::{make_snapshot, two_authors};
     use crate::snapshot::*;
     use chrono::Utc;
 
@@ -108,28 +109,8 @@ mod tests {
         assert!(is_file_author_dominated(&lines));
     }
 
-    fn two_authors() -> Vec<Author> {
-        vec![
-            Author {
-                id: 0,
-                name: "Alice".into(),
-                email: "alice@test.com".into(),
-            },
-            Author {
-                id: 1,
-                name: "Bob".into(),
-                email: "bob@test.com".into(),
-            },
-        ]
-    }
-
     fn make_snapshot_with_blame() -> RepoSnapshot {
-        let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"),
-            "test".into(),
-            "main".into(),
-            TimeWindow::default(),
-        );
+        let mut snapshot = make_snapshot();
         snapshot.authors = two_authors();
         let now = Utc::now();
         let mut blame_file1 = Vec::new();
@@ -147,12 +128,7 @@ mod tests {
 
     #[test]
     fn bus_factor_solo_project_scores_100() {
-        let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"),
-            "test".into(),
-            "main".into(),
-            TimeWindow::default(),
-        );
+        let mut snapshot = make_snapshot();
         snapshot.authors = vec![Author {
             id: 0,
             name: "Alice".into(),
@@ -182,12 +158,7 @@ mod tests {
     #[test]
     fn bus_factor_scores_100_when_few_dominated() {
         // 5 files, all 50/50 split → 0% dominated → score 100
-        let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"),
-            "test".into(),
-            "main".into(),
-            TimeWindow::default(),
-        );
+        let mut snapshot = make_snapshot();
         snapshot.authors = two_authors();
         let now = Utc::now();
         for i in 0..5 {
@@ -209,12 +180,7 @@ mod tests {
     #[test]
     fn bus_factor_scores_75_when_some_dominated() {
         // 5 files: 1 dominated (author 0 owns 80%) + 4 not dominated → 20% → score 75
-        let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"),
-            "test".into(),
-            "main".into(),
-            TimeWindow::default(),
-        );
+        let mut snapshot = make_snapshot();
         snapshot.authors = two_authors();
         let now = Utc::now();
         let dominated: Vec<BlameLine> = (0..100)
@@ -239,12 +205,7 @@ mod tests {
     fn bus_factor_exact_50pct_not_dominated() {
         // A file where author 0 owns exactly 50% of lines is NOT dominated
         // because dominance requires max * 2 > total (strict majority)
-        let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"),
-            "test".into(),
-            "main".into(),
-            TimeWindow::default(),
-        );
+        let mut snapshot = make_snapshot();
         snapshot.authors = two_authors();
         let now = Utc::now();
         let lines: Vec<BlameLine> = (0..100)
@@ -263,12 +224,7 @@ mod tests {
     #[test]
     fn bus_factor_scores_75_at_exactly_10pct() {
         // exactly 10% dominated → NOT < 10.0, so score 75 not 100
-        let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"),
-            "test".into(),
-            "main".into(),
-            TimeWindow::default(),
-        );
+        let mut snapshot = make_snapshot();
         snapshot.authors = two_authors();
         let now = Utc::now();
         let dominated: Vec<BlameLine> = (0..100)
@@ -292,12 +248,7 @@ mod tests {
     #[test]
     fn bus_factor_scores_50_at_exactly_25pct() {
         // 5 dominated out of 20 = exactly 25% → NOT < 25.0, score 50 not 75
-        let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"),
-            "test".into(),
-            "main".into(),
-            TimeWindow::default(),
-        );
+        let mut snapshot = make_snapshot();
         snapshot.authors = two_authors();
         let now = Utc::now();
         for i in 0..5 {
@@ -323,12 +274,7 @@ mod tests {
     #[test]
     fn bus_factor_scores_25_at_exactly_50pct() {
         // exactly 50% dominated → NOT < 50.0, so falls to else → score 25 not 50
-        let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"),
-            "test".into(),
-            "main".into(),
-            TimeWindow::default(),
-        );
+        let mut snapshot = make_snapshot();
         snapshot.authors = two_authors();
         let now = Utc::now();
         for i in 0..2 {

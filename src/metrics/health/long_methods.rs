@@ -63,25 +63,8 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+    use crate::metrics::testutil::{make_snapshot, normal_function};
     use crate::snapshot::*;
-
-    fn make_snapshot() -> RepoSnapshot {
-        RepoSnapshot::new(
-            PathBuf::from("/tmp"),
-            "test".into(),
-            "main".into(),
-            TimeWindow::default(),
-        )
-    }
-
-    fn normal_function(name: &str) -> FunctionMetrics {
-        FunctionMetrics {
-            name: name.to_string(),
-            loc: 20,
-            cyclomatic_complexity: 3,
-            max_nesting_depth: 2,
-        }
-    }
 
     fn add_file_with_functions(
         snapshot: &mut RepoSnapshot,
