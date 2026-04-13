@@ -107,7 +107,7 @@ impl<'a> BlameParserState<'a> {
     }
 
     fn process_line(&mut self, line: &str) {
-        if line.len() >= 40 && line.chars().take(40).all(|c| c.is_ascii_hexdigit()) {
+        if line.len() >= 40 && line.as_bytes()[..40].iter().all(|b| b.is_ascii_hexdigit()) {
             // commit header line — no fields to extract
         } else if let Some(mail) = line.strip_prefix("author-mail <") {
             self.current_email = Some(mail.trim_end_matches('>').to_lowercase());

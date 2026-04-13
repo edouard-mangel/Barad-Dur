@@ -356,34 +356,24 @@ fn build_time_window_from_config(cfg: &RepoConfig, args: &AnalyzeArgs) -> TimeWi
     }
 }
 
+fn parse_relative(spec: &str, suffixes: &[&str], days_per_unit: i64) -> Option<i64> {
+    suffixes
+        .iter()
+        .find_map(|s| spec.strip_suffix(s))
+        .and_then(|n| n.trim().parse::<i64>().ok())
+        .map(|n| n * days_per_unit)
+}
+
 fn parse_time_spec(
     spec: &str,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Option<chrono::DateTime<chrono::Utc>> {
     // Try relative format: "3months", "6months", "1year", "30days"
-    if let Some(months) = spec
-        .strip_suffix("months")
-        .or_else(|| spec.strip_suffix("month"))
+    if let Some(days) = parse_relative(spec, &["months", "month"], 30)
+        .or_else(|| parse_relative(spec, &["days", "day"], 1))
+        .or_else(|| parse_relative(spec, &["years", "year"], 365))
     {
-        if let Ok(m) = months.trim().parse::<i64>() {
-            return Some(now - chrono::Duration::days(m * 30));
-        }
-    }
-    if let Some(days) = spec
-        .strip_suffix("days")
-        .or_else(|| spec.strip_suffix("day"))
-    {
-        if let Ok(d) = days.trim().parse::<i64>() {
-            return Some(now - chrono::Duration::days(d));
-        }
-    }
-    if let Some(years) = spec
-        .strip_suffix("years")
-        .or_else(|| spec.strip_suffix("year"))
-    {
-        if let Ok(y) = years.trim().parse::<i64>() {
-            return Some(now - chrono::Duration::days(y * 365));
-        }
+        return Some(now - chrono::Duration::days(days));
     }
 
     // Try ISO date format: "2024-01-01"
