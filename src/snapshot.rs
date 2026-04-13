@@ -263,7 +263,6 @@ impl RepoSnapshot {
     }
 
     fn build_file_change_pairs(&mut self) {
-        use std::collections::HashMap as Map;
         use std::collections::HashSet;
 
         // Only consider files present in the (already filtered) file tree.
@@ -271,37 +270,48 @@ impl RepoSnapshot {
         // appear in coupling pairs.
         let known_files: HashSet<&PathBuf> = self.files.iter().map(|f| &f.path).collect();
 
-        let mut pair_counts: Map<(PathBuf, PathBuf), usize> = Map::new();
-
-        for commit in &self.commits {
-            let paths: Vec<&PathBuf> = commit
-                .files_changed
-                .iter()
-                .map(|fc| &fc.path)
-                .filter(|p| known_files.contains(p))
-                .collect();
-            for i in 0..paths.len() {
-                for j in (i + 1)..paths.len() {
-                    let (a, b) = if paths[i] < paths[j] {
-                        (paths[i].clone(), paths[j].clone())
-                    } else {
-                        (paths[j].clone(), paths[i].clone())
-                    };
-                    *pair_counts.entry((a, b)).or_insert(0) += 1;
-                }
-            }
-        }
-
-        // Keep pairs with at least 3 co-changes
-        self.file_change_pairs = pair_counts
-            .into_iter()
-            .filter(|&(_, count)| count >= 3)
-            .map(|((a, b), count)| (a, b, count))
-            .collect();
+        let mut pairs = count_co_changed_pairs(&self.commits, &known_files);
 
         // Sort by count descending for easy access
-        self.file_change_pairs.sort_by(|a, b| b.2.cmp(&a.2));
+        pairs.sort_by(|a, b| b.2.cmp(&a.2));
+        self.file_change_pairs = pairs;
     }
+}
+
+/// Count co-changed file pairs across commits, filtering to known files.
+/// Returns pairs with at least 3 co-changes, unsorted.
+fn count_co_changed_pairs(
+    commits: &[Commit],
+    known_files: &std::collections::HashSet<&PathBuf>,
+) -> Vec<(PathBuf, PathBuf, usize)> {
+    use std::collections::HashMap as Map;
+
+    let mut pair_counts: Map<(PathBuf, PathBuf), usize> = Map::new();
+
+    for commit in commits {
+        let paths: Vec<&PathBuf> = commit
+            .files_changed
+            .iter()
+            .map(|fc| &fc.path)
+            .filter(|p| known_files.contains(p))
+            .collect();
+        for i in 0..paths.len() {
+            for j in (i + 1)..paths.len() {
+                let (a, b) = if paths[i] < paths[j] {
+                    (paths[i].clone(), paths[j].clone())
+                } else {
+                    (paths[j].clone(), paths[i].clone())
+                };
+                *pair_counts.entry((a, b)).or_insert(0) += 1;
+            }
+        }
+    }
+
+    pair_counts
+        .into_iter()
+        .filter(|&(_, count)| count >= 3)
+        .map(|((a, b), count)| (a, b, count))
+        .collect()
 }
 
 #[cfg(test)]
