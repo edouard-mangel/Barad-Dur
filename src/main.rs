@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use clap::Parser;
 use std::io::IsTerminal;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use barad_dur::backfill;
 use barad_dur::cache;
@@ -135,50 +135,65 @@ fn run_analyze(args: AnalyzeArgs) -> Result<()> {
         eprintln!("  Scoring: {}ms", t.elapsed().as_millis());
     }
 
-    // Load history BEFORE appending the current entry so compute_trend sees
-    // only prior runs (the current entry is passed separately).
-    // If the file exists but is fully unparseable (corruption), archive it and
-    // warn the user, then start fresh.
+    let trend_summary = compute_trend_and_update_history(&mut report, &local_path, &current_head);
+
+    render_and_write(&report, &args, &cfg, &trend_summary, &local_path)?;
+
+    Ok(())
+}
+
+/// Load prior history, compute the trend summary, append the current entry,
+/// and populate `report.history` for the HTML Trends tab.
+fn compute_trend_and_update_history(
+    report: &mut scorer::AnalysisReport,
+    local_path: &Path,
+    current_head: &str,
+) -> trend::TrendSummary {
+    // Load BEFORE appending so compute_trend sees only prior runs.
+    // On corruption, archive the file and start fresh.
     let (prior_history, history_warning) =
-        cache::history::load_history_checked(&local_path).unwrap_or_default();
+        cache::history::load_history_checked(local_path).unwrap_or_default();
     if let Some(ref warning) = history_warning {
         println!("{}", warning);
     }
 
-    // Build the current history entry (not yet appended).
-    let history_entry = scorer::build_history_entry(&report, &current_head, None);
-
-    // Compute trend from prior history vs current entry.
+    let history_entry = scorer::build_history_entry(report, current_head, None);
     let trend_summary = trend::compute_trend(&prior_history, &report.branch, &history_entry);
 
-    // Record history entry (deduplicated by HEAD).
-    if let Err(e) = cache::history::append_if_new_head(&history_entry, &local_path) {
+    if let Err(e) = cache::history::append_if_new_head(&history_entry, local_path) {
         eprintln!("Warning: Failed to record history: {}", e);
     }
 
-    // Load history for report (used by HTML Trends tab).
-    report.history = cache::history::load_history(&local_path).unwrap_or_default();
+    report.history = cache::history::load_history(local_path).unwrap_or_default();
+    trend_summary
+}
 
-    // Render
+/// Render the report to a string and write it to stdout, a file, or open it in a browser.
+fn render_and_write(
+    report: &scorer::AnalysisReport,
+    args: &AnalyzeArgs,
+    cfg: &config::RepoConfig,
+    trend_summary: &trend::TrendSummary,
+    local_path: &Path,
+) -> Result<()> {
     let t = std::time::Instant::now();
     let is_html = matches!(cfg.output_format, config::OutputFormat::Html);
     let json_trend = if args.trend {
-        Some(&trend_summary)
+        Some(trend_summary)
     } else {
         None
     };
     let output = match cfg.output_format {
-        config::OutputFormat::Json => renderer::json::render(&report, args.pretty, json_trend)?,
-        config::OutputFormat::Html => renderer::html::render(&report)?,
+        config::OutputFormat::Json => renderer::json::render(report, args.pretty, json_trend)?,
+        config::OutputFormat::Html => renderer::html::render(report)?,
         config::OutputFormat::Cli => {
-            renderer::cli::render(&report, args.verbose, Some(&trend_summary))
+            renderer::cli::render(report, args.verbose, Some(trend_summary))
         }
     };
     if args.verbose > 0 {
         eprintln!("  Render: {}ms", t.elapsed().as_millis());
     }
 
-    // Write output
     let should_open = cfg.auto_open && is_html;
     if should_open {
         let path = if let Some(ref p) = args.output {
@@ -632,4 +647,97 @@ fn compute_selected_metrics(
     }
 
     categories
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    // --- parse_relative ---
+
+    #[test]
+    fn parse_relative_plural_suffix() {
+        assert_eq!(
+            parse_relative("3months", &["months", "month"], 30),
+            Some(90)
+        );
+    }
+
+    #[test]
+    fn parse_relative_singular_suffix() {
+        assert_eq!(parse_relative("1month", &["months", "month"], 30), Some(30));
+    }
+
+    #[test]
+    fn parse_relative_days() {
+        assert_eq!(parse_relative("30days", &["days", "day"], 1), Some(30));
+        assert_eq!(parse_relative("1day", &["days", "day"], 1), Some(1));
+    }
+
+    #[test]
+    fn parse_relative_years() {
+        assert_eq!(parse_relative("2years", &["years", "year"], 365), Some(730));
+        assert_eq!(parse_relative("1year", &["years", "year"], 365), Some(365));
+    }
+
+    #[test]
+    fn parse_relative_trims_whitespace() {
+        assert_eq!(
+            parse_relative("3 months", &["months", "month"], 30),
+            Some(90)
+        );
+    }
+
+    #[test]
+    fn parse_relative_non_numeric_returns_none() {
+        assert_eq!(parse_relative("fewmonths", &["months", "month"], 30), None);
+    }
+
+    #[test]
+    fn parse_relative_no_matching_suffix_returns_none() {
+        assert_eq!(parse_relative("3years", &["months", "month"], 30), None);
+    }
+
+    // --- parse_time_spec ---
+
+    #[test]
+    fn parse_time_spec_months() {
+        let now = Utc::now();
+        let result = parse_time_spec("6months", now).unwrap();
+        let diff = (now - result).num_days();
+        assert!(
+            (179..=181).contains(&diff),
+            "6months should be ~180 days, got {diff}"
+        );
+    }
+
+    #[test]
+    fn parse_time_spec_days() {
+        let now = Utc::now();
+        let result = parse_time_spec("30days", now).unwrap();
+        let diff = (now - result).num_days();
+        assert_eq!(diff, 30);
+    }
+
+    #[test]
+    fn parse_time_spec_years() {
+        let now = Utc::now();
+        let result = parse_time_spec("1year", now).unwrap();
+        let diff = (now - result).num_days();
+        assert_eq!(diff, 365);
+    }
+
+    #[test]
+    fn parse_time_spec_iso_date() {
+        let now = Utc::now();
+        let result = parse_time_spec("2024-01-15", now).unwrap();
+        assert_eq!(result.format("%Y-%m-%d").to_string(), "2024-01-15");
+    }
+
+    #[test]
+    fn parse_time_spec_invalid_returns_none() {
+        let now = Utc::now();
+        assert!(parse_time_spec("not-a-date", now).is_none());
+    }
 }
