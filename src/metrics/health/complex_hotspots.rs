@@ -27,13 +27,7 @@ pub(super) fn complex_hotspots(snapshot: &RepoSnapshot) -> MetricValue {
             .map(|m| m.cyclomatic_complexity)
             .collect(),
     );
-    let churn_p75 = percentile_75(
-        snapshot
-            .commits_by_file
-            .values()
-            .map(|c| c.len())
-            .collect(),
-    );
+    let churn_p75 = percentile_75(snapshot.commits_by_file.values().map(|c| c.len()).collect());
 
     let hotspots: Vec<String> = snapshot
         .file_metrics
@@ -94,7 +88,10 @@ mod tests {
     #[test]
     fn percentile_75_unsorted_input_sorted_before_lookup() {
         // Same values in reverse — must sort first
-        assert_eq!(percentile_75(vec![10u32, 8, 6, 4, 2]), percentile_75(vec![2u32, 4, 6, 8, 10]));
+        assert_eq!(
+            percentile_75(vec![10u32, 8, 6, 4, 2]),
+            percentile_75(vec![2u32, 4, 6, 8, 10])
+        );
     }
 
     #[test]

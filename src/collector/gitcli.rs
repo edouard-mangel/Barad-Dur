@@ -117,8 +117,7 @@ impl<'a> BlameParserState<'a> {
             }
         } else if line.starts_with('\t') {
             // actual source line — finalize the blame entry
-            if let (Some(email), Some(timestamp)) = (&self.current_email, &self.current_timestamp)
-            {
+            if let (Some(email), Some(timestamp)) = (&self.current_email, &self.current_timestamp) {
                 let author_id = self.email_to_id.get(email.as_str()).copied().unwrap_or(0);
                 self.lines.push(BlameLine {
                     author_id,
