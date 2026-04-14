@@ -3,7 +3,7 @@ name = "barad-dur"
 version = "0.11.0"
 edition = "2021"
 description = "The all-seeing repository analyzer"
-license = "MIT"
+license = "GPL-3.0-only"
 
 [dependencies]
 git2 = "0.20"
