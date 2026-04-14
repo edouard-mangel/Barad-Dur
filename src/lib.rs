@@ -1,4 +1,6 @@
 pub mod backfill;
+pub mod cmd;
+pub mod runner;
 pub mod cache;
 pub mod cli;
 pub mod collector;
