@@ -1,6 +1,7 @@
 # Barad-dur
 
 [![CI](https://lab.frogg.it/Edouard_Mangel/barad-dur/badges/main/pipeline.svg)](https://lab.frogg.it/Edouard_Mangel/barad-dur/-/pipelines)
+[![crates.io](https://img.shields.io/crates/v/barad-dur)](https://crates.io/crates/barad-dur)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.85+-orange)](https://www.rust-lang.org)
 
@@ -72,6 +73,12 @@ A self-contained single-file HTML report with:
 No external dependencies — all CSS, JS, and data are inlined. Works offline. Dark theme.
 
 ## Installation
+
+### From crates.io
+
+```bash
+cargo install barad-dur
+```
 
 ### Prerequisites
 
