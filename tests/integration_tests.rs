@@ -118,3 +118,18 @@ fn analyze_output_to_file() {
         serde_json::from_str(&content).expect("File should contain valid JSON");
     assert!(json["overall_score"].is_number());
 }
+
+#[test]
+fn analyze_without_deps_flag_omits_deps_category() {
+    let output = Command::cargo_bin("barad-dur").unwrap()
+        .args(["analyze", ".", "--json"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output().unwrap();
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let categories: Vec<&str> = json["categories"].as_array().unwrap()
+        .iter().filter_map(|c| c["name"].as_str()).collect();
+
+    assert!(!categories.contains(&"Dependencies"),
+        "Dependencies should not appear without --deps flag");
+}
