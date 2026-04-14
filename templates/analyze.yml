@@ -3,6 +3,7 @@ spec:
     min_score:
       default: ""
       description: "Quality gate threshold 0–100. Empty string = disabled."
+      regex: '^([0-9]{1,3})?$'
     version:
       default: ""
       description: "Pin a barad-dur release tag, e.g. 'v0.12.0'. Empty = latest."
@@ -31,8 +32,8 @@ barad-dur-analyze:
         VERSION=$(curl -sf --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
           "${BARAD_DUR_REGISTRY}/releases/permalink/latest" \
           | jq -r '.tag_name')
-        [ -n "$VERSION" ] || { echo "ERROR: could not resolve latest barad-dur version" >&2; exit 1; }
       fi
+      [ -n "$VERSION" ] || { echo "ERROR: could not resolve latest barad-dur version" >&2; exit 1; }
       echo "Downloading barad-dur ${VERSION}"
       curl -fL --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
         "${BARAD_DUR_REGISTRY}/packages/generic/barad-dur/${VERSION}/barad-dur-linux-x86_64" \
