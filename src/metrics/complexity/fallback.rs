@@ -84,157 +84,178 @@ fn count_complexity(content: &str) -> u32 {
     count
 }
 
-fn count_public_methods(content: &str, lang: Language) -> u32 {
+fn pub_methods_rust(content: &str) -> u32 {
+    content
+        .lines()
+        .filter(|line| {
+            let t = line.trim();
+            t.starts_with("pub fn ") || t.starts_with("pub async fn ")
+        })
+        .count() as u32
+}
+
+fn pub_methods_jsts(content: &str) -> u32 {
+    content
+        .lines()
+        .filter(|line| {
+            let t = line.trim();
+            !t.starts_with("//")
+                && (t.starts_with("export function ")
+                    || t.starts_with("export async function ")
+                    || t.starts_with("export const ")
+                    || (t.contains("public ") && t.contains('(')))
+        })
+        .count() as u32
+}
+
+fn pub_methods_python(content: &str) -> u32 {
+    content
+        .lines()
+        .filter(|line| {
+            let t = line.trim();
+            t.starts_with("def ") && !t.starts_with("def _")
+        })
+        .count() as u32
+}
+
+fn pub_methods_go(content: &str) -> u32 {
     let mut count = 0u32;
-    match lang {
-        Language::Rust => {
-            for line in content.lines() {
-                let t = line.trim();
-                if t.starts_with("pub fn ") || t.starts_with("pub async fn ") {
-                    count += 1;
-                }
+    for line in content.lines() {
+        let t = line.trim();
+        if let Some(rest) = t.strip_prefix("func ") {
+            let name_start = if rest.starts_with('(') {
+                rest.find(')').map(|i| rest[i + 1..].trim()).unwrap_or("")
+            } else {
+                rest
+            };
+            if name_start
+                .chars()
+                .next()
+                .map(|c| c.is_uppercase())
+                .unwrap_or(false)
+            {
+                count += 1;
             }
         }
-        Language::JsTs => {
-            for line in content.lines() {
-                let t = line.trim();
-                if !t.starts_with("//")
-                    && (t.starts_with("export function ")
-                        || t.starts_with("export async function ")
-                        || t.starts_with("export const ")
-                        || (t.contains("public ") && t.contains('(')))
-                {
-                    count += 1;
-                }
-            }
-        }
-        Language::Python => {
-            for line in content.lines() {
-                let t = line.trim();
-                if t.starts_with("def ") && !t.starts_with("def _") {
-                    count += 1;
-                }
-            }
-        }
-        Language::Go => {
-            for line in content.lines() {
-                let t = line.trim();
-                if let Some(rest) = t.strip_prefix("func ") {
-                    let name_start = if rest.starts_with('(') {
-                        rest.find(')').map(|i| rest[i + 1..].trim()).unwrap_or("")
-                    } else {
-                        rest
-                    };
-                    if name_start
-                        .chars()
-                        .next()
-                        .map(|c| c.is_uppercase())
-                        .unwrap_or(false)
-                    {
-                        count += 1;
-                    }
-                }
-            }
-        }
-        Language::Java | Language::Kotlin | Language::CSharp => {
-            for line in content.lines() {
-                let t = line.trim();
-                if t.starts_with("public ")
-                    && t.contains('(')
-                    && !t.starts_with("public class")
-                    && !t.starts_with("public interface")
-                    && !t.starts_with("//")
-                {
-                    count += 1;
-                }
-            }
-        }
-        Language::Generic => {}
     }
     count
 }
 
-fn count_properties(content: &str, lang: Language) -> u32 {
-    let mut count = 0u32;
+fn pub_methods_jvm(content: &str) -> u32 {
+    content
+        .lines()
+        .filter(|line| {
+            let t = line.trim();
+            t.starts_with("public ")
+                && t.contains('(')
+                && !t.starts_with("public class")
+                && !t.starts_with("public interface")
+                && !t.starts_with("//")
+        })
+        .count() as u32
+}
+
+fn count_public_methods(content: &str, lang: Language) -> u32 {
     match lang {
-        Language::Rust => {
-            for line in content.lines() {
-                let t = line.trim();
-                if t.starts_with("pub ")
-                    && t.contains(':')
-                    && !t.starts_with("pub fn")
-                    && !t.starts_with("pub async fn")
-                    && !t.starts_with("pub struct")
-                    && !t.starts_with("pub enum")
-                    && !t.starts_with("pub mod")
-                    && !t.starts_with("pub use")
-                    && !t.starts_with("pub type")
-                    && !t.starts_with("pub trait")
-                    && !t.starts_with("pub const")
-                    && !t.starts_with("pub static")
-                    && !t.starts_with("//")
-                {
-                    count += 1;
-                }
-            }
-        }
-        Language::JsTs => {
-            for line in content.lines() {
-                let t = line.trim();
-                if (t.starts_with("this.") && t.contains(" = "))
-                    || ((t.starts_with("private ")
-                        || t.starts_with("public ")
-                        || t.starts_with("protected ")
-                        || t.starts_with("readonly "))
-                        && t.contains(':')
-                        && !t.contains('('))
-                {
-                    count += 1;
-                }
-            }
-        }
-        Language::Python => {
-            for line in content.lines() {
-                let t = line.trim();
-                if t.starts_with("self.") && t.contains(" = ") {
-                    count += 1;
-                }
-            }
-        }
-        Language::Go => {
-            for line in content.lines() {
-                let t = line.trim();
-                if t.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
-                    && (t.contains("string")
-                        || t.contains("int")
-                        || t.contains("bool")
-                        || t.contains("float")
-                        || t.contains("[]")
-                        || t.contains("map["))
-                    && !t.contains('(')
-                    && !t.starts_with("//")
-                {
-                    count += 1;
-                }
-            }
-        }
-        Language::Java | Language::Kotlin | Language::CSharp => {
-            for line in content.lines() {
-                let t = line.trim();
-                if (t.starts_with("private ")
-                    || t.starts_with("public ")
-                    || t.starts_with("protected "))
-                    && !t.contains('(')
-                    && t.contains(';')
-                    && !t.starts_with("//")
-                {
-                    count += 1;
-                }
-            }
-        }
-        Language::Generic => {}
+        Language::Rust => pub_methods_rust(content),
+        Language::JsTs => pub_methods_jsts(content),
+        Language::Python => pub_methods_python(content),
+        Language::Go => pub_methods_go(content),
+        Language::Java | Language::Kotlin | Language::CSharp => pub_methods_jvm(content),
+        Language::Generic => 0,
     }
-    count
+}
+
+fn props_rust(content: &str) -> u32 {
+    content
+        .lines()
+        .filter(|line| {
+            let t = line.trim();
+            t.starts_with("pub ")
+                && t.contains(':')
+                && !t.starts_with("pub fn")
+                && !t.starts_with("pub async fn")
+                && !t.starts_with("pub struct")
+                && !t.starts_with("pub enum")
+                && !t.starts_with("pub mod")
+                && !t.starts_with("pub use")
+                && !t.starts_with("pub type")
+                && !t.starts_with("pub trait")
+                && !t.starts_with("pub const")
+                && !t.starts_with("pub static")
+                && !t.starts_with("//")
+        })
+        .count() as u32
+}
+
+fn props_jsts(content: &str) -> u32 {
+    content
+        .lines()
+        .filter(|line| {
+            let t = line.trim();
+            (t.starts_with("this.") && t.contains(" = "))
+                || ((t.starts_with("private ")
+                    || t.starts_with("public ")
+                    || t.starts_with("protected ")
+                    || t.starts_with("readonly "))
+                    && t.contains(':')
+                    && !t.contains('('))
+        })
+        .count() as u32
+}
+
+fn props_python(content: &str) -> u32 {
+    content
+        .lines()
+        .filter(|line| {
+            let t = line.trim();
+            t.starts_with("self.") && t.contains(" = ")
+        })
+        .count() as u32
+}
+
+fn props_go(content: &str) -> u32 {
+    content
+        .lines()
+        .filter(|line| {
+            let t = line.trim();
+            t.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
+                && (t.contains("string")
+                    || t.contains("int")
+                    || t.contains("bool")
+                    || t.contains("float")
+                    || t.contains("[]")
+                    || t.contains("map["))
+                && !t.contains('(')
+                && !t.starts_with("//")
+        })
+        .count() as u32
+}
+
+fn props_jvm(content: &str) -> u32 {
+    content
+        .lines()
+        .filter(|line| {
+            let t = line.trim();
+            (t.starts_with("private ")
+                || t.starts_with("public ")
+                || t.starts_with("protected "))
+                && !t.contains('(')
+                && t.contains(';')
+                && !t.starts_with("//")
+        })
+        .count() as u32
+}
+
+fn count_properties(content: &str, lang: Language) -> u32 {
+    match lang {
+        Language::Rust => props_rust(content),
+        Language::JsTs => props_jsts(content),
+        Language::Python => props_python(content),
+        Language::Go => props_go(content),
+        Language::Java | Language::Kotlin | Language::CSharp => props_jvm(content),
+        Language::Generic => 0,
+    }
 }
 
 #[cfg(test)]
