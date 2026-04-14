@@ -169,7 +169,7 @@ Weights are user-configurable via `.repository-analysis/barad-dur.toml` `[weight
 **Rationale:**
 - Git metadata (commits, blame, file tree) forms the foundation — language-agnostic, works for any project
 - Line-based heuristics (keyword matching, pattern scanning) provide useful complexity metrics (LOC, cyclomatic complexity, public methods, properties) with zero external dependencies
-- Language-aware parsing currently covers Rust, JS/TS, Python, Go, and JVM (Java/Kotlin/C#)
+- Language-aware parsing currently covers Rust, JS/TS, Python, Go, JVM (Java/Kotlin), and CLR (C#)
 - Trade-off: heuristics miscount keywords in strings/comments and miss multi-line constructs. Acceptable for v1 scoring
 - v2 will add tree-sitter for accurate AST parsing, enabling precise cyclomatic complexity, function length, and import graph analysis
 

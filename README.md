@@ -34,7 +34,8 @@ Beyond git metadata, Barad-dur performs **static complexity analysis** on source
 | JavaScript/TypeScript | `.js`, `.ts`, `.jsx`, `.tsx`, `.mjs`, `.cjs` | Exports, public class members, properties |
 | Python | `.py` | Public defs, `self.*` properties |
 | Go | `.go` | Exported functions (uppercase), exported struct fields |
-| JVM (Java/Kotlin/C#) | `.java`, `.kt`, `.kts`, `.cs` | Public methods, field declarations |
+| JVM (Java/Kotlin) | `.java`, `.kt`, `.kts` | Public methods, field declarations |
+| CLR (C#) | `.cs` | Public methods, field declarations |
 
 This produces per-file metrics: **LOC** (excluding blanks/comments), **cyclomatic complexity** (decision points), **public methods**, and **properties**. These feed into the hotspot analysis (churn x complexity x size).
 
