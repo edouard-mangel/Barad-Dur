@@ -1,5 +1,9 @@
 # Barad-dur
 
+[![CI](https://lab.frogg.it/Edouard_Mangel/barad-dur/badges/main/pipeline.svg)](https://lab.frogg.it/Edouard_Mangel/barad-dur/-/pipelines)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.85+-orange)](https://www.rust-lang.org)
+
 The all-seeing repository analyzer. Get health metrics, team insights, and actionable recommendations for any git repository — local or remote.
 
 Named after the Dark Tower of Mordor — because nothing escapes its gaze.
@@ -279,10 +283,6 @@ cargo run -- analyze . -v
 - Interactive config editor (see [backlog](docs/BACKLOG.md))
 - Provide barad-dur as a gitlab-ci executable. 
 
-## gstack
-
-use the /browse skill from gstack for all web browsing, never use mcp__claude-in-chrome__* tools, and lists the available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review, /design-consultation, /review, /ship, /land-and-deploy, /canary, /benchmark, /browse, /qa, /qa-only, /design-review, /setup-browser-cookies, /setup-deploy, /retro, /investigate, /document-release, /codex, /cso, /autoplan, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade.
-
 ## License
 
-TBD
+GPL-3.0-only — see [LICENSE](LICENSE).

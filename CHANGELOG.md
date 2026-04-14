@@ -1,0 +1,70 @@
+# Changelog
+
+All notable changes to this project will be documented here.
+
+## [0.11.0] - 2026-04-14
+
+### Changed
+- CI: merged clippy into build job to reduce runner allocations
+- CI: run fmt, clippy, and test in parallel for faster pipelines
+- CI: add timeouts, `cargo audit`, and binary artifact reuse between jobs
+
+### Fixed
+- Upgrade `git2` to 0.20 (resolves RUSTSEC-2026-0008 — potential UB on `Buf` dereference)
+
+### Internal
+- Extract `run_analyze` phases and test `parse_relative` as pure functions
+- Extract shared test helpers to `metrics::testutil`
+
+## [0.10.0] - 2026-03-28
+
+### Added
+- RLE-aware ownership: run-length encoding for blame output reduces memory on large files
+- Stable median calculation for more deterministic scoring
+- `BARAD_DUR_TEST_REPO` env var for integration test isolation
+
+### Fixed
+- `manual_is_multiple_of` clippy lint for stable Rust compatibility
+
+## [0.9.0] - 2026-03-20
+
+### Added
+- Distribution template (`templates/analyze.yml`) for including barad-dur in other GitLab CI pipelines
+- GitLab Pages landing page (`/`) with the HTML report at `/report.html`
+- Binary download from package registry (no Docker required in consumer pipelines)
+
+### Fixed
+- Accessibility issues in the Pages landing page
+
+## [0.8.0] - 2026-03-10
+
+### Added
+- Temporal coupling matrix heatmap tab with dimension filter checkboxes
+- Interactive force-directed graph in HTML coupling report
+- Multi-repo coupling detection
+- Cross-repo CI pipeline integration
+
+### Changed
+- Coupling algorithm: replaced O(n²) pairwise loop with merged-timeline scan (significant speedup on large repos)
+- Pre-sized collections and per-repo data caching for coupling
+
+## [0.7.0] — earlier
+
+### Added
+- File age tab with staleness bands (Fresh / >3mo / >6mo / >1y)
+- Ownership tab with per-file blame breakdown and author legend
+
+## [0.6.0]
+
+### Added
+- Author report cards
+- Cross-tab drill-through links in HTML report
+- CI quality gate (`barad-dur gate`)
+- Parallel complexity analysis (9× speedup on large repos)
+
+## [0.5.0]
+
+### Added
+- AST-based complexity analysis via tree-sitter (Rust, JS, TS, Python, Go, Java, C#)
+- Historical trend tracking with backfill
+- Per-blob blame cache
