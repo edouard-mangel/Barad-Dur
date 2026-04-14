@@ -1,24 +1,19 @@
-# barad-dur analysis template
+# barad-dur analysis template — plain include version
 #
-# Include this in any GitLab project to get automatic repository analysis:
+# Add to your .gitlab-ci.yml:
 #
 #   include:
 #     - project: Edouard_Mangel/barad-dur
-#       ref: main
-#       file: templates/analyze.yml
+#       ref: main          # or pin to a tag: ref: v0.12.0
+#       file: templates/barad-dur.yml
 #
-# The job runs on every push to the default branch and on every MR.
-# Reports are uploaded as artifacts and browsable in the GitLab UI.
+# Configure via CI/CD variables (project Settings → CI/CD → Variables):
 #
-# The binary is downloaded from the barad-dur Generic Package Registry
-# using CI_JOB_TOKEN (works across projects on the same GitLab instance).
-#
-# Optional variables (set in your project's CI/CD settings or job override):
-#   BARAD_DUR_FLAGS:   extra flags passed to `barad-dur analyze`
-#                      e.g. "--skip-blame" to speed up large repos
-#   BARAD_DUR_VERSION: pin a specific release tag (default: latest)
+#   BARAD_DUR_MIN_SCORE  Quality gate threshold 0–100. Unset = disabled.
+#   BARAD_DUR_VERSION    Pin a release tag, e.g. "v0.12.0". Unset = latest.
+#   BARAD_DUR_FLAGS      Extra flags for `barad-dur analyze`, e.g. "--skip-blame".
 
-barad-dur:
+barad-dur-analyze:
   stage: test
   image: alpine:3.21
   variables:
@@ -42,14 +37,21 @@ barad-dur:
     - chmod +x /usr/local/bin/barad-dur
     - barad-dur --version
   script:
-    - barad-dur analyze . --html --json $BARAD_DUR_FLAGS
+    - barad-dur analyze . --json $BARAD_DUR_FLAGS > barad-dur-report.json
+    - barad-dur analyze . --html $BARAD_DUR_FLAGS -o barad-dur-report.html
+    - |
+      if [ -n "${BARAD_DUR_MIN_SCORE:-}" ]; then
+        echo "Running quality gate (threshold: ${BARAD_DUR_MIN_SCORE})..."
+        barad-dur gate . --min-score "${BARAD_DUR_MIN_SCORE}"
+      fi
   artifacts:
     name: barad-dur-report
     paths:
-      - barad-dur-report.html
       - barad-dur-report.json
+      - barad-dur-report.html
     expose_as: "barad-dur report"
     expire_in: 1 month
+    when: always
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - if: $CI_MERGE_REQUEST_IID
