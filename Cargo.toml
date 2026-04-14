@@ -1,6 +1,6 @@
 [package]
 name = "barad-dur"
-version = "0.11.0"
+version = "0.12.0"
 edition = "2021"
 description = "The all-seeing repository analyzer"
 license = "GPL-3.0-only"

@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented here.
 
+## [0.12.0] - 2026-04-14
+
+### Added
+- New **Dependencies** category (20% weight when active): libyear drift + CVE detection
+  - Supports Cargo, npm, pip, NuGet lock files
+  - Release dates from crates.io, npmjs.org, pypi.org, nuget.org
+  - CVE detection via OSV API (api.osv.dev) — covers all four ecosystems
+  - Results cached 7 days in `.repository-analysis/deps-cache.json`
+  - Per-ecosystem breakdown with critical callouts (stale >5y or has CVE)
+  - Activated via `--deps` flag — offline by default
+- New Dependencies tab in HTML report (safe DOM, no external deps)
+- Updated category weights: Health 35%, Evolution 20%, Dependencies 20%, Hygiene 15%, Team 10%
+
 ## [0.11.0] - 2026-04-14
 
 ### Changed
