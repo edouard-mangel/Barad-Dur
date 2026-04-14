@@ -13,6 +13,9 @@ mod js_trends;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod tests_extra;
+
 use crate::scorer::AnalysisReport;
 use anyhow::Result;
 

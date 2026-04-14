@@ -247,11 +247,9 @@ fn change_coupling_same_component_excluded() {
 #[test]
 fn change_coupling_cross_component_above_threshold_counted() {
     let mut snapshot = make_snapshot();
-    snapshot.file_change_pairs.push((
-        PathBuf::from("src/a.rs"),
-        PathBuf::from("tests/b.rs"),
-        5,
-    ));
+    snapshot
+        .file_change_pairs
+        .push((PathBuf::from("src/a.rs"), PathBuf::from("tests/b.rs"), 5));
     snapshot.commits_by_file.insert(
         PathBuf::from("src/a.rs"),
         (0u32..10).map(CommitId).collect::<Vec<_>>(),
@@ -267,11 +265,9 @@ fn change_coupling_cross_component_above_threshold_counted() {
 #[test]
 fn change_coupling_ratio_below_threshold_excluded() {
     let mut snapshot = make_snapshot();
-    snapshot.file_change_pairs.push((
-        PathBuf::from("src/a.rs"),
-        PathBuf::from("tests/b.rs"),
-        2,
-    ));
+    snapshot
+        .file_change_pairs
+        .push((PathBuf::from("src/a.rs"), PathBuf::from("tests/b.rs"), 2));
     snapshot.commits_by_file.insert(
         PathBuf::from("src/a.rs"),
         (0u32..10).map(CommitId).collect::<Vec<_>>(),
@@ -287,11 +283,9 @@ fn change_coupling_ratio_below_threshold_excluded() {
 #[test]
 fn change_coupling_missing_commits_entry_excluded() {
     let mut snapshot = make_snapshot();
-    snapshot.file_change_pairs.push((
-        PathBuf::from("src/a.rs"),
-        PathBuf::from("tests/b.rs"),
-        5,
-    ));
+    snapshot
+        .file_change_pairs
+        .push((PathBuf::from("src/a.rs"), PathBuf::from("tests/b.rs"), 5));
     // No commits_by_file entries → min(0,0) == 0 → skip
     let result = change_coupling_smells(&snapshot, &default_thresholds());
     assert_eq!(result.score, 100);

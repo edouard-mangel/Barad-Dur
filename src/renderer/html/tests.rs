@@ -465,4 +465,3 @@ fn html_trends_legend_no_inner_html() {
         );
     }
 }
-

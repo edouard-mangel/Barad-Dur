@@ -110,7 +110,11 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<()> {
 
 fn resolve_remote_target(
     args: &AnalyzeArgs,
-) -> Result<(Option<remote::clone::TempClone>, PathBuf, Option<RemoteMeta>)> {
+) -> Result<(
+    Option<remote::clone::TempClone>,
+    PathBuf,
+    Option<RemoteMeta>,
+)> {
     if remote::is_url(&args.target) {
         let clone = remote::clone::clone_remote(&args.target)?;
         let gh_meta = args.token.as_deref().and_then(|t| {

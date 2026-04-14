@@ -237,9 +237,7 @@ fn props_jvm(content: &str) -> u32 {
         .lines()
         .filter(|line| {
             let t = line.trim();
-            (t.starts_with("private ")
-                || t.starts_with("public ")
-                || t.starts_with("protected "))
+            (t.starts_with("private ") || t.starts_with("public ") || t.starts_with("protected "))
                 && !t.contains('(')
                 && t.contains(';')
                 && !t.starts_with("//")

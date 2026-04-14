@@ -7,9 +7,9 @@ use crate::coupling::collector::{collect_snapshots, CollectionResult};
 use crate::coupling::dependency::{analyze_dependency_coupling, DependencyAnalysis};
 use crate::coupling::discovery::discover_repos;
 use crate::coupling::scorer::score_coupling_pairs;
-use crate::coupling::types::CouplingPair;
 use crate::coupling::team::analyze_team_coupling;
 use crate::coupling::temporal::{analyze_temporal_coupling, TemporalCouplingPair};
+use crate::coupling::types::CouplingPair;
 use crate::coupling::{CouplingReport, CouplingReportSummary, RepoInfo};
 use crate::renderer;
 use crate::renderer::coupling_cli::render_coupling_table;
@@ -94,7 +94,13 @@ pub fn run_coupling(args: CouplingArgs) -> Result<()> {
     sp.finish_with_message(format!("Scored {} pairs", combined_pairs.len()));
 
     // Step 5: Render output
-    render_coupling_output(&args, &collection, &combined_pairs, &dep_analysis, &temporal_pairs)?;
+    render_coupling_output(
+        &args,
+        &collection,
+        &combined_pairs,
+        &dep_analysis,
+        &temporal_pairs,
+    )?;
 
     Ok(())
 }

@@ -1,8 +1,7 @@
 pub mod backfill;
-pub mod cmd;
-pub mod runner;
 pub mod cache;
 pub mod cli;
+pub mod cmd;
 pub mod collector;
 pub mod config;
 pub mod coupling;
@@ -12,6 +11,7 @@ pub mod metrics;
 pub mod registry;
 pub mod remote;
 pub mod renderer;
+pub mod runner;
 pub mod scorer;
 pub mod snapshot;
 pub mod trend;

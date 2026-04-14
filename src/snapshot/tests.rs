@@ -272,9 +272,9 @@ fn co_changed_pairs_unknown_files_excluded() {
     ];
     let pairs = count_co_changed_pairs(&commits, &known);
     // Only the a/b pair; no pairs involving unknown.rs
-    assert!(pairs.iter().all(
-        |(x, y, _)| x != &PathBuf::from("unknown.rs") && y != &PathBuf::from("unknown.rs")
-    ));
+    assert!(pairs
+        .iter()
+        .all(|(x, y, _)| x != &PathBuf::from("unknown.rs") && y != &PathBuf::from("unknown.rs")));
     assert_eq!(pairs.len(), 1);
 }
 

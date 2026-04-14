@@ -27,7 +27,7 @@ fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use barad_dur::runner::{parse_time_spec, build_time_window_from_config};
+    use barad_dur::runner::{build_time_window_from_config, parse_time_spec};
     use chrono::Utc;
 
     fn parse_relative(spec: &str, suffixes: &[&str], days_per_unit: i64) -> Option<i64> {

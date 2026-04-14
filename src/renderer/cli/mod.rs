@@ -244,7 +244,9 @@ fn render_categories(
         .map(|t| &t.delta.categories);
 
     for cat in &report.categories {
-        let delta = category_deltas.and_then(|deltas| deltas.get(&cat.name)).copied();
+        let delta = category_deltas
+            .and_then(|deltas| deltas.get(&cat.name))
+            .copied();
         out.push_str(&render_single_category(cat, delta, verbosity));
     }
 
