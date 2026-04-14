@@ -512,4 +512,56 @@ mod tests {
             "Health category row should not show delta on first run, got: {health_line:?}"
         );
     }
+
+    #[test]
+    fn render_shows_ecosystem_summary_line() {
+        use crate::deps::{DepTier, Ecosystem, EcosystemReport};
+        let mut report = make_report();
+        report.dep_ecosystem_reports = vec![EcosystemReport {
+            ecosystem: Ecosystem::Cargo,
+            total_deps: 3,
+            mean_drift_years: 1.5,
+            total_drift_years: 4.5,
+            critical_deps: vec![],
+        }];
+        let output = render(&report, 0, None);
+        assert!(output.contains("Cargo"), "output should contain ecosystem name");
+        assert!(
+            output.contains("1.5 libyears avg"),
+            "output should contain mean drift"
+        );
+        assert!(output.contains("3 deps"), "output should contain dep count");
+    }
+
+    #[test]
+    fn render_shows_critical_dep_with_cve_count() {
+        use crate::deps::{DepAge, DepTier, Ecosystem, EcosystemReport, Vuln};
+        let mut report = make_report();
+        report.dep_ecosystem_reports = vec![EcosystemReport {
+            ecosystem: Ecosystem::Cargo,
+            total_deps: 1,
+            mean_drift_years: 6.2,
+            total_drift_years: 6.2,
+            critical_deps: vec![DepAge {
+                name: "old-crate".into(),
+                ecosystem: Ecosystem::Cargo,
+                current_version: "0.1.0".into(),
+                drift_years: 6.2,
+                tier: DepTier::Critical,
+                vulnerabilities: vec![Vuln {
+                    id: "RUSTSEC-0000-0001".into(),
+                    severity: "HIGH".into(),
+                    description: "a vulnerability".into(),
+                }],
+            }],
+        }];
+        let output = render(&report, 0, None);
+        assert!(output.contains("old-crate"), "output should contain dep name");
+        assert!(
+            output.contains("0.1.0"),
+            "output should contain dep version"
+        );
+        assert!(output.contains("6.2y"), "output should contain drift years");
+        assert!(output.contains("1 CVE"), "output should contain CVE count");
+    }
 }
