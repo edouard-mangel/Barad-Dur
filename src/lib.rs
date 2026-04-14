@@ -4,6 +4,7 @@ pub mod cli;
 pub mod collector;
 pub mod config;
 pub mod coupling;
+pub mod deps;
 pub mod init;
 pub mod metrics;
 pub mod remote;
