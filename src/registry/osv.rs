@@ -18,15 +18,23 @@ pub fn fetch_vulns(ecosystem_osv_name: &str, name: &str, version: &str) -> Resul
 
     Ok(vulns
         .iter()
-        .map(|v| {
-            let id = v["id"].as_str().unwrap_or("UNKNOWN").to_string();
-            let severity = v["severity"]
-                .as_array()
-                .and_then(|arr| arr.first())
-                .and_then(|s| s["score"].as_str())
-                .unwrap_or("UNKNOWN")
-                .to_string();
-            let description = v["summary"].as_str().unwrap_or("").to_string();
+        .map(|vuln| {
+            let id = vuln["id"].as_str().unwrap_or("UNKNOWN").to_string();
+            let severity = vuln
+                .get("database_specific")
+                .and_then(|d| d.get("severity"))
+                .and_then(|s| s.as_str())
+                .map(|s| s.to_uppercase())
+                .or_else(|| {
+                    vuln.get("severity")
+                        .and_then(|s| s.as_array())
+                        .and_then(|arr| arr.first())
+                        .and_then(|e| e.get("score"))
+                        .and_then(|s| s.as_str())
+                        .and_then(|cvss| parse_cvss_severity(cvss))
+                })
+                .unwrap_or_else(|| "UNKNOWN".to_string());
+            let description = vuln["summary"].as_str().unwrap_or("").to_string();
             Vuln {
                 id,
                 severity,
@@ -34,6 +42,25 @@ pub fn fetch_vulns(ecosystem_osv_name: &str, name: &str, version: &str) -> Resul
             }
         })
         .collect())
+}
+
+/// Classify CVSS vector string into HIGH/CRITICAL/MEDIUM/LOW by base score.
+/// Some OSV entries put a plain numeric score in the score field.
+/// For full CVSS vectors without a numeric score, returns None.
+fn parse_cvss_severity(cvss: &str) -> Option<String> {
+    if let Ok(score) = cvss.parse::<f64>() {
+        return Some(cvss_score_to_label(score));
+    }
+    None
+}
+
+fn cvss_score_to_label(score: f64) -> String {
+    match score {
+        s if s >= 9.0 => "CRITICAL".to_string(),
+        s if s >= 7.0 => "HIGH".to_string(),
+        s if s >= 4.0 => "MEDIUM".to_string(),
+        _ => "LOW".to_string(),
+    }
 }
 
 #[cfg(test)]
