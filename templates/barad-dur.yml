@@ -22,21 +22,25 @@ barad-dur-analyze:
     BARAD_DUR_VERSION: ""
     BARAD_DUR_REGISTRY: "https://lab.frogg.it/api/v4/projects/Edouard_Mangel%2Fbarad-dur"
   before_script:
-    - apk add --no-cache curl git
+    - apk add --no-cache curl git jq
     - |
+      set -euo pipefail
       if [ -z "$BARAD_DUR_VERSION" ]; then
         BARAD_DUR_VERSION=$(curl -sf --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
           "${BARAD_DUR_REGISTRY}/releases/permalink/latest" \
-          | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
+          | jq -r '.tag_name')
       fi
+      [ -n "$BARAD_DUR_VERSION" ] || { echo "ERROR: could not resolve latest barad-dur version" >&2; exit 1; }
     - echo "Downloading barad-dur ${BARAD_DUR_VERSION}"
     - |
+      set -euo pipefail
       curl -fL --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
         "${BARAD_DUR_REGISTRY}/packages/generic/barad-dur/${BARAD_DUR_VERSION}/barad-dur-linux-x86_64" \
         -o /usr/local/bin/barad-dur
     - chmod +x /usr/local/bin/barad-dur
     - barad-dur --version
   script:
+    # $BARAD_DUR_FLAGS is intentionally unquoted for word-splitting; space-separated flags only
     - barad-dur analyze . --json $BARAD_DUR_FLAGS > barad-dur-report.json
     - barad-dur analyze . --html $BARAD_DUR_FLAGS -o barad-dur-report.html
     - |
