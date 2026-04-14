@@ -1,0 +1,245 @@
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+
+use crate::config::CouplingThresholds;
+use crate::metrics::{score_count_bands, CategoryResult, MetricValue, RawValue};
+use crate::snapshot::RepoSnapshot;
+
+pub fn compute_coupling(
+    snapshot: &RepoSnapshot,
+    thresholds: &CouplingThresholds,
+) -> CategoryResult {
+    let metrics = vec![
+        afferent_coupling(snapshot),
+        efferent_coupling(snapshot),
+        circular_dependencies(snapshot),
+        change_coupling_smells(snapshot, thresholds),
+    ];
+    CategoryResult {
+        name: "Coupling".to_string(),
+        score: 0,
+        metrics,
+    }
+    .compute_score()
+}
+
+/// Extract the first `depth` path components joined by "/".
+/// Falls back gracefully if path has fewer components than `depth`.
+pub(crate) fn extract_component(path: &Path, depth: usize) -> String {
+    path.components()
+        .take(depth)
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// Compute median of a non-empty slice (sorts in place).
+fn median(values: &mut [usize]) -> f64 {
+    values.sort_unstable();
+    let len = values.len();
+    #[allow(clippy::manual_is_multiple_of)] // is_multiple_of is unstable on CI's stable Rust
+    if len % 2 == 0 {
+        (values[len / 2 - 1] + values[len / 2]) as f64 / 2.0
+    } else {
+        values[len / 2] as f64
+    }
+}
+
+/// Afferent coupling (Ca): how many files depend on each file (incoming imports).
+///
+/// Scored on the median Ca rather than the max. A single hub (core data model)
+/// is normal — what matters is whether *most* files have excessive incoming deps.
+fn afferent_coupling(snapshot: &RepoSnapshot) -> MetricValue {
+    let mut incoming: HashMap<&PathBuf, usize> = HashMap::new();
+    for targets in snapshot.import_graph.values() {
+        for target in targets {
+            *incoming.entry(target).or_insert(0) += 1;
+        }
+    }
+
+    if incoming.is_empty() {
+        return MetricValue {
+            name: "Afferent coupling".to_string(),
+            description: "No import dependencies detected".to_string(),
+            raw_value: RawValue::Count(0),
+            score: 100,
+        };
+    }
+
+    // Include all files in the distribution (files with zero incoming deps too),
+    // so a single hub doesn't skew the median.
+    let mut ca_values: Vec<usize> = snapshot
+        .files
+        .iter()
+        .map(|f| incoming.get(&f.path).copied().unwrap_or(0))
+        .collect();
+
+    let max_ca = ca_values.iter().copied().max().unwrap_or(0);
+    let mean_ca = ca_values.iter().sum::<usize>() as f64 / ca_values.len() as f64;
+    let median_ca = median(&mut ca_values);
+
+    // Score on median: most files having few dependents is healthy
+    let score = if median_ca <= 2.0 {
+        100
+    } else if median_ca <= 5.0 {
+        75
+    } else if median_ca <= 10.0 {
+        50
+    } else {
+        25
+    };
+
+    MetricValue {
+        name: "Afferent coupling".to_string(),
+        description: format!(
+            "Incoming deps — median: {:.1}, mean: {:.1}, max: {}",
+            median_ca, mean_ca, max_ca
+        ),
+        raw_value: RawValue::Float(median_ca),
+        score,
+    }
+}
+
+/// Efferent coupling (Ce): how many files each file imports (outgoing).
+///
+/// Scored on the median Ce. A few orchestrator files with many imports are
+/// expected — the score reflects whether the typical file is well-scoped.
+fn efferent_coupling(snapshot: &RepoSnapshot) -> MetricValue {
+    if snapshot.import_graph.is_empty() {
+        return MetricValue {
+            name: "Efferent coupling".to_string(),
+            description: "No import dependencies detected".to_string(),
+            raw_value: RawValue::Count(0),
+            score: 100,
+        };
+    }
+
+    // Include all files in the distribution (files with zero outgoing imports too).
+    let mut ce_values: Vec<usize> = snapshot
+        .files
+        .iter()
+        .map(|f| {
+            snapshot
+                .import_graph
+                .get(&f.path)
+                .map(|v| v.len())
+                .unwrap_or(0)
+        })
+        .collect();
+
+    let max_ce = ce_values.iter().copied().max().unwrap_or(0);
+    let mean_ce = ce_values.iter().sum::<usize>() as f64 / ce_values.len() as f64;
+    let median_ce = median(&mut ce_values);
+
+    // Score on median: most files importing few deps is healthy
+    let score = if median_ce <= 3.0 {
+        100
+    } else if median_ce <= 6.0 {
+        75
+    } else if median_ce <= 12.0 {
+        50
+    } else {
+        25
+    };
+
+    MetricValue {
+        name: "Efferent coupling".to_string(),
+        description: format!(
+            "Outgoing deps — median: {:.1}, mean: {:.1}, max: {}",
+            median_ce, mean_ce, max_ce
+        ),
+        raw_value: RawValue::Float(median_ce),
+        score,
+    }
+}
+
+/// Change coupling smells: cross-boundary file pairs that co-change at or above
+/// the configured ratio threshold.
+///
+/// Scored on smell count: 0 → 100, 1–2 → 75, 3–5 → 50, >5 → 25
+fn change_coupling_smells(snapshot: &RepoSnapshot, thresholds: &CouplingThresholds) -> MetricValue {
+    let smell_count = snapshot
+        .file_change_pairs
+        .iter()
+        .filter(|(path_a, path_b, co_changes)| {
+            let comp_a = extract_component(path_a, thresholds.component_depth);
+            let comp_b = extract_component(path_b, thresholds.component_depth);
+            if comp_a == comp_b {
+                return false;
+            }
+            let commits_a = snapshot.commits_by_file.get(path_a).map_or(0, |v| v.len());
+            let commits_b = snapshot.commits_by_file.get(path_b).map_or(0, |v| v.len());
+            let min_commits = commits_a.min(commits_b);
+            if min_commits == 0 {
+                return false;
+            }
+            (*co_changes as f64 / min_commits as f64) >= thresholds.change_coupling_min_ratio
+        })
+        .count();
+
+    let score = score_count_bands(smell_count);
+
+    MetricValue {
+        name: "Change coupling smells".to_string(),
+        description: format!(
+            "{} cross-boundary co-change pair(s) above {:.0}% ratio threshold",
+            smell_count,
+            thresholds.change_coupling_min_ratio * 100.0
+        ),
+        raw_value: RawValue::Count(smell_count),
+        score,
+    }
+}
+
+/// Circular dependencies: file pairs where A→B and B→A (depth 1) or
+/// A→B→C→A (depth 2).
+fn circular_dependencies(snapshot: &RepoSnapshot) -> MetricValue {
+    let mut cycles: HashSet<(PathBuf, PathBuf)> = HashSet::new();
+
+    for (a, targets_a) in &snapshot.import_graph {
+        for b in targets_a {
+            // Direct cycle: A→B and B→A
+            if let Some(targets_b) = snapshot.import_graph.get(b) {
+                if targets_b.contains(a) {
+                    let pair = if a < b {
+                        (a.clone(), b.clone())
+                    } else {
+                        (b.clone(), a.clone())
+                    };
+                    cycles.insert(pair);
+                }
+                // Depth-2 cycle: A→B→C→A
+                for c in targets_b {
+                    if c != a && c != b {
+                        if let Some(targets_c) = snapshot.import_graph.get(c) {
+                            if targets_c.contains(a) {
+                                let mut trio = [a.clone(), b.clone(), c.clone()];
+                                trio.sort();
+                                cycles.insert((trio[0].clone(), trio[1].clone()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let count = cycles.len();
+    let score = score_count_bands(count);
+
+    let cycle_list: Vec<String> = cycles
+        .iter()
+        .take(10)
+        .map(|(a, b)| format!("{} <-> {}", a.display(), b.display()))
+        .collect();
+
+    MetricValue {
+        name: "Circular dependencies".to_string(),
+        description: format!("{} circular dependency pairs detected", count),
+        raw_value: RawValue::List(cycle_list),
+        score,
+    }
+}
+
+#[cfg(test)]
+mod tests;
