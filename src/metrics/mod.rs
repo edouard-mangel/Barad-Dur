@@ -1,5 +1,6 @@
 pub mod complexity;
 pub mod coupling;
+pub mod deps;
 pub mod evolution;
 pub mod health;
 pub mod hygiene;
