@@ -68,3 +68,104 @@ fn entry_to_dep_age(dep: &LockedDep, entry: &CacheEntry) -> Option<DepAge> {
         vulnerabilities: entry.vulnerabilities.clone(),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::deps::{Ecosystem, Vuln};
+    use chrono::{Duration, Utc};
+    use std::collections::HashMap;
+    use tempfile::tempdir;
+
+    fn make_dep() -> LockedDep {
+        LockedDep {
+            name: "serde".into(),
+            version: "1.0.130".into(),
+            ecosystem: Ecosystem::Cargo,
+        }
+    }
+
+    fn make_entry(
+        current_published: Option<chrono::DateTime<Utc>>,
+        latest_published: Option<chrono::DateTime<Utc>>,
+    ) -> CacheEntry {
+        CacheEntry {
+            current_published,
+            latest_published,
+            latest_version: Some("1.0.197".into()),
+            vulnerabilities: vec![],
+            cached_at: Utc::now(),
+        }
+    }
+
+    // If the registry returns latest < current (clock skew, yanked release),
+    // drift must clamp to zero — a negative drift_years would produce a
+    // misleading Fresh tier on what is effectively an unknown state.
+    #[test]
+    fn drift_clamps_to_zero_when_latest_before_current() {
+        let now = Utc::now();
+        let entry = make_entry(
+            Some(now),
+            Some(now - Duration::days(30)), // latest older than current
+        );
+        let dep_age = entry_to_dep_age(&make_dep(), &entry).unwrap();
+        assert_eq!(dep_age.drift_years, 0.0);
+        assert_eq!(dep_age.tier, DepTier::Fresh);
+    }
+
+    // Both date fields use `?` independently. Removing either guard would
+    // cause a panic or wrong result; having separate tests makes the intent clear.
+    #[test]
+    fn none_when_current_published_missing() {
+        let entry = make_entry(None, Some(Utc::now()));
+        assert!(entry_to_dep_age(&make_dep(), &entry).is_none());
+    }
+
+    #[test]
+    fn none_when_latest_published_missing() {
+        let entry = make_entry(Some(Utc::now()), None);
+        assert!(entry_to_dep_age(&make_dep(), &entry).is_none());
+    }
+
+    // Vulnerabilities are security data — they must survive the conversion
+    // from CacheEntry to DepAge without being dropped or deduplicated.
+    #[test]
+    fn vulnerabilities_are_propagated() {
+        let vuln = Vuln {
+            id: "GHSA-0000-0000-0000".into(),
+            description: "test vuln".into(),
+            severity: "HIGH".into(),
+        };
+        let mut entry = make_entry(
+            Some(Utc::now() - Duration::days(365)),
+            Some(Utc::now()),
+        );
+        entry.vulnerabilities = vec![vuln.clone()];
+        let dep_age = entry_to_dep_age(&make_dep(), &entry).unwrap();
+        assert_eq!(dep_age.vulnerabilities.len(), 1);
+        assert_eq!(dep_age.vulnerabilities[0].id, vuln.id);
+    }
+
+    // A fresh cache entry must be returned immediately without attempting
+    // any network call. This is the primary reason the cache exists —
+    // analysis must work in offline / CI environments once the cache is warm.
+    #[test]
+    fn fetch_dep_returns_fresh_cached_entry_without_network() {
+        let dir = tempdir().unwrap();
+        let dep = make_dep();
+        let mut cache: DepsCache = HashMap::new();
+        let key = cache::cache_key(dep.ecosystem.display_name(), &dep.name, &dep.version);
+        cache.insert(
+            key,
+            make_entry(
+                Some(Utc::now() - Duration::days(365)),
+                Some(Utc::now()),
+            ),
+        );
+        // If this reaches the network, it would either succeed (flaky) or fail
+        // with an error unrelated to our logic. The cache hit must prevent that.
+        let result = fetch_dep(&dep, &mut cache, dir.path());
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().name, "serde");
+    }
+}
