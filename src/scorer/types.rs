@@ -95,6 +95,7 @@ pub struct AnalysisReport {
     pub file_ages: Vec<FileAge>,
     pub author_cards: Vec<AuthorCard>,
     pub history: Vec<HistoryEntry>,
+    pub dep_ecosystem_reports: Vec<crate::deps::EcosystemReport>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

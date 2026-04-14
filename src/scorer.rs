@@ -80,6 +80,7 @@ pub fn build_report(
         file_ages,
         author_cards,
         history: Vec::new(),
+        dep_ecosystem_reports: Vec::new(),
     }
 }
 

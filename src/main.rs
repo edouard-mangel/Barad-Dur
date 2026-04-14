@@ -116,14 +116,39 @@ fn run_analyze(args: AnalyzeArgs) -> Result<()> {
 
     // Compute selected metrics
     let t = std::time::Instant::now();
-    let categories = compute_selected_metrics(&snapshot, &args, &cfg);
+    let mut categories = compute_selected_metrics(&snapshot, &args, &cfg);
     if args.verbose > 0 {
         eprintln!("  Metrics: {}ms", t.elapsed().as_millis());
     }
 
+    // Dependency analysis (opt-in via --deps, requires network on first run)
+    let dep_reports: Vec<barad_dur::deps::EcosystemReport> = if args.deps {
+        use barad_dur::collector::deps::collect_locked_deps;
+        use barad_dur::registry;
+        use barad_dur::registry::cache as reg_cache;
+
+        let locked = collect_locked_deps(&local_path);
+        let mut dep_cache = reg_cache::load(&local_path);
+        let dep_ages: Vec<barad_dur::deps::DepAge> = locked
+            .iter()
+            .filter_map(|dep| registry::fetch_dep(dep, &mut dep_cache, &local_path))
+            .collect();
+        build_ecosystem_reports(dep_ages)
+    } else {
+        vec![]
+    };
+
+    if args.deps && !dep_reports.is_empty() {
+        categories.push(barad_dur::metrics::deps::compute_deps(&dep_reports));
+    }
+
     // Score
     let t = std::time::Instant::now();
-    let weight_pairs = cfg.weights.as_weight_pairs();
+    let mut cfg_weights = cfg.weights.clone();
+    if args.deps {
+        cfg_weights.deps = 20;
+    }
+    let weight_pairs = cfg_weights.as_weight_pairs();
     let mut report = scorer::build_report(
         &snapshot,
         categories,
@@ -131,6 +156,7 @@ fn run_analyze(args: AnalyzeArgs) -> Result<()> {
         &weight_pairs,
         cfg.thresholds.coupling.component_depth,
     );
+    report.dep_ecosystem_reports = dep_reports;
     if args.verbose > 0 {
         eprintln!("  Scoring: {}ms", t.elapsed().as_millis());
     }
@@ -647,6 +673,46 @@ fn compute_selected_metrics(
     }
 
     categories
+}
+
+fn build_ecosystem_reports(
+    dep_ages: Vec<barad_dur::deps::DepAge>,
+) -> Vec<barad_dur::deps::EcosystemReport> {
+    use std::collections::HashMap;
+
+    let mut by_ecosystem: HashMap<String, Vec<barad_dur::deps::DepAge>> = HashMap::new();
+    for dep in dep_ages {
+        by_ecosystem
+            .entry(dep.ecosystem.display_name().to_string())
+            .or_default()
+            .push(dep);
+    }
+
+    by_ecosystem
+        .into_values()
+        .map(|deps| {
+            let total = deps.len();
+            let total_drift: f64 = deps.iter().map(|d| d.drift_years).sum();
+            let mean_drift = if total > 0 {
+                total_drift / total as f64
+            } else {
+                0.0
+            };
+            let critical_deps: Vec<barad_dur::deps::DepAge> = deps
+                .iter()
+                .filter(|d| d.is_critical_callout())
+                .cloned()
+                .collect();
+            let ecosystem = deps[0].ecosystem.clone();
+            barad_dur::deps::EcosystemReport {
+                ecosystem,
+                total_deps: total,
+                mean_drift_years: mean_drift,
+                total_drift_years: total_drift,
+                critical_deps,
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

@@ -33,6 +33,7 @@ fn make_report() -> AnalysisReport {
         file_ages: vec![],
         author_cards: vec![],
         history: vec![],
+        dep_ecosystem_reports: vec![],
     }
 }
 
