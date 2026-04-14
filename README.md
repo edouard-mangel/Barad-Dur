@@ -11,14 +11,16 @@ Named after the Dark Tower of Mordor — because nothing escapes its gaze.
 
 ## What it does
 
-Barad-dur analyzes git metadata (commits, blame, file tree) and source code complexity, then produces a scored report across 4 categories:
+Barad-dur analyzes git metadata (commits, blame, file tree) and source code complexity, then produces a scored report across 5 categories:
 
 | Category | Metrics | Weight |
 |----------|---------|--------|
-| **Health** | Bus factor, churn hotspots, temporal coupling, stale code, file complexity | 40% |
-| **Team** | Knowledge distribution (Gini), contributor activity, ownership clarity, silos, merge patterns | 15% |
-| **Evolution** | Growth trend, refactoring ratio, code age, commit cadence | 25% |
-| **Git Hygiene** | Commit message quality, history cleanliness, gitignore coverage | 20% |
+| **Health** | Bus factor, churn hotspots, stale code, file complexity | 35% |
+| **Coupling** | Afferent/efferent coupling, circular deps, change coupling smells | 20% |
+| **Evolution** | Growth trend, refactoring ratio, code age, commit cadence | 20% |
+| **Git Hygiene** | Commit message quality, history cleanliness, gitignore coverage | 15% |
+| **Team** | Knowledge distribution (Gini), contributor activity, ownership clarity, silos, merge patterns | 10% |
+| **Dependencies** *(optional)* | Dependency drift (libyear), vulnerability detection via OSV | 0% by default |
 
 Each metric scores 0-100. Category scores are averages. The overall score is a weighted average. The report includes **Top Actions** — concrete suggestions from the lowest-scoring metrics.
 
@@ -261,7 +263,7 @@ See [Architecture Decision Record](docs/adr/001-architecture-decisions.md) for d
 ## Development
 
 ```bash
-# Run all tests (116 tests)
+# Run all tests
 cargo test
 
 # Lint
@@ -269,9 +271,9 @@ cargo fmt -- --check
 cargo clippy --all-targets -- -D warnings
 
 # Run specific test suites
-cargo test --lib                    # 94 unit tests
-cargo test --test collector_tests   # 14 integration tests
-cargo test --test integration_tests # 8 end-to-end tests
+cargo test --lib                    # unit tests
+cargo test --test collector_tests   # collector integration tests
+cargo test --test integration_tests # end-to-end tests
 
 # Dogfood
 cargo run -- analyze . -v
@@ -281,6 +283,11 @@ cargo run -- analyze . -v
 
 - **v0.5.0** — AST analysis via tree-sitter (Rust, JS, TS, Python, Go, Java, C#), historical trend tracking with backfill, per-blob blame cache
 - **v0.6.0** — Author report cards, cross-tab drill-through links, CI quality gate (`barad-dur gate`), parallel complexity analysis (9x speedup on large repos)
+- **v0.7.0** — Coupling subcommand with JSON output and HTML force-directed graph, O(n) coupling algorithm, matrix heatmap with dimension filters
+- **v0.8.0** — Coupling category added to overall score, cross-platform release pipeline (Linux + Windows binaries)
+- **v0.9.0** — GitLab Pages landing page, reusable CI template (`templates/analyze.yml`), dependency age analysis (libyear) and vulnerability detection via OSV
+- **v0.11.0** — Config file support (`barad-dur.toml`), configurable weights and thresholds, skip-blame flag, exclude patterns
+- **v0.12.0** — GitLab CI Catalog component (`templates/analyze.yml`), plain-include template with quality gate (`templates/barad-dur.yml`)
 
 ## Roadmap
 
@@ -288,7 +295,6 @@ cargo run -- analyze . -v
 - GitHub/GitLab API integration for PR data
 - Multi-repo dashboard (aggregate scores across repositories)
 - Interactive config editor (see [backlog](docs/BACKLOG.md))
-- Provide barad-dur as a gitlab-ci executable. 
 
 ## License
 

@@ -65,13 +65,17 @@
 
 **Decision:** Each metric produces a score from 0 to 100. Category scores are averages of their metrics. Overall score is a weighted average of categories.
 
-**Weights:**
+**Default weights** (enforced by `config::CategoryWeights::default()`, sum must equal 100):
 | Category | Weight | Rationale |
 |----------|--------|-----------|
-| Health | 30% | Core project sustainability |
-| Team | 30% | People are the most important factor |
+| Health | 35% | Core project sustainability |
+| Coupling | 20% | Structural dependencies and change coupling smells |
 | Evolution | 20% | Growth patterns matter but less urgently |
-| Git Hygiene | 20% | Important but least business-critical |
+| Git Hygiene | 15% | Important but least business-critical |
+| Team | 10% | People factors (N/A for teams < 4 authors) |
+| Dependencies | 0% | Opt-in via `--deps`; weight must be explicitly set in config |
+
+Weights are user-configurable via `.repository-analysis/barad-dur.toml` `[weights]` section. They must sum to 100.
 
 **Rationale:**
 - Uniform 0-100 scale makes scores comparable across metrics

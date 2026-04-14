@@ -189,10 +189,12 @@ pub struct CouplingArgs {
         or --html for an interactive single-file report with charts and tables.",
     after_long_help = "\
 METRICS:\n\
-  Health (40%)      Bus factor, churn hotspots, temporal coupling, stale code, file complexity\n\
-  Team (15%)        Knowledge distribution (Gini), contributor activity, ownership, silos, merges\n\
-  Evolution (25%)   Growth trend, refactoring ratio, code age, commit cadence\n\
-  Git Hygiene (20%) Commit message quality, history cleanliness, gitignore coverage\n\
+  Health (35%)      Bus factor, churn hotspots, stale code, file complexity\n\
+  Coupling (20%)    Afferent/efferent coupling, circular deps, change coupling smells\n\
+  Evolution (20%)   Growth trend, refactoring ratio, code age, commit cadence\n\
+  Git Hygiene (15%) Commit message quality, history cleanliness, gitignore coverage\n\
+  Team (10%)        Knowledge distribution (Gini), contributor activity, ownership, silos, merges\n\
+  Dependencies (0%) Dependency drift and vulnerabilities — enable with --deps\n\
 \n\
 TIME WINDOW FORMATS:\n\
   Relative:  3months, 6months, 30days, 1year\n\
