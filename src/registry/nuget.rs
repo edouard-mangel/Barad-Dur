@@ -26,7 +26,7 @@ pub fn fetch_dates(
                 let published: Option<DateTime<Utc>> =
                     catalog["published"].as_str().and_then(|s| s.parse().ok());
                 if let Some(pub_date) = published {
-                    if latest_published.map_or(true, |lp| pub_date > lp) {
+                    if latest_published.is_none_or(|lp| pub_date > lp) {
                         latest_version = v.to_string();
                         latest_published = Some(pub_date);
                     }

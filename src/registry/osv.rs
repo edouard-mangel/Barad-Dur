@@ -31,7 +31,7 @@ pub fn fetch_vulns(ecosystem_osv_name: &str, name: &str, version: &str) -> Resul
                         .and_then(|arr| arr.first())
                         .and_then(|e| e.get("score"))
                         .and_then(|s| s.as_str())
-                        .and_then(|cvss| parse_cvss_severity(cvss))
+                        .and_then(parse_cvss_severity)
                 })
                 .unwrap_or_else(|| "UNKNOWN".to_string());
             let description = vuln["summary"].as_str().unwrap_or("").to_string();
