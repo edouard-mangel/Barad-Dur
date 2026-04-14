@@ -87,7 +87,7 @@ pub fn build_time_window_from_config(cfg: &RepoConfig, args: &AnalyzeArgs) -> Ti
     }
 }
 
-fn parse_relative(spec: &str, suffixes: &[&str], days_per_unit: i64) -> Option<i64> {
+pub(crate) fn parse_relative(spec: &str, suffixes: &[&str], days_per_unit: i64) -> Option<i64> {
     suffixes
         .iter()
         .find_map(|s| spec.strip_suffix(s))
@@ -150,5 +150,98 @@ pub fn open_in_browser(path: &Path) -> Result<()> {
             eprintln!("Report saved to: {}", path.display());
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    // --- parse_relative ---
+
+    #[test]
+    fn parse_relative_plural_suffix() {
+        assert_eq!(
+            parse_relative("3months", &["months", "month"], 30),
+            Some(90)
+        );
+    }
+
+    #[test]
+    fn parse_relative_singular_suffix() {
+        assert_eq!(parse_relative("1month", &["months", "month"], 30), Some(30));
+    }
+
+    #[test]
+    fn parse_relative_days() {
+        assert_eq!(parse_relative("30days", &["days", "day"], 1), Some(30));
+        assert_eq!(parse_relative("1day", &["days", "day"], 1), Some(1));
+    }
+
+    #[test]
+    fn parse_relative_years() {
+        assert_eq!(parse_relative("2years", &["years", "year"], 365), Some(730));
+        assert_eq!(parse_relative("1year", &["years", "year"], 365), Some(365));
+    }
+
+    #[test]
+    fn parse_relative_trims_whitespace() {
+        assert_eq!(
+            parse_relative("3 months", &["months", "month"], 30),
+            Some(90)
+        );
+    }
+
+    #[test]
+    fn parse_relative_non_numeric_returns_none() {
+        assert_eq!(parse_relative("fewmonths", &["months", "month"], 30), None);
+    }
+
+    #[test]
+    fn parse_relative_no_matching_suffix_returns_none() {
+        assert_eq!(parse_relative("3years", &["months", "month"], 30), None);
+    }
+
+    // --- parse_time_spec ---
+
+    #[test]
+    fn parse_time_spec_months() {
+        let now = Utc::now();
+        let result = parse_time_spec("6months", now).unwrap();
+        let diff = (now - result).num_days();
+        assert!(
+            (179..=181).contains(&diff),
+            "6months should be ~180 days, got {diff}"
+        );
+    }
+
+    #[test]
+    fn parse_time_spec_days() {
+        let now = Utc::now();
+        let result = parse_time_spec("30days", now).unwrap();
+        let diff = (now - result).num_days();
+        assert_eq!(diff, 30);
+    }
+
+    #[test]
+    fn parse_time_spec_years() {
+        let now = Utc::now();
+        let result = parse_time_spec("1year", now).unwrap();
+        let diff = (now - result).num_days();
+        assert_eq!(diff, 365);
+    }
+
+    #[test]
+    fn parse_time_spec_iso_date() {
+        let now = Utc::now();
+        let result = parse_time_spec("2024-01-15", now).unwrap();
+        assert_eq!(result.format("%Y-%m-%d").to_string(), "2024-01-15");
+    }
+
+    #[test]
+    fn parse_time_spec_invalid_returns_none() {
+        let now = Utc::now();
+        assert!(parse_time_spec("not-a-date", now).is_none());
     }
 }

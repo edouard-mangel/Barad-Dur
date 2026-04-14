@@ -8,8 +8,8 @@ use std::path::PathBuf;
     about = "The all-seeing repository analyzer",
     long_about = "The all-seeing repository analyzer.\n\n\
         Barad-dur analyzes git metadata (commits, blame, file tree) and source code \
-        complexity to produce a scored report across 4 categories: Health, Team, \
-        Evolution, and Git Hygiene. Each metric scores 0-100 and the report includes \
+        complexity to produce a scored report across 5 categories: Health, Coupling, \
+        Evolution, Git Hygiene, and Team. Each metric scores 0-100 and the report includes \
         actionable recommendations from the lowest-scoring metrics.\n\n\
         Supports local paths and remote URLs. When given a URL, the repository is \
         cloned into a temporary directory and cleaned up after analysis.",
@@ -181,9 +181,9 @@ pub struct CouplingArgs {
 #[derive(clap::Args, Debug)]
 #[command(
     about = "Analyze a git repository",
-    long_about = "Analyze a git repository for health, team dynamics, evolution patterns, \
+    long_about = "Analyze a git repository for health, coupling, team dynamics, evolution patterns, \
         and git hygiene.\n\n\
-        By default, all 4 categories are computed over the last 6 months. Use category \
+        By default, all 5 categories are computed over the last 6 months. Use category \
         flags to run a subset, and --since/--until/--all to control the time window.\n\n\
         Output defaults to a colored CLI report. Use --json for machine consumption \
         or --html for an interactive single-file report with charts and tables.",
