@@ -75,6 +75,8 @@ A self-contained single-file HTML report with:
 
 No external dependencies — all CSS, JS, and data are inlined. Works offline. Dark theme.
 
+**[Live example — this repo](https://barad-dur-b514a9.froggit.page/report.html)** (updated on every push to `main`)
+
 ## Installation
 
 ### From crates.io
