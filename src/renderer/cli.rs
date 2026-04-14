@@ -188,6 +188,34 @@ fn render_categories(
         }
     }
 
+    if !report.dep_ecosystem_reports.is_empty() {
+        out.push('\n');
+        for eco in &report.dep_ecosystem_reports {
+            out.push_str(&format!(
+                "  {} {}: {:.1} libyears avg ({} deps)\n",
+                "▸".bright_blue(),
+                eco.ecosystem.display_name(),
+                eco.mean_drift_years,
+                eco.total_deps
+            ));
+            for dep in &eco.critical_deps {
+                let suffix = if dep.vulnerabilities.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{} CVE(s)]", dep.vulnerabilities.len())
+                };
+                out.push_str(&format!(
+                    "    {} {} {} — {:.1}y behind{}\n",
+                    "⚠".yellow(),
+                    dep.name,
+                    dep.current_version,
+                    dep.drift_years,
+                    suffix
+                ));
+            }
+        }
+    }
+
     out
 }
 
