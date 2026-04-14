@@ -202,12 +202,8 @@ fn age_score(age_months: f64) -> u32 {
     }
 }
 
-fn age_description(age_months: f64) -> &'static str {
-    if age_months > 12.0 {
-        "months (median code age)"
-    } else {
-        "months (median code age)"
-    }
+fn age_description(_age_months: f64) -> &'static str {
+    "months (median code age)"
 }
 
 /// Median age of code based on blame timestamps.
