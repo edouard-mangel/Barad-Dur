@@ -136,10 +136,7 @@ mod tests {
             description: "test vuln".into(),
             severity: "HIGH".into(),
         };
-        let mut entry = make_entry(
-            Some(Utc::now() - Duration::days(365)),
-            Some(Utc::now()),
-        );
+        let mut entry = make_entry(Some(Utc::now() - Duration::days(365)), Some(Utc::now()));
         entry.vulnerabilities = vec![vuln.clone()];
         let dep_age = entry_to_dep_age(&make_dep(), &entry).unwrap();
         assert_eq!(dep_age.vulnerabilities.len(), 1);
@@ -157,10 +154,7 @@ mod tests {
         let key = cache::cache_key(dep.ecosystem.display_name(), &dep.name, &dep.version);
         cache.insert(
             key,
-            make_entry(
-                Some(Utc::now() - Duration::days(365)),
-                Some(Utc::now()),
-            ),
+            make_entry(Some(Utc::now() - Duration::days(365)), Some(Utc::now())),
         );
         // If this reaches the network, it would either succeed (flaky) or fail
         // with an error unrelated to our logic. The cache hit must prevent that.
