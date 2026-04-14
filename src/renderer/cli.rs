@@ -189,7 +189,11 @@ fn render_categories(
     }
 
     if !report.dep_ecosystem_reports.is_empty() {
-        out.push('\n');
+        out.push_str(&format!(
+            "\n{}\n",
+            "───────────────────────────────────────────────────".dimmed()
+        ));
+        out.push_str(&format!("  {}\n", "Dependencies:".bold()));
         for eco in &report.dep_ecosystem_reports {
             out.push_str(&format!(
                 "  {} {}: {:.1} libyears avg ({} deps)\n",
@@ -515,7 +519,7 @@ mod tests {
 
     #[test]
     fn render_shows_ecosystem_summary_line() {
-        use crate::deps::{DepTier, Ecosystem, EcosystemReport};
+        use crate::deps::{Ecosystem, EcosystemReport};
         let mut report = make_report();
         report.dep_ecosystem_reports = vec![EcosystemReport {
             ecosystem: Ecosystem::Cargo,
