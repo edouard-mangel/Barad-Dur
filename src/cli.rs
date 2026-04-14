@@ -244,6 +244,14 @@ pub struct AnalyzeArgs {
     #[arg(long, help_heading = "Category Filters")]
     pub hygiene: bool,
 
+    /// Enable dependency analysis (libyear + CVE detection)
+    ///
+    /// Fetches release dates from crates.io, npmjs, pypi, and nuget, and
+    /// checks for known CVEs via the OSV API. Results are cached for 7 days.
+    /// Requires network access on first run.
+    #[arg(long, help_heading = "Category Filters")]
+    pub deps: bool,
+
     /// Start of analysis window [default: 6 months ago]
     ///
     /// Accepts relative durations (3months, 30days, 1year) or
@@ -341,13 +349,14 @@ impl AnalyzeArgs {
     /// Returns true if the given category should be run.
     pub fn should_run(&self, category: &str) -> bool {
         if self.all_categories() {
-            return true;
+            return category != "deps"; // deps always requires explicit --deps
         }
         match category {
             "health" => self.health,
             "team" => self.team,
             "evolution" => self.evolution,
             "hygiene" => self.hygiene,
+            "deps" => self.deps,
             _ => false,
         }
     }
@@ -522,6 +531,18 @@ mod tests {
         assert!(args.should_run("team"));
         assert!(args.should_run("evolution"));
         assert!(args.should_run("hygiene"));
+    }
+
+    #[test]
+    fn deps_flag() {
+        let args = parse(&["barad-dur", "analyze", ".", "--deps"]);
+        assert!(args.deps);
+    }
+
+    #[test]
+    fn deps_not_in_all_categories() {
+        let args = parse(&["barad-dur", "analyze", "."]);
+        assert!(!args.deps);
     }
 
     fn parse_gate(args: &[&str]) -> super::GateArgs {

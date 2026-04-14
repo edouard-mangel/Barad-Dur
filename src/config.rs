@@ -29,51 +29,61 @@ pub struct CategoryWeights {
     pub hygiene: u32,
     #[serde(default = "default_coupling_weight")]
     pub coupling: u32,
+    #[serde(default = "default_deps_weight")]
+    pub deps: u32,
 }
 
 fn default_health_weight() -> u32 {
-    25
+    35
 }
 fn default_team_weight() -> u32 {
     10
 }
 fn default_evolution_weight() -> u32 {
-    25
+    20
 }
 fn default_hygiene_weight() -> u32 {
-    20
+    15
 }
 fn default_coupling_weight() -> u32 {
     20
 }
+fn default_deps_weight() -> u32 {
+    0
+} // 0 = excluded unless --deps is passed
 
 impl Default for CategoryWeights {
     fn default() -> Self {
         Self {
-            health: 25,
+            health: 35,
             team: 10,
-            evolution: 25,
-            hygiene: 20,
+            evolution: 20,
+            hygiene: 15,
             coupling: 20,
+            deps: 0,
         }
     }
 }
 
 impl CategoryWeights {
     pub fn sum(&self) -> u32 {
-        self.health + self.team + self.evolution + self.hygiene + self.coupling
+        self.health + self.team + self.evolution + self.hygiene + self.coupling + self.deps
     }
 
     /// Convert to the (name, f64) pairs format used by scorer.
     pub fn as_weight_pairs(&self) -> Vec<(&'static str, f64)> {
         let s = self.sum() as f64;
-        vec![
+        let mut pairs = vec![
             ("Health", self.health as f64 / s),
             ("Team", self.team as f64 / s),
             ("Evolution", self.evolution as f64 / s),
             ("Git Hygiene", self.hygiene as f64 / s),
             ("Coupling", self.coupling as f64 / s),
-        ]
+        ];
+        if self.deps > 0 {
+            pairs.push(("Dependencies", self.deps as f64 / s));
+        }
+        pairs
     }
 }
 
@@ -495,7 +505,7 @@ mod tests {
     fn load_missing_file_returns_defaults() {
         let dir = TempDir::new().unwrap();
         let cfg = load(dir.path()).unwrap();
-        assert_eq!(cfg.weights.health, 25);
+        assert_eq!(cfg.weights.health, 35);
         assert!(cfg.exclude_use_defaults);
     }
 
@@ -511,7 +521,7 @@ mod tests {
         .unwrap();
         let cfg = load(dir.path()).unwrap();
         assert_eq!(cfg.since, Some("3months".to_string()));
-        assert_eq!(cfg.weights.health, 25);
+        assert_eq!(cfg.weights.health, 35);
     }
 
     #[test]
