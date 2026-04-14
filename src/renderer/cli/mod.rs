@@ -1,3 +1,6 @@
+pub(crate) mod format;
+use format::*;
+
 use colored::Colorize;
 
 use crate::scorer::AnalysisReport;
@@ -69,6 +72,29 @@ fn render_repo_info(report: &AnalysisReport) -> String {
     out
 }
 
+fn render_trend_line(trend: &TrendSummary, report: &AnalysisReport) -> String {
+    let mut out = String::new();
+
+    if !trend.delta.is_first && !trend.branch_mismatch_warning {
+        let delta = trend.delta.overall;
+        let delta_str = if delta >= 0 {
+            format!("+{} vs last run", delta)
+        } else {
+            format!("{} vs last run", delta)
+        };
+        out.push_str(&format!("  {}\n", delta_str.dimmed()));
+
+        if let Some(velocity) = &trend.velocity {
+            let direction_str = direction_word(&velocity.direction);
+            let arrow = direction_arrow(&velocity.direction);
+            out.push_str(&format!("  {} {}\n", arrow, direction_str.dimmed()));
+        }
+    }
+
+    let _ = report; // kept for API symmetry
+    out
+}
+
 fn render_score_and_trend(report: &AnalysisReport, trend: Option<&TrendSummary>) -> String {
     let mut out = String::new();
 
@@ -111,20 +137,90 @@ fn render_score_and_trend(report: &AnalysisReport, trend: Option<&TrendSummary>)
 
     // Delta and direction (only when a prior run exists on this branch, and no branch mismatch)
     if let Some(summary) = trend {
-        if !summary.delta.is_first && !summary.branch_mismatch_warning {
-            let delta = summary.delta.overall;
-            let delta_str = if delta >= 0 {
-                format!("+{} vs last run", delta)
-            } else {
-                format!("{} vs last run", delta)
-            };
-            out.push_str(&format!("  {}\n", delta_str.dimmed()));
+        out.push_str(&render_trend_line(summary, report));
+    }
 
-            if let Some(velocity) = &summary.velocity {
-                let direction_str = direction_word(&velocity.direction);
-                let arrow = direction_arrow(&velocity.direction);
-                out.push_str(&format!("  {} {}\n", arrow, direction_str.dimmed()));
+    out
+}
+
+fn render_single_category(
+    cat: &crate::metrics::CategoryResult,
+    delta: Option<i32>,
+    verbosity: u8,
+) -> String {
+    let mut out = String::new();
+
+    let delta_suffix = delta
+        .map(|d| {
+            if d >= 0 {
+                format!("  (+{})", d)
+            } else {
+                format!("  ({})", d)
             }
+        })
+        .unwrap_or_default();
+
+    out.push_str(&format!(
+        "\n  {} {} {}{}\n",
+        format!("▸ {}", cat.name).bold(),
+        format_score_bar(cat.score, 12),
+        format_score_number(cat.score),
+        delta_suffix.dimmed()
+    ));
+
+    if verbosity > 0 {
+        for metric in &cat.metrics {
+            let score_indicator = format_score_dot(metric.score);
+            out.push_str(&format!(
+                "    {} {} {}  {}\n",
+                score_indicator,
+                metric.name,
+                format_score_number(metric.score),
+                metric.description.dimmed()
+            ));
+            if verbosity > 1 {
+                out.push_str(&format!(
+                    "      {} {}\n",
+                    "value:".dimmed(),
+                    metric.raw_value.to_string().bold()
+                ));
+            }
+        }
+    }
+
+    out
+}
+
+fn render_dep_section(dep_reports: &[crate::deps::EcosystemReport]) -> String {
+    let mut out = String::new();
+
+    out.push_str(&format!(
+        "\n{}\n",
+        "───────────────────────────────────────────────────".dimmed()
+    ));
+    out.push_str(&format!("  {}\n", "Dependencies:".bold()));
+    for eco in dep_reports {
+        out.push_str(&format!(
+            "  {} {}: {:.1} libyears avg ({} deps)\n",
+            "▸".bright_blue(),
+            eco.ecosystem.display_name(),
+            eco.mean_drift_years,
+            eco.total_deps
+        ));
+        for dep in &eco.critical_deps {
+            let suffix = if dep.vulnerabilities.is_empty() {
+                String::new()
+            } else {
+                format!(" [{} CVE(s)]", dep.vulnerabilities.len())
+            };
+            out.push_str(&format!(
+                "    {} {} {} — {:.1}y behind{}\n",
+                "⚠".yellow(),
+                dep.name,
+                dep.current_version,
+                dep.drift_years,
+                suffix
+            ));
         }
     }
 
@@ -148,76 +244,12 @@ fn render_categories(
         .map(|t| &t.delta.categories);
 
     for cat in &report.categories {
-        let delta_suffix = category_deltas
-            .and_then(|deltas| deltas.get(&cat.name))
-            .map(|&d| {
-                if d >= 0 {
-                    format!("  (+{})", d)
-                } else {
-                    format!("  ({})", d)
-                }
-            })
-            .unwrap_or_default();
-
-        out.push_str(&format!(
-            "\n  {} {} {}{}\n",
-            format!("▸ {}", cat.name).bold(),
-            format_score_bar(cat.score, 12),
-            format_score_number(cat.score),
-            delta_suffix.dimmed()
-        ));
-
-        if verbosity > 0 {
-            for metric in &cat.metrics {
-                let score_indicator = format_score_dot(metric.score);
-                out.push_str(&format!(
-                    "    {} {} {}  {}\n",
-                    score_indicator,
-                    metric.name,
-                    format_score_number(metric.score),
-                    metric.description.dimmed()
-                ));
-                if verbosity > 1 {
-                    out.push_str(&format!(
-                        "      {} {}\n",
-                        "value:".dimmed(),
-                        metric.raw_value.to_string().bold()
-                    ));
-                }
-            }
-        }
+        let delta = category_deltas.and_then(|deltas| deltas.get(&cat.name)).copied();
+        out.push_str(&render_single_category(cat, delta, verbosity));
     }
 
     if !report.dep_ecosystem_reports.is_empty() {
-        out.push_str(&format!(
-            "\n{}\n",
-            "───────────────────────────────────────────────────".dimmed()
-        ));
-        out.push_str(&format!("  {}\n", "Dependencies:".bold()));
-        for eco in &report.dep_ecosystem_reports {
-            out.push_str(&format!(
-                "  {} {}: {:.1} libyears avg ({} deps)\n",
-                "▸".bright_blue(),
-                eco.ecosystem.display_name(),
-                eco.mean_drift_years,
-                eco.total_deps
-            ));
-            for dep in &eco.critical_deps {
-                let suffix = if dep.vulnerabilities.is_empty() {
-                    String::new()
-                } else {
-                    format!(" [{} CVE(s)]", dep.vulnerabilities.len())
-                };
-                out.push_str(&format!(
-                    "    {} {} {} — {:.1}y behind{}\n",
-                    "⚠".yellow(),
-                    dep.name,
-                    dep.current_version,
-                    dep.drift_years,
-                    suffix
-                ));
-            }
-        }
+        out.push_str(&render_dep_section(&report.dep_ecosystem_reports));
     }
 
     out
@@ -243,51 +275,6 @@ fn render_actions_and_footer(report: &AnalysisReport) -> String {
     ));
 
     out
-}
-
-fn direction_arrow(direction: &crate::trend::VelocityDirection) -> &'static str {
-    use crate::trend::VelocityDirection;
-    match direction {
-        VelocityDirection::Improving => "↑",
-        VelocityDirection::Declining => "↓",
-        VelocityDirection::Stable => "→",
-    }
-}
-
-fn direction_word(direction: &crate::trend::VelocityDirection) -> &'static str {
-    use crate::trend::VelocityDirection;
-    match direction {
-        VelocityDirection::Improving => "improving",
-        VelocityDirection::Declining => "declining",
-        VelocityDirection::Stable => "stable",
-    }
-}
-
-fn colorize_by_score(s: &str, score: u32) -> colored::ColoredString {
-    if score >= 71 {
-        s.green()
-    } else if score >= 41 {
-        s.yellow()
-    } else {
-        s.red()
-    }
-}
-
-fn format_score_bar(score: u32, width: usize) -> String {
-    let filled = (score as usize * width) / 100;
-    let empty = width - filled;
-    let bar = format!("{}{}", "█".repeat(filled), "░".repeat(empty));
-    colorize_by_score(&bar, score).to_string()
-}
-
-fn format_score_number(score: u32) -> String {
-    colorize_by_score(&format!("{}/100", score), score)
-        .bold()
-        .to_string()
-}
-
-fn format_score_dot(score: u32) -> String {
-    colorize_by_score("●", score).to_string()
 }
 
 #[cfg(test)]
