@@ -4,6 +4,11 @@ version = "0.11.0"
 edition = "2021"
 description = "The all-seeing repository analyzer"
 license = "GPL-3.0-only"
+repository = "https://lab.frogg.it/Edouard_Mangel/barad-dur"
+homepage = "https://edouard_mangel.pages.frogg.it/barad-dur"
+documentation = "https://lab.frogg.it/Edouard_Mangel/barad-dur"
+keywords = ["git", "analysis", "metrics", "health", "complexity"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 git2 = "0.20"
