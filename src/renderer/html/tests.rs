@@ -548,3 +548,55 @@ fn html_trends_hollow_dot_pointer_events_all() {
         "Hollow circle JS must set pointer-events:all to fix hover area on fill=none circles"
     );
 }
+
+// ---- Dependencies tab tests ----
+
+#[test]
+fn html_contains_dependencies_tab_label() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("Dependencies"),
+        "Should contain Dependencies tab name in JS tabNames array"
+    );
+}
+
+#[test]
+fn html_deps_build_function_present() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("buildDepsTab"),
+        "Should contain buildDepsTab JS function confirming the module is wired in"
+    );
+}
+
+#[test]
+fn html_deps_field_serialized_in_window_r() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("dep_ecosystem_reports"),
+        "window.R JSON blob must include the dep_ecosystem_reports field"
+    );
+}
+
+#[test]
+fn html_deps_ecosystem_card_data_in_window_r() {
+    use crate::deps::{Ecosystem, EcosystemReport};
+
+    let mut report = make_report();
+    report.dep_ecosystem_reports = vec![EcosystemReport {
+        ecosystem: Ecosystem::Cargo,
+        total_deps: 3,
+        mean_drift_years: 1.5,
+        total_drift_years: 4.5,
+        critical_deps: vec![],
+    }];
+    let html = render(&report).unwrap();
+    assert!(
+        html.contains("dep_ecosystem_reports"),
+        "window.R must contain dep_ecosystem_reports key"
+    );
+    assert!(
+        html.contains("1.5"),
+        "window.R must contain the mean_drift_years value 1.5 serialized in the JSON data blob"
+    );
+}
