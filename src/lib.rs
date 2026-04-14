@@ -1,5 +1,4 @@
 pub mod backfill;
-pub mod registry;
 pub mod cache;
 pub mod cli;
 pub mod collector;
@@ -8,6 +7,7 @@ pub mod coupling;
 pub mod deps;
 pub mod init;
 pub mod metrics;
+pub mod registry;
 pub mod remote;
 pub mod renderer;
 pub mod scorer;

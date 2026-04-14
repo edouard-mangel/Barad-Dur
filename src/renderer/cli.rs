@@ -529,7 +529,10 @@ mod tests {
             critical_deps: vec![],
         }];
         let output = render(&report, 0, None);
-        assert!(output.contains("Cargo"), "output should contain ecosystem name");
+        assert!(
+            output.contains("Cargo"),
+            "output should contain ecosystem name"
+        );
         assert!(
             output.contains("1.5 libyears avg"),
             "output should contain mean drift"
@@ -560,7 +563,10 @@ mod tests {
             }],
         }];
         let output = render(&report, 0, None);
-        assert!(output.contains("old-crate"), "output should contain dep name");
+        assert!(
+            output.contains("old-crate"),
+            "output should contain dep name"
+        );
         assert!(
             output.contains("0.1.0"),
             "output should contain dep version"

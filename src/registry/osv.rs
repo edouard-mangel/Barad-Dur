@@ -1,5 +1,5 @@
-use anyhow::Result;
 use crate::deps::Vuln;
+use anyhow::Result;
 
 pub fn fetch_vulns(ecosystem_osv_name: &str, name: &str, version: &str) -> Result<Vec<Vuln>> {
     let url = "https://api.osv.dev/v1/query";

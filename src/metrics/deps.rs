@@ -71,7 +71,11 @@ mod tests {
     use super::*;
     use crate::deps::{DepAge, DepTier, Ecosystem, EcosystemReport, Vuln};
 
-    fn make_report(ecosystem: Ecosystem, mean_drift: f64, critical_deps: Vec<DepAge>) -> EcosystemReport {
+    fn make_report(
+        ecosystem: Ecosystem,
+        mean_drift: f64,
+        critical_deps: Vec<DepAge>,
+    ) -> EcosystemReport {
         EcosystemReport {
             ecosystem,
             total_deps: 10,
@@ -108,8 +112,16 @@ mod tests {
             drift_years: 0.3,
             tier: DepTier::Fresh,
             vulnerabilities: vec![
-                Vuln { id: "CVE-1".into(), severity: "HIGH".into(), description: "".into() },
-                Vuln { id: "CVE-2".into(), severity: "CRITICAL".into(), description: "".into() },
+                Vuln {
+                    id: "CVE-1".into(),
+                    severity: "HIGH".into(),
+                    description: "".into(),
+                },
+                Vuln {
+                    id: "CVE-2".into(),
+                    severity: "CRITICAL".into(),
+                    description: "".into(),
+                },
             ],
         };
         // base=100, penalty=2*5=10 → 90
@@ -120,8 +132,8 @@ mod tests {
     #[test]
     fn compute_deps_averages_ecosystems() {
         let reports = vec![
-            make_report(Ecosystem::Cargo, 0.2, vec![]),  // score 100
-            make_report(Ecosystem::Npm, 1.5, vec![]),    // score 75
+            make_report(Ecosystem::Cargo, 0.2, vec![]), // score 100
+            make_report(Ecosystem::Npm, 1.5, vec![]),   // score 75
         ];
         let result = compute_deps(&reports);
         assert_eq!(result.name, "Dependencies");
