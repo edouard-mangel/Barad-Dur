@@ -89,6 +89,7 @@ fn make_treemap_report() -> AnalysisReport {
         HotspotFile {
             path: "src/main.rs".into(),
             churn_count: 12,
+            bug_commit_count: 0,
             loc: 200,
             total_lines: 210,
             cyclomatic_complexity: 15,
@@ -99,6 +100,7 @@ fn make_treemap_report() -> AnalysisReport {
         HotspotFile {
             path: "src/lib.rs".into(),
             churn_count: 8,
+            bug_commit_count: 0,
             loc: 150,
             total_lines: 160,
             cyclomatic_complexity: 10,
@@ -109,6 +111,7 @@ fn make_treemap_report() -> AnalysisReport {
         HotspotFile {
             path: "tests/test_a.rs".into(),
             churn_count: 3,
+            bug_commit_count: 0,
             loc: 80,
             total_lines: 85,
             cyclomatic_complexity: 4,
@@ -119,6 +122,7 @@ fn make_treemap_report() -> AnalysisReport {
         HotspotFile {
             path: "tests/test_b.rs".into(),
             churn_count: 1,
+            bug_commit_count: 0,
             loc: 60,
             total_lines: 65,
             cyclomatic_complexity: 2,

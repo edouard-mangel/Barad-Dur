@@ -8,6 +8,7 @@ use crate::metrics::CategoryResult;
 pub struct HotspotFile {
     pub path: String,
     pub churn_count: usize,
+    pub bug_commit_count: usize,
     pub loc: usize,
     pub total_lines: usize,
     pub cyclomatic_complexity: u32,

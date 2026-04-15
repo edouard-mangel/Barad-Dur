@@ -24,6 +24,7 @@ export interface RemoteMeta {
 export interface HotspotFile {
   path: string
   churn_count: number
+  bug_commit_count: number
   loc: number
   total_lines: number
   cyclomatic_complexity: number

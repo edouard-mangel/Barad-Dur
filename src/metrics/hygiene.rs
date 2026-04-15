@@ -9,6 +9,7 @@ pub fn compute_hygiene(
         commit_message_quality(snapshot, thresholds),
         history_cleanliness(snapshot, thresholds),
         gitignore_coverage(snapshot, thresholds),
+        firefighting_ratio(snapshot, thresholds),
     ];
 
     CategoryResult {
@@ -260,12 +261,284 @@ fn gitignore_coverage(
     }
 }
 
+const FIREFIGHTING_KEYWORDS: &[&str] = &["revert", "hotfix", "emergency", "rollback"];
+
+/// Percentage of commits that are reactive firefighting work (reverts, hotfixes, rollbacks).
+/// High ratios signal unreliable tests, missing staging, or deploy process issues.
+fn firefighting_ratio(
+    snapshot: &RepoSnapshot,
+    _thresholds: &crate::config::HygieneThresholds,
+) -> MetricValue {
+    let window_commits: Vec<_> = snapshot
+        .commits
+        .iter()
+        .filter(|c| !c.is_merge && snapshot.time_window.contains(&c.timestamp))
+        .collect();
+
+    if window_commits.is_empty() {
+        return MetricValue {
+            name: "Firefighting ratio".to_string(),
+            description: "No commits in window".to_string(),
+            raw_value: RawValue::Text("N/A".to_string()),
+            score: 50,
+        };
+    }
+
+    let firefighting = window_commits
+        .iter()
+        .filter(|c| {
+            let msg = c.message.to_lowercase();
+            FIREFIGHTING_KEYWORDS.iter().any(|kw| msg.contains(kw))
+        })
+        .count();
+
+    let total = window_commits.len();
+    let pct = (firefighting as f64 / total as f64) * 100.0;
+
+    let score = if pct < 2.0 {
+        90
+    } else if pct < 5.0 {
+        75
+    } else if pct < 10.0 {
+        55
+    } else if pct < 20.0 {
+        35
+    } else {
+        20
+    };
+
+    MetricValue {
+        name: "Firefighting ratio".to_string(),
+        description: format!(
+            "{firefighting} firefighting commits ({pct:.1}% of {total} non-merge commits)"
+        ),
+        raw_value: RawValue::Percentage(pct),
+        score,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::snapshot::*;
     use chrono::{Duration, Utc};
     use std::path::PathBuf;
+
+    #[test]
+    fn firefighting_ratio_detects_reactive_commits() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+
+        let now = Utc::now();
+        let messages = [
+            "feat: add login page",       // normal
+            "revert: undo bad deploy",    // firefighting
+            "fix: typo in README",        // normal
+            "hotfix: prod is down",       // firefighting
+            "refactor: clean up modules", // normal
+        ];
+
+        for (i, msg) in messages.iter().enumerate() {
+            snapshot.commits.push(Commit {
+                id: CommitId(i as u32),
+                author: 0,
+                timestamp: now - Duration::days(i as i64 + 1),
+                message: msg.to_string(),
+                files_changed: vec![],
+                is_merge: false,
+                parent_count: 1,
+            });
+        }
+
+        let result = firefighting_ratio(&snapshot, &crate::config::HygieneThresholds::default());
+        // 2 out of 5 non-merge commits = 40%
+        match result.raw_value {
+            RawValue::Percentage(p) => assert!((p - 40.0).abs() < 1.0, "Expected 40%, got {}", p),
+            _ => panic!("Expected Percentage"),
+        }
+        assert!(
+            result.score <= 35,
+            "40% firefighting should score ≤35, got {}",
+            result.score
+        );
+    }
+
+    #[test]
+    fn firefighting_ratio_ignores_merge_commits() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+
+        let now = Utc::now();
+        // Merge commits should not count toward total
+        snapshot.commits = vec![
+            Commit {
+                id: CommitId(0),
+                author: 0,
+                timestamp: now - Duration::days(1),
+                message: "Merge branch main".into(),
+                files_changed: vec![],
+                is_merge: true,
+                parent_count: 2,
+            },
+            Commit {
+                id: CommitId(1),
+                author: 0,
+                timestamp: now - Duration::days(2),
+                message: "revert bad change".into(),
+                files_changed: vec![],
+                is_merge: false,
+                parent_count: 1,
+            },
+            Commit {
+                id: CommitId(2),
+                author: 0,
+                timestamp: now - Duration::days(3),
+                message: "feat: new feature".into(),
+                files_changed: vec![],
+                is_merge: false,
+                parent_count: 1,
+            },
+        ];
+
+        let result = firefighting_ratio(&snapshot, &crate::config::HygieneThresholds::default());
+        // 1 firefighting out of 2 non-merge = 50%
+        match result.raw_value {
+            RawValue::Percentage(p) => assert!((p - 50.0).abs() < 1.0, "Expected 50%, got {}", p),
+            _ => panic!("Expected Percentage"),
+        }
+    }
+
+    #[test]
+    fn firefighting_ratio_all_keywords_detected() {
+        let now = Utc::now();
+        for (msg, label) in &[
+            ("revert: undo bad deploy", "revert"),
+            ("hotfix: prod outage", "hotfix"),
+            ("emergency: patch xss", "emergency"),
+            ("rollback: bad migration", "rollback"),
+        ] {
+            let mut snapshot = RepoSnapshot::new(
+                PathBuf::from("/tmp"),
+                "test".into(),
+                "main".into(),
+                TimeWindow::default(),
+            );
+            snapshot.commits = vec![
+                Commit {
+                    id: CommitId(0),
+                    author: 0,
+                    timestamp: now - Duration::days(1),
+                    message: msg.to_string(),
+                    files_changed: vec![],
+                    is_merge: false,
+                    parent_count: 1,
+                },
+                Commit {
+                    id: CommitId(1),
+                    author: 0,
+                    timestamp: now - Duration::days(2),
+                    message: "feat: normal commit".into(),
+                    files_changed: vec![],
+                    is_merge: false,
+                    parent_count: 1,
+                },
+            ];
+            let result =
+                firefighting_ratio(&snapshot, &crate::config::HygieneThresholds::default());
+            match result.raw_value {
+                RawValue::Percentage(p) => assert!(
+                    (p - 50.0).abs() < 1.0,
+                    "keyword '{}' should yield 50%, got {}",
+                    label,
+                    p
+                ),
+                _ => panic!("Expected Percentage for keyword '{}'", label),
+            }
+        }
+    }
+
+    #[test]
+    fn firefighting_ratio_zero_percent_scores_highest() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        let now = Utc::now();
+        snapshot.commits = vec![
+            Commit {
+                id: CommitId(0),
+                author: 0,
+                timestamp: now - Duration::days(1),
+                message: "feat: add login".into(),
+                files_changed: vec![],
+                is_merge: false,
+                parent_count: 1,
+            },
+            Commit {
+                id: CommitId(1),
+                author: 0,
+                timestamp: now - Duration::days(2),
+                message: "refactor: extract module".into(),
+                files_changed: vec![],
+                is_merge: false,
+                parent_count: 1,
+            },
+        ];
+        let result = firefighting_ratio(&snapshot, &crate::config::HygieneThresholds::default());
+        assert_eq!(result.score, 90, "0% firefighting should score 90");
+    }
+
+    #[test]
+    fn firefighting_ratio_returns_na_when_no_commits_in_window() {
+        let snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        // No commits added — window_commits will be empty
+        let result = firefighting_ratio(&snapshot, &crate::config::HygieneThresholds::default());
+        match result.raw_value {
+            RawValue::Text(ref s) => assert_eq!(s, "N/A"),
+            _ => panic!("Expected Text(N/A) for empty commit list"),
+        }
+        assert_eq!(result.score, 50);
+    }
+
+    #[test]
+    fn firefighting_ratio_is_case_insensitive() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        let now = Utc::now();
+        snapshot.commits = vec![Commit {
+            id: CommitId(0),
+            author: 0,
+            timestamp: now - Duration::days(1),
+            message: "HOTFIX: PROD IS ON FIRE".into(),
+            files_changed: vec![],
+            is_merge: false,
+            parent_count: 1,
+        }];
+        let result = firefighting_ratio(&snapshot, &crate::config::HygieneThresholds::default());
+        match result.raw_value {
+            RawValue::Percentage(p) => assert!((p - 100.0).abs() < 1.0),
+            _ => panic!("Expected Percentage"),
+        }
+    }
 
     #[test]
     fn commit_message_quality_scores() {

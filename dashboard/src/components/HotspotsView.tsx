@@ -102,7 +102,7 @@ export default function HotspotsView({ files }: Props) {
       .attr('stroke-opacity', 0.8)
       .append('title')
       .text(f =>
-        `${f.path}\nscore: ${f.hotspot_score.toFixed(0)}\nchurn: ${f.churn_count}\ncc: ${f.cyclomatic_complexity}\nloc: ${f.loc}`
+        `${f.path}\nscore: ${f.hotspot_score.toFixed(0)}\nchurn: ${f.churn_count}\nbug commits: ${f.bug_commit_count}\ncc: ${f.cyclomatic_complexity}\nloc: ${f.loc}`
       )
   }, [files])
 
@@ -134,6 +134,7 @@ export default function HotspotsView({ files }: Props) {
               <th style={{ textAlign: 'right', padding: '0.4rem 0.5rem', fontWeight: 400, ...colStyle(sort === 'churn_count') }} onClick={() => setSort('churn_count')}>Churn ↕</th>
               <th style={{ textAlign: 'right', padding: '0.4rem 0.5rem', fontWeight: 400, ...colStyle(sort === 'cyclomatic_complexity') }} onClick={() => setSort('cyclomatic_complexity')}>CC ↕</th>
               <th style={{ textAlign: 'right', padding: '0.4rem 0.5rem', fontWeight: 400, ...colStyle(sort === 'loc') }} onClick={() => setSort('loc')}>LOC ↕</th>
+              <th style={{ textAlign: 'right', padding: '0.4rem 0.5rem', fontWeight: 400, color: 'rgba(148,163,184,0.5)' }}>Bugs</th>
               <th style={{ textAlign: 'right', padding: '0.4rem 0.5rem', fontWeight: 400, color: 'rgba(148,163,184,0.5)' }}>Methods</th>
               <th style={{ textAlign: 'right', padding: '0.4rem 0.5rem', fontWeight: 400, color: 'rgba(148,163,184,0.5)' }}>Props</th>
             </tr>
@@ -154,6 +155,7 @@ export default function HotspotsView({ files }: Props) {
                   <td style={{ textAlign: 'right', padding: '0.4rem 0.5rem', color: 'rgba(226,232,240,0.7)' }}>{f.churn_count}</td>
                   <td style={{ textAlign: 'right', padding: '0.4rem 0.5rem', color: 'rgba(226,232,240,0.7)' }}>{f.cyclomatic_complexity}</td>
                   <td style={{ textAlign: 'right', padding: '0.4rem 0.5rem', color: 'rgba(226,232,240,0.7)' }}>{f.loc}</td>
+                  <td style={{ textAlign: 'right', padding: '0.4rem 0.5rem', color: f.bug_commit_count > 0 ? '#f87171' : 'rgba(148,163,184,0.45)' }}>{f.bug_commit_count > 0 ? f.bug_commit_count : '—'}</td>
                   <td style={{ textAlign: 'right', padding: '0.4rem 0.5rem', color: 'rgba(148,163,184,0.45)' }}>{f.public_methods}</td>
                   <td style={{ textAlign: 'right', padding: '0.4rem 0.5rem', color: 'rgba(148,163,184,0.45)' }}>{f.properties}</td>
                 </tr>
