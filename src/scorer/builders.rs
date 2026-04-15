@@ -381,13 +381,10 @@ mod tests {
             "main".into(),
             TimeWindow::default(),
         );
-        snapshot.files = vec![
-            make_file_entry("src/a.rs"),
-            make_file_entry("src/b.rs"),
-        ];
+        snapshot.files = vec![make_file_entry("src/a.rs"), make_file_entry("src/b.rs")];
         snapshot.commits = vec![
-            make_commit(0, "fix: broken in a"),   // bug commit touching a only
-            make_commit(1, "feat: add to b"),     // normal commit touching b only
+            make_commit(0, "fix: broken in a"), // bug commit touching a only
+            make_commit(1, "feat: add to b"),   // normal commit touching b only
         ];
         snapshot
             .commits_by_file

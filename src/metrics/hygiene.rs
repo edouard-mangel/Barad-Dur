@@ -360,7 +360,11 @@ mod tests {
             RawValue::Percentage(p) => assert!((p - 40.0).abs() < 1.0, "Expected 40%, got {}", p),
             _ => panic!("Expected Percentage"),
         }
-        assert!(result.score <= 35, "40% firefighting should score ≤35, got {}", result.score);
+        assert!(
+            result.score <= 35,
+            "40% firefighting should score ≤35, got {}",
+            result.score
+        );
     }
 
     #[test]
