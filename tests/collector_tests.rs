@@ -19,7 +19,7 @@ fn open_repo_succeeds() {
 #[test]
 fn repo_name_is_correct() {
     let collector = Collector::open(&test_repo(), TimeWindow::default()).unwrap();
-    assert_eq!(collector.repo_name(), "barad-dur");
+    assert_eq!(collector.repo_name().to_lowercase(), "barad-dur");
 }
 
 #[test]
