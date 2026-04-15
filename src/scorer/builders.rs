@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::metrics::coupling::extract_component;
 use crate::snapshot::RepoSnapshot;
@@ -6,16 +6,29 @@ use crate::snapshot::RepoSnapshot;
 use super::actions::score_commit_message;
 use super::types::{AuthorCard, AuthorShare, CouplingPair, FileAge, FileOwnership, HotspotFile};
 
+const BUG_KEYWORDS: &[&str] = &["fix", "bug", "broken", "crash", "regression"];
+
 pub(super) fn build_hotspots(snapshot: &RepoSnapshot) -> Vec<HotspotFile> {
+    // Pre-classify bug-fix commits by ID to avoid O(files × commits) message scanning.
+    let bug_commit_ids: HashSet<crate::snapshot::CommitId> = snapshot
+        .commits
+        .iter()
+        .filter(|c| {
+            let msg = c.message.to_lowercase();
+            BUG_KEYWORDS.iter().any(|kw| msg.contains(kw))
+        })
+        .map(|c| c.id)
+        .collect();
+
     let mut files: Vec<HotspotFile> = snapshot
         .files
         .iter()
         .filter(|f| !f.is_binary)
         .map(|f| {
-            let churn = snapshot
-                .commits_by_file
-                .get(&f.path)
-                .map(|v| v.len())
+            let commit_ids = snapshot.commits_by_file.get(&f.path);
+            let churn = commit_ids.map(|v| v.len()).unwrap_or(0);
+            let bug_commit_count = commit_ids
+                .map(|ids| ids.iter().filter(|id| bug_commit_ids.contains(id)).count())
                 .unwrap_or(0);
             let metrics = snapshot
                 .file_metrics
@@ -25,6 +38,7 @@ pub(super) fn build_hotspots(snapshot: &RepoSnapshot) -> Vec<HotspotFile> {
             HotspotFile {
                 path: f.path.to_string_lossy().to_string(),
                 churn_count: churn,
+                bug_commit_count,
                 loc: metrics.loc,
                 total_lines: metrics.total_lines,
                 cyclomatic_complexity: metrics.cyclomatic_complexity,
@@ -264,9 +278,146 @@ pub(super) fn build_author_cards(snapshot: &RepoSnapshot) -> Vec<AuthorCard> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::snapshot::{Author, BlameLine, TimeWindow};
+    use crate::snapshot::{Author, BlameLine, Commit, CommitId, FileEntry, TimeWindow};
     use chrono::Utc;
     use std::path::PathBuf;
+
+    fn make_commit(id: u32, message: &str) -> Commit {
+        Commit {
+            id: CommitId(id),
+            author: 0,
+            timestamp: Utc::now(),
+            message: message.to_string(),
+            files_changed: vec![],
+            is_merge: false,
+            parent_count: 1,
+        }
+    }
+
+    fn make_file_entry(path: &str) -> FileEntry {
+        FileEntry {
+            path: PathBuf::from(path),
+            size_bytes: 100,
+            is_binary: false,
+            depth: 1,
+            blob_oid: String::new(),
+        }
+    }
+
+    #[test]
+    fn bug_commit_count_is_zero_when_no_bug_commits() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp/test"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        let path = PathBuf::from("src/lib.rs");
+        snapshot.files = vec![make_file_entry("src/lib.rs")];
+        snapshot.commits = vec![
+            make_commit(0, "feat: add new endpoint"),
+            make_commit(1, "refactor: extract helper"),
+        ];
+        snapshot
+            .commits_by_file
+            .insert(path, vec![CommitId(0), CommitId(1)]);
+
+        let hotspots = build_hotspots(&snapshot);
+        assert_eq!(hotspots.len(), 1);
+        assert_eq!(hotspots[0].bug_commit_count, 0);
+    }
+
+    #[test]
+    fn bug_commit_count_detects_all_keywords() {
+        for (keyword, label) in &[
+            ("fix: broken auth", "fix"),
+            ("bug in parser found", "bug"),
+            ("broken after merge", "broken"),
+            ("crash on startup", "crash"),
+            ("regression in login", "regression"),
+        ] {
+            let mut snapshot = RepoSnapshot::new(
+                PathBuf::from("/tmp/test"),
+                "test".into(),
+                "main".into(),
+                TimeWindow::default(),
+            );
+            let path = PathBuf::from("src/lib.rs");
+            snapshot.files = vec![make_file_entry("src/lib.rs")];
+            snapshot.commits = vec![make_commit(0, keyword)];
+            snapshot.commits_by_file.insert(path, vec![CommitId(0)]);
+
+            let hotspots = build_hotspots(&snapshot);
+            assert_eq!(
+                hotspots[0].bug_commit_count, 1,
+                "keyword '{}' should be detected",
+                label
+            );
+        }
+    }
+
+    #[test]
+    fn bug_commit_count_is_case_insensitive() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp/test"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        let path = PathBuf::from("src/lib.rs");
+        snapshot.files = vec![make_file_entry("src/lib.rs")];
+        snapshot.commits = vec![make_commit(0, "FIX: uppercase message")];
+        snapshot.commits_by_file.insert(path, vec![CommitId(0)]);
+
+        let hotspots = build_hotspots(&snapshot);
+        assert_eq!(hotspots[0].bug_commit_count, 1);
+    }
+
+    #[test]
+    fn bug_commit_count_only_counts_commits_touching_that_file() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp/test"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        snapshot.files = vec![
+            make_file_entry("src/a.rs"),
+            make_file_entry("src/b.rs"),
+        ];
+        snapshot.commits = vec![
+            make_commit(0, "fix: broken in a"),   // bug commit touching a only
+            make_commit(1, "feat: add to b"),     // normal commit touching b only
+        ];
+        snapshot
+            .commits_by_file
+            .insert(PathBuf::from("src/a.rs"), vec![CommitId(0)]);
+        snapshot
+            .commits_by_file
+            .insert(PathBuf::from("src/b.rs"), vec![CommitId(1)]);
+
+        let hotspots = build_hotspots(&snapshot);
+        let a = hotspots.iter().find(|f| f.path == "src/a.rs").unwrap();
+        let b = hotspots.iter().find(|f| f.path == "src/b.rs").unwrap();
+        assert_eq!(a.bug_commit_count, 1, "a.rs should have 1 bug commit");
+        assert_eq!(b.bug_commit_count, 0, "b.rs should have 0 bug commits");
+    }
+
+    #[test]
+    fn bug_commit_count_zero_for_file_not_in_commits_by_file() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp/test"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        snapshot.files = vec![make_file_entry("src/new.rs")];
+        snapshot.commits = vec![make_commit(0, "fix: something")];
+        // commits_by_file intentionally left empty — file not linked to any commit
+
+        let hotspots = build_hotspots(&snapshot);
+        assert_eq!(hotspots[0].bug_commit_count, 0);
+    }
 
     fn make_test_snapshot_with_blame(
         authors: Vec<(&str, &str)>,
