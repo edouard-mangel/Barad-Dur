@@ -114,6 +114,14 @@ pub struct GateArgs {
     /// Skip git blame for faster checks (blame-dependent metrics get defaults)
     #[arg(long, num_args = 0..=1, default_missing_value = "true")]
     pub skip_blame: Option<bool>,
+
+    /// Fail if the score is declining faster than this many points per run
+    ///
+    /// Compares the current score against prior runs on the same branch.
+    /// A value of 2.0 means: fail if the score drops more than 2 points per run
+    /// on average over the last 8 runs. Set to 0 to fail on any decline.
+    #[arg(long)]
+    pub max_decline: Option<f64>,
 }
 
 #[derive(clap::Args, Debug)]
@@ -581,6 +589,18 @@ mod tests {
             "team",
         ]);
         assert_eq!(args.category, vec!["health", "team"]);
+    }
+
+    #[test]
+    fn gate_max_decline_flag() {
+        let args = parse_gate(&["barad-dur", "gate", ".", "--max-decline", "3.5"]);
+        assert_eq!(args.max_decline, Some(3.5));
+    }
+
+    #[test]
+    fn gate_max_decline_absent() {
+        let args = parse_gate(&["barad-dur", "gate", "."]);
+        assert_eq!(args.max_decline, None);
     }
 
     #[test]

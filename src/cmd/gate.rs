@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::path::PathBuf;
 
+use crate::cache;
 use crate::cli::GateArgs;
 use crate::collector::Collector;
 use crate::config;
@@ -8,6 +9,7 @@ use crate::metrics::{coupling, evolution, health, hygiene, team};
 use crate::runner::{self, CollectOptions};
 use crate::scorer::{self, AnalysisReport};
 use crate::snapshot::TimeWindow;
+use crate::trend::{self, VelocityDirection};
 
 pub fn run_gate(args: GateArgs) -> Result<i32> {
     let local_path = PathBuf::from(&args.target);
@@ -53,9 +55,59 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
     );
 
     let threshold = args.min_score;
-    let failed = check_gate_categories(&report, &args, threshold);
+    let score_failed = check_gate_categories(&report, &args, threshold);
 
-    Ok(if failed { 1 } else { 0 })
+    let trend_failed = if let Some(max_decline) = args.max_decline {
+        let history = cache::history::load_history(&local_path).unwrap_or_default();
+        let current_entry = scorer::build_history_entry(&report, &current_head, None);
+        let summary = trend::compute_trend(&history, &report.branch, &current_entry);
+        check_trend_gate(&summary, max_decline)
+    } else {
+        false
+    };
+
+    Ok(if score_failed || trend_failed { 1 } else { 0 })
+}
+
+fn check_trend_gate(summary: &trend::TrendSummary, max_decline: f64) -> bool {
+    if summary.delta.is_first {
+        println!("TREND: no prior history on this branch — skipping trend check");
+        return false;
+    }
+
+    if summary.branch_mismatch_warning {
+        println!("TREND WARN: prior history is from a different branch");
+    }
+
+    match &summary.velocity {
+        Some(v) if v.direction == VelocityDirection::Declining => {
+            let rate = v.points_per_run.abs();
+            if rate > max_decline {
+                println!(
+                    "FAIL: score declining at {:.1} points/run (limit: {:.1})",
+                    rate, max_decline
+                );
+                true
+            } else {
+                println!(
+                    "PASS: score declining at {:.1} points/run (within limit {:.1})",
+                    rate, max_decline
+                );
+                false
+            }
+        }
+        Some(v) => {
+            println!(
+                "PASS: score trend {:?} ({:+.1} points/run)",
+                v.direction, v.points_per_run
+            );
+            false
+        }
+        None => {
+            println!("TREND: not enough history to compute velocity");
+            false
+        }
+    }
 }
 
 fn check_gate_categories(report: &AnalysisReport, args: &GateArgs, threshold: u32) -> bool {
