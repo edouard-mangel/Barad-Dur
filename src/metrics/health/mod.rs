@@ -1,5 +1,6 @@
 mod biomarkers;
 mod bus_factor;
+mod churn_ownership;
 mod complex_hotspots;
 mod god_objects;
 mod long_methods;
@@ -15,6 +16,7 @@ pub fn compute_health(snapshot: &RepoSnapshot, thresholds: &HealthThresholds) ->
         complex_hotspots::complex_hotspots(snapshot),
         long_methods::long_methods(snapshot),
         biomarkers::biomarkers(snapshot),
+        churn_ownership::churn_ownership_risk(snapshot),
     ];
 
     CategoryResult {
