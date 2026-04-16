@@ -86,7 +86,17 @@ pub(super) fn count_public_methods(
             };
             run_query(tree, source, q, grammar)
         }
-        Language::Kotlin | Language::Generic => 0,
+        Language::Kotlin => count_with_visibility_filter(
+            tree,
+            source,
+            grammar,
+            queries::KOTLIN_PUBLIC_METHODS,
+            "name",
+            // Kotlin: no visibility modifier means public by default — this query
+            // only matches functions that have an explicit visibility_modifier node.
+            |_text| true,
+        ),
+        Language::Generic => 0,
     }
 }
 
@@ -129,7 +139,15 @@ pub(super) fn count_properties(
             };
             run_query(tree, source, q, grammar)
         }
-        Language::Python | Language::Kotlin | Language::Generic => 0,
+        Language::Kotlin => count_with_visibility_filter(
+            tree,
+            source,
+            grammar,
+            queries::KOTLIN_PROPERTIES,
+            "mods",
+            |_text| true,
+        ),
+        Language::Python | Language::Generic => 0,
     }
 }
 
