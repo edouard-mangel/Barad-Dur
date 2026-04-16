@@ -153,3 +153,168 @@ fn check_gate_categories(report: &AnalysisReport, args: &GateArgs, threshold: u3
 
     failed
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::metrics::CategoryResult;
+    use crate::scorer::AnalysisReport;
+    use crate::trend::{TrendDelta, TrendSummary, TrendVelocity, VelocityDirection};
+    use std::collections::HashMap;
+
+    fn make_report(overall: u32, categories: &[(&str, u32)]) -> AnalysisReport {
+        let cats: Vec<CategoryResult> = categories
+            .iter()
+            .map(|(name, score)| CategoryResult {
+                name: name.to_string(),
+                score: *score,
+                metrics: vec![],
+            })
+            .collect();
+        AnalysisReport {
+            repo_name: "test".into(),
+            branch: "main".into(),
+            time_window_months: 6,
+            total_commits: 1,
+            total_authors: 1,
+            total_files: 1,
+            overall_score: overall,
+            categories: cats,
+            top_actions: vec![],
+            remote_meta: None,
+            file_hotspots: vec![],
+            coupling_pairs: vec![],
+            author_ownership: vec![],
+            file_ages: vec![],
+            author_cards: vec![],
+            history: vec![],
+            dep_ecosystem_reports: vec![],
+        }
+    }
+
+    fn make_gate_args(min_score: u32, categories: Vec<String>) -> GateArgs {
+        GateArgs {
+            target: ".".into(),
+            min_score,
+            category: categories,
+            skip_blame: None,
+            max_decline: None,
+        }
+    }
+
+    fn first_summary() -> TrendSummary {
+        TrendSummary {
+            delta: TrendDelta {
+                overall: 0,
+                delta_vs_oldest: 0,
+                categories: HashMap::new(),
+                is_first: true,
+            },
+            sparkline: vec![],
+            velocity: None,
+            branch_mismatch_warning: false,
+            history: vec![],
+        }
+    }
+
+    fn summary_with_velocity(direction: VelocityDirection, points_per_run: f64) -> TrendSummary {
+        TrendSummary {
+            delta: TrendDelta {
+                overall: -5,
+                delta_vs_oldest: -5,
+                categories: HashMap::new(),
+                is_first: false,
+            },
+            sparkline: vec![],
+            velocity: Some(TrendVelocity {
+                direction,
+                points_per_run,
+                window_size: 3,
+            }),
+            branch_mismatch_warning: false,
+            history: vec![],
+        }
+    }
+
+    // ── check_gate_categories ────────────────────────────────────────
+
+    #[test]
+    fn overall_pass() {
+        let report = make_report(75, &[]);
+        let args = make_gate_args(60, vec![]);
+        assert!(!check_gate_categories(&report, &args, 60));
+    }
+
+    #[test]
+    fn overall_fail() {
+        let report = make_report(50, &[]);
+        let args = make_gate_args(60, vec![]);
+        assert!(check_gate_categories(&report, &args, 60));
+    }
+
+    #[test]
+    fn category_pass() {
+        let report = make_report(80, &[("Health", 75)]);
+        let args = make_gate_args(60, vec!["health".into()]);
+        assert!(!check_gate_categories(&report, &args, 60));
+    }
+
+    #[test]
+    fn category_fail() {
+        let report = make_report(80, &[("Health", 40)]);
+        let args = make_gate_args(60, vec!["health".into()]);
+        assert!(check_gate_categories(&report, &args, 60));
+    }
+
+    #[test]
+    fn unknown_category_skipped() {
+        let report = make_report(80, &[("Health", 80)]);
+        let args = make_gate_args(60, vec!["nonexistent".into()]);
+        assert!(!check_gate_categories(&report, &args, 60));
+    }
+
+    // ── check_trend_gate ────────────────────────────────────────────
+
+    #[test]
+    fn trend_first_run_passes() {
+        assert!(!check_trend_gate(&first_summary(), 2.0));
+    }
+
+    #[test]
+    fn trend_declining_above_limit_fails() {
+        let s = summary_with_velocity(VelocityDirection::Declining, -5.0);
+        assert!(check_trend_gate(&s, 2.0));
+    }
+
+    #[test]
+    fn trend_declining_below_limit_passes() {
+        let s = summary_with_velocity(VelocityDirection::Declining, -1.0);
+        assert!(!check_trend_gate(&s, 2.0));
+    }
+
+    #[test]
+    fn trend_improving_passes() {
+        let s = summary_with_velocity(VelocityDirection::Improving, 3.0);
+        assert!(!check_trend_gate(&s, 2.0));
+    }
+
+    #[test]
+    fn trend_stable_passes() {
+        let s = summary_with_velocity(VelocityDirection::Stable, 0.1);
+        assert!(!check_trend_gate(&s, 2.0));
+    }
+
+    #[test]
+    fn trend_no_velocity_passes() {
+        let mut s = first_summary();
+        s.delta.is_first = false; // not first, but no velocity computed
+        assert!(!check_trend_gate(&s, 2.0));
+    }
+
+    #[test]
+    fn trend_branch_mismatch_warning_does_not_fail() {
+        let mut s = summary_with_velocity(VelocityDirection::Stable, 0.1);
+        s.branch_mismatch_warning = true;
+        assert!(!check_trend_gate(&s, 2.0));
+    }
+}

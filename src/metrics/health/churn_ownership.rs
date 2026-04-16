@@ -156,6 +156,18 @@ mod tests {
     }
 
     #[test]
+    fn no_churn_data_returns_50() {
+        // blame_map is non-empty but commits_by_file is empty
+        let mut s = make_snapshot();
+        add_authors(&mut s, &["Alice", "Bob"]);
+        s.blame_map
+            .insert(PathBuf::from("a.rs"), blame_dominated(0, 100));
+        // commits_by_file intentionally left empty
+        let m = churn_ownership_risk(&s);
+        assert_eq!(m.score, 50);
+    }
+
+    #[test]
     fn high_churn_single_owner_is_flagged() {
         let mut s = make_snapshot();
         add_authors(&mut s, &["Alice", "Bob"]);
