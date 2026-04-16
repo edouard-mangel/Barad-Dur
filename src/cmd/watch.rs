@@ -23,10 +23,7 @@ fn find_hook_path(repo_path: &Path) -> Result<PathBuf> {
         .context("could not resolve repo path")?;
     let git_dir = git_dir.join(".git");
     if !git_dir.exists() {
-        bail!(
-            "no .git directory found under '{}'",
-            repo_path.display()
-        );
+        bail!("no .git directory found under '{}'", repo_path.display());
     }
     let hooks_dir = git_dir.join("hooks");
     std::fs::create_dir_all(&hooks_dir).context("failed to create .git/hooks")?;
@@ -36,8 +33,8 @@ fn find_hook_path(repo_path: &Path) -> Result<PathBuf> {
 fn install_hook(hook_path: &Path, skip_blame: bool, force: bool) -> Result<()> {
     if hook_path.exists() && !force {
         // Allow overwrite only if the existing hook was installed by us.
-        let existing = std::fs::read_to_string(hook_path)
-            .context("failed to read existing hook")?;
+        let existing =
+            std::fs::read_to_string(hook_path).context("failed to read existing hook")?;
         if !existing.contains(HOOK_MARKER) {
             bail!(
                 "a post-commit hook already exists at '{}' and was not installed by barad-dur.\n\
@@ -68,8 +65,7 @@ fn install_hook(hook_path: &Path, skip_blame: bool, force: bool) -> Result<()> {
         use std::os::unix::fs::PermissionsExt;
         let mut perms = std::fs::metadata(hook_path)?.permissions();
         perms.set_mode(0o755);
-        std::fs::set_permissions(hook_path, perms)
-            .context("failed to set hook executable")?;
+        std::fs::set_permissions(hook_path, perms).context("failed to set hook executable")?;
     }
 
     println!(
@@ -88,8 +84,7 @@ fn uninstall_hook(hook_path: &Path) -> Result<()> {
         return Ok(());
     }
 
-    let content = std::fs::read_to_string(hook_path)
-        .context("failed to read hook file")?;
+    let content = std::fs::read_to_string(hook_path).context("failed to read hook file")?;
     if !content.contains(HOOK_MARKER) {
         bail!(
             "the hook at '{}' was not installed by barad-dur and will not be removed.\n\
@@ -149,7 +144,10 @@ mod tests {
 
         let result = install_hook(&hook, false, false);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("not installed by barad-dur"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("not installed by barad-dur"));
     }
 
     #[test]
