@@ -228,8 +228,7 @@ pub const KOTLIN_PROPERTIES: &str =
 
 pub const KOTLIN_COMMENTS: &str = r#"[(line_comment) (block_comment)] @comment"#;
 
-pub const KOTLIN_FUNCTIONS: &str =
-    r#"(function_declaration name: (identifier) @name) @func"#;
+pub const KOTLIN_FUNCTIONS: &str = r#"(function_declaration name: (identifier) @name) @func"#;
 
 pub const KOTLIN_NESTING: &str = r#"[
   (if_expression)
