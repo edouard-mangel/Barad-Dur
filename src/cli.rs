@@ -40,6 +40,8 @@ pub enum Commands {
     Gate(GateArgs),
     /// Analyze cross-repository coupling (temporal, team, dependency)
     Coupling(CouplingArgs),
+    /// Install or remove a post-commit git hook that re-runs analysis on each commit
+    Watch(WatchArgs),
 }
 
 #[derive(clap::Args, Debug)]
@@ -348,6 +350,38 @@ pub struct AnalyzeArgs {
     /// Only use cached data; fail if no cache exists
     #[arg(long, help_heading = "Cache")]
     pub cache_only: bool,
+}
+
+#[derive(clap::Args, Debug)]
+#[command(
+    about = "Install or remove a post-commit git hook that re-runs analysis on each commit",
+    long_about = "Installs a post-commit git hook that runs `barad-dur analyze` after every \
+        commit and prints a delta summary (score change, changed categories). Use --uninstall \
+        to remove the hook.\n\n\
+        The hook is written to .git/hooks/post-commit. If a hook already exists it will not \
+        be overwritten unless --force is supplied.",
+    after_long_help = "\
+EXAMPLES:\n    \
+  barad-dur watch .                  # install hook in current repo\n    \
+  barad-dur watch . --skip-blame     # faster hook (no blame phase)\n    \
+  barad-dur watch . --uninstall      # remove the hook"
+)]
+pub struct WatchArgs {
+    /// Path to the git repository
+    #[arg(default_value = ".")]
+    pub target: String,
+
+    /// Remove the installed hook instead of installing it
+    #[arg(long)]
+    pub uninstall: bool,
+
+    /// Overwrite an existing post-commit hook
+    #[arg(long)]
+    pub force: bool,
+
+    /// Pass --skip-blame to the hook for faster analysis
+    #[arg(long)]
+    pub skip_blame: bool,
 }
 
 impl AnalyzeArgs {

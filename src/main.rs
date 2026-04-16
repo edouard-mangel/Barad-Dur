@@ -3,7 +3,7 @@ use clap::Parser;
 
 use barad_dur::backfill;
 use barad_dur::cli::{Cli, Commands};
-use barad_dur::cmd::{analyze, coupling, gate};
+use barad_dur::cmd::{analyze, coupling, gate, watch};
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -21,6 +21,7 @@ fn main() -> Result<()> {
             std::process::exit(gate::run_gate(args)?);
         }
         Commands::Coupling(args) => coupling::run_coupling(args)?,
+        Commands::Watch(args) => watch::run_watch(args)?,
     }
     Ok(())
 }

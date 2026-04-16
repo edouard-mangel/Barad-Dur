@@ -5,4 +5,4 @@
 - [x] Churn vs. ownership correlation metric
 - [x] Selective blame optimization
 - [x] Kotlin tree-sitter analysis
-- [ ] `watch` command (post-commit delta)
+- [x] `watch` command (post-commit delta)
