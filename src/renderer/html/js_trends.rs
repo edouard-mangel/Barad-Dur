@@ -18,8 +18,9 @@ pub const JS: &str = r#"
     }
 
     // Build metric options from first entry
+    // Note: HistoryEntry serializes its categories field as "category_scores"
     var metricNames = ['Overall Score'];
-    var catKeys = Object.keys(history[0].categories || {}).sort();
+    var catKeys = Object.keys(history[0].category_scores || {}).sort();
     catKeys.forEach(function(k) { metricNames.push(k); });
     var mKeys = Object.keys(history[0].metrics || {}).sort();
     mKeys.forEach(function(k) { metricNames.push(k); });
@@ -72,7 +73,7 @@ pub const JS: &str = r#"
 
     function getScore(entry, metric) {
       if (metric === 'Overall Score') return entry.overall_score;
-      if (entry.categories && entry.categories[metric] !== undefined) return entry.categories[metric];
+      if (entry.category_scores && entry.category_scores[metric] !== undefined) return entry.category_scores[metric];
       if (entry.metrics && entry.metrics[metric] !== undefined) return entry.metrics[metric];
       return 0;
     }
