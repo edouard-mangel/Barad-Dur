@@ -140,10 +140,8 @@ mod tests {
         add_authors(&mut s, &["Alice"]);
         s.blame_map
             .insert(PathBuf::from("a.rs"), blame_dominated(0, 100));
-        s.commits_by_file.insert(
-            PathBuf::from("a.rs"),
-            (0..30u32).map(CommitId).collect(),
-        );
+        s.commits_by_file
+            .insert(PathBuf::from("a.rs"), (0..30u32).map(CommitId).collect());
         let m = churn_ownership_risk(&s);
         assert_eq!(m.score, 100);
         assert!(matches!(m.raw_value, RawValue::Text(_)));
@@ -196,10 +194,8 @@ mod tests {
             (0..20u32).map(CommitId).collect(),
         );
         for i in 1..4usize {
-            s.blame_map.insert(
-                PathBuf::from(format!("ok{}.rs", i)),
-                blame_shared(50),
-            );
+            s.blame_map
+                .insert(PathBuf::from(format!("ok{}.rs", i)), blame_shared(50));
             s.commits_by_file.insert(
                 PathBuf::from(format!("ok{}.rs", i)),
                 (0..i as u32).map(CommitId).collect(),
@@ -215,10 +211,8 @@ mod tests {
         add_authors(&mut s, &["Alice", "Bob"]);
         // Single owner but churn = 1 per file — all at or below p75
         for i in 0..4usize {
-            s.blame_map.insert(
-                PathBuf::from(format!("f{}.rs", i)),
-                blame_dominated(0, 100),
-            );
+            s.blame_map
+                .insert(PathBuf::from(format!("f{}.rs", i)), blame_dominated(0, 100));
             s.commits_by_file.insert(
                 PathBuf::from(format!("f{}.rs", i)),
                 vec![CommitId(i as u32)],
