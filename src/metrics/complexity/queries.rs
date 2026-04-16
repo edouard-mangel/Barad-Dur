@@ -206,6 +206,39 @@ pub const CSHARP_NESTING: &str = r#"[
   (switch_statement)
 ] @nest"#;
 
+// ── Kotlin ──────────────────────────────────────────────────────────
+
+pub const KOTLIN_COMPLEXITY: &str = r#"[
+  (if_expression)
+  (for_statement)
+  (while_statement)
+  (do_while_statement)
+  (when_expression)
+  (catch_block)
+  (try_expression)
+] @cc"#;
+
+pub const KOTLIN_COMPLEXITY_OPERATORS: &str = r#"(binary_expression operator: ["&&" "||"]) @cc"#;
+
+pub const KOTLIN_PUBLIC_METHODS: &str =
+    r#"(function_declaration (modifiers (visibility_modifier)) name: (identifier) @name)"#;
+
+pub const KOTLIN_PROPERTIES: &str =
+    r#"(property_declaration (modifiers (visibility_modifier)) @mods)"#;
+
+pub const KOTLIN_COMMENTS: &str = r#"[(line_comment) (block_comment)] @comment"#;
+
+pub const KOTLIN_FUNCTIONS: &str =
+    r#"(function_declaration name: (identifier) @name) @func"#;
+
+pub const KOTLIN_NESTING: &str = r#"[
+  (if_expression)
+  (for_statement)
+  (while_statement)
+  (do_while_statement)
+  (when_expression)
+] @nest"#;
+
 // ── Import queries ─────────────────────────────────────────────────
 
 pub const RUST_IMPORTS: &str = r#"(use_declaration argument: (_) @path)"#;
@@ -228,6 +261,8 @@ pub const GO_IMPORTS: &str = r#"(import_spec path: (interpreted_string_literal) 
 pub const JAVA_IMPORTS: &str = r#"(import_declaration (scoped_identifier) @path)"#;
 
 pub const CSHARP_IMPORTS: &str = r#"(using_directive (_) @path)"#;
+
+pub const KOTLIN_IMPORTS: &str = r#"(import (identifier) @path)"#;
 
 #[cfg(test)]
 mod tests {
@@ -258,6 +293,9 @@ mod tests {
     }
     fn csharp() -> tree_sitter::Language {
         tree_sitter_c_sharp::LANGUAGE.into()
+    }
+    fn kotlin() -> tree_sitter::Language {
+        tree_sitter_kotlin_ng::LANGUAGE.into()
     }
 
     #[test]
@@ -367,5 +405,21 @@ mod tests {
     #[test]
     fn csharp_import_query_is_valid() {
         assert_valid_query(csharp(), CSHARP_IMPORTS, "csharp imports");
+    }
+
+    #[test]
+    fn kotlin_queries_are_valid() {
+        assert_valid_query(kotlin(), KOTLIN_COMPLEXITY, "kotlin complexity");
+        assert_valid_query(kotlin(), KOTLIN_COMPLEXITY_OPERATORS, "kotlin operators");
+        assert_valid_query(kotlin(), KOTLIN_PUBLIC_METHODS, "kotlin public_methods");
+        assert_valid_query(kotlin(), KOTLIN_PROPERTIES, "kotlin properties");
+        assert_valid_query(kotlin(), KOTLIN_COMMENTS, "kotlin comments");
+        assert_valid_query(kotlin(), KOTLIN_FUNCTIONS, "kotlin functions");
+        assert_valid_query(kotlin(), KOTLIN_NESTING, "kotlin nesting");
+    }
+
+    #[test]
+    fn kotlin_import_query_is_valid() {
+        assert_valid_query(kotlin(), KOTLIN_IMPORTS, "kotlin imports");
     }
 }

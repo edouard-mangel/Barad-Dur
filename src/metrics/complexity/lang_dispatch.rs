@@ -14,7 +14,8 @@ pub fn grammar_for(lang: Language, ext: &str) -> Option<tree_sitter::Language> {
         Language::Go => Some(tree_sitter_go::LANGUAGE.into()),
         Language::Java => Some(tree_sitter_java::LANGUAGE.into()),
         Language::CSharp => Some(tree_sitter_c_sharp::LANGUAGE.into()),
-        Language::Kotlin | Language::Generic => None,
+        Language::Kotlin => Some(tree_sitter_kotlin_ng::LANGUAGE.into()),
+        Language::Generic => None,
     }
 }
 
@@ -27,7 +28,8 @@ pub fn import_query(lang: Language, _ext: &str) -> Option<&'static str> {
         Language::Go => Some(queries::GO_IMPORTS),
         Language::Java => Some(queries::JAVA_IMPORTS),
         Language::CSharp => Some(queries::CSHARP_IMPORTS),
-        Language::Kotlin | Language::Generic => None,
+        Language::Kotlin => Some(queries::KOTLIN_IMPORTS),
+        Language::Generic => None,
     }
 }
 
@@ -61,7 +63,11 @@ pub fn complexity_queries(lang: Language, ext: &str) -> (&'static str, Option<&'
             queries::CSHARP_COMPLEXITY,
             Some(queries::CSHARP_COMPLEXITY_OPERATORS),
         ),
-        Language::Kotlin | Language::Generic => (queries::RUST_COMPLEXITY, None), // unreachable
+        Language::Kotlin => (
+            queries::KOTLIN_COMPLEXITY,
+            Some(queries::KOTLIN_COMPLEXITY_OPERATORS),
+        ),
+        Language::Generic => (queries::RUST_COMPLEXITY, None), // unreachable
     }
 }
 
@@ -74,7 +80,8 @@ pub fn function_query(lang: Language, _ext: &str) -> Option<&'static str> {
         Language::Go => Some(queries::GO_FUNCTIONS),
         Language::Java => Some(queries::JAVA_FUNCTIONS),
         Language::CSharp => Some(queries::CSHARP_FUNCTIONS),
-        Language::Kotlin | Language::Generic => None,
+        Language::Kotlin => Some(queries::KOTLIN_FUNCTIONS),
+        Language::Generic => None,
     }
 }
 
@@ -87,7 +94,8 @@ pub fn nesting_query(lang: Language, _ext: &str) -> Option<&'static str> {
         Language::Go => Some(queries::GO_NESTING),
         Language::Java => Some(queries::JAVA_NESTING),
         Language::CSharp => Some(queries::CSHARP_NESTING),
-        Language::Kotlin | Language::Generic => None,
+        Language::Kotlin => Some(queries::KOTLIN_NESTING),
+        Language::Generic => None,
     }
 }
 
@@ -103,6 +111,7 @@ pub fn comment_query(lang: Language, ext: &str) -> &'static str {
         Language::Go => queries::GO_COMMENTS,
         Language::Java => queries::JAVA_COMMENTS,
         Language::CSharp => queries::CSHARP_COMMENTS,
-        Language::Kotlin | Language::Generic => queries::RUST_COMMENTS, // unreachable
+        Language::Kotlin => queries::KOTLIN_COMMENTS,
+        Language::Generic => queries::RUST_COMMENTS, // unreachable
     }
 }

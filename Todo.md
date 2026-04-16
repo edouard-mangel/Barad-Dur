@@ -4,5 +4,5 @@
 - [x] Score history in HTML report (Trends tab)
 - [x] Churn vs. ownership correlation metric
 - [x] Selective blame optimization
-- [ ] Kotlin tree-sitter analysis
+- [x] Kotlin tree-sitter analysis
 - [ ] `watch` command (post-commit delta)
