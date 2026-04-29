@@ -80,15 +80,19 @@ pub const JS: &str = r#"
     var card = el('div', { className: 'view-card' });
     var tableWrap = el('div', { style: { overflowX: 'auto' } });
 
+    var COL_TIPS = {
+      'Co-changes': 'Number of commits where both files were modified together.',
+      'Coupling %': 'Co-changes \u00f7 min(commits A, commits B). Answers: \u201cOf the less-frequently-changed file\u2019s commits, what share also touched the other file?\u201d 100\u202f% means the two files always move together.',
+      'Cross-boundary': 'The files live in different top-level modules or directories. Cross-boundary coupling is riskier because it signals hidden dependencies between components that should be independent.'
+    };
+
     function renderTable() {
       tableWrap.replaceChildren();
       var table = el('table');
       var thead = el('thead');
       var hRow = el('tr');
       ['File A', 'File B', 'Co-changes', 'Coupling %', 'Cross-boundary', '', ''].forEach(function(h) {
-        var t = el('th');
-        t.append(txt(h));
-        hRow.append(t);
+        hRow.append(thWithTip(h, COL_TIPS[h] || null));
       });
       thead.append(hRow);
       table.append(thead);

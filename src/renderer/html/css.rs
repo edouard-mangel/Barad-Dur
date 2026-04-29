@@ -231,7 +231,7 @@ header {
 }
 .metric-row:last-child { border-bottom: none; }
 .metric-name { flex: 1; font-size: 13px; color: #cbd5e1; }
-.metric-raw { color: #64748b; font-size: 12px; font-family: monospace; min-width: 60px; text-align: right; }
+.metric-raw { color: #64748b; font-size: 12px; min-width: 60px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
 .metric-score { font-weight: 700; font-size: 13px; min-width: 32px; text-align: right; }
 .actions-section {
   background: #0d1117;
@@ -638,4 +638,42 @@ svg.radar { display: block; margin: 0 auto; }
   cursor: pointer;
 }
 .ac-sort-btn.active { border-color: #3b82f6; color: #e2e8f0; }
+.th-tip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #1e293b;
+  color: #64748b;
+  font-size: 9px;
+  font-weight: 700;
+  cursor: help;
+  flex-shrink: 0;
+  margin-left: 4px;
+  vertical-align: middle;
+  line-height: 1;
+  user-select: none;
+}
+.th-tip:hover { background: #334155; color: #e2e8f0; }
+.cp-tooltip {
+  position: fixed;
+  background: #0d1117;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 400;
+  color: #e2e8f0;
+  pointer-events: none;
+  z-index: 2000;
+  display: none;
+  max-width: 280px;
+  line-height: 1.6;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: normal;
+}
 "#;

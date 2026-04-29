@@ -244,6 +244,8 @@ pub const JS: &str = r#"
     var header = el('div', { className: 'cat-header' });
     var nameEl = el('span', { className: 'cat-name' });
     nameEl.append(txt(cat.name));
+    var catTip = CAT_TIPS[cat.name];
+    if (catTip) nameEl.append(tipIcon(catTip));
     var right = el('div', { className: 'cat-right' });
     var scoreEl = el('span', { className: 'cat-score', style: { color: scoreColor(cat.score) } });
     scoreEl.append(txt(String(cat.score)));
@@ -257,8 +259,10 @@ pub const JS: &str = r#"
       var row = el('div', { className: 'metric-row' });
       var nameDiv = el('div', { className: 'metric-name' });
       nameDiv.append(txt(m.name));
+      var mTip = METRIC_TIPS[m.name];
+      if (mTip) nameDiv.append(tipIcon(mTip));
       var rawDiv = el('div', { className: 'metric-raw' });
-      rawDiv.append(txt(formatRaw(m.raw_value)));
+      rawDiv.append(txt(m.description || formatRaw(m.raw_value)));
       var scoreDiv = el('div', { className: 'metric-score', style: { color: scoreColor(m.score) } });
       scoreDiv.append(txt(String(m.score)));
       var barDiv = el('div', { style: { width: '80px' } });
@@ -278,6 +282,9 @@ pub const JS: &str = r#"
 
     if (cat.name === 'Health') {
       body.append(buildHealthMethodology());
+    }
+    if (cat.name === 'Coupling') {
+      body.append(buildCouplingMethodology());
     }
 
     card.append(header, body);
@@ -315,6 +322,68 @@ pub const JS: &str = r#"
         what: 'Files with nesting depth > 4 or nesting variance > 2.0.',
         scoring: '0% \u2192 100 | \u22643% \u2192 75 | \u226410% \u2192 50 | >10% \u2192 25',
         why: 'Deeply nested code signals accumulated complexity. High variance indicates erratic structure (Tornhill: Code Biomarkers).' }
+    ];
+
+    metrics.forEach(function(m) {
+      var block = el('div', { style: { marginBottom: '10px' } });
+      var title = el('div', { style: { color: '#e2e8f0', fontWeight: '600', marginBottom: '2px' } });
+      title.append(txt(m.name));
+      block.append(title);
+
+      var what = el('div');
+      var whatLabel = el('span', { style: { color: '#64748b' } });
+      whatLabel.append(txt('What: '));
+      what.append(whatLabel, txt(m.what));
+      block.append(what);
+
+      var scoring = el('div');
+      var scoringLabel = el('span', { style: { color: '#64748b' } });
+      scoringLabel.append(txt('Scoring: '));
+      var scoringCode = el('span', { style: { fontFamily: 'monospace', fontSize: '11px' } });
+      scoringCode.append(txt(m.scoring));
+      scoring.append(scoringLabel, scoringCode);
+      block.append(scoring);
+
+      var why = el('div');
+      var whyLabel = el('span', { style: { color: '#64748b' } });
+      whyLabel.append(txt('Why: '));
+      why.append(whyLabel, txt(m.why));
+      block.append(why);
+
+      wrap.append(block);
+    });
+
+    details.append(wrap);
+    return details;
+  }
+
+  function buildCouplingMethodology() {
+    var details = document.createElement('details');
+    details.style.cssText = 'margin-top:12px;border-top:1px solid #1e293b;padding-top:10px;';
+    var summary = document.createElement('summary');
+    summary.style.cssText = 'cursor:pointer;color:#94a3b8;font-size:12px;font-weight:600;letter-spacing:0.03em;user-select:none;padding:4px 0;';
+    summary.append(txt('Methodology'));
+    details.append(summary);
+
+    var wrap = el('div', { style: { fontSize: '12px', lineHeight: '1.6', color: '#94a3b8', marginTop: '8px' } });
+
+    var metrics = [
+      { name: 'Afferent coupling (Ca)',
+        what: 'Number of files that import this file (incoming). Built by parsing use / import / require statements via tree-sitter into an import graph.',
+        scoring: 'Scored on median Ca across all files (including leaves with Ca\u202f=\u202f0): \u22642 \u2192 100 | \u22645 \u2192 75 | \u226410 \u2192 50 | >10 \u2192 25',
+        why: 'Median rather than max — a single hub (e.g. main.rs) with many importers is expected; what matters is whether the typical file is over-imported. A 0.00 median is normal and healthy.' },
+      { name: 'Efferent coupling (Ce)',
+        what: 'Number of files this file imports (outgoing). Extracted from the same import graph.',
+        scoring: 'Scored on median Ce across all files: \u22643 \u2192 100 | \u22646 \u2192 75 | \u226412 \u2192 50 | >12 \u2192 25',
+        why: 'Most files in a well-structured codebase are leaf nodes that import few others. A 0.00 median is expected and correct.' },
+      { name: 'Circular dependencies',
+        what: 'File pairs that form import cycles: A\u2192B and B\u2192A (depth\u202f1), or A\u2192B\u2192C\u2192A (depth\u202f2).',
+        scoring: '0 \u2192 100 | 1\u20132 \u2192 75 | 3\u20135 \u2192 50 | >5 \u2192 25',
+        why: 'Cycles prevent independent compilation, testing, and deployment. They also make mental models of the codebase harder to build.' },
+      { name: 'Change coupling smells',
+        what: 'File pairs that co-change in \u2265\u202f50% of their commits AND live in different top-level components (detected by directory depth).',
+        scoring: '0 \u2192 100 | 1\u20132 \u2192 75 | 3\u20135 \u2192 50 | >5 \u2192 25',
+        why: 'Cross-boundary co-change is a structural red flag: two files that always change together but belong to different modules suggest a hidden dependency that should be made explicit.' }
     ];
 
     metrics.forEach(function(m) {
@@ -497,4 +566,88 @@ pub const JS: &str = r#"
     { color: '#f59e0b', label: '40\u201369 Needs work' },
     { color: '#22c55e', label: '70\u2013100 Healthy' }
   ];
+
+  /* ---- Shared floating tooltip singleton ---- */
+  var _floatingTip = el('div', { className: 'cp-tooltip' });
+  document.body.append(_floatingTip);
+
+  function showFloatingTip(icon, text) {
+    _floatingTip.replaceChildren();
+    _floatingTip.append(txt(text));
+    _floatingTip.style.display = 'block';
+
+    function onMove(e) {
+      var vw = window.innerWidth, vh = window.innerHeight;
+      var tw = _floatingTip.offsetWidth, th = _floatingTip.offsetHeight;
+      var x = e.clientX + 14;
+      var y = e.clientY - th / 2;
+      if (x + tw > vw - 8) x = e.clientX - tw - 14;
+      if (y < 8) y = 8;
+      if (y + th > vh - 8) y = vh - th - 8;
+      _floatingTip.style.left = x + 'px';
+      _floatingTip.style.top  = y + 'px';
+    }
+    function onLeave() {
+      _floatingTip.style.display = 'none';
+      icon.removeEventListener('mousemove', onMove);
+      icon.removeEventListener('mouseleave', onLeave);
+    }
+    icon.addEventListener('mousemove', onMove);
+    icon.addEventListener('mouseleave', onLeave);
+  }
+
+  function tipIcon(text) {
+    var icon = el('span', { className: 'th-tip' });
+    icon.append(txt('?'));
+    icon.addEventListener('mouseenter', function() { showFloatingTip(icon, text); });
+    return icon;
+  }
+
+  function thWithTip(label, tipText) {
+    var th = el('th');
+    th.append(txt(label));
+    if (tipText) th.append(tipIcon(tipText));
+    return th;
+  }
+
+  /* ---- Metric & category tooltip definitions ---- */
+  var CAT_TIPS = {
+    'Health':     'Code quality and maintainability indicators — 35% of the overall score.',
+    'Team':       'Team knowledge spread, activity, and collaboration health — 10% of the overall score.',
+    'Evolution':  'How the codebase is growing and changing over time — 20% of the overall score.',
+    'Git Hygiene':'Commit discipline, message quality, and history cleanliness — 15% of the overall score.',
+    'Coupling':   'Structural and change-based coupling between modules — 20% of the overall score.',
+    'Dependencies': 'Dependency freshness, vulnerability exposure, and licence risk (scored separately when --deps is used).'
+  };
+
+  var METRIC_TIPS = {
+    // Health
+    'Bus factor':           'Percentage of files where a single author owns >50% of blame lines. A low score means critical knowledge is concentrated in too few people.',
+    'God objects':          'Files with LOC > 500, or LOC > 300 with >15 public methods. Large classes with many responsibilities are hard to understand and change (Fowler: Large Class).',
+    'Complex hotspots':     'Files above the 75th percentile in both cyclomatic complexity and churn. Code that is both complex and frequently changed is the highest-risk area for bugs (Tornhill).',
+    'Long methods':         'Functions with LOC > 40 or cyclomatic complexity > 10. Long or complex functions are harder to test, understand, and maintain (Fowler: Long Method).',
+    'Code biomarkers':      'Files with nesting depth > 4 or nesting variance > 2.0. Deeply nested code signals accumulated complexity; high variance indicates erratic structure (Tornhill: Code Biomarkers).',
+    'Churn-ownership risk': 'Frequently changed files that are also solo-owned. A single person responsible for high-churn code is both a knowledge risk and a review bottleneck.',
+    // Team
+    'Knowledge distribution':  'How evenly commit knowledge is spread across contributors. Concentration in one or two people is a bus-factor risk for the whole team.',
+    'Contributor activity':    'Percentage of contributors who committed in the last 3 months. High churn means accumulated context is regularly lost.',
+    'Ownership clarity':       'Percentage of files with a clear owner (one author > 50% of blame lines). Clear ownership improves accountability and review quality.',
+    'Collaboration patterns':  'How many pairs of authors co-modify the same files. Isolated contributors indicate knowledge silos and single points of failure.',
+    'Merge patterns':          'Ratio of merge commits and history irregularities. Excessive merges obscure history; very few may mean force-pushes that hide context.',
+    // Evolution
+    'Growth trend':      'Net file and line additions in the analysis window. Rapid unchecked growth can outpace review capacity and increase maintenance burden.',
+    'Refactoring ratio': 'Percentage of commits that invest in structure (refactor / clean / improve keywords). A low ratio means technical debt is accumulating without dedicated paydown.',
+    'Code age':          'Median age of code weighted by lines. Very old untouched code may be stale or dangerously stable \u2014 worth verifying it is still intentional.',
+    'Commit cadence':    'Average commits per day. Irregular cadence (bursts then silence) can signal integration problems or batch-and-dump workflows.',
+    // Git Hygiene
+    'Commit message quality': 'Percentage of commits with meaningful messages (\u2265 20 chars). Conventional commit format (feat:, fix:, chore:) scores higher.',
+    'History cleanliness':    'Presence of merge commits, octopus merges, and empty messages. A clean history makes git bisect, blame, and revert reliable.',
+    'Gitignore coverage':     'Whether build artefacts, OS metadata, or credentials are tracked in git. Tracked artefacts bloat the repo and can expose sensitive data.',
+    'Firefighting ratio':     'Percentage of commits containing fix / bug / hotfix / urgent keywords. A high ratio means the team is mostly reacting to failures rather than building.',
+    // Coupling
+    'Afferent coupling':      'Incoming dependencies (Ca) — how many files import this one. Detected via import graph built from use/import/require statements. Scored on the median Ca across ALL files, including the majority that have zero incoming deps. A value of 0.00 is normal and healthy for most repos. Scoring: median \u22642 \u2192 100, \u22645 \u2192 75, \u226410 \u2192 50, >10 \u2192 25.',
+    'Efferent coupling':      'Outgoing dependencies (Ce) — how many files this one imports. Scored on the median Ce across ALL files. Most healthy codebases have median Ce near 0 because most files are leaf nodes that import few others. Scoring: median \u22643 \u2192 100, \u22646 \u2192 75, \u226412 \u2192 50, >12 \u2192 25.',
+    'Circular dependencies':  'Files that mutually depend on each other: A\u2192B and B\u2192A (depth 1), or A\u2192B\u2192C\u2192A (depth 2). Cycles break independent deployment, testing, and understanding of component boundaries. Scoring: 0 \u2192 100, 1\u20132 \u2192 75, 3\u20135 \u2192 50, >5 \u2192 25.',
+    'Change coupling smells': 'File pairs that co-change in \u2265 threshold% of commits AND live in different top-level components. Signals hidden cross-module dependencies that violate component boundaries. Scoring: 0 \u2192 100, 1\u20132 \u2192 75, 3\u20135 \u2192 50, >5 \u2192 25.'
+  };
 "#;
