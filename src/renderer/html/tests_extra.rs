@@ -35,6 +35,7 @@ fn make_report() -> AnalysisReport {
         author_cards: vec![],
         history: vec![],
         dep_ecosystem_reports: vec![],
+        audit: None,
     }
 }
 

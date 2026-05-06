@@ -676,4 +676,34 @@ svg.radar { display: block; margin: 0 auto; }
   letter-spacing: 0;
   white-space: normal;
 }
+/* ---- Audit tab ---- */
+.section {
+  background: #0d1117;
+  border: 1px solid #1e293b;
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin-bottom: 16px;
+}
+.section-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #e2e8f0;
+  margin-bottom: 6px;
+}
+.section-sub {
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+.path-cell { max-width: 400px; }
+.path-dir { color: #475569; font-family: monospace; font-size: 12px; }
+.path-name { color: #93c5fd; font-family: monospace; font-size: 12px; }
+.conc-list { display: flex; flex-direction: column; gap: 10px; }
+.conc-row { display: grid; grid-template-columns: 220px 1fr auto; gap: 12px; align-items: center; }
+.conc-label { font-family: monospace; font-size: 12px; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conc-bar-area { background: #1e293b; border-radius: 4px; height: 10px; overflow: hidden; }
+.conc-bar-fill { background: #3b82f6; height: 100%; border-radius: 4px; transition: width 0.3s; }
+.conc-meta { display: flex; gap: 6px; flex-wrap: nowrap; }
+.vel-chart { overflow-x: auto; }
 "#;

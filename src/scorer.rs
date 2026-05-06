@@ -1,4 +1,5 @@
 mod actions;
+mod audit;
 mod builders;
 mod types;
 
@@ -63,6 +64,8 @@ pub fn build_report(
     let file_ages = build_file_ages(snapshot);
     let author_cards = build_author_cards(snapshot);
 
+    let audit = Some(audit::build_audit_report(snapshot));
+
     AnalysisReport {
         repo_name: snapshot.name.clone(),
         branch: snapshot.default_branch.clone(),
@@ -81,6 +84,7 @@ pub fn build_report(
         author_cards,
         history: Vec::new(),
         dep_ecosystem_reports: Vec::new(),
+        audit,
     }
 }
 
@@ -133,6 +137,19 @@ mod tests {
         assert!(report.coupling_pairs.is_empty());
         assert!(report.author_ownership.is_empty());
         assert!(report.file_ages.is_empty());
+    }
+
+    #[test]
+    fn build_report_populates_audit_field() {
+        let snapshot = RepoSnapshot::new(
+            std::path::PathBuf::from("/tmp"),
+            "test-repo".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        let categories = vec![make_category("Health", 80)];
+        let report = build_report(&snapshot, categories, None, WEIGHTS, 2);
+        assert!(report.audit.is_some(), "build_report must always set audit to Some(...)");
     }
 
     #[test]

@@ -1,5 +1,6 @@
 mod css;
 mod js_age;
+mod js_audit;
 mod js_authors;
 mod js_coupling;
 mod js_deps;
@@ -63,6 +64,7 @@ fn build_js() -> String {
         js_treemap::JS,
         js_trends::JS,
         js_deps::JS,
+        js_audit::JS,
         js_authors::JS,
     ]
     .concat()

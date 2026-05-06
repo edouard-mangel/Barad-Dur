@@ -34,6 +34,7 @@ fn make_report() -> AnalysisReport {
         author_cards: vec![],
         history: vec![],
         dep_ecosystem_reports: vec![],
+        audit: None,
     }
 }
 
@@ -210,6 +211,79 @@ fn html_treemap_has_svg() {
     assert!(
         html.contains("tm-svg"),
         "Should contain tm-svg container id"
+    );
+}
+
+#[test]
+fn html_audit_none_serializes_as_null_in_window_r() {
+    // audit: None must appear as "audit":null in window.R so the JS `if (!audit)` guard works.
+    let report = make_report(); // audit is None
+    let html = render(&report).unwrap();
+    assert!(
+        html.contains("\"audit\":null"),
+        "audit:None must serialise as null so JS falsy check handles the missing-data path"
+    );
+}
+
+#[test]
+fn html_contains_audit_tab_label() {
+    let html = render(&make_report()).unwrap();
+    assert!(html.contains("'Audit'"), "tabNames must include 'Audit'");
+}
+
+#[test]
+fn html_audit_build_function_present() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("buildAuditTab"),
+        "buildAuditTab JS function must be present"
+    );
+}
+
+#[test]
+fn html_audit_populated_data_appears_in_window_r() {
+    use crate::scorer::{AuditReport, CrisisFile, DeadFile, DirConcentration, VelocityBucket};
+
+    let mut report = make_report();
+    report.audit = Some(AuditReport {
+        crisis_files: vec![CrisisFile {
+            path: "src/danger.rs".into(),
+            crisis_commit_count: 3,
+            total_commit_count: 4,
+            crisis_ratio: 0.75,
+        }],
+        dir_concentration: vec![DirConcentration {
+            dir: "src/metrics".into(),
+            file_count: 5,
+            loc: 1200,
+            pct_of_total: 42.0,
+        }],
+        dead_files: vec![DeadFile {
+            path: "old/legacy.rs".into(),
+            days_since_modified: 730,
+            churn_count: 0,
+        }],
+        velocity_buckets: vec![VelocityBucket {
+            week_start: "2024-03-04".into(),
+            commit_count: 7,
+            author_count: 2,
+        }],
+    });
+
+    let html = render(&report).unwrap();
+    assert!(html.contains("src/danger.rs"), "crisis file path must be in window.R");
+    assert!(html.contains("0.75"),          "crisis_ratio must be in window.R");
+    assert!(html.contains("src/metrics"),   "dir name must be in window.R");
+    assert!(html.contains("old/legacy.rs"), "dead file path must be in window.R");
+    assert!(html.contains("2024-03-04"),    "velocity week_start must be in window.R");
+}
+
+#[test]
+fn html_audit_field_serialized_in_window_r() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("\"audit\""),
+        "window.R JSON blob must include the audit field"
     );
 }
 

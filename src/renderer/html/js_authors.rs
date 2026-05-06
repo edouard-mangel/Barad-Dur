@@ -201,7 +201,7 @@ pub const JS: &str = r#"
     header.append(headerRow);
 
     // Tabs
-    var tabNames = ['Overview', 'Hotspots', 'Coupling', 'Ownership', 'Age', 'Treemap', 'Trends', 'Authors', 'Dependencies'];
+    var tabNames = ['Overview', 'Hotspots', 'Coupling', 'Ownership', 'Age', 'Treemap', 'Trends', 'Authors', 'Dependencies', 'Audit'];
     var tabContents = [
       buildOverviewTab,
       buildHotspotsTab,
@@ -211,7 +211,8 @@ pub const JS: &str = r#"
       buildTreemapTab,
       buildTrendsTab,
       buildAuthorsTab,
-      buildDepsTab
+      buildDepsTab,
+      buildAuditTab
     ];
 
     var tabs = el('div', { className: 'tabs' });

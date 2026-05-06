@@ -59,6 +59,44 @@ pub struct AuthorCard {
     pub directories_touched: usize,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct CrisisFile {
+    pub path: String,
+    pub crisis_commit_count: usize,
+    pub total_commit_count: usize,
+    pub crisis_ratio: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DirConcentration {
+    pub dir: String,
+    pub file_count: usize,
+    pub loc: usize,
+    pub pct_of_total: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DeadFile {
+    pub path: String,
+    pub days_since_modified: i64,
+    pub churn_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct VelocityBucket {
+    pub week_start: String,
+    pub commit_count: usize,
+    pub author_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AuditReport {
+    pub crisis_files: Vec<CrisisFile>,
+    pub dir_concentration: Vec<DirConcentration>,
+    pub dead_files: Vec<DeadFile>,
+    pub velocity_buckets: Vec<VelocityBucket>,
+}
+
 /// Metadata about the remote repository origin (populated when a URL is given).
 #[derive(Debug, Clone, Serialize)]
 pub struct RemoteMeta {
@@ -97,6 +135,7 @@ pub struct AnalysisReport {
     pub author_cards: Vec<AuthorCard>,
     pub history: Vec<HistoryEntry>,
     pub dep_ecosystem_reports: Vec<crate::deps::EcosystemReport>,
+    pub audit: Option<AuditReport>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
