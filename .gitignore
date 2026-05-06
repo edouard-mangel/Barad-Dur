@@ -26,3 +26,4 @@ mutants.out/
 mutants.out.old/
 .worktrees/
 .nwave/
+cosign.key
