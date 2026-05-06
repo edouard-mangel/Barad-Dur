@@ -149,7 +149,10 @@ mod tests {
         );
         let categories = vec![make_category("Health", 80)];
         let report = build_report(&snapshot, categories, None, WEIGHTS, 2);
-        assert!(report.audit.is_some(), "build_report must always set audit to Some(...)");
+        assert!(
+            report.audit.is_some(),
+            "build_report must always set audit to Some(...)"
+        );
     }
 
     #[test]

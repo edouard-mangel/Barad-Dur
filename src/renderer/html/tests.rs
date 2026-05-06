@@ -271,11 +271,20 @@ fn html_audit_populated_data_appears_in_window_r() {
     });
 
     let html = render(&report).unwrap();
-    assert!(html.contains("src/danger.rs"), "crisis file path must be in window.R");
-    assert!(html.contains("0.75"),          "crisis_ratio must be in window.R");
-    assert!(html.contains("src/metrics"),   "dir name must be in window.R");
-    assert!(html.contains("old/legacy.rs"), "dead file path must be in window.R");
-    assert!(html.contains("2024-03-04"),    "velocity week_start must be in window.R");
+    assert!(
+        html.contains("src/danger.rs"),
+        "crisis file path must be in window.R"
+    );
+    assert!(html.contains("0.75"), "crisis_ratio must be in window.R");
+    assert!(html.contains("src/metrics"), "dir name must be in window.R");
+    assert!(
+        html.contains("old/legacy.rs"),
+        "dead file path must be in window.R"
+    );
+    assert!(
+        html.contains("2024-03-04"),
+        "velocity week_start must be in window.R"
+    );
 }
 
 #[test]

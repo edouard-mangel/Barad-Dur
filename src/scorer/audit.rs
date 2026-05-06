@@ -7,7 +7,15 @@ use crate::snapshot::{CommitId, RepoSnapshot};
 use super::types::{AuditReport, CrisisFile, DeadFile, DirConcentration, VelocityBucket};
 
 const CRISIS_KEYWORDS: &[&str] = &[
-    "fix", "hotfix", "revert", "urgent", "broken", "oops", "emergency", "critical", "crash",
+    "fix",
+    "hotfix",
+    "revert",
+    "urgent",
+    "broken",
+    "oops",
+    "emergency",
+    "critical",
+    "crash",
 ];
 
 pub fn build_audit_report(snapshot: &RepoSnapshot) -> AuditReport {
@@ -261,9 +269,33 @@ mod tests {
         let t3 = Utc.with_ymd_and_hms(2024, 1, 15, 0, 0, 0).unwrap(); // week 3
 
         snap.commits = vec![
-            Commit { id: CommitId(0), author: 0, timestamp: t1, message: "a".into(), files_changed: vec![], is_merge: false, parent_count: 1 },
-            Commit { id: CommitId(1), author: 1, timestamp: t2, message: "b".into(), files_changed: vec![], is_merge: false, parent_count: 1 },
-            Commit { id: CommitId(2), author: 0, timestamp: t3, message: "c".into(), files_changed: vec![], is_merge: false, parent_count: 1 },
+            Commit {
+                id: CommitId(0),
+                author: 0,
+                timestamp: t1,
+                message: "a".into(),
+                files_changed: vec![],
+                is_merge: false,
+                parent_count: 1,
+            },
+            Commit {
+                id: CommitId(1),
+                author: 1,
+                timestamp: t2,
+                message: "b".into(),
+                files_changed: vec![],
+                is_merge: false,
+                parent_count: 1,
+            },
+            Commit {
+                id: CommitId(2),
+                author: 0,
+                timestamp: t3,
+                message: "c".into(),
+                files_changed: vec![],
+                is_merge: false,
+                parent_count: 1,
+            },
         ];
 
         let buckets = build_velocity_buckets(&snap);
@@ -287,18 +319,30 @@ mod tests {
         let new_ts = Utc::now() - Duration::days(10);
 
         snap.commits = vec![
-            Commit { id: CommitId(0), author: 0, timestamp: old_ts, message: "old".into(), files_changed: vec![], is_merge: false, parent_count: 1 },
-            Commit { id: CommitId(1), author: 0, timestamp: new_ts, message: "new".into(), files_changed: vec![], is_merge: false, parent_count: 1 },
+            Commit {
+                id: CommitId(0),
+                author: 0,
+                timestamp: old_ts,
+                message: "old".into(),
+                files_changed: vec![],
+                is_merge: false,
+                parent_count: 1,
+            },
+            Commit {
+                id: CommitId(1),
+                author: 0,
+                timestamp: new_ts,
+                message: "new".into(),
+                files_changed: vec![],
+                is_merge: false,
+                parent_count: 1,
+            },
         ];
 
-        snap.commits_by_file.insert(
-            std::path::PathBuf::from("old.rs"),
-            vec![CommitId(0)],
-        );
-        snap.commits_by_file.insert(
-            std::path::PathBuf::from("new.rs"),
-            vec![CommitId(1)],
-        );
+        snap.commits_by_file
+            .insert(std::path::PathBuf::from("old.rs"), vec![CommitId(0)]);
+        snap.commits_by_file
+            .insert(std::path::PathBuf::from("new.rs"), vec![CommitId(1)]);
 
         let dead = build_dead_files(&snap);
         assert_eq!(dead.len(), 1);
@@ -309,10 +353,14 @@ mod tests {
     fn dead_files_silently_skips_file_with_unknown_commit_id() {
         // CommitId(99) is not in snapshot.commits; the max()? short-circuits and drops the file.
         let mut snap = empty_snapshot();
-        snap.commits_by_file.insert("orphaned.rs".into(), vec![CommitId(99)]);
+        snap.commits_by_file
+            .insert("orphaned.rs".into(), vec![CommitId(99)]);
 
         let dead = build_dead_files(&snap);
-        assert!(dead.is_empty(), "file referencing an unknown CommitId must be silently skipped");
+        assert!(
+            dead.is_empty(),
+            "file referencing an unknown CommitId must be silently skipped"
+        );
     }
 
     // ---- dir_concentration ----
@@ -324,23 +372,38 @@ mod tests {
         let mut snap = empty_snapshot();
         snap.file_metrics.insert(
             "src/a.rs".into(),
-            FileComplexity { total_lines: 100, ..Default::default() },
+            FileComplexity {
+                total_lines: 100,
+                ..Default::default()
+            },
         );
         snap.file_metrics.insert(
             "src/b.rs".into(),
-            FileComplexity { total_lines: 200, ..Default::default() },
+            FileComplexity {
+                total_lines: 200,
+                ..Default::default()
+            },
         );
         snap.file_metrics.insert(
             "tests/c.rs".into(),
-            FileComplexity { total_lines: 50, ..Default::default() },
+            FileComplexity {
+                total_lines: 50,
+                ..Default::default()
+            },
         );
 
         let dirs = build_dir_concentration(&snap);
-        let src = dirs.iter().find(|d| d.dir == "src").expect("src dir missing");
+        let src = dirs
+            .iter()
+            .find(|d| d.dir == "src")
+            .expect("src dir missing");
         assert_eq!(src.file_count, 2);
         assert_eq!(src.loc, 300);
 
-        let tests = dirs.iter().find(|d| d.dir == "tests").expect("tests dir missing");
+        let tests = dirs
+            .iter()
+            .find(|d| d.dir == "tests")
+            .expect("tests dir missing");
         assert_eq!(tests.file_count, 1);
         assert_eq!(tests.loc, 50);
     }
@@ -352,7 +415,10 @@ mod tests {
         let mut snap = empty_snapshot();
         snap.file_metrics.insert(
             "Cargo.toml".into(),
-            FileComplexity { total_lines: 30, ..Default::default() },
+            FileComplexity {
+                total_lines: 30,
+                ..Default::default()
+            },
         );
 
         let dirs = build_dir_concentration(&snap);
@@ -369,15 +435,24 @@ mod tests {
         let mut snap = empty_snapshot();
         snap.file_metrics.insert(
             "small/x.rs".into(),
-            FileComplexity { total_lines: 10, ..Default::default() },
+            FileComplexity {
+                total_lines: 10,
+                ..Default::default()
+            },
         );
         snap.file_metrics.insert(
             "big/y.rs".into(),
-            FileComplexity { total_lines: 500, ..Default::default() },
+            FileComplexity {
+                total_lines: 500,
+                ..Default::default()
+            },
         );
         snap.file_metrics.insert(
             "mid/z.rs".into(),
-            FileComplexity { total_lines: 200, ..Default::default() },
+            FileComplexity {
+                total_lines: 200,
+                ..Default::default()
+            },
         );
 
         let dirs = build_dir_concentration(&snap);
@@ -394,13 +469,19 @@ mod tests {
         for i in 0..5u32 {
             snap.file_metrics.insert(
                 format!("dir{i}/file.rs").into(),
-                FileComplexity { total_lines: (i + 1) as usize * 100, ..Default::default() },
+                FileComplexity {
+                    total_lines: (i + 1) as usize * 100,
+                    ..Default::default()
+                },
             );
         }
 
         let dirs = build_dir_concentration(&snap);
         let total_pct: f64 = dirs.iter().map(|d| d.pct_of_total).sum();
-        assert!((total_pct - 100.0).abs() < 1e-6, "pct_of_total should sum to 100, got {total_pct}");
+        assert!(
+            (total_pct - 100.0).abs() < 1e-6,
+            "pct_of_total should sum to 100, got {total_pct}"
+        );
     }
 
     #[test]
@@ -412,21 +493,40 @@ mod tests {
         let mut snap = empty_snapshot();
         snap.file_metrics.insert(
             "src/a.rs".into(),
-            FileComplexity { total_lines: 100, ..Default::default() },
+            FileComplexity {
+                total_lines: 100,
+                ..Default::default()
+            },
         );
         snap.file_metrics.insert(
             "src/metrics/b.rs".into(),
-            FileComplexity { total_lines: 200, ..Default::default() },
+            FileComplexity {
+                total_lines: 200,
+                ..Default::default()
+            },
         );
 
         let dirs = build_dir_concentration(&snap);
-        assert_eq!(dirs.len(), 2, "full parent path means the two files must be in separate groups");
+        assert_eq!(
+            dirs.len(),
+            2,
+            "full parent path means the two files must be in separate groups"
+        );
 
-        let src = dirs.iter().find(|d| d.dir == "src").expect("\"src\" group must exist");
+        let src = dirs
+            .iter()
+            .find(|d| d.dir == "src")
+            .expect("\"src\" group must exist");
         assert_eq!(src.loc, 100, "\"src\" group must only contain src/a.rs");
 
-        let metrics = dirs.iter().find(|d| d.dir == "src/metrics").expect("\"src/metrics\" group must exist");
-        assert_eq!(metrics.loc, 200, "\"src/metrics\" group must only contain src/metrics/b.rs");
+        let metrics = dirs
+            .iter()
+            .find(|d| d.dir == "src/metrics")
+            .expect("\"src/metrics\" group must exist");
+        assert_eq!(
+            metrics.loc, 200,
+            "\"src/metrics\" group must only contain src/metrics/b.rs"
+        );
     }
 
     // ---- crisis_files ----
@@ -440,7 +540,8 @@ mod tests {
         let mut snap = empty_snapshot();
         snap.commit_interner.intern("sha");
         snap.commits = vec![make_commit(0, 0, Utc::now(), "add prefix matching")];
-        snap.commits_by_file.insert("src/lib.rs".into(), vec![CommitId(0)]);
+        snap.commits_by_file
+            .insert("src/lib.rs".into(), vec![CommitId(0)]);
 
         let files = build_crisis_files(&snap);
         assert_eq!(files.len(), 1);
@@ -459,12 +560,16 @@ mod tests {
         let mut snap = empty_snapshot();
         snap.commit_interner.intern("sha");
         snap.commits = vec![make_commit(0, 0, Utc::now(), "feat: add feature")];
-        snap.commits_by_file.insert("src/clean.rs".into(), vec![CommitId(0)]);
+        snap.commits_by_file
+            .insert("src/clean.rs".into(), vec![CommitId(0)]);
 
         let files = build_crisis_files(&snap);
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].crisis_commit_count, 0);
-        assert_eq!(files[0].crisis_ratio, 0.0, "zero-ratio files are included, not filtered out");
+        assert_eq!(
+            files[0].crisis_ratio, 0.0,
+            "zero-ratio files are included, not filtered out"
+        );
     }
 
     #[test]
@@ -482,9 +587,11 @@ mod tests {
             make_commit(2, 0, Utc::now(), "fix another"),
         ];
         // high.rs: 1/1 crisis = ratio 1.0
-        snap.commits_by_file.insert("high.rs".into(), vec![CommitId(0)]);
+        snap.commits_by_file
+            .insert("high.rs".into(), vec![CommitId(0)]);
         // low.rs: 1/2 crisis = ratio 0.5
-        snap.commits_by_file.insert("low.rs".into(), vec![CommitId(1), CommitId(2)]);
+        snap.commits_by_file
+            .insert("low.rs".into(), vec![CommitId(1), CommitId(2)]);
 
         let files = build_crisis_files(&snap);
         assert_eq!(files[0].path, "high.rs", "highest ratio must be first");
@@ -500,7 +607,8 @@ mod tests {
         snap.commit_interner.intern("sha");
         snap.commits = vec![make_commit(0, 0, Utc::now(), "hotfix: critical")];
         for i in 0u32..21 {
-            snap.commits_by_file.insert(format!("file{i}.rs").into(), vec![CommitId(0)]);
+            snap.commits_by_file
+                .insert(format!("file{i}.rs").into(), vec![CommitId(0)]);
         }
 
         let files = build_crisis_files(&snap);
@@ -514,11 +622,15 @@ mod tests {
         let mut snap = empty_snapshot();
         snap.commit_interner.intern("sha");
         snap.commits = vec![make_commit(0, 0, Utc::now(), "FIX: Something uppercase")];
-        snap.commits_by_file.insert("src/lib.rs".into(), vec![CommitId(0)]);
+        snap.commits_by_file
+            .insert("src/lib.rs".into(), vec![CommitId(0)]);
 
         let files = build_crisis_files(&snap);
         assert_eq!(files.len(), 1);
-        assert_eq!(files[0].crisis_commit_count, 1, "uppercase FIX must be matched via to_lowercase");
+        assert_eq!(
+            files[0].crisis_commit_count, 1,
+            "uppercase FIX must be matched via to_lowercase"
+        );
     }
 
     // ---- dead_files ----
@@ -536,10 +648,14 @@ mod tests {
             make_commit(1, 0, old_ts, "second"),
         ];
         // churn=2 → should NOT be dead even though old
-        snap.commits_by_file.insert("active.rs".into(), vec![CommitId(0), CommitId(1)]);
+        snap.commits_by_file
+            .insert("active.rs".into(), vec![CommitId(0), CommitId(1)]);
 
         let dead = build_dead_files(&snap);
-        assert!(dead.is_empty(), "churn=2 file must not be classified as dead");
+        assert!(
+            dead.is_empty(),
+            "churn=2 file must not be classified as dead"
+        );
     }
 
     #[test]
@@ -550,10 +666,14 @@ mod tests {
         snap.commit_interner.intern("sha");
         let ts = Utc::now() - Duration::days(180);
         snap.commits = vec![make_commit(0, 0, ts, "old")];
-        snap.commits_by_file.insert("boundary.rs".into(), vec![CommitId(0)]);
+        snap.commits_by_file
+            .insert("boundary.rs".into(), vec![CommitId(0)]);
 
         let dead = build_dead_files(&snap);
-        assert!(dead.is_empty(), "exactly 180 days must NOT be dead (threshold is strictly > 180)");
+        assert!(
+            dead.is_empty(),
+            "exactly 180 days must NOT be dead (threshold is strictly > 180)"
+        );
     }
 
     #[test]
@@ -569,12 +689,17 @@ mod tests {
             make_commit(0, 0, older, "old"),
             make_commit(1, 0, newer, "newer"),
         ];
-        snap.commits_by_file.insert("ancient.rs".into(), vec![CommitId(0)]);
-        snap.commits_by_file.insert("stale.rs".into(), vec![CommitId(1)]);
+        snap.commits_by_file
+            .insert("ancient.rs".into(), vec![CommitId(0)]);
+        snap.commits_by_file
+            .insert("stale.rs".into(), vec![CommitId(1)]);
 
         let dead = build_dead_files(&snap);
         assert_eq!(dead.len(), 2);
-        assert!(dead[0].days_since_modified > dead[1].days_since_modified, "oldest file must come first");
+        assert!(
+            dead[0].days_since_modified > dead[1].days_since_modified,
+            "oldest file must come first"
+        );
     }
 
     // ---- velocity_buckets ----
@@ -597,7 +722,10 @@ mod tests {
         let buckets = build_velocity_buckets(&snap);
         assert_eq!(buckets.len(), 1);
         assert_eq!(buckets[0].commit_count, 2);
-        assert_eq!(buckets[0].author_count, 1, "same author twice must count as 1 unique author");
+        assert_eq!(
+            buckets[0].author_count, 1,
+            "same author twice must count as 1 unique author"
+        );
     }
 
     #[test]
@@ -612,7 +740,10 @@ mod tests {
 
         let buckets = build_velocity_buckets(&snap);
         assert_eq!(buckets.len(), 1);
-        assert_eq!(buckets[0].week_start, "2024-01-08", "week_start must be the Monday of that ISO week");
+        assert_eq!(
+            buckets[0].week_start, "2024-01-08",
+            "week_start must be the Monday of that ISO week"
+        );
     }
 
     #[test]
@@ -621,19 +752,22 @@ mod tests {
 
         let mut snap = empty_snapshot();
         // Insert commits out-of-order to stress the sort
-        let t_later  = Utc.with_ymd_and_hms(2024, 3, 18, 0, 0, 0).unwrap();
-        let t_earlier = Utc.with_ymd_and_hms(2024, 1, 8,  0, 0, 0).unwrap();
-        let t_middle  = Utc.with_ymd_and_hms(2024, 2, 5,  0, 0, 0).unwrap();
+        let t_later = Utc.with_ymd_and_hms(2024, 3, 18, 0, 0, 0).unwrap();
+        let t_earlier = Utc.with_ymd_and_hms(2024, 1, 8, 0, 0, 0).unwrap();
+        let t_middle = Utc.with_ymd_and_hms(2024, 2, 5, 0, 0, 0).unwrap();
         snap.commits = vec![
-            make_commit(0, 0, t_later,   "c"),
+            make_commit(0, 0, t_later, "c"),
             make_commit(1, 0, t_earlier, "a"),
-            make_commit(2, 0, t_middle,  "b"),
+            make_commit(2, 0, t_middle, "b"),
         ];
 
         let buckets = build_velocity_buckets(&snap);
         let dates: Vec<&str> = buckets.iter().map(|b| b.week_start.as_str()).collect();
         let mut sorted = dates.clone();
         sorted.sort();
-        assert_eq!(dates, sorted, "buckets must be in chronological (ascending) order");
+        assert_eq!(
+            dates, sorted,
+            "buckets must be in chronological (ascending) order"
+        );
     }
 }
