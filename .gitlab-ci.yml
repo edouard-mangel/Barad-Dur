@@ -156,7 +156,7 @@ semver-check:
   script:
     - cargo binstall --no-confirm cargo-semver-checks
     - |
-      # barad-dur is not on crates.io — diff against the previous git tag.
+      # Diff against the previous git tag (works even before crates.io has the new version).
       # On tag pipelines, exclude the current tag to get the prior release.
       BASELINE=$(git tag --sort=-version:refname \
         | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
@@ -411,6 +411,18 @@ release-publish:
           url: "${PACKAGE_REGISTRY_URL}/${CI_COMMIT_TAG}/barad-dur-linux-x86_64"
         - name: barad-dur-windows-x86_64.exe
           url: "${PACKAGE_REGISTRY_URL}/${CI_COMMIT_TAG}/barad-dur-windows-x86_64.exe"
+
+publish-crate:
+  stage: release
+  image: rust:1.94
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+  needs:
+    - binary-smoke-test
+  cache: []
+  before_script: []
+  script:
+    - cargo publish --token $CARGO_REGISTRY_TOKEN
 
 # ── Docker ───────────────────────────────────
 
