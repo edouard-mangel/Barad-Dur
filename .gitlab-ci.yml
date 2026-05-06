@@ -449,7 +449,7 @@ docker:
     # Sign by digest — immutable, covers every tag pointing at this image
     - DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' ${IMAGE_TAG})
     - echo "${COSIGN_PRIVATE_KEY}" | base64 -d > /tmp/cosign.key
-    - cosign sign --key /tmp/cosign.key --tlog-upload=false --yes "${DIGEST}"
+    - cosign sign --key /tmp/cosign.key --yes "${DIGEST}"
     - rm -f /tmp/cosign.key
     - |
       if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ] || [ -n "$CI_COMMIT_TAG" ]; then
