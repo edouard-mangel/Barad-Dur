@@ -144,50 +144,6 @@ fn resolve_remote_target(
     }
 }
 
-/// Resolve dep ages from cache + fetch_fn for uncached entries.
-/// fetch_fn is called only for deps that are not in the cache (or stale).
-/// Results for deps where fetch_fn returns None are silently dropped.
-/// The cache is updated in-place for every successful fetch_fn result.
-pub(crate) fn resolve_dep_ages(
-    locked: &[crate::collector::deps::LockedDep],
-    cache: &mut crate::registry::cache::DepsCache,
-    fetch_fn: impl Fn(&crate::collector::deps::LockedDep) -> Option<crate::registry::cache::CacheEntry>
-        + Sync,
-) -> Vec<DepAge> {
-    use crate::registry::cache as reg_cache;
-    use crate::registry::entry_to_dep_age;
-    use rayon::prelude::*;
-
-    let (_cached, uncached): (Vec<_>, Vec<_>) = locked.iter().partition(|dep| {
-        let key = reg_cache::cache_key(dep.ecosystem.display_name(), &dep.name, &dep.version);
-        cache.get(&key).is_some_and(|e| e.is_fresh())
-    });
-
-    if !uncached.is_empty() {
-        let fetched: Vec<_> = uncached
-            .par_iter()
-            .filter_map(|dep| {
-                let entry = fetch_fn(dep)?;
-                let key =
-                    reg_cache::cache_key(dep.ecosystem.display_name(), &dep.name, &dep.version);
-                Some((key, entry))
-            })
-            .collect();
-
-        for (key, entry) in fetched {
-            cache.insert(key, entry);
-        }
-    }
-
-    locked
-        .iter()
-        .filter_map(|dep| {
-            let key = reg_cache::cache_key(dep.ecosystem.display_name(), &dep.name, &dep.version);
-            cache.get(&key).and_then(|entry| entry_to_dep_age(dep, entry))
-        })
-        .collect()
-}
-
 fn load_dep_reports(args: &AnalyzeArgs, local_path: &Path, show_progress: bool) -> Vec<EcosystemReport> {
     if !args.deps {
         return vec![];
@@ -196,6 +152,7 @@ fn load_dep_reports(args: &AnalyzeArgs, local_path: &Path, show_progress: bool) 
     use crate::collector::deps::collect_locked_deps;
     use crate::registry;
     use crate::registry::cache as reg_cache;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     let locked = collect_locked_deps(local_path);
     if locked.is_empty() {
@@ -204,30 +161,21 @@ fn load_dep_reports(args: &AnalyzeArgs, local_path: &Path, show_progress: bool) 
 
     let mut dep_cache = reg_cache::load(local_path);
 
-    let uncached_count = locked
-        .iter()
-        .filter(|dep| {
-            let key = reg_cache::cache_key(dep.ecosystem.display_name(), &dep.name, &dep.version);
-            !dep_cache.get(&key).is_some_and(|e| e.is_fresh())
-        })
-        .count();
+    let (cached, uncached) = registry::partition_cached(&locked, &dep_cache);
 
     if show_progress {
-        eprintln!(
-            "{}",
-            deps_progress_start(locked.len() - uncached_count, uncached_count)
-        );
+        eprintln!("{}", deps_progress_start(cached.len(), uncached.len()));
     }
 
-    let total_uncached = uncached_count;
-    let counter = std::sync::atomic::AtomicUsize::new(0);
+    let uncached_count = uncached.len();
+    let counter = AtomicUsize::new(0);
 
-    let dep_ages = resolve_dep_ages(&locked, &mut dep_cache, |dep| {
+    let dep_ages = registry::resolve_dep_ages(&locked, &uncached, &mut dep_cache, |dep| {
         let entry = registry::fetch_dep_network(dep)?;
-        if show_progress && total_uncached > 0 {
-            let n = counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-            if n % 10 == 0 || n == total_uncached {
-                eprintln!("{}", deps_progress_tick(n, total_uncached));
+        if show_progress && uncached_count > 0 {
+            let n = counter.fetch_add(1, Ordering::Relaxed) + 1;
+            if n % 10 == 0 || n == uncached_count {
+                eprintln!("{}", deps_progress_tick(n, uncached_count));
             }
         }
         Some(entry)
@@ -394,19 +342,19 @@ pub fn build_ecosystem_reports(dep_ages: Vec<DepAge>) -> Vec<EcosystemReport> {
         .collect()
 }
 
-/// Format the opening progress line shown when deps fetching begins.
 pub(crate) fn deps_progress_start(cached: usize, uncached: usize) -> String {
     if uncached == 0 {
         format!("Deps: {} packages (all cached)", cached)
     } else {
         format!(
-            "Deps: {} cached, fetching {} from registry (timeout 15s/pkg)…",
-            cached, uncached
+            "Deps: {} cached, fetching {} from registry (timeout {}s/pkg)…",
+            cached,
+            uncached,
+            crate::registry::client::TIMEOUT_SECS,
         )
     }
 }
 
-/// Format the periodic tick line shown every 10 fetched packages.
 pub(crate) fn deps_progress_tick(n: usize, total: usize) -> String {
     format!("  [{}/{}] fetched", n, total)
 }
@@ -414,114 +362,29 @@ pub(crate) fn deps_progress_tick(n: usize, total: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::collector::deps::LockedDep;
-    use crate::deps::Ecosystem;
-    use crate::registry::cache::{self as reg_cache, CacheEntry};
-    use chrono::{Duration, Utc};
-    use std::collections::HashMap;
-    fn make_locked(name: &str, version: &str) -> LockedDep {
-        LockedDep {
-            name: name.into(),
-            version: version.into(),
-            ecosystem: Ecosystem::Cargo,
-        }
-    }
-
-    fn make_fresh_entry() -> CacheEntry {
-        CacheEntry {
-            current_published: Some(Utc::now() - Duration::days(365)),
-            latest_published: Some(Utc::now()),
-            latest_version: Some("1.0.0".into()),
-            vulnerabilities: vec![],
-            cached_at: Utc::now(),
-        }
-    }
 
     #[test]
     fn progress_start_all_cached() {
         let msg = deps_progress_start(42, 0);
-        assert!(
-            msg.contains("42") && msg.contains("cached"),
-            "unexpected message: {msg}"
-        );
+        assert!(msg.contains("42") && msg.contains("cached"), "{msg}");
     }
 
     #[test]
     fn progress_start_some_uncached() {
         let msg = deps_progress_start(10, 30);
-        assert!(
-            msg.contains("10") && msg.contains("30"),
-            "unexpected message: {msg}"
-        );
+        assert!(msg.contains("10") && msg.contains("30"), "{msg}");
+    }
+
+    #[test]
+    fn progress_start_embeds_timeout_constant() {
+        let msg = deps_progress_start(0, 1);
+        let expected = crate::registry::client::TIMEOUT_SECS.to_string();
+        assert!(msg.contains(&expected), "{msg}");
     }
 
     #[test]
     fn progress_tick_shows_n_of_total() {
         let msg = deps_progress_tick(20, 100);
-        assert!(
-            msg.contains("20") && msg.contains("100"),
-            "unexpected message: {msg}"
-        );
-    }
-
-    // Cached deps must resolve without invoking fetch_fn at all.
-    // This is the guard against network calls for warm caches.
-    #[test]
-    fn resolve_dep_ages_returns_cached_deps_without_calling_fetch_fn() {
-        let dep = make_locked("serde", "1.0.0");
-        let mut cache: reg_cache::DepsCache = HashMap::new();
-        let key = reg_cache::cache_key("cargo", "serde", "1.0.0");
-        cache.insert(key, make_fresh_entry());
-
-        let result = resolve_dep_ages(&[dep], &mut cache, |_| {
-            panic!("fetch_fn must not be called for cached deps");
-        });
-
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].name, "serde");
-    }
-
-    // Uncached deps must be passed through fetch_fn.
-    // If fetch_fn returns Some, the dep is included and the cache is updated.
-    #[test]
-    fn resolve_dep_ages_fetches_uncached_dep_via_fetch_fn() {
-        let dep = make_locked("new-dep", "2.0.0");
-        let mut cache: reg_cache::DepsCache = HashMap::new();
-
-        let result = resolve_dep_ages(&[dep], &mut cache, |_| Some(make_fresh_entry()));
-
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].name, "new-dep");
-        // Entry must be saved to cache so a second call skips the network.
-        assert!(cache.contains_key(&reg_cache::cache_key("cargo", "new-dep", "2.0.0")));
-    }
-
-    // If fetch_fn returns None (network error / timeout), the dep is silently skipped.
-    #[test]
-    fn resolve_dep_ages_skips_dep_when_fetch_fn_returns_none() {
-        let dep = make_locked("broken-dep", "0.1.0");
-        let mut cache: reg_cache::DepsCache = HashMap::new();
-
-        let result = resolve_dep_ages(&[dep], &mut cache, |_| None);
-
-        assert!(result.is_empty());
-    }
-
-    // Mixed: one cached dep and one uncached dep that fails.
-    // Only the cached dep appears in output.
-    #[test]
-    fn resolve_dep_ages_resolves_cached_and_skips_failed_uncached() {
-        let cached = make_locked("serde", "1.0.0");
-        let uncached = make_locked("broken", "0.0.1");
-        let mut cache: reg_cache::DepsCache = HashMap::new();
-        cache.insert(
-            reg_cache::cache_key("cargo", "serde", "1.0.0"),
-            make_fresh_entry(),
-        );
-
-        let result = resolve_dep_ages(&[cached, uncached], &mut cache, |_| None);
-
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].name, "serde");
+        assert!(msg.contains("20") && msg.contains("100"), "{msg}");
     }
 }

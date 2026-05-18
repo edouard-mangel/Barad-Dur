@@ -1,11 +1,17 @@
+use std::sync::OnceLock;
 use std::time::Duration;
 
 pub const TIMEOUT_SECS: u64 = 15;
 
-pub fn http() -> reqwest::blocking::Client {
-    http_with_timeout(Duration::from_secs(TIMEOUT_SECS))
+static HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+
+/// Shared HTTP client with a 15-second timeout. Initialised once and reused
+/// across all registry calls so that connections can be pooled between requests.
+pub fn http() -> &'static reqwest::blocking::Client {
+    HTTP_CLIENT.get_or_init(|| http_with_timeout(Duration::from_secs(TIMEOUT_SECS)))
 }
 
+/// Build a fresh client with a custom timeout. Used in tests only.
 pub fn http_with_timeout(timeout: Duration) -> reqwest::blocking::Client {
     reqwest::blocking::Client::builder()
         .timeout(timeout)
@@ -21,12 +27,9 @@ mod tests {
 
     #[test]
     fn client_times_out_on_unresponsive_server() {
-        // A server that accepts TCP connections but never sends any bytes.
-        // Without a timeout on the client, GET would block forever.
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         std::thread::spawn(move || {
-            // Accept the connection, hold it open, but never write a response.
             let _ = listener.accept();
         });
 

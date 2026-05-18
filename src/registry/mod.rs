@@ -9,6 +9,7 @@ pub mod pip;
 use std::path::Path;
 
 use chrono::Utc;
+use rayon::prelude::*;
 
 use crate::collector::deps::LockedDep;
 use crate::deps::{DepAge, DepTier, Ecosystem};
@@ -19,7 +20,6 @@ use cache::{CacheEntry, DepsCache};
 pub fn fetch_dep(dep: &LockedDep, cache: &mut DepsCache, repo_root: &Path) -> Option<DepAge> {
     let key = cache::cache_key(dep.ecosystem.display_name(), &dep.name, &dep.version);
 
-    // Return cached entry if still fresh
     if let Some(entry) = cache.get(&key) {
         if entry.is_fresh() {
             return entry_to_dep_age(dep, entry);
@@ -58,7 +58,51 @@ pub fn fetch_dep_network(dep: &LockedDep) -> Option<CacheEntry> {
     })
 }
 
-pub fn entry_to_dep_age(dep: &LockedDep, entry: &CacheEntry) -> Option<DepAge> {
+/// Split `locked` into (cached, uncached) based on whether a fresh cache entry exists.
+pub fn partition_cached<'a>(
+    locked: &'a [LockedDep],
+    cache: &DepsCache,
+) -> (Vec<&'a LockedDep>, Vec<&'a LockedDep>) {
+    locked.iter().partition(|dep| {
+        let key = cache::cache_key(dep.ecosystem.display_name(), &dep.name, &dep.version);
+        cache.get(&key).is_some_and(|e| e.is_fresh())
+    })
+}
+
+/// Parallel-fetch `uncached` deps via `fetch_fn`, update `cache`, then resolve
+/// all of `all` from the (now updated) cache.
+/// Deps where `fetch_fn` returns `None` are silently skipped.
+pub fn resolve_dep_ages(
+    all: &[LockedDep],
+    uncached: &[&LockedDep],
+    cache: &mut DepsCache,
+    fetch_fn: impl Fn(&LockedDep) -> Option<CacheEntry> + Sync,
+) -> Vec<DepAge> {
+    if !uncached.is_empty() {
+        let fetched: Vec<_> = uncached
+            .par_iter()
+            .filter_map(|dep| {
+                let entry = fetch_fn(dep)?;
+                let key =
+                    cache::cache_key(dep.ecosystem.display_name(), &dep.name, &dep.version);
+                Some((key, entry))
+            })
+            .collect();
+
+        for (key, entry) in fetched {
+            cache.insert(key, entry);
+        }
+    }
+
+    all.iter()
+        .filter_map(|dep| {
+            let key = cache::cache_key(dep.ecosystem.display_name(), &dep.name, &dep.version);
+            cache.get(&key).and_then(|entry| entry_to_dep_age(dep, entry))
+        })
+        .collect()
+}
+
+fn entry_to_dep_age(dep: &LockedDep, entry: &CacheEntry) -> Option<DepAge> {
     let current = entry.current_published?;
     let latest = entry.latest_published?;
 
@@ -91,6 +135,14 @@ mod tests {
         }
     }
 
+    fn make_locked(name: &str, version: &str) -> LockedDep {
+        LockedDep {
+            name: name.into(),
+            version: version.into(),
+            ecosystem: Ecosystem::Cargo,
+        }
+    }
+
     fn make_entry(
         current_published: Option<chrono::DateTime<Utc>>,
         latest_published: Option<chrono::DateTime<Utc>>,
@@ -104,6 +156,10 @@ mod tests {
         }
     }
 
+    fn make_fresh_entry() -> CacheEntry {
+        make_entry(Some(Utc::now() - Duration::days(365)), Some(Utc::now()))
+    }
+
     // If the registry returns latest < current (clock skew, yanked release),
     // drift must clamp to zero — a negative drift_years would produce a
     // misleading Fresh tier on what is effectively an unknown state.
@@ -112,15 +168,13 @@ mod tests {
         let now = Utc::now();
         let entry = make_entry(
             Some(now),
-            Some(now - Duration::days(30)), // latest older than current
+            Some(now - Duration::days(30)),
         );
         let dep_age = entry_to_dep_age(&make_dep(), &entry).unwrap();
         assert_eq!(dep_age.drift_years, 0.0);
         assert_eq!(dep_age.tier, DepTier::Fresh);
     }
 
-    // Both date fields use `?` independently. Removing either guard would
-    // cause a panic or wrong result; having separate tests makes the intent clear.
     #[test]
     fn none_when_current_published_missing() {
         let entry = make_entry(None, Some(Utc::now()));
@@ -133,8 +187,6 @@ mod tests {
         assert!(entry_to_dep_age(&make_dep(), &entry).is_none());
     }
 
-    // Vulnerabilities are security data — they must survive the conversion
-    // from CacheEntry to DepAge without being dropped or deduplicated.
     #[test]
     fn vulnerabilities_are_propagated() {
         let vuln = Vuln {
@@ -149,9 +201,6 @@ mod tests {
         assert_eq!(dep_age.vulnerabilities[0].id, vuln.id);
     }
 
-    // A fresh cache entry must be returned immediately without attempting
-    // any network call. This is the primary reason the cache exists —
-    // analysis must work in offline / CI environments once the cache is warm.
     #[test]
     fn fetch_dep_returns_fresh_cached_entry_without_network() {
         let dir = tempdir().unwrap();
@@ -162,17 +211,11 @@ mod tests {
             key,
             make_entry(Some(Utc::now() - Duration::days(365)), Some(Utc::now())),
         );
-        // If this reaches the network, it would either succeed (flaky) or fail
-        // with an error unrelated to our logic. The cache hit must prevent that.
         let result = fetch_dep(&dep, &mut cache, dir.path());
         assert!(result.is_some());
         assert_eq!(result.unwrap().name, "serde");
     }
 
-    // fetch_dep_network is the network-only extraction used by parallel fetch.
-    // A dep that cannot possibly exist on any registry must return None (not panic).
-    // This tests the function exists and handles errors gracefully without hanging
-    // (the 15s timeout in client::http() ensures it terminates).
     #[test]
     #[ignore = "network"]
     fn fetch_dep_network_returns_none_for_nonexistent_package() {
@@ -181,18 +224,87 @@ mod tests {
             version: "0.0.0".into(),
             ecosystem: Ecosystem::Cargo,
         };
-        let result = fetch_dep_network(&dep);
-        assert!(result.is_none());
+        assert!(fetch_dep_network(&dep).is_none());
     }
 
-    // fetch_dep_network must be a callable function with the right signature.
-    // This test verifies the API contract at compile time: it accepts a &LockedDep
-    // and returns Option<CacheEntry>.
     #[test]
     fn fetch_dep_network_has_correct_signature() {
-        // Just verifying the function is callable with the right types.
-        // We pass a dep guaranteed to be in cache so no network is hit.
-        // (The return value is unused — compilation is what we're testing here.)
         let _ = fetch_dep_network as fn(&LockedDep) -> Option<CacheEntry>;
+    }
+
+    #[test]
+    fn partition_cached_splits_correctly() {
+        let fresh = make_locked("cached-dep", "1.0.0");
+        let stale = make_locked("uncached-dep", "2.0.0");
+        let mut cache: DepsCache = HashMap::new();
+        cache.insert(
+            cache::cache_key("cargo", "cached-dep", "1.0.0"),
+            make_fresh_entry(),
+        );
+
+        let locked = [fresh, stale];
+        let (cached, uncached) = partition_cached(&locked, &cache);
+
+        assert_eq!(cached.len(), 1);
+        assert_eq!(cached[0].name, "cached-dep");
+        assert_eq!(uncached.len(), 1);
+        assert_eq!(uncached[0].name, "uncached-dep");
+    }
+
+    #[test]
+    fn resolve_dep_ages_returns_cached_deps_without_calling_fetch_fn() {
+        let dep = make_locked("serde", "1.0.0");
+        let mut cache: DepsCache = HashMap::new();
+        cache.insert(cache::cache_key("cargo", "serde", "1.0.0"), make_fresh_entry());
+
+        let locked = [dep];
+        let (_, uncached) = partition_cached(&locked, &cache);
+        let result = resolve_dep_ages(&locked, &uncached, &mut cache, |_| {
+            panic!("fetch_fn must not be called for cached deps");
+        });
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "serde");
+    }
+
+    #[test]
+    fn resolve_dep_ages_fetches_uncached_dep_via_fetch_fn() {
+        let dep = make_locked("new-dep", "2.0.0");
+        let mut cache: DepsCache = HashMap::new();
+
+        let locked = [dep];
+        let (_, uncached) = partition_cached(&locked, &cache);
+        let result = resolve_dep_ages(&locked, &uncached, &mut cache, |_| Some(make_fresh_entry()));
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "new-dep");
+        assert!(cache.contains_key(&cache::cache_key("cargo", "new-dep", "2.0.0")));
+    }
+
+    #[test]
+    fn resolve_dep_ages_skips_dep_when_fetch_fn_returns_none() {
+        let dep = make_locked("broken-dep", "0.1.0");
+        let mut cache: DepsCache = HashMap::new();
+
+        let locked = [dep];
+        let (_, uncached) = partition_cached(&locked, &cache);
+        let result = resolve_dep_ages(&locked, &uncached, &mut cache, |_| None);
+
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn resolve_dep_ages_resolves_cached_and_skips_failed_uncached() {
+        let cached = make_locked("serde", "1.0.0");
+        let uncached_dep = make_locked("broken", "0.0.1");
+        let mut cache: DepsCache = HashMap::new();
+        cache.insert(cache::cache_key("cargo", "serde", "1.0.0"), make_fresh_entry());
+
+        let locked = [cached, uncached_dep];
+        let (_, uncached) = partition_cached(&locked, &cache);
+        let result = resolve_dep_ages(&locked, &uncached, &mut cache, |_| None);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "serde");
     }
 }
