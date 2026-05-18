@@ -48,6 +48,9 @@ pub fn collect_blame_cached(
         .filter(|f| !f.is_binary)
         .filter_map(|f| {
             let lines = if let Some(cached) = cache.entries.get(&f.blob_oid) {
+                // Cache stores BlameLine entries that were already resolved through
+                // both email_to_id and raw_email_to_id at write time, so the hit
+                // path returns them directly without re-resolving.
                 cached.clone()
             } else {
                 blame_file(repo_path, &f.path, &email_to_id, raw_email_to_id, None)

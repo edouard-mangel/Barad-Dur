@@ -21,7 +21,7 @@ pub struct DuplicateGroup {
 /// Group authors by lowercase name; return groups with 2+ distinct emails.
 /// Within each group the email with the most commits comes first, and its
 /// author's display-name becomes `canonical_name`.
-pub fn detect_duplicates(
+pub(crate) fn detect_duplicates(
     authors: &[Author],
     commit_counts: &HashMap<AuthorId, usize>,
 ) -> Vec<DuplicateGroup> {
@@ -73,13 +73,13 @@ pub fn detect_duplicates(
 
 /// Returns a `.mailmap` entry in the form:
 /// `Name <canonical@email> <alias@email>`
-pub fn format_mailmap_entry(name: &str, canonical_email: &str, alias_email: &str) -> String {
+pub(crate) fn format_mailmap_entry(name: &str, canonical_email: &str, alias_email: &str) -> String {
     format!("{} <{}> <{}>", name, canonical_email, alias_email)
 }
 
 /// Append new `.mailmap` entries to `<repo_path>/.mailmap`, skipping any that
 /// are already present (exact line match).
-pub fn write_mailmap_entries(repo_path: &Path, entries: &[String]) -> Result<()> {
+pub(crate) fn write_mailmap_entries(repo_path: &Path, entries: &[String]) -> Result<()> {
     let mailmap_path = repo_path.join(".mailmap");
     let existing = std::fs::read_to_string(&mailmap_path).unwrap_or_default();
     let existing_lines: std::collections::HashSet<&str> = existing.lines().collect();
