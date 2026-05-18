@@ -185,18 +185,19 @@ mod tests {
     fn blame_parser_resolves_raw_email_via_reverse_map() {
         use crate::snapshot::AuthorId;
 
-        let mut email_to_id: HashMap<&str, AuthorId> = HashMap::new();
-        email_to_id.insert("alice@company.com", 0);
+        // Use AuthorId 1 (not 0) so a regression that removes the or_else branch
+        // would fall through to unwrap_or(0) and fail visibly.
+        let email_to_id: HashMap<&str, AuthorId> = HashMap::new();
 
         let mut raw_email_to_id: HashMap<String, AuthorId> = HashMap::new();
-        raw_email_to_id.insert("alice@old.com".to_string(), 0);
+        raw_email_to_id.insert("alice@old.com".to_string(), 1);
 
         let porcelain = "\
 abc1234567890123456789012345678901234567890 1 1 1\nauthor Alice\nauthor-mail <alice@old.com>\nauthor-time 1700000000\n\tsome code\n";
 
         let lines = parse_porcelain_blame(porcelain, &email_to_id, &raw_email_to_id).unwrap();
         assert_eq!(lines.len(), 1);
-        assert_eq!(lines[0].author_id, 0, "pre-mailmap email should resolve to canonical author");
+        assert_eq!(lines[0].author_id, 1, "pre-mailmap email must resolve via raw_email_to_id, not fall through to sentinel 0");
     }
 
     #[test]
