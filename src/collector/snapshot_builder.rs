@@ -178,6 +178,7 @@ impl Collector {
             let (map, mut updated_cache) = self.collect_blame_cached(
                 &blame_files,
                 &collection.authors,
+                &collection.raw_email_to_id,
                 &blame_cache,
                 blame_progress,
             )?;
@@ -352,7 +353,13 @@ mod tests {
         // First run: no cache
         let blame_cache = crate::cache::blame::BlameCache::default();
         let (blame_map, new_cache) = collector
-            .collect_blame_cached(&files, &collection.authors, &blame_cache, &NoProgress)
+            .collect_blame_cached(
+                &files,
+                &collection.authors,
+                &collection.raw_email_to_id,
+                &blame_cache,
+                &NoProgress,
+            )
             .expect("should collect blame");
 
         assert!(!blame_map.is_empty());
@@ -360,7 +367,13 @@ mod tests {
 
         // Second run: all blobs cached — should produce identical results
         let (blame_map2, _) = collector
-            .collect_blame_cached(&files, &collection.authors, &new_cache, &NoProgress)
+            .collect_blame_cached(
+                &files,
+                &collection.authors,
+                &collection.raw_email_to_id,
+                &new_cache,
+                &NoProgress,
+            )
             .expect("should collect blame from cache");
 
         assert_eq!(blame_map.len(), blame_map2.len());

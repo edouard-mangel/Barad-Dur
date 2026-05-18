@@ -18,10 +18,17 @@ pub fn collect_blame(
     repo_path: &Path,
     files: &[FileEntry],
     authors: &[Author],
+    raw_email_to_id: &HashMap<String, AuthorId>,
     progress: &dyn Progress,
 ) -> Result<HashMap<PathBuf, Vec<BlameLine>>> {
-    let (map, _) =
-        collect_blame_cached(repo_path, files, authors, &BlameCache::default(), progress)?;
+    let (map, _) = collect_blame_cached(
+        repo_path,
+        files,
+        authors,
+        raw_email_to_id,
+        &BlameCache::default(),
+        progress,
+    )?;
     Ok(map)
 }
 
@@ -30,6 +37,7 @@ pub fn collect_blame_cached(
     repo_path: &Path,
     files: &[FileEntry],
     authors: &[Author],
+    raw_email_to_id: &HashMap<String, AuthorId>,
     cache: &BlameCache,
     progress: &dyn Progress,
 ) -> Result<(HashMap<PathBuf, Vec<BlameLine>>, BlameCache)> {
@@ -42,7 +50,8 @@ pub fn collect_blame_cached(
             let lines = if let Some(cached) = cache.entries.get(&f.blob_oid) {
                 cached.clone()
             } else {
-                blame_file(repo_path, &f.path, &email_to_id, None).unwrap_or_default()
+                blame_file(repo_path, &f.path, &email_to_id, raw_email_to_id, None)
+                    .unwrap_or_default()
             };
             progress.inc(1);
             if lines.is_empty() {
@@ -67,6 +76,7 @@ fn blame_file(
     repo_path: &Path,
     file_path: &Path,
     email_to_id: &HashMap<&str, AuthorId>,
+    raw_email_to_id: &HashMap<String, AuthorId>,
     at_rev: Option<&str>,
 ) -> Result<Vec<BlameLine>> {
     let mut cmd = Command::new("git");
@@ -86,20 +96,25 @@ fn blame_file(
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    parse_porcelain_blame(&stdout, email_to_id)
+    parse_porcelain_blame(&stdout, email_to_id, raw_email_to_id)
 }
 
 struct BlameParserState<'a> {
     email_to_id: &'a HashMap<&'a str, AuthorId>,
+    raw_email_to_id: &'a HashMap<String, AuthorId>,
     current_email: Option<String>,
     current_timestamp: Option<DateTime<Utc>>,
     lines: Vec<BlameLine>,
 }
 
 impl<'a> BlameParserState<'a> {
-    fn new(email_to_id: &'a HashMap<&'a str, AuthorId>) -> Self {
+    fn new(
+        email_to_id: &'a HashMap<&'a str, AuthorId>,
+        raw_email_to_id: &'a HashMap<String, AuthorId>,
+    ) -> Self {
         Self {
             email_to_id,
+            raw_email_to_id,
             current_email: None,
             current_timestamp: None,
             lines: Vec::new(),
@@ -118,7 +133,11 @@ impl<'a> BlameParserState<'a> {
         } else if line.starts_with('\t') {
             // actual source line — finalize the blame entry
             if let (Some(email), Some(timestamp)) = (&self.current_email, &self.current_timestamp) {
-                let author_id = self.email_to_id.get(email.as_str()).copied().unwrap_or(0);
+                let author_id = self.email_to_id
+                    .get(email.as_str())
+                    .or_else(|| self.raw_email_to_id.get(email.as_str()))
+                    .copied()
+                    .unwrap_or(0);
                 self.lines.push(BlameLine {
                     author_id,
                     timestamp: *timestamp,
@@ -136,8 +155,9 @@ impl<'a> BlameParserState<'a> {
 fn parse_porcelain_blame(
     output: &str,
     email_to_id: &HashMap<&str, AuthorId>,
+    raw_email_to_id: &HashMap<String, AuthorId>,
 ) -> Result<Vec<BlameLine>> {
-    let mut state = BlameParserState::new(email_to_id);
+    let mut state = BlameParserState::new(email_to_id, raw_email_to_id);
     for line in output.lines() {
         state.process_line(line);
     }
@@ -162,6 +182,24 @@ mod tests {
     // --- BlameParserState / parse_porcelain_blame ---
 
     #[test]
+    fn blame_parser_resolves_raw_email_via_reverse_map() {
+        use crate::snapshot::AuthorId;
+
+        let mut email_to_id: HashMap<&str, AuthorId> = HashMap::new();
+        email_to_id.insert("alice@company.com", 0);
+
+        let mut raw_email_to_id: HashMap<String, AuthorId> = HashMap::new();
+        raw_email_to_id.insert("alice@old.com".to_string(), 0);
+
+        let porcelain = "\
+abc1234567890123456789012345678901234567890 1 1 1\nauthor Alice\nauthor-mail <alice@old.com>\nauthor-time 1700000000\n\tsome code\n";
+
+        let lines = parse_porcelain_blame(porcelain, &email_to_id, &raw_email_to_id).unwrap();
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].author_id, 0, "pre-mailmap email should resolve to canonical author");
+    }
+
+    #[test]
     fn parse_porcelain_blame_unknown_email_falls_back_to_author_zero() {
         let porcelain = "\
 abc1234567890123456789012345678901234567 1 1 1
@@ -179,7 +217,8 @@ filename f.rs
 ";
         // email_to_id is empty — unknown email should fall back to id 0
         let email_to_id: HashMap<&str, AuthorId> = HashMap::new();
-        let lines = parse_porcelain_blame(porcelain, &email_to_id).unwrap();
+        let raw_email_to_id: HashMap<String, AuthorId> = HashMap::new();
+        let lines = parse_porcelain_blame(porcelain, &email_to_id, &raw_email_to_id).unwrap();
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].author_id, 0);
     }
@@ -192,7 +231,8 @@ abc1234567890123456789012345678901234567 1 1 1
 \torphan line
 ";
         let email_to_id: HashMap<&str, AuthorId> = HashMap::new();
-        let lines = parse_porcelain_blame(porcelain, &email_to_id).unwrap();
+        let raw_email_to_id: HashMap<String, AuthorId> = HashMap::new();
+        let lines = parse_porcelain_blame(porcelain, &email_to_id, &raw_email_to_id).unwrap();
         assert!(lines.is_empty(), "no entry without preceding author info");
     }
 
@@ -228,7 +268,8 @@ filename f.rs
             [("alice@example.com", 0), ("bob@example.com", 1)]
                 .into_iter()
                 .collect();
-        let lines = parse_porcelain_blame(porcelain, &email_to_id).unwrap();
+        let raw_email_to_id: HashMap<String, AuthorId> = HashMap::new();
+        let lines = parse_porcelain_blame(porcelain, &email_to_id, &raw_email_to_id).unwrap();
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0].author_id, 0);
         assert_eq!(lines[1].author_id, 1);
@@ -251,8 +292,9 @@ filename test.rs
 \tlet x = 1;
 ";
         let email_to_id: HashMap<&str, AuthorId> = [("test@example.com", 0)].into_iter().collect();
+        let raw_email_to_id: HashMap<String, AuthorId> = HashMap::new();
 
-        let lines = parse_porcelain_blame(porcelain, &email_to_id).unwrap();
+        let lines = parse_porcelain_blame(porcelain, &email_to_id, &raw_email_to_id).unwrap();
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].author_id, 0);
     }
@@ -276,8 +318,9 @@ abc1234567890123456789012345678901234567 2 2
 \tline 2
 ";
         let email_to_id: HashMap<&str, AuthorId> = [("a@b.com", 0)].into_iter().collect();
+        let raw_email_to_id: HashMap<String, AuthorId> = HashMap::new();
 
-        let lines = parse_porcelain_blame(porcelain, &email_to_id).unwrap();
+        let lines = parse_porcelain_blame(porcelain, &email_to_id, &raw_email_to_id).unwrap();
         assert_eq!(lines.len(), 2);
     }
 }
