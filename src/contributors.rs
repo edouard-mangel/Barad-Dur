@@ -94,14 +94,14 @@ pub fn write_mailmap_entries(repo_path: &Path, entries: &[String]) -> Result<()>
         return Ok(());
     }
 
-    let mut content = existing;
-    if !content.is_empty() && !content.ends_with('\n') {
-        content.push('\n');
-    }
-    for entry in new_entries {
-        content.push_str(entry);
-        content.push('\n');
-    }
+    let suffix = new_entries.join("\n") + "\n";
+    let content = if existing.is_empty() {
+        suffix
+    } else if existing.ends_with('\n') {
+        existing + &suffix
+    } else {
+        existing + "\n" + &suffix
+    };
     std::fs::write(&mailmap_path, content)?;
     Ok(())
 }
@@ -150,7 +150,18 @@ pub fn run(args: &ContributorsArgs) -> Result<()> {
 
     println!("Suspected duplicates:\n");
 
-    let mut all_entries: Vec<String> = Vec::new();
+    // Collect suggested entries functionally — separated from the printing loop below.
+    let all_entries: Vec<String> = groups
+        .iter()
+        .filter(|g| g.emails.len() >= 2)
+        .flat_map(|g| {
+            let canonical = &g.emails[0].0;
+            g.emails
+                .iter()
+                .skip(1)
+                .map(|(alias, _)| format_mailmap_entry(&g.canonical_name, canonical, alias))
+        })
+        .collect();
 
     for group in &groups {
         println!("  {}", group.canonical_name);
@@ -170,16 +181,17 @@ pub fn run(args: &ContributorsArgs) -> Result<()> {
             let canonical_email = &group.emails[0].0;
             println!("\n  Suggested .mailmap entries:");
             for (alias_email, _) in group.emails.iter().skip(1) {
-                let entry =
-                    format_mailmap_entry(&group.canonical_name, canonical_email, alias_email);
-                println!("    {}", entry);
-                all_entries.push(entry);
+                println!(
+                    "    {}",
+                    format_mailmap_entry(&group.canonical_name, canonical_email, alias_email)
+                );
             }
         }
 
         println!();
     }
 
+    println!("Note: grouping is by display name only — verify suggestions before using --write.");
     if args.write {
         write_mailmap_entries(&repo_path, &all_entries)?;
         println!("Written to .mailmap.");
