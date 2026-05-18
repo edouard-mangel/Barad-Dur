@@ -6,32 +6,12 @@ pub mod nuget;
 pub mod osv;
 pub mod pip;
 
-use std::path::Path;
-
 use chrono::Utc;
 use rayon::prelude::*;
 
 use crate::collector::deps::LockedDep;
 use crate::deps::{DepAge, DepTier, Ecosystem};
 use cache::{CacheEntry, DepsCache};
-
-/// Fetch (or return cached) age + vulnerability data for a single dependency.
-/// Returns `None` if the registry call fails (network unavailable, unknown package).
-pub fn fetch_dep(dep: &LockedDep, cache: &mut DepsCache, repo_root: &Path) -> Option<DepAge> {
-    let key = cache::cache_key(dep.ecosystem.display_name(), &dep.name, &dep.version);
-
-    if let Some(entry) = cache.get(&key) {
-        if entry.is_fresh() {
-            return entry_to_dep_age(dep, entry);
-        }
-    }
-
-    let entry = fetch_dep_network(dep)?;
-    cache.insert(key, entry.clone());
-    cache::save(repo_root, cache);
-
-    entry_to_dep_age(dep, &entry)
-}
 
 /// Fetch age + vulnerability data from the network only — no cache read or write.
 /// Returns `None` on any network or parse error (including timeout).
@@ -126,7 +106,6 @@ mod tests {
     use crate::deps::{Ecosystem, Vuln};
     use chrono::{Duration, Utc};
     use std::collections::HashMap;
-    use tempfile::tempdir;
 
     fn make_dep() -> LockedDep {
         LockedDep {
@@ -197,21 +176,6 @@ mod tests {
         let dep_age = entry_to_dep_age(&make_dep(), &entry).unwrap();
         assert_eq!(dep_age.vulnerabilities.len(), 1);
         assert_eq!(dep_age.vulnerabilities[0].id, vuln.id);
-    }
-
-    #[test]
-    fn fetch_dep_returns_fresh_cached_entry_without_network() {
-        let dir = tempdir().unwrap();
-        let dep = make_dep();
-        let mut cache: DepsCache = HashMap::new();
-        let key = cache::cache_key(dep.ecosystem.display_name(), &dep.name, &dep.version);
-        cache.insert(
-            key,
-            make_entry(Some(Utc::now() - Duration::days(365)), Some(Utc::now())),
-        );
-        let result = fetch_dep(&dep, &mut cache, dir.path());
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().name, "serde");
     }
 
     #[test]

@@ -1,5 +1,6 @@
 use anyhow::Result;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::cache;
 use crate::cli::AnalyzeArgs;
@@ -156,7 +157,6 @@ fn load_dep_reports(
     use crate::collector::deps::collect_locked_deps;
     use crate::registry;
     use crate::registry::cache as reg_cache;
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
     let locked = collect_locked_deps(local_path);
     if locked.is_empty() {
@@ -174,16 +174,12 @@ fn load_dep_reports(
     let uncached_count = uncached.len();
     let counter = AtomicUsize::new(0);
 
-    let dep_ages = registry::resolve_dep_ages(&locked, &uncached, &mut dep_cache, |dep| {
-        let entry = registry::fetch_dep_network(dep)?;
-        if show_progress && uncached_count > 0 {
-            let n = counter.fetch_add(1, Ordering::Relaxed) + 1;
-            if n.is_multiple_of(10) || n == uncached_count {
-                eprintln!("{}", deps_progress_tick(n, uncached_count));
-            }
-        }
-        Some(entry)
-    });
+    let dep_ages = registry::resolve_dep_ages(
+        &locked,
+        &uncached,
+        &mut dep_cache,
+        make_progress_fetch(&registry::fetch_dep_network, &counter, uncached_count, show_progress),
+    );
 
     reg_cache::save(local_path, &dep_cache);
 
@@ -363,9 +359,58 @@ pub(crate) fn deps_progress_tick(n: usize, total: usize) -> String {
     format!("  [{}/{}] fetched", n, total)
 }
 
+/// Wraps `fetch_fn` so the progress counter increments for every attempt —
+/// including failures — ensuring the [N/N] completion tick always fires.
+pub(crate) fn make_progress_fetch<'a, F>(
+    fetch_fn: &'a F,
+    counter: &'a AtomicUsize,
+    uncached_count: usize,
+    show_progress: bool,
+) -> impl Fn(&crate::collector::deps::LockedDep) -> Option<crate::registry::cache::CacheEntry>
+       + Sync
+       + 'a
+where
+    F: Fn(&crate::collector::deps::LockedDep) -> Option<crate::registry::cache::CacheEntry>
+       + Sync,
+{
+    move |dep| {
+        let result = fetch_fn(dep);
+        if show_progress && uncached_count > 0 {
+            let n = counter.fetch_add(1, Ordering::Relaxed) + 1;
+            if n.is_multiple_of(10) || n == uncached_count {
+                eprintln!("{}", deps_progress_tick(n, uncached_count));
+            }
+        }
+        result
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::collector::deps::LockedDep;
+    use crate::deps::Ecosystem;
+    use crate::registry::cache::CacheEntry;
+    use chrono::{Duration, Utc};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn make_locked(name: &str) -> LockedDep {
+        LockedDep {
+            name: name.into(),
+            version: "1.0.0".into(),
+            ecosystem: Ecosystem::Cargo,
+        }
+    }
+
+    fn make_entry() -> CacheEntry {
+        CacheEntry {
+            current_published: Some(Utc::now() - Duration::days(365)),
+            latest_published: Some(Utc::now()),
+            latest_version: Some("1.0.0".into()),
+            vulnerabilities: vec![],
+            cached_at: Utc::now(),
+        }
+    }
 
     #[test]
     fn progress_start_all_cached() {
@@ -390,5 +435,54 @@ mod tests {
     fn progress_tick_shows_n_of_total() {
         let msg = deps_progress_tick(20, 100);
         assert!(msg.contains("20") && msg.contains("100"), "{msg}");
+    }
+
+    // The progress counter must increment for every dep attempt, including failures.
+    // If it only increments on success, the [N/N] completion tick is never printed
+    // when any dep fails to fetch (network error, timeout, unknown package).
+    #[test]
+    fn make_progress_fetch_increments_counter_on_failure() {
+        let dep = make_locked("broken");
+        let counter = AtomicUsize::new(0);
+        let fetch_fn = |_: &LockedDep| -> Option<CacheEntry> { None };
+
+        let wrapped = make_progress_fetch(&fetch_fn, &counter, 3, true);
+        let result = wrapped(&dep);
+
+        assert!(result.is_none());
+        assert_eq!(
+            counter.load(Ordering::Relaxed),
+            1,
+            "counter must increment even when fetch returns None"
+        );
+    }
+
+    #[test]
+    fn make_progress_fetch_increments_counter_on_success() {
+        let dep = make_locked("ok");
+        let counter = AtomicUsize::new(0);
+        let fetch_fn = |_: &LockedDep| -> Option<CacheEntry> { Some(make_entry()) };
+
+        let wrapped = make_progress_fetch(&fetch_fn, &counter, 3, true);
+        let result = wrapped(&dep);
+
+        assert!(result.is_some());
+        assert_eq!(counter.load(Ordering::Relaxed), 1);
+    }
+
+    // When all uncached deps fail, counter still reaches uncached_count.
+    #[test]
+    fn make_progress_fetch_counter_reaches_total_despite_all_failures() {
+        let counter = AtomicUsize::new(0);
+        let uncached_count = 3;
+        let fetch_fn = |_: &LockedDep| -> Option<CacheEntry> { None };
+
+        for _ in 0..uncached_count {
+            let dep = make_locked("fail");
+            let wrapped = make_progress_fetch(&fetch_fn, &counter, uncached_count, true);
+            wrapped(&dep);
+        }
+
+        assert_eq!(counter.load(Ordering::Relaxed), uncached_count);
     }
 }
