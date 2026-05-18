@@ -1,5 +1,6 @@
 pub mod cache;
 pub mod cargo;
+pub(crate) mod client;
 pub mod npm;
 pub mod nuget;
 pub mod osv;
@@ -18,14 +19,22 @@ use cache::{CacheEntry, DepsCache};
 pub fn fetch_dep(dep: &LockedDep, cache: &mut DepsCache, repo_root: &Path) -> Option<DepAge> {
     let key = cache::cache_key(dep.ecosystem.display_name(), &dep.name, &dep.version);
 
-    // Return cached entry if still fresh
     if let Some(entry) = cache.get(&key) {
         if entry.is_fresh() {
             return entry_to_dep_age(dep, entry);
         }
     }
 
-    // Fetch from the appropriate registry
+    let entry = fetch_dep_network(dep)?;
+    cache.insert(key, entry.clone());
+    cache::save(repo_root, cache);
+
+    entry_to_dep_age(dep, &entry)
+}
+
+/// Fetch age + vulnerability data from the network only — no cache read or write.
+/// Returns `None` on any network or parse error.
+pub fn fetch_dep_network(dep: &LockedDep) -> Option<CacheEntry> {
     let result = match dep.ecosystem {
         Ecosystem::Cargo => cargo::fetch_dates(&dep.name, &dep.version).ok(),
         Ecosystem::Npm => npm::fetch_dates(&dep.name, &dep.version).ok(),
@@ -38,21 +47,16 @@ pub fn fetch_dep(dep: &LockedDep, cache: &mut DepsCache, repo_root: &Path) -> Op
     let vulns =
         osv::fetch_vulns(dep.ecosystem.osv_name(), &dep.name, &dep.version).unwrap_or_default();
 
-    let entry = CacheEntry {
+    Some(CacheEntry {
         current_published,
         latest_version: Some(latest_version),
         latest_published: Some(latest_published),
         vulnerabilities: vulns,
         cached_at: Utc::now(),
-    };
-
-    cache.insert(key, entry.clone());
-    cache::save(repo_root, cache);
-
-    entry_to_dep_age(dep, &entry)
+    })
 }
 
-fn entry_to_dep_age(dep: &LockedDep, entry: &CacheEntry) -> Option<DepAge> {
+pub fn entry_to_dep_age(dep: &LockedDep, entry: &CacheEntry) -> Option<DepAge> {
     let current = entry.current_published?;
     let latest = entry.latest_published?;
 
