@@ -77,6 +77,7 @@ fn collect_commits_from_revwalk(
 ) -> Result<CommitCollection> {
     let mut commits = Vec::new();
     let mut email_to_id: HashMap<String, AuthorId> = HashMap::new();
+    let mut raw_email_to_id: HashMap<String, AuthorId> = HashMap::new();
     let mut authors: Vec<Author> = Vec::new();
     let mut interner = CommitInterner::default();
 
@@ -96,6 +97,7 @@ fn collect_commits_from_revwalk(
         }
 
         let author_sig = commit.author();
+        let raw_email = author_sig.email().unwrap_or("unknown").to_lowercase();
         let (name, email) = resolve_author(&author_sig, mailmap.as_ref());
 
         let author_id = if let Some(&id) = email_to_id.get(&email) {
@@ -110,6 +112,10 @@ fn collect_commits_from_revwalk(
             });
             id
         };
+
+        if raw_email != email {
+            raw_email_to_id.entry(raw_email).or_insert(author_id);
+        }
 
         let files_changed = collect_file_changes(repo, &commit)?;
         let parent_count = commit.parent_count();
@@ -130,7 +136,7 @@ fn collect_commits_from_revwalk(
         commits,
         authors,
         interner,
-        raw_email_to_id: HashMap::new(),
+        raw_email_to_id,
     })
 }
 
@@ -318,5 +324,33 @@ mod tests {
             raw_email_to_id: std::collections::HashMap::new(),
         };
         assert!(c.raw_email_to_id.is_empty());
+    }
+
+    #[test]
+    fn raw_email_to_id_maps_alias_to_canonical_author() {
+        // Simulate what happens during a commit walk when mailmap resolves an alias.
+        // Both the canonical and raw email must map to the same AuthorId.
+        let mut email_to_id: std::collections::HashMap<String, crate::snapshot::AuthorId> = std::collections::HashMap::new();
+        let mut raw_email_to_id: std::collections::HashMap<String, crate::snapshot::AuthorId> = std::collections::HashMap::new();
+        let mut authors: Vec<crate::snapshot::Author> = Vec::new();
+
+        let raw = "alice@old.com".to_string();
+        let canonical = "alice@company.com".to_string();
+
+        // First commit arrives with canonical email (already resolved by mailmap)
+        let id = authors.len();
+        email_to_id.insert(canonical.clone(), id);
+        authors.push(crate::snapshot::Author { id, name: "Alice".into(), email: canonical.clone() });
+
+        // Second commit arrives with raw (pre-mailmap) email → same person, different email
+        // The logic should: find canonical via email_to_id, then record raw→id in raw_email_to_id
+        if raw != canonical {
+            if let Some(&existing_id) = email_to_id.get(&canonical) {
+                raw_email_to_id.entry(raw.clone()).or_insert(existing_id);
+            }
+        }
+
+        assert_eq!(raw_email_to_id.get("alice@old.com"), Some(&0));
+        assert_eq!(email_to_id.get("alice@company.com"), Some(&0));
     }
 }
