@@ -83,8 +83,7 @@ pub fn resolve_dep_ages(
             .par_iter()
             .filter_map(|dep| {
                 let entry = fetch_fn(dep)?;
-                let key =
-                    cache::cache_key(dep.ecosystem.display_name(), &dep.name, &dep.version);
+                let key = cache::cache_key(dep.ecosystem.display_name(), &dep.name, &dep.version);
                 Some((key, entry))
             })
             .collect();
@@ -97,7 +96,9 @@ pub fn resolve_dep_ages(
     all.iter()
         .filter_map(|dep| {
             let key = cache::cache_key(dep.ecosystem.display_name(), &dep.name, &dep.version);
-            cache.get(&key).and_then(|entry| entry_to_dep_age(dep, entry))
+            cache
+                .get(&key)
+                .and_then(|entry| entry_to_dep_age(dep, entry))
         })
         .collect()
 }
@@ -166,10 +167,7 @@ mod tests {
     #[test]
     fn drift_clamps_to_zero_when_latest_before_current() {
         let now = Utc::now();
-        let entry = make_entry(
-            Some(now),
-            Some(now - Duration::days(30)),
-        );
+        let entry = make_entry(Some(now), Some(now - Duration::days(30)));
         let dep_age = entry_to_dep_age(&make_dep(), &entry).unwrap();
         assert_eq!(dep_age.drift_years, 0.0);
         assert_eq!(dep_age.tier, DepTier::Fresh);
@@ -255,7 +253,10 @@ mod tests {
     fn resolve_dep_ages_returns_cached_deps_without_calling_fetch_fn() {
         let dep = make_locked("serde", "1.0.0");
         let mut cache: DepsCache = HashMap::new();
-        cache.insert(cache::cache_key("cargo", "serde", "1.0.0"), make_fresh_entry());
+        cache.insert(
+            cache::cache_key("cargo", "serde", "1.0.0"),
+            make_fresh_entry(),
+        );
 
         let locked = [dep];
         let (_, uncached) = partition_cached(&locked, &cache);
@@ -298,7 +299,10 @@ mod tests {
         let cached = make_locked("serde", "1.0.0");
         let uncached_dep = make_locked("broken", "0.0.1");
         let mut cache: DepsCache = HashMap::new();
-        cache.insert(cache::cache_key("cargo", "serde", "1.0.0"), make_fresh_entry());
+        cache.insert(
+            cache::cache_key("cargo", "serde", "1.0.0"),
+            make_fresh_entry(),
+        );
 
         let locked = [cached, uncached_dep];
         let (_, uncached) = partition_cached(&locked, &cache);

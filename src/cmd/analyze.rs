@@ -144,7 +144,11 @@ fn resolve_remote_target(
     }
 }
 
-fn load_dep_reports(args: &AnalyzeArgs, local_path: &Path, show_progress: bool) -> Vec<EcosystemReport> {
+fn load_dep_reports(
+    args: &AnalyzeArgs,
+    local_path: &Path,
+    show_progress: bool,
+) -> Vec<EcosystemReport> {
     if !args.deps {
         return vec![];
     }
