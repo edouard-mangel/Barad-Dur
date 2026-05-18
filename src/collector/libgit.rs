@@ -42,6 +42,7 @@ pub fn collect_commits(repo: &Repository, time_window: &TimeWindow) -> Result<Co
             commits: vec![],
             authors: vec![],
             interner: CommitInterner::default(),
+            raw_email_to_id: HashMap::new(),
         });
     }
 
@@ -59,6 +60,7 @@ pub fn collect_commits(repo: &Repository, time_window: &TimeWindow) -> Result<Co
                 commits: vec![],
                 authors: vec![],
                 interner: CommitInterner::default(),
+                raw_email_to_id: HashMap::new(),
             });
         }
         return Err(anyhow::anyhow!(e)).context("Failed to push HEAD");
@@ -128,6 +130,7 @@ fn collect_commits_from_revwalk(
         commits,
         authors,
         interner,
+        raw_email_to_id: HashMap::new(),
     })
 }
 
@@ -299,4 +302,21 @@ pub fn collect_files(repo: &Repository) -> Result<Vec<FileEntry>> {
     let head = repo.head().context("Failed to get HEAD")?;
     let tree = head.peel_to_tree().context("Failed to peel HEAD to tree")?;
     collect_files_from_tree(repo, tree)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::snapshot::CommitInterner;
+
+    #[test]
+    fn empty_repo_collection_has_empty_raw_email_map() {
+        let c = CommitCollection {
+            commits: vec![],
+            authors: vec![],
+            interner: CommitInterner::default(),
+            raw_email_to_id: std::collections::HashMap::new(),
+        };
+        assert!(c.raw_email_to_id.is_empty());
+    }
 }
