@@ -78,15 +78,16 @@ pub fn format_mailmap_entry(name: &str, canonical_email: &str, alias_email: &str
 }
 
 /// Append new `.mailmap` entries to `<repo_path>/.mailmap`, skipping any that
-/// are already present (substring match).
+/// are already present (exact line match).
 pub fn write_mailmap_entries(repo_path: &Path, entries: &[String]) -> Result<()> {
     let mailmap_path = repo_path.join(".mailmap");
     let existing = std::fs::read_to_string(&mailmap_path).unwrap_or_default();
+    let existing_lines: std::collections::HashSet<&str> = existing.lines().collect();
 
     let new_entries: Vec<&str> = entries
         .iter()
         .map(String::as_str)
-        .filter(|entry| !existing.contains(entry))
+        .filter(|entry| !existing_lines.contains(entry))
         .collect();
 
     if new_entries.is_empty() {
