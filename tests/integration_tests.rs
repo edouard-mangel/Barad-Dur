@@ -121,10 +121,8 @@ fn analyze_output_to_file() {
 
 #[test]
 fn analyze_without_deps_flag_omits_deps_category() {
-    let output = Command::cargo_bin("barad-dur")
-        .unwrap()
-        .args(["analyze", ".", "--json"])
-        .current_dir(env!("CARGO_MANIFEST_DIR"))
+    let output = barad_dur()
+        .args(["analyze", &test_repo(), "--json"])
         .output()
         .unwrap();
 
