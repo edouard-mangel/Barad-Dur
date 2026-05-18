@@ -76,7 +76,7 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<()> {
     }
 
     // Dependency analysis (opt-in via --deps, requires network on first run)
-    let dep_reports = load_dep_reports(&args, &local_path, show_progress);
+    let dep_reports = load_dep_reports(&args, &local_path);
 
     if args.deps && !dep_reports.is_empty() {
         categories.push(metrics::deps::compute_deps(&dep_reports));
@@ -144,7 +144,7 @@ fn resolve_remote_target(
     }
 }
 
-fn load_dep_reports(args: &AnalyzeArgs, local_path: &Path, show_progress: bool) -> Vec<EcosystemReport> {
+fn load_dep_reports(args: &AnalyzeArgs, local_path: &Path) -> Vec<EcosystemReport> {
     if !args.deps {
         return vec![];
     }
@@ -152,70 +152,13 @@ fn load_dep_reports(args: &AnalyzeArgs, local_path: &Path, show_progress: bool) 
     use crate::collector::deps::collect_locked_deps;
     use crate::registry;
     use crate::registry::cache as reg_cache;
-    use rayon::prelude::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
     let locked = collect_locked_deps(local_path);
-    if locked.is_empty() {
-        return vec![];
-    }
-
     let mut dep_cache = reg_cache::load(local_path);
-
-    // Split: deps with a fresh cache entry need no network call.
-    let (cached_keys, uncached): (Vec<_>, Vec<_>) = locked.iter().partition(|dep| {
-        let key = reg_cache::cache_key(dep.ecosystem.display_name(), &dep.name, &dep.version);
-        dep_cache.get(&key).is_some_and(|e| e.is_fresh())
-    });
-
-    let uncached_total = uncached.len();
-    if show_progress {
-        if uncached_total == 0 {
-            eprintln!("Deps: {} packages (all cached)", locked.len());
-        } else {
-            eprintln!(
-                "Deps: {} cached, fetching {} from registry (timeout 15s/pkg)…",
-                cached_keys.len(),
-                uncached_total
-            );
-        }
-    }
-
-    // Parallel-fetch uncached deps. Each call makes 2 HTTP requests (registry + OSV).
-    // Rayon bounds concurrency to the thread-pool size, so we don't spam the APIs.
-    if uncached_total > 0 {
-        let counter = AtomicUsize::new(0);
-        let fetched: Vec<_> = uncached
-            .par_iter()
-            .filter_map(|dep| {
-                let entry = registry::fetch_dep_network(dep)?;
-                let n = counter.fetch_add(1, Ordering::Relaxed) + 1;
-                if show_progress && (n % 10 == 0 || n == uncached_total) {
-                    eprintln!("  [{}/{}] fetched", n, uncached_total);
-                }
-                let key = reg_cache::cache_key(
-                    dep.ecosystem.display_name(),
-                    &dep.name,
-                    &dep.version,
-                );
-                Some((key, entry))
-            })
-            .collect();
-
-        for (key, entry) in fetched {
-            dep_cache.insert(key, entry);
-        }
-        reg_cache::save(local_path, &dep_cache);
-    }
-
     let dep_ages: Vec<DepAge> = locked
         .iter()
-        .filter_map(|dep| {
-            let key = reg_cache::cache_key(dep.ecosystem.display_name(), &dep.name, &dep.version);
-            dep_cache.get(&key).and_then(|entry| registry::entry_to_dep_age(dep, entry))
-        })
+        .filter_map(|dep| registry::fetch_dep(dep, &mut dep_cache, local_path))
         .collect();
-
     build_ecosystem_reports(dep_ages)
 }
 

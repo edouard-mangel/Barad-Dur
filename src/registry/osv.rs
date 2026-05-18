@@ -8,7 +8,7 @@ pub fn fetch_vulns(ecosystem_osv_name: &str, name: &str, version: &str) -> Resul
         "version": version
     });
 
-    let response: serde_json::Value = super::client::http()
+    let response: serde_json::Value = reqwest::blocking::Client::new()
         .post(url)
         .json(&payload)
         .send()?

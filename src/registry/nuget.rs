@@ -9,7 +9,7 @@ pub fn fetch_dates(
         "https://api.nuget.org/v3/registration5/{}/index.json",
         name.to_lowercase()
     );
-    let body: serde_json::Value = super::client::http().get(&url).send()?.json()?;
+    let body: serde_json::Value = reqwest::blocking::get(&url)?.json()?;
     let items = body["items"]
         .as_array()
         .ok_or_else(|| anyhow::anyhow!("no items"))?;
