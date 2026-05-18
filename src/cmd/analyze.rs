@@ -178,7 +178,7 @@ fn load_dep_reports(
         let entry = registry::fetch_dep_network(dep)?;
         if show_progress && uncached_count > 0 {
             let n = counter.fetch_add(1, Ordering::Relaxed) + 1;
-            if n % 10 == 0 || n == uncached_count {
+            if n.is_multiple_of(10) || n == uncached_count {
                 eprintln!("{}", deps_progress_tick(n, uncached_count));
             }
         }
