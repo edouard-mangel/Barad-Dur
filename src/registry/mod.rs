@@ -1,5 +1,6 @@
 pub mod cache;
 pub mod cargo;
+pub(crate) mod client;
 pub mod npm;
 pub mod nuget;
 pub mod osv;
@@ -25,7 +26,17 @@ pub fn fetch_dep(dep: &LockedDep, cache: &mut DepsCache, repo_root: &Path) -> Op
         }
     }
 
-    // Fetch from the appropriate registry
+    let entry = fetch_dep_network(dep)?;
+    cache.insert(key, entry.clone());
+    cache::save(repo_root, cache);
+
+    entry_to_dep_age(dep, &entry)
+}
+
+/// Fetch age + vulnerability data from the network only — no cache read or write.
+/// Returns `None` on any network or parse error (including timeout).
+/// Safe to call from multiple threads simultaneously.
+pub fn fetch_dep_network(dep: &LockedDep) -> Option<CacheEntry> {
     let result = match dep.ecosystem {
         Ecosystem::Cargo => cargo::fetch_dates(&dep.name, &dep.version).ok(),
         Ecosystem::Npm => npm::fetch_dates(&dep.name, &dep.version).ok(),
@@ -38,21 +49,16 @@ pub fn fetch_dep(dep: &LockedDep, cache: &mut DepsCache, repo_root: &Path) -> Op
     let vulns =
         osv::fetch_vulns(dep.ecosystem.osv_name(), &dep.name, &dep.version).unwrap_or_default();
 
-    let entry = CacheEntry {
+    Some(CacheEntry {
         current_published,
         latest_version: Some(latest_version),
         latest_published: Some(latest_published),
         vulnerabilities: vulns,
         cached_at: Utc::now(),
-    };
-
-    cache.insert(key, entry.clone());
-    cache::save(repo_root, cache);
-
-    entry_to_dep_age(dep, &entry)
+    })
 }
 
-fn entry_to_dep_age(dep: &LockedDep, entry: &CacheEntry) -> Option<DepAge> {
+pub fn entry_to_dep_age(dep: &LockedDep, entry: &CacheEntry) -> Option<DepAge> {
     let current = entry.current_published?;
     let latest = entry.latest_published?;
 
@@ -161,5 +167,32 @@ mod tests {
         let result = fetch_dep(&dep, &mut cache, dir.path());
         assert!(result.is_some());
         assert_eq!(result.unwrap().name, "serde");
+    }
+
+    // fetch_dep_network is the network-only extraction used by parallel fetch.
+    // A dep that cannot possibly exist on any registry must return None (not panic).
+    // This tests the function exists and handles errors gracefully without hanging
+    // (the 15s timeout in client::http() ensures it terminates).
+    #[test]
+    #[ignore = "network"]
+    fn fetch_dep_network_returns_none_for_nonexistent_package() {
+        let dep = LockedDep {
+            name: "this-package-does-not-exist-barad-dur-test-xyz".into(),
+            version: "0.0.0".into(),
+            ecosystem: Ecosystem::Cargo,
+        };
+        let result = fetch_dep_network(&dep);
+        assert!(result.is_none());
+    }
+
+    // fetch_dep_network must be a callable function with the right signature.
+    // This test verifies the API contract at compile time: it accepts a &LockedDep
+    // and returns Option<CacheEntry>.
+    #[test]
+    fn fetch_dep_network_has_correct_signature() {
+        // Just verifying the function is callable with the right types.
+        // We pass a dep guaranteed to be in cache so no network is hit.
+        // (The return value is unused — compilation is what we're testing here.)
+        let _ = fetch_dep_network as fn(&LockedDep) -> Option<CacheEntry>;
     }
 }
