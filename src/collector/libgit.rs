@@ -328,29 +328,46 @@ mod tests {
 
     #[test]
     fn raw_email_to_id_maps_alias_to_canonical_author() {
-        // Simulate what happens during a commit walk when mailmap resolves an alias.
-        // Both the canonical and raw email must map to the same AuthorId.
-        let mut email_to_id: std::collections::HashMap<String, crate::snapshot::AuthorId> = std::collections::HashMap::new();
-        let mut raw_email_to_id: std::collections::HashMap<String, crate::snapshot::AuthorId> = std::collections::HashMap::new();
+        // Mirrors the exact production control flow in collect_commits_from_revwalk:
+        // `email` is the mailmap-resolved canonical, `raw_email` is the pre-resolution value.
+        // Both must map to the same AuthorId after processing two commits from the same person.
+        let mut email_to_id: std::collections::HashMap<String, crate::snapshot::AuthorId> =
+            std::collections::HashMap::new();
+        let mut raw_email_to_id: std::collections::HashMap<String, crate::snapshot::AuthorId> =
+            std::collections::HashMap::new();
         let mut authors: Vec<crate::snapshot::Author> = Vec::new();
 
-        let raw = "alice@old.com".to_string();
-        let canonical = "alice@company.com".to_string();
-
-        // First commit arrives with canonical email (already resolved by mailmap)
-        let id = authors.len();
-        email_to_id.insert(canonical.clone(), id);
-        authors.push(crate::snapshot::Author { id, name: "Alice".into(), email: canonical.clone() });
-
-        // Second commit arrives with raw (pre-mailmap) email → same person, different email
-        // The logic should: find canonical via email_to_id, then record raw→id in raw_email_to_id
-        if raw != canonical {
-            if let Some(&existing_id) = email_to_id.get(&canonical) {
-                raw_email_to_id.entry(raw.clone()).or_insert(existing_id);
-            }
+        // Commit 1: raw == canonical (no mailmap alias)
+        let raw_email = "alice@company.com".to_string();
+        let email = "alice@company.com".to_string();
+        let author_id = {
+            let id = authors.len();
+            email_to_id.insert(email.clone(), id);
+            authors.push(crate::snapshot::Author { id, name: "Alice".into(), email: email.clone() });
+            id
+        };
+        if raw_email != email {
+            raw_email_to_id.entry(raw_email).or_insert(author_id);
         }
 
-        assert_eq!(raw_email_to_id.get("alice@old.com"), Some(&0));
+        // Commit 2: raw differs from canonical — mailmap resolved alice@old.com → alice@company.com
+        let raw_email = "alice@old.com".to_string();
+        let email = "alice@company.com".to_string();
+        let author_id = if let Some(&id) = email_to_id.get(&email) {
+            id
+        } else {
+            let id = authors.len();
+            email_to_id.insert(email.clone(), id);
+            authors.push(crate::snapshot::Author { id, name: "Alice".into(), email: email.clone() });
+            id
+        };
+        if raw_email != email {
+            raw_email_to_id.entry(raw_email).or_insert(author_id);
+        }
+
+        // Both emails resolve to the same author
         assert_eq!(email_to_id.get("alice@company.com"), Some(&0));
+        assert_eq!(raw_email_to_id.get("alice@old.com"), Some(&0));
+        assert_eq!(authors.len(), 1, "same person should not create two Author entries");
     }
 }
