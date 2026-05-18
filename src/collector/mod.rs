@@ -11,7 +11,9 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::snapshot::{Author, AuthorId, BlameLine, FileComplexity, FileEntry, RepoSnapshot, TimeWindow};
+use crate::snapshot::{
+    Author, AuthorId, BlameLine, FileComplexity, FileEntry, RepoSnapshot, TimeWindow,
+};
 
 pub use exclude::is_excluded;
 pub use progress::{NoProgress, Progress};

@@ -136,12 +136,10 @@ pub fn run(args: &ContributorsArgs) -> Result<()> {
 
     // Count commits per AuthorId.
     let commit_counts: HashMap<AuthorId, usize> =
-        commits
-            .iter()
-            .fold(HashMap::new(), |mut acc, commit| {
-                *acc.entry(commit.author).or_insert(0) += 1;
-                acc
-            });
+        commits.iter().fold(HashMap::new(), |mut acc, commit| {
+            *acc.entry(commit.author).or_insert(0) += 1;
+            acc
+        });
 
     let groups = detect_duplicates(authors, &commit_counts);
 
@@ -157,12 +155,7 @@ pub fn run(args: &ContributorsArgs) -> Result<()> {
     for group in &groups {
         println!("  {}", group.canonical_name);
 
-        let max_email_len = group
-            .emails
-            .iter()
-            .map(|(e, _)| e.len())
-            .max()
-            .unwrap_or(0);
+        let max_email_len = group.emails.iter().map(|(e, _)| e.len()).max().unwrap_or(0);
 
         for (email, count) in &group.emails {
             println!(
@@ -260,11 +253,7 @@ mod tests {
 
     #[test]
     fn format_mailmap_entry_produces_correct_string() {
-        let entry = format_mailmap_entry(
-            "Alice Smith",
-            "alice@company.com",
-            "alice@old.com",
-        );
+        let entry = format_mailmap_entry("Alice Smith", "alice@company.com", "alice@old.com");
         assert_eq!(entry, "Alice Smith <alice@company.com> <alice@old.com>");
     }
 
@@ -272,8 +261,16 @@ mod tests {
     fn groups_authors_case_insensitively() {
         // "alice smith" and "Alice Smith" must be treated as the same person
         let authors = vec![
-            Author { id: 0, name: "Alice Smith".into(), email: "alice@new.com".into() },
-            Author { id: 1, name: "alice smith".into(), email: "alice@old.com".into() },
+            Author {
+                id: 0,
+                name: "Alice Smith".into(),
+                email: "alice@new.com".into(),
+            },
+            Author {
+                id: 1,
+                name: "alice smith".into(),
+                email: "alice@old.com".into(),
+            },
         ];
         let commit_counts = HashMap::from([(0, 10), (1, 2)]);
         let groups = detect_duplicates(&authors, &commit_counts);
@@ -308,7 +305,9 @@ mod tests {
         let content = std::fs::read_to_string(repo_path.join(".mailmap")).unwrap();
         // Existing entry should not be duplicated.
         assert_eq!(
-            content.matches("Alice Smith <alice@company.com> <alice@old.com>").count(),
+            content
+                .matches("Alice Smith <alice@company.com> <alice@old.com>")
+                .count(),
             1
         );
         // New entry should be added.

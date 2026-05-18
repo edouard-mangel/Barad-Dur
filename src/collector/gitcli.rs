@@ -133,7 +133,8 @@ impl<'a> BlameParserState<'a> {
         } else if line.starts_with('\t') {
             // actual source line — finalize the blame entry
             if let (Some(email), Some(timestamp)) = (&self.current_email, &self.current_timestamp) {
-                let author_id = self.email_to_id
+                let author_id = self
+                    .email_to_id
                     .get(email.as_str())
                     .or_else(|| self.raw_email_to_id.get(email.as_str()))
                     .copied()
@@ -197,7 +198,10 @@ abc1234567890123456789012345678901234567890 1 1 1\nauthor Alice\nauthor-mail <al
 
         let lines = parse_porcelain_blame(porcelain, &email_to_id, &raw_email_to_id).unwrap();
         assert_eq!(lines.len(), 1);
-        assert_eq!(lines[0].author_id, 1, "pre-mailmap email must resolve via raw_email_to_id, not fall through to sentinel 0");
+        assert_eq!(
+            lines[0].author_id, 1,
+            "pre-mailmap email must resolve via raw_email_to_id, not fall through to sentinel 0"
+        );
     }
 
     #[test]

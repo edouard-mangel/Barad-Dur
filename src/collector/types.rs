@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use crate::snapshot::{Author, AuthorId, Commit, CommitInterner};
+use std::collections::HashMap;
 
 /// Result of collecting commits — includes deduplicated author list.
 #[non_exhaustive]

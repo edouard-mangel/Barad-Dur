@@ -343,7 +343,11 @@ mod tests {
         let author_id = {
             let id = authors.len();
             email_to_id.insert(email.clone(), id);
-            authors.push(crate::snapshot::Author { id, name: "Alice".into(), email: email.clone() });
+            authors.push(crate::snapshot::Author {
+                id,
+                name: "Alice".into(),
+                email: email.clone(),
+            });
             id
         };
         if raw_email != email {
@@ -358,7 +362,11 @@ mod tests {
         } else {
             let id = authors.len();
             email_to_id.insert(email.clone(), id);
-            authors.push(crate::snapshot::Author { id, name: "Alice".into(), email: email.clone() });
+            authors.push(crate::snapshot::Author {
+                id,
+                name: "Alice".into(),
+                email: email.clone(),
+            });
             id
         };
         if raw_email != email {
@@ -368,6 +376,10 @@ mod tests {
         // Both emails resolve to the same author
         assert_eq!(email_to_id.get("alice@company.com"), Some(&0));
         assert_eq!(raw_email_to_id.get("alice@old.com"), Some(&0));
-        assert_eq!(authors.len(), 1, "same person should not create two Author entries");
+        assert_eq!(
+            authors.len(),
+            1,
+            "same person should not create two Author entries"
+        );
     }
 }
