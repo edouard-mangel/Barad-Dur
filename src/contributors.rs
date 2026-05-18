@@ -1,9 +1,11 @@
 use anyhow::Result;
+use chrono::Utc;
 use std::collections::HashMap;
 use std::path::Path;
 
 use crate::cli::ContributorsArgs;
 use crate::collector::Collector;
+use crate::runner::parse_time_spec;
 use crate::snapshot::{Author, AuthorId, TimeWindow};
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -108,8 +110,22 @@ pub fn write_mailmap_entries(repo_path: &Path, entries: &[String]) -> Result<()>
 pub fn run(args: &ContributorsArgs) -> Result<()> {
     let repo_path = std::path::PathBuf::from(&args.target);
 
-    // Use full history so we don't miss any alias.
-    let time_window = TimeWindow::full_history();
+    let time_window = if let Some(since_str) = &args.since {
+        let now = Utc::now();
+        let since = parse_time_spec(since_str, now);
+        if since.is_some() {
+            TimeWindow {
+                since,
+                until: Some(now),
+                default_months: 0,
+            }
+        } else {
+            TimeWindow::full_history()
+        }
+    } else {
+        // No --since flag: use full history so we don't miss any alias.
+        TimeWindow::full_history()
+    };
     let collector = Collector::open(&repo_path, time_window)?;
     let repo_path = collector.repo_path().to_path_buf();
 
@@ -172,7 +188,7 @@ pub fn run(args: &ContributorsArgs) -> Result<()> {
 
     if args.write {
         write_mailmap_entries(&repo_path, &all_entries)?;
-        println!("Written to .mailmap");
+        println!("Written to .mailmap.");
     } else {
         println!("Run with --write to append to .mailmap");
     }
@@ -249,6 +265,29 @@ mod tests {
             "alice@old.com",
         );
         assert_eq!(entry, "Alice Smith <alice@company.com> <alice@old.com>");
+    }
+
+    #[test]
+    fn groups_authors_case_insensitively() {
+        // "alice smith" and "Alice Smith" must be treated as the same person
+        let authors = vec![
+            Author { id: 0, name: "Alice Smith".into(), email: "alice@new.com".into() },
+            Author { id: 1, name: "alice smith".into(), email: "alice@old.com".into() },
+        ];
+        let commit_counts = HashMap::from([(0, 10), (1, 2)]);
+        let groups = detect_duplicates(&authors, &commit_counts);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].canonical_name, "Alice Smith"); // name from the author with most commits
+    }
+
+    #[test]
+    fn write_mailmap_creates_file_when_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path();
+        let entries = vec!["Alice Smith <alice@new.com> <alice@old.com>".to_string()];
+        write_mailmap_entries(repo_path, &entries).unwrap();
+        let content = std::fs::read_to_string(repo_path.join(".mailmap")).unwrap();
+        assert!(content.contains("Alice Smith <alice@new.com> <alice@old.com>"));
     }
 
     #[test]
