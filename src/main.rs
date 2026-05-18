@@ -4,6 +4,7 @@ use clap::Parser;
 use barad_dur::backfill;
 use barad_dur::cli::{Cli, Commands};
 use barad_dur::cmd::{analyze, coupling, gate, watch};
+use barad_dur::contributors;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -22,6 +23,9 @@ fn main() -> Result<()> {
         }
         Commands::Coupling(args) => coupling::run_coupling(args)?,
         Commands::Watch(args) => watch::run_watch(args)?,
+        Commands::Contributors(args) => {
+            contributors::run(&args)?;
+        }
     }
     Ok(())
 }

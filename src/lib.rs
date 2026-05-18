@@ -1,4 +1,5 @@
 pub mod backfill;
+pub mod contributors;
 pub mod cache;
 pub mod cli;
 pub mod cmd;
