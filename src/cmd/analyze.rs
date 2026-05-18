@@ -178,7 +178,12 @@ fn load_dep_reports(
         &locked,
         &uncached,
         &mut dep_cache,
-        make_progress_fetch(&registry::fetch_dep_network, &counter, uncached_count, show_progress),
+        make_progress_fetch(
+            &registry::fetch_dep_network,
+            &counter,
+            uncached_count,
+            show_progress,
+        ),
     );
 
     reg_cache::save(local_path, &dep_cache);
@@ -366,12 +371,9 @@ pub(crate) fn make_progress_fetch<'a, F>(
     counter: &'a AtomicUsize,
     uncached_count: usize,
     show_progress: bool,
-) -> impl Fn(&crate::collector::deps::LockedDep) -> Option<crate::registry::cache::CacheEntry>
-       + Sync
-       + 'a
+) -> impl Fn(&crate::collector::deps::LockedDep) -> Option<crate::registry::cache::CacheEntry> + Sync + 'a
 where
-    F: Fn(&crate::collector::deps::LockedDep) -> Option<crate::registry::cache::CacheEntry>
-       + Sync,
+    F: Fn(&crate::collector::deps::LockedDep) -> Option<crate::registry::cache::CacheEntry> + Sync,
 {
     move |dep| {
         let result = fetch_fn(dep);
