@@ -40,7 +40,7 @@ mod tests {
 
         assert!(result.is_err(), "expected timeout error, got success");
         assert!(
-            start.elapsed() < Duration::from_secs(2),
+            start.elapsed() < Duration::from_secs(TIMEOUT_SECS / 2),
             "client took too long to time out: {:?}",
             start.elapsed()
         );
