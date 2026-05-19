@@ -153,6 +153,21 @@ mod tests {
     }
 
     #[test]
+    fn drift_years_arithmetic_is_correct() {
+        let now = Utc::now();
+        let entry = make_entry(
+            Some(now - Duration::days(366)),
+            Some(now),
+        );
+        let dep_age = entry_to_dep_age(&make_dep(), &entry).unwrap();
+        assert!(
+            (dep_age.drift_years - 1.0).abs() < 0.1,
+            "expected ~1 year, got {}",
+            dep_age.drift_years
+        );
+    }
+
+    #[test]
     fn none_when_current_published_missing() {
         let entry = make_entry(None, Some(Utc::now()));
         assert!(entry_to_dep_age(&make_dep(), &entry).is_none());

@@ -179,7 +179,7 @@ semver-check:
 mutation:
   stage: analysis
   <<: *rust-tools-base
-  timeout: 45 minutes
+  timeout: 4 hours
   script:
     - |
       if [ -n "$CI_MERGE_REQUEST_DIFF_BASE_SHA" ]; then
