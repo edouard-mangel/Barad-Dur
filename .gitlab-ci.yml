@@ -196,7 +196,7 @@ mutation:
         --file src/registry/client.rs \
         --file src/registry/mod.rs \
         --file src/cmd/analyze.rs \
-        --timeout 120 --jobs 2 2>&1 | tee mutants.log
+        --timeout 300 --jobs 2 2>&1 | tee mutants.log
     - |
       python3 << 'PYEOF'
       import re, sys
