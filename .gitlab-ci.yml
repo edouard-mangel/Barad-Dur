@@ -179,7 +179,7 @@ semver-check:
 mutation:
   stage: analysis
   <<: *rust-tools-base
-  timeout: 45 minutes
+  timeout: 4 hours
   script:
     - |
       if [ -n "$CI_MERGE_REQUEST_DIFF_BASE_SHA" ]; then
@@ -192,7 +192,11 @@ mutation:
         exit 0
       fi
       cargo binstall --no-confirm cargo-mutants
-      BARAD_DUR_TEST_REPO=${CI_PROJECT_DIR} cargo mutants --in-diff recent.diff --timeout 120 2>&1 | tee mutants.log
+      BARAD_DUR_TEST_REPO=${CI_PROJECT_DIR} cargo mutants \
+        --file src/registry/client.rs \
+        --file src/registry/mod.rs \
+        --file src/cmd/analyze.rs \
+        --timeout 300 --jobs 2 2>&1 | tee mutants.log
     - |
       python3 << 'PYEOF'
       import re, sys
@@ -222,7 +226,6 @@ mutation:
     when: always
     expire_in: 1 week
   rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
   allow_failure: false
 

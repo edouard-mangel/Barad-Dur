@@ -67,6 +67,9 @@ pub fn fetch_meta(url: &str, token: &str) -> Result<GitHubMeta> {
 
     let client = reqwest::blocking::Client::builder()
         .user_agent("barad-dur/0.1")
+        .timeout(std::time::Duration::from_secs(
+            crate::registry::client::TIMEOUT_SECS,
+        ))
         .build()?;
 
     let response = client

@@ -6,7 +6,7 @@ pub fn fetch_dates(
     version: &str,
 ) -> Result<(Option<DateTime<Utc>>, String, DateTime<Utc>)> {
     let url = format!("https://pypi.org/pypi/{}/json", name);
-    let body: serde_json::Value = reqwest::blocking::get(&url)?.json()?;
+    let body: serde_json::Value = super::client::http().get(&url).send()?.json()?;
     let releases = body["releases"]
         .as_object()
         .ok_or_else(|| anyhow::anyhow!("no releases"))?;
