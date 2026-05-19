@@ -155,10 +155,7 @@ mod tests {
     #[test]
     fn drift_years_arithmetic_is_correct() {
         let now = Utc::now();
-        let entry = make_entry(
-            Some(now - Duration::days(366)),
-            Some(now),
-        );
+        let entry = make_entry(Some(now - Duration::days(366)), Some(now));
         let dep_age = entry_to_dep_age(&make_dep(), &entry).unwrap();
         assert!(
             (dep_age.drift_years - 1.0).abs() < 0.1,
