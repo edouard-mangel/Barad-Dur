@@ -192,7 +192,11 @@ mutation:
         exit 0
       fi
       cargo binstall --no-confirm cargo-mutants
-      BARAD_DUR_TEST_REPO=${CI_PROJECT_DIR} cargo mutants --in-diff recent.diff --timeout 300 --jobs 4 2>&1 | tee mutants.log
+      BARAD_DUR_TEST_REPO=${CI_PROJECT_DIR} cargo mutants \
+        --file src/registry/client.rs \
+        --file src/registry/mod.rs \
+        --file src/cmd/analyze.rs \
+        --timeout 120 --jobs 2 2>&1 | tee mutants.log
     - |
       python3 << 'PYEOF'
       import re, sys
