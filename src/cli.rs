@@ -330,6 +330,13 @@ pub struct AnalyzeArgs {
     #[arg(long, help_heading = "Filtering", action = clap::ArgAction::Append)]
     pub exclude: Vec<String>,
 
+    /// Exclude files by extension from analysis
+    ///
+    /// Accepts bare extensions (no dot needed) or compound extensions.
+    /// Can be repeated: --exclude-ext jar --exclude-ext min.js
+    #[arg(long, help_heading = "Filtering", action = clap::ArgAction::Append)]
+    pub exclude_ext: Vec<String>,
+
     /// Disable built-in exclusion of translation/resource files
     ///
     /// By default, files matching common translation patterns are excluded:

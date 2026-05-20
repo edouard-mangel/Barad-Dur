@@ -44,6 +44,7 @@ impl Collector {
         (file_metrics, raw_imports)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn collect_snapshot_inner(
         &self,
         show_progress: bool,
@@ -51,6 +52,7 @@ impl Collector {
         skip_blame: bool,
         no_cache: bool,
         exclude_patterns: &[String],
+        exclude_extensions: &[String],
         use_default_excludes: bool,
     ) -> Result<RepoSnapshot> {
         let make_spinner = |msg: &str| -> Option<ProgressBar> {
@@ -89,12 +91,20 @@ impl Collector {
         ));
         let t = Instant::now();
         let all_files = self.collect_files()?;
-        let has_excludes = !exclude_patterns.is_empty() || use_default_excludes;
+        let has_excludes =
+            !exclude_patterns.is_empty() || !exclude_extensions.is_empty() || use_default_excludes;
         let (files, excluded_count) = if has_excludes {
             let before = all_files.len();
             let filtered: Vec<FileEntry> = all_files
                 .into_iter()
-                .filter(|f| !is_excluded(&f.path, exclude_patterns, use_default_excludes))
+                .filter(|f| {
+                    !is_excluded(
+                        &f.path,
+                        exclude_patterns,
+                        exclude_extensions,
+                        use_default_excludes,
+                    )
+                })
                 .collect();
             let after = filtered.len();
             (filtered, before - after)

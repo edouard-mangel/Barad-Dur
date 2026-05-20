@@ -48,6 +48,7 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<()> {
 
     let current_head = collector.head_commit_hash()?;
     let exclude_patterns = &cfg.exclude_patterns;
+    let exclude_extensions = &cfg.exclude_extensions;
     let use_default_excludes = cfg.exclude_use_defaults;
 
     let snapshot = runner::resolve_snapshot(
@@ -60,6 +61,7 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<()> {
             no_cache: args.no_cache,
             cache_only: args.cache_only,
             exclude_patterns,
+            exclude_extensions,
             use_default_excludes,
         },
     )?;

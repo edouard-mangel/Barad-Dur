@@ -120,6 +120,8 @@ struct TomlExclude {
     use_defaults: bool,
     #[serde(default)]
     patterns: Vec<String>,
+    #[serde(default)]
+    extensions: Vec<String>,
 }
 
 fn default_true() -> bool {
@@ -131,6 +133,7 @@ impl Default for TomlExclude {
         Self {
             use_defaults: true,
             patterns: Vec::new(),
+            extensions: Vec::new(),
         }
     }
 }
@@ -169,6 +172,7 @@ pub struct RepoConfig {
     pub skip_blame: bool,
     pub exclude_use_defaults: bool,
     pub exclude_patterns: Vec<String>,
+    pub exclude_extensions: Vec<String>,
     pub weights: CategoryWeights,
     pub thresholds: Thresholds,
     pub output_format: OutputFormat,
@@ -183,6 +187,7 @@ impl Default for RepoConfig {
             skip_blame: false,
             exclude_use_defaults: true,
             exclude_patterns: Vec::new(),
+            exclude_extensions: Vec::new(),
             weights: CategoryWeights::default(),
             thresholds: Thresholds::default(),
             output_format: OutputFormat::Cli,
@@ -215,6 +220,7 @@ pub fn load(repo_root: &Path) -> Result<RepoConfig> {
         skip_blame: toml_cfg.analysis.skip_blame,
         exclude_use_defaults: toml_cfg.exclude.use_defaults,
         exclude_patterns: toml_cfg.exclude.patterns,
+        exclude_extensions: toml_cfg.exclude.extensions,
         weights: toml_cfg.weights,
         thresholds: toml_cfg.thresholds,
         output_format: toml_cfg.output.format,
@@ -303,6 +309,7 @@ pub fn merge_with_cli(config: RepoConfig, args: &crate::cli::AnalyzeArgs) -> Rep
             args.no_default_excludes.map(|v| !v),
         ),
         exclude_patterns: merge_exclude_patterns(config.exclude_patterns, &args.exclude),
+        exclude_extensions: merge_exclude_patterns(config.exclude_extensions, &args.exclude_ext),
         weights: config.weights,
         thresholds: config.thresholds,
         output_format: if args.json {
