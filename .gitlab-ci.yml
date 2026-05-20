@@ -213,8 +213,11 @@ mutation:
       if viable == 0:
           print('No viable mutants — skipping gate')
           sys.exit(0)
-      rate = caught / viable * 100
-      print(f'Kill rate: {caught}/{viable} viable mutants = {rate:.1f}%')
+      # TIMEOUTs count as caught: a mutant that causes a >300s test run is
+      # exercised by tests and cannot ship undetected — it just fails slowly.
+      effective_caught = caught + timeout_n
+      rate = effective_caught / viable * 100
+      print(f'Kill rate: {effective_caught}/{viable} viable mutants = {rate:.1f}% ({caught} fast + {timeout_n} timeout)')
       if rate < 80:
           print(f'FAIL: {rate:.1f}% < 80% required. Add tests for {missed} missed mutant(s).')
           sys.exit(1)
@@ -253,8 +256,9 @@ mutation-nightly:
       if viable == 0:
           print('No viable mutants — skipping gate')
           sys.exit(0)
-      rate = caught / viable * 100
-      print(f'Kill rate: {caught}/{viable} viable mutants = {rate:.1f}%')
+      effective_caught = caught + timeout_n
+      rate = effective_caught / viable * 100
+      print(f'Kill rate: {effective_caught}/{viable} viable mutants = {rate:.1f}% ({caught} fast + {timeout_n} timeout)')
       if rate < 80:
           print(f'FAIL: {rate:.1f}% < 80% required. Add tests for {missed} missed mutant(s).')
           sys.exit(1)
