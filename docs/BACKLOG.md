@@ -47,3 +47,41 @@ A guided CLI command (`barad-dur init` or `barad-dur config`) that helps users c
 - Validation: warn on invalid regex, unmapped files, unknown authors
 
 Could be a TUI (e.g. `ratatui`) or a simple question-and-answer flow (e.g. `dialoguer`).
+
+### Accessible Colors in HTML Report
+
+**Priority**: Nice-to-have
+
+Audit and update the color palette used in the self-contained HTML report (`src/renderer/html.rs`) for WCAG AA compliance. Targets:
+
+- Score badge colors (red / orange / green) — verify contrast ratios against white/dark backgrounds
+- Chart colors (D3 palette) — add patterns or labels as fallback for color-blind users
+- Consider a `prefers-color-scheme` media query for dark-mode support
+
+### Coupling Cluster Visualization
+
+**Priority**: Nice-to-have
+
+Add a graphical representation of file coupling in the HTML report to surface clusters of highly coupled files. Currently coupling is shown as a flat ranked list (`src/renderer/html.rs`). Targets:
+
+- Force-directed graph (D3 `forceSimulation`) where nodes are files and edges are coupling pairs weighted by co-change frequency
+- Visual clustering makes architectural boundaries (or their absence) immediately apparent
+- Filter controls: minimum coupling threshold, show only top-N files
+
+### Exclude Files by Language / File Type
+
+**Priority**: Nice-to-have
+
+Allow users to exclude files from analysis based on language or file extension — e.g. skip `.jar`, `package-lock.json`, `*.min.js`, vendored assets, or generated files that inflate metrics without adding signal. Could be configured in `.repository-analysis/barad-dur.toml` as an `[exclude]` option alongside the existing `patterns` list, or as a dedicated `[exclude] languages = ["json", "jar"]` key.
+
+### Reconsider Afferent/Efferent Coupling
+
+**Priority**: Nice-to-have
+
+Revisit the current afferent (Ca) / efferent (Ce) coupling metrics and their computation. Consider whether the existing implementation accurately reflects coupling direction, and whether instability (`Ce / (Ca + Ce)`) and abstractness should be surfaced as first-class metrics in the report.
+
+### Detect Architecture Style to Determine Cross-Boundary Coupling
+
+**Priority**: Nice-to-have
+
+Automatically detect the architectural style of the repository (layered, hexagonal, feature-sliced, modular monolith, etc.) by analyzing directory structure and naming conventions. Use the detected style to configure which coupling relationships constitute cross-boundary violations — e.g. infrastructure importing from domain in hexagonal architecture. This would make coupling health scores context-aware rather than topology-agnostic.

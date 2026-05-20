@@ -42,6 +42,7 @@ pub fn collect_commits(repo: &Repository, time_window: &TimeWindow) -> Result<Co
             commits: vec![],
             authors: vec![],
             interner: CommitInterner::default(),
+            raw_email_to_id: HashMap::new(),
         });
     }
 
@@ -59,6 +60,7 @@ pub fn collect_commits(repo: &Repository, time_window: &TimeWindow) -> Result<Co
                 commits: vec![],
                 authors: vec![],
                 interner: CommitInterner::default(),
+                raw_email_to_id: HashMap::new(),
             });
         }
         return Err(anyhow::anyhow!(e)).context("Failed to push HEAD");
@@ -75,6 +77,7 @@ fn collect_commits_from_revwalk(
 ) -> Result<CommitCollection> {
     let mut commits = Vec::new();
     let mut email_to_id: HashMap<String, AuthorId> = HashMap::new();
+    let mut raw_email_to_id: HashMap<String, AuthorId> = HashMap::new();
     let mut authors: Vec<Author> = Vec::new();
     let mut interner = CommitInterner::default();
 
@@ -94,6 +97,7 @@ fn collect_commits_from_revwalk(
         }
 
         let author_sig = commit.author();
+        let raw_email = author_sig.email().unwrap_or("unknown").to_lowercase();
         let (name, email) = resolve_author(&author_sig, mailmap.as_ref());
 
         let author_id = if let Some(&id) = email_to_id.get(&email) {
@@ -108,6 +112,10 @@ fn collect_commits_from_revwalk(
             });
             id
         };
+
+        if raw_email != email {
+            raw_email_to_id.entry(raw_email).or_insert(author_id);
+        }
 
         let files_changed = collect_file_changes(repo, &commit)?;
         let parent_count = commit.parent_count();
@@ -128,6 +136,7 @@ fn collect_commits_from_revwalk(
         commits,
         authors,
         interner,
+        raw_email_to_id,
     })
 }
 
@@ -299,4 +308,78 @@ pub fn collect_files(repo: &Repository) -> Result<Vec<FileEntry>> {
     let head = repo.head().context("Failed to get HEAD")?;
     let tree = head.peel_to_tree().context("Failed to peel HEAD to tree")?;
     collect_files_from_tree(repo, tree)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::snapshot::CommitInterner;
+
+    #[test]
+    fn empty_repo_collection_has_empty_raw_email_map() {
+        let c = CommitCollection {
+            commits: vec![],
+            authors: vec![],
+            interner: CommitInterner::default(),
+            raw_email_to_id: std::collections::HashMap::new(),
+        };
+        assert!(c.raw_email_to_id.is_empty());
+    }
+
+    #[test]
+    fn raw_email_to_id_maps_alias_to_canonical_author() {
+        // Mirrors the exact production control flow in collect_commits_from_revwalk:
+        // `email` is the mailmap-resolved canonical, `raw_email` is the pre-resolution value.
+        // Both must map to the same AuthorId after processing two commits from the same person.
+        let mut email_to_id: std::collections::HashMap<String, crate::snapshot::AuthorId> =
+            std::collections::HashMap::new();
+        let mut raw_email_to_id: std::collections::HashMap<String, crate::snapshot::AuthorId> =
+            std::collections::HashMap::new();
+        let mut authors: Vec<crate::snapshot::Author> = Vec::new();
+
+        // Commit 1: raw == canonical (no mailmap alias)
+        let raw_email = "alice@company.com".to_string();
+        let email = "alice@company.com".to_string();
+        let author_id = {
+            let id = authors.len();
+            email_to_id.insert(email.clone(), id);
+            authors.push(crate::snapshot::Author {
+                id,
+                name: "Alice".into(),
+                email: email.clone(),
+            });
+            id
+        };
+        if raw_email != email {
+            raw_email_to_id.entry(raw_email).or_insert(author_id);
+        }
+
+        // Commit 2: raw differs from canonical — mailmap resolved alice@old.com → alice@company.com
+        let raw_email = "alice@old.com".to_string();
+        let email = "alice@company.com".to_string();
+        let author_id = if let Some(&id) = email_to_id.get(&email) {
+            id
+        } else {
+            let id = authors.len();
+            email_to_id.insert(email.clone(), id);
+            authors.push(crate::snapshot::Author {
+                id,
+                name: "Alice".into(),
+                email: email.clone(),
+            });
+            id
+        };
+        if raw_email != email {
+            raw_email_to_id.entry(raw_email).or_insert(author_id);
+        }
+
+        // Both emails resolve to the same author
+        assert_eq!(email_to_id.get("alice@company.com"), Some(&0));
+        assert_eq!(raw_email_to_id.get("alice@old.com"), Some(&0));
+        assert_eq!(
+            authors.len(),
+            1,
+            "same person should not create two Author entries"
+        );
+    }
 }

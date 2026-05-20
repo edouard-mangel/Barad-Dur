@@ -11,7 +11,9 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::snapshot::{Author, BlameLine, FileComplexity, FileEntry, RepoSnapshot, TimeWindow};
+use crate::snapshot::{
+    Author, AuthorId, BlameLine, FileComplexity, FileEntry, RepoSnapshot, TimeWindow,
+};
 
 pub use exclude::is_excluded;
 pub use progress::{NoProgress, Progress};
@@ -83,9 +85,10 @@ impl Collector {
         &self,
         files: &[FileEntry],
         authors: &[Author],
+        raw_email_to_id: &HashMap<String, AuthorId>,
         progress: &dyn Progress,
     ) -> Result<HashMap<PathBuf, Vec<BlameLine>>> {
-        gitcli::collect_blame(self.repo_path(), files, authors, progress)
+        gitcli::collect_blame(self.repo_path(), files, authors, raw_email_to_id, progress)
     }
 
     /// Collect blame data, reusing cached entries for unchanged blobs.
@@ -94,13 +97,21 @@ impl Collector {
         &self,
         files: &[FileEntry],
         authors: &[Author],
+        raw_email_to_id: &HashMap<String, AuthorId>,
         cache: &crate::cache::blame::BlameCache,
         progress: &dyn Progress,
     ) -> Result<(
         HashMap<PathBuf, Vec<BlameLine>>,
         crate::cache::blame::BlameCache,
     )> {
-        gitcli::collect_blame_cached(self.repo_path(), files, authors, cache, progress)
+        gitcli::collect_blame_cached(
+            self.repo_path(),
+            files,
+            authors,
+            raw_email_to_id,
+            cache,
+            progress,
+        )
     }
 
     /// Check if this is a shallow clone.

@@ -42,6 +42,8 @@ pub enum Commands {
     Coupling(CouplingArgs),
     /// Install or remove a post-commit git hook that re-runs analysis on each commit
     Watch(WatchArgs),
+    /// Detect suspected duplicate contributors and suggest .mailmap entries
+    Contributors(ContributorsArgs),
 }
 
 #[derive(clap::Args, Debug)]
@@ -382,6 +384,22 @@ pub struct WatchArgs {
     /// Pass --skip-blame to the hook for faster analysis
     #[arg(long)]
     pub skip_blame: bool,
+}
+
+#[derive(clap::Args, Debug)]
+#[command(about = "Detect suspected duplicate contributors and suggest .mailmap entries")]
+pub struct ContributorsArgs {
+    /// Path to the git repository
+    #[arg(default_value = ".")]
+    pub target: String,
+
+    /// Append suggested entries to .mailmap (creates it if absent)
+    #[arg(long)]
+    pub write: bool,
+
+    /// Only consider commits in this time window (e.g. 6months, 1year)
+    #[arg(long)]
+    pub since: Option<String>,
 }
 
 impl AnalyzeArgs {
