@@ -47,7 +47,11 @@ fn ensure_gitignore(repo_path: &Path) -> Result<()> {
             return Ok(());
         }
         let mut file = fs::OpenOptions::new().append(true).open(&gitignore_path)?;
-        writeln!(file, "{}", entry)?;
+        if content.ends_with('\n') || content.is_empty() {
+            writeln!(file, "{}", entry)?;
+        } else {
+            writeln!(file, "\n{}", entry)?;
+        }
     } else {
         fs::write(&gitignore_path, format!("{}\n", entry))?;
     }
@@ -120,6 +124,28 @@ mod tests {
 
         let content = fs::read_to_string(dir.path().join(".gitignore")).unwrap();
         assert!(content.contains(".repository-analysis/"));
+    }
+
+    #[test]
+    fn entry_is_on_own_line_when_gitignore_has_no_trailing_newline() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join(".gitignore"), "*.log").unwrap();
+        ensure_gitignore(dir.path()).unwrap();
+        let content = fs::read_to_string(dir.path().join(".gitignore")).unwrap();
+        assert!(
+            content.lines().any(|l| l.trim() == ".repository-analysis/"),
+            ".repository-analysis/ must be on its own line, got: {:?}",
+            content
+        );
+    }
+
+    #[test]
+    fn entry_does_not_add_blank_line_when_gitignore_ends_with_newline() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join(".gitignore"), "*.log\n").unwrap();
+        ensure_gitignore(dir.path()).unwrap();
+        let content = fs::read_to_string(dir.path().join(".gitignore")).unwrap();
+        assert_eq!(content, "*.log\n.repository-analysis/\n");
     }
 
     #[test]
