@@ -330,6 +330,13 @@ pub struct AnalyzeArgs {
     #[arg(long, help_heading = "Filtering", action = clap::ArgAction::Append)]
     pub exclude: Vec<String>,
 
+    /// Exclude files by extension from analysis
+    ///
+    /// Accepts bare extensions (no dot needed) or compound extensions.
+    /// Can be repeated: --exclude-ext jar --exclude-ext min.js
+    #[arg(long, help_heading = "Filtering", action = clap::ArgAction::Append)]
+    pub exclude_ext: Vec<String>,
+
     /// Disable built-in exclusion of translation/resource files
     ///
     /// By default, files matching common translation patterns are excluded:
@@ -584,6 +591,32 @@ mod tests {
     fn no_default_excludes_flag() {
         let args = parse(&["barad-dur", "analyze", ".", "--no-default-excludes"]);
         assert_eq!(args.no_default_excludes, Some(true));
+    }
+
+    #[test]
+    fn exclude_ext_flag_single() {
+        let args = parse(&["barad-dur", "analyze", ".", "--exclude-ext", "jar"]);
+        assert_eq!(args.exclude_ext, vec!["jar"]);
+    }
+
+    #[test]
+    fn exclude_ext_flag_multiple() {
+        let args = parse(&[
+            "barad-dur",
+            "analyze",
+            ".",
+            "--exclude-ext",
+            "jar",
+            "--exclude-ext",
+            "min.js",
+        ]);
+        assert_eq!(args.exclude_ext, vec!["jar", "min.js"]);
+    }
+
+    #[test]
+    fn exclude_ext_absent_by_default() {
+        let args = parse(&["barad-dur", "analyze", "."]);
+        assert!(args.exclude_ext.is_empty());
     }
 
     #[test]

@@ -132,10 +132,11 @@ impl Collector {
 
     /// Build a complete RepoSnapshot, optionally showing progress indicators.
     pub fn collect_snapshot_with_progress(&self, show_progress: bool) -> Result<RepoSnapshot> {
-        self.collect_snapshot_inner(show_progress, false, false, false, &[], true)
+        self.collect_snapshot_inner(show_progress, false, false, false, &[], &[], true)
     }
 
     /// Build a complete RepoSnapshot with full control over display and phases.
+    #[allow(clippy::too_many_arguments)]
     pub fn collect_snapshot_verbose(
         &self,
         show_progress: bool,
@@ -143,6 +144,7 @@ impl Collector {
         skip_blame: bool,
         no_cache: bool,
         exclude_patterns: &[String],
+        exclude_extensions: &[String],
         use_default_excludes: bool,
     ) -> Result<RepoSnapshot> {
         self.collect_snapshot_inner(
@@ -151,6 +153,7 @@ impl Collector {
             skip_blame,
             no_cache,
             exclude_patterns,
+            exclude_extensions,
             use_default_excludes,
         )
     }

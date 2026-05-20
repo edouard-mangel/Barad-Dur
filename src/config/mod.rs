@@ -120,6 +120,8 @@ struct TomlExclude {
     use_defaults: bool,
     #[serde(default)]
     patterns: Vec<String>,
+    #[serde(default)]
+    extensions: Vec<String>,
 }
 
 fn default_true() -> bool {
@@ -131,6 +133,7 @@ impl Default for TomlExclude {
         Self {
             use_defaults: true,
             patterns: Vec::new(),
+            extensions: Vec::new(),
         }
     }
 }
@@ -169,6 +172,7 @@ pub struct RepoConfig {
     pub skip_blame: bool,
     pub exclude_use_defaults: bool,
     pub exclude_patterns: Vec<String>,
+    pub exclude_extensions: Vec<String>,
     pub weights: CategoryWeights,
     pub thresholds: Thresholds,
     pub output_format: OutputFormat,
@@ -183,6 +187,7 @@ impl Default for RepoConfig {
             skip_blame: false,
             exclude_use_defaults: true,
             exclude_patterns: Vec::new(),
+            exclude_extensions: Vec::new(),
             weights: CategoryWeights::default(),
             thresholds: Thresholds::default(),
             output_format: OutputFormat::Cli,
@@ -215,6 +220,7 @@ pub fn load(repo_root: &Path) -> Result<RepoConfig> {
         skip_blame: toml_cfg.analysis.skip_blame,
         exclude_use_defaults: toml_cfg.exclude.use_defaults,
         exclude_patterns: toml_cfg.exclude.patterns,
+        exclude_extensions: toml_cfg.exclude.extensions,
         weights: toml_cfg.weights,
         thresholds: toml_cfg.thresholds,
         output_format: toml_cfg.output.format,
@@ -303,6 +309,7 @@ pub fn merge_with_cli(config: RepoConfig, args: &crate::cli::AnalyzeArgs) -> Rep
             args.no_default_excludes.map(|v| !v),
         ),
         exclude_patterns: merge_exclude_patterns(config.exclude_patterns, &args.exclude),
+        exclude_extensions: merge_exclude_patterns(config.exclude_extensions, &args.exclude_ext),
         weights: config.weights,
         thresholds: config.thresholds,
         output_format: if args.json {
@@ -390,6 +397,30 @@ mod tests {
     }
 
     #[test]
+    fn load_exclude_extensions_from_toml() {
+        let dir = TempDir::new().unwrap();
+        let cache_dir = dir.path().join(".repository-analysis");
+        fs::create_dir_all(&cache_dir).unwrap();
+        fs::write(
+            cache_dir.join("barad-dur.toml"),
+            "[exclude]\nextensions = [\"jar\", \"min.js\"]\n",
+        )
+        .unwrap();
+        let cfg = load(dir.path()).unwrap();
+        assert_eq!(cfg.exclude_extensions, vec!["jar", "min.js"]);
+    }
+
+    #[test]
+    fn load_exclude_extensions_defaults_to_empty() {
+        let dir = TempDir::new().unwrap();
+        let cache_dir = dir.path().join(".repository-analysis");
+        fs::create_dir_all(&cache_dir).unwrap();
+        fs::write(cache_dir.join("barad-dur.toml"), "[exclude]\n").unwrap();
+        let cfg = load(dir.path()).unwrap();
+        assert!(cfg.exclude_extensions.is_empty());
+    }
+
+    #[test]
     fn load_output_section() {
         let dir = TempDir::new().unwrap();
         let cache_dir = dir.path().join(".repository-analysis");
@@ -460,6 +491,33 @@ mod tests {
         let cli_patterns = vec!["**/vendor/**".into()];
         let merged = merge_exclude_patterns(toml_patterns, &cli_patterns);
         assert_eq!(merged, vec!["*.resx", "**/vendor/**"]);
+    }
+
+    #[test]
+    fn merge_exclude_extensions_appends_cli_to_toml() {
+        let toml_exts = vec!["jar".into()];
+        let cli_exts = vec!["min.js".into()];
+        let merged = merge_exclude_patterns(toml_exts, &cli_exts);
+        assert_eq!(merged, vec!["jar", "min.js"]);
+    }
+
+    #[test]
+    fn merge_with_cli_wires_exclude_ext() {
+        use crate::cli::{Cli, Commands};
+        use clap::Parser;
+
+        let cli = Cli::parse_from(["barad-dur", "analyze", ".", "--exclude-ext", "jar"]);
+        let args = match cli.command {
+            Commands::Analyze(a) => a,
+            _ => panic!("expected Analyze"),
+        };
+
+        let toml_cfg = RepoConfig {
+            exclude_extensions: vec!["min.js".into()],
+            ..RepoConfig::default()
+        };
+        let merged = merge_with_cli(toml_cfg, &args);
+        assert_eq!(merged.exclude_extensions, vec!["min.js", "jar"]);
     }
 
     #[test]

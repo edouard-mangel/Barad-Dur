@@ -46,9 +46,14 @@ const DEFAULT_EXCLUDE_PATTERNS: &[&str] = &[
     "**/locale/**",
 ];
 
-/// Returns true if the file should be excluded based on the given glob patterns
-/// and (optionally) the built-in default extension list.
-pub fn is_excluded(path: &Path, patterns: &[String], use_defaults: bool) -> bool {
+/// Returns true if the file should be excluded based on the given glob patterns,
+/// user-specified extensions, and (optionally) the built-in default extension list.
+pub fn is_excluded(
+    path: &Path,
+    patterns: &[String],
+    extensions: &[String],
+    use_defaults: bool,
+) -> bool {
     let path_str = path.to_string_lossy();
 
     // Check built-in defaults (by extension and path pattern)
@@ -64,6 +69,17 @@ pub fn is_excluded(path: &Path, patterns: &[String], use_defaults: bool) -> bool
             .any(|p| glob_match::glob_match(p, &path_str))
         {
             return true;
+        }
+    }
+
+    // Check user-specified extensions (simple and compound, e.g. "jar", "min.js")
+    if !extensions.is_empty() {
+        let path_lower = path_str.to_lowercase();
+        for ext in extensions {
+            let ext_lower = ext.trim_start_matches('.').to_lowercase();
+            if path_lower.ends_with(&format!(".{}", ext_lower)) {
+                return true;
+            }
         }
     }
 
@@ -84,15 +100,20 @@ mod tests {
     #[test]
     fn is_excluded_matches_default_extensions() {
         let p = Path::new("src/Resources/Strings.resx");
-        assert!(is_excluded(p, &[], true));
-        assert!(!is_excluded(p, &[], false));
+        assert!(is_excluded(p, &[], &[], true));
+        assert!(!is_excluded(p, &[], &[], false));
     }
 
     #[test]
     fn is_excluded_matches_po_files() {
-        assert!(is_excluded(Path::new("locale/fr/messages.po"), &[], true));
-        assert!(is_excluded(Path::new("lang/en.pot"), &[], true));
-        assert!(is_excluded(Path::new("i18n/strings.xlf"), &[], true));
+        assert!(is_excluded(
+            Path::new("locale/fr/messages.po"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(Path::new("lang/en.pot"), &[], &[], true));
+        assert!(is_excluded(Path::new("i18n/strings.xlf"), &[], &[], true));
     }
 
     #[test]
@@ -101,20 +122,31 @@ mod tests {
         assert!(is_excluded(
             Path::new("src/assets/i18n/sfk-messages/fr-FR.ts"),
             &patterns,
+            &[],
             false
         ));
-        assert!(!is_excluded(Path::new("src/main.rs"), &patterns, false));
+        assert!(!is_excluded(
+            Path::new("src/main.rs"),
+            &patterns,
+            &[],
+            false
+        ));
     }
 
     #[test]
     fn is_excluded_combines_defaults_and_user_patterns() {
         let patterns = vec!["**/i18n/**".to_string()];
         // Matched by default extension
-        assert!(is_excluded(Path::new("foo.resx"), &patterns, true));
+        assert!(is_excluded(Path::new("foo.resx"), &patterns, &[], true));
         // Matched by user pattern
-        assert!(is_excluded(Path::new("src/i18n/en.ts"), &patterns, true));
+        assert!(is_excluded(
+            Path::new("src/i18n/en.ts"),
+            &patterns,
+            &[],
+            true
+        ));
         // Not matched by either
-        assert!(!is_excluded(Path::new("src/main.rs"), &patterns, true));
+        assert!(!is_excluded(Path::new("src/main.rs"), &patterns, &[], true));
     }
 
     #[test]
@@ -122,22 +154,30 @@ mod tests {
         assert!(is_excluded(
             Path::new("src/server/BusinessHub.API/appsettings.json"),
             &[],
+            &[],
             true,
         ));
         assert!(is_excluded(
             Path::new("src/server/BusinessHub.API/appsettings.Development.json"),
+            &[],
             &[],
             true,
         ));
         assert!(is_excluded(
             Path::new("Properties/launchSettings.json"),
             &[],
+            &[],
             true,
         ));
-        assert!(is_excluded(Path::new("some/path/foo.lock"), &[], true));
-        assert!(is_excluded(Path::new(".env.production"), &[], true));
+        assert!(is_excluded(Path::new("some/path/foo.lock"), &[], &[], true));
+        assert!(is_excluded(Path::new(".env.production"), &[], &[], true));
         // Regular JSON should NOT be excluded
-        assert!(!is_excluded(Path::new("src/data/schema.json"), &[], true));
+        assert!(!is_excluded(
+            Path::new("src/data/schema.json"),
+            &[],
+            &[],
+            true
+        ));
     }
 
     #[test]
@@ -145,42 +185,58 @@ mod tests {
         assert!(is_excluded(
             Path::new("src/client/src/assets/i18n/sfk-messages/en-US.ts"),
             &[],
+            &[],
             true
         ));
-        assert!(is_excluded(Path::new("app/l10n/strings_fr.arb"), &[], true));
-        assert!(is_excluded(Path::new("src/locales/en.json"), &[], true));
-        assert!(is_excluded(Path::new("config/locale/fr.yml"), &[], true));
+        assert!(is_excluded(
+            Path::new("app/l10n/strings_fr.arb"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(
+            Path::new("src/locales/en.json"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(
+            Path::new("config/locale/fr.yml"),
+            &[],
+            &[],
+            true
+        ));
         // Non-i18n .ts files should NOT be excluded
-        assert!(!is_excluded(Path::new("src/main.ts"), &[], true));
+        assert!(!is_excluded(Path::new("src/main.ts"), &[], &[], true));
     }
 
     #[test]
     fn is_excluded_case_insensitive_extension() {
-        assert!(is_excluded(Path::new("Strings.RESX"), &[], true));
-        assert!(is_excluded(Path::new("lang.Resx"), &[], true));
+        assert!(is_excluded(Path::new("Strings.RESX"), &[], &[], true));
+        assert!(is_excluded(Path::new("lang.Resx"), &[], &[], true));
     }
 
     #[test]
     fn is_excluded_matches_documentation_files() {
-        assert!(is_excluded(Path::new("README.md"), &[], true));
-        assert!(is_excluded(Path::new("docs/guide.rst"), &[], true));
-        assert!(is_excluded(Path::new("CHANGELOG.txt"), &[], true));
-        assert!(is_excluded(Path::new("docs/api.adoc"), &[], true));
-        assert!(is_excluded(Path::new("notes.textile"), &[], true));
+        assert!(is_excluded(Path::new("README.md"), &[], &[], true));
+        assert!(is_excluded(Path::new("docs/guide.rst"), &[], &[], true));
+        assert!(is_excluded(Path::new("CHANGELOG.txt"), &[], &[], true));
+        assert!(is_excluded(Path::new("docs/api.adoc"), &[], &[], true));
+        assert!(is_excluded(Path::new("notes.textile"), &[], &[], true));
         // Not excluded when defaults disabled
-        assert!(!is_excluded(Path::new("README.md"), &[], false));
+        assert!(!is_excluded(Path::new("README.md"), &[], &[], false));
     }
 
     #[test]
     fn is_excluded_matches_default_lockfiles() {
-        assert!(is_excluded(Path::new("pnpm-lock.yaml"), &[], true));
-        assert!(is_excluded(Path::new("package-lock.json"), &[], true));
-        assert!(is_excluded(Path::new("yarn.lock"), &[], true));
-        assert!(is_excluded(Path::new("Cargo.lock"), &[], true));
-        assert!(is_excluded(Path::new("go.sum"), &[], true));
-        assert!(is_excluded(Path::new("poetry.lock"), &[], true));
+        assert!(is_excluded(Path::new("pnpm-lock.yaml"), &[], &[], true));
+        assert!(is_excluded(Path::new("package-lock.json"), &[], &[], true));
+        assert!(is_excluded(Path::new("yarn.lock"), &[], &[], true));
+        assert!(is_excluded(Path::new("Cargo.lock"), &[], &[], true));
+        assert!(is_excluded(Path::new("go.sum"), &[], &[], true));
+        assert!(is_excluded(Path::new("poetry.lock"), &[], &[], true));
         // Not excluded when defaults disabled
-        assert!(!is_excluded(Path::new("pnpm-lock.yaml"), &[], false));
+        assert!(!is_excluded(Path::new("pnpm-lock.yaml"), &[], &[], false));
     }
 
     #[test]
@@ -189,10 +245,12 @@ mod tests {
         assert!(is_excluded(
             Path::new("Data/Migrations/20240101_Init.Designer.cs"),
             &[],
+            &[],
             true
         ));
         assert!(is_excluded(
             Path::new("Data/Migrations/AppDbContextModelSnapshot.cs"),
+            &[],
             &[],
             true
         ));
@@ -200,27 +258,117 @@ mod tests {
         assert!(is_excluded(
             Path::new("myapp/migrations/0001_initial.py"),
             &[],
+            &[],
             true
         ));
         // Rails
-        assert!(is_excluded(Path::new("db/schema.rb"), &[], true));
+        assert!(is_excluded(Path::new("db/schema.rb"), &[], &[], true));
         // Prisma
         assert!(is_excluded(
             Path::new("prisma/migrations/20240101/migration.sql"),
             &[],
+            &[],
             true
         ));
         // Regular source should not match
-        assert!(!is_excluded(Path::new("src/Models/User.cs"), &[], true));
+        assert!(!is_excluded(
+            Path::new("src/Models/User.cs"),
+            &[],
+            &[],
+            true
+        ));
     }
 
     #[test]
     fn is_excluded_matches_default_tooling_dirs() {
-        assert!(is_excluded(Path::new(".claude/settings.json"), &[], true));
-        assert!(is_excluded(Path::new(".cursor/rules/my-rule"), &[], true));
-        assert!(is_excluded(Path::new(".idea/workspace.xml"), &[], true));
-        assert!(is_excluded(Path::new(".vscode/settings.json"), &[], true));
+        assert!(is_excluded(
+            Path::new(".claude/settings.json"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(
+            Path::new(".cursor/rules/my-rule"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(
+            Path::new(".idea/workspace.xml"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(
+            Path::new(".vscode/settings.json"),
+            &[],
+            &[],
+            true
+        ));
         // Not excluded when defaults disabled
-        assert!(!is_excluded(Path::new(".claude/settings.json"), &[], false));
+        assert!(!is_excluded(
+            Path::new(".claude/settings.json"),
+            &[],
+            &[],
+            false
+        ));
+    }
+
+    #[test]
+    fn is_excluded_by_user_extension_simple() {
+        let exts = vec!["jar".to_string()];
+        assert!(is_excluded(Path::new("lib/commons.jar"), &[], &exts, false));
+        assert!(is_excluded(Path::new("deps/app.JAR"), &[], &exts, false));
+        assert!(!is_excluded(Path::new("src/main.rs"), &[], &exts, false));
+    }
+
+    #[test]
+    fn is_excluded_by_user_extension_compound() {
+        let exts = vec!["min.js".to_string()];
+        assert!(is_excluded(
+            Path::new("dist/bundle.min.js"),
+            &[],
+            &exts,
+            false
+        ));
+        assert!(!is_excluded(Path::new("src/app.js"), &[], &exts, false));
+    }
+
+    #[test]
+    fn is_excluded_extension_leading_dot_normalised() {
+        // Users may write ".jar" or "jar" — both should work.
+        let exts = vec![".jar".to_string()];
+        assert!(is_excluded(Path::new("lib/foo.jar"), &[], &exts, false));
+    }
+
+    #[test]
+    fn is_excluded_file_without_extension_not_excluded() {
+        let exts = vec!["jar".to_string()];
+        assert!(!is_excluded(Path::new("Makefile"), &[], &exts, false));
+        assert!(!is_excluded(Path::new("Dockerfile"), &[], &exts, false));
+        assert!(!is_excluded(Path::new("LICENSE"), &[], &exts, false));
+    }
+
+    #[test]
+    fn is_excluded_dotted_directory_not_confused_with_extension() {
+        let exts = vec!["2".to_string()];
+        // "src/v1.2/main.rs" ends with ".rs", not ".2"
+        assert!(!is_excluded(
+            Path::new("src/v1.2/main.rs"),
+            &[],
+            &exts,
+            false
+        ));
+        // but a file literally named "v1.2" (last extension is "2") is excluded
+        assert!(is_excluded(Path::new("src/v1.2"), &[], &exts, false));
+    }
+
+    #[test]
+    fn is_excluded_extension_independent_of_defaults() {
+        // User extensions work even when defaults are off.
+        let exts = vec!["jar".to_string()];
+        assert!(is_excluded(Path::new("lib/foo.jar"), &[], &exts, false));
+        // And do not suppress defaults when on.
+        assert!(is_excluded(Path::new("README.md"), &[], &exts, true));
     }
 }

@@ -17,6 +17,7 @@ pub struct CollectOptions<'a> {
     pub no_cache: bool,
     pub cache_only: bool,
     pub exclude_patterns: &'a [String],
+    pub exclude_extensions: &'a [String],
     pub use_default_excludes: bool,
 }
 
@@ -57,6 +58,7 @@ fn collect_and_cache(
         opts.skip_blame,
         no_cache,
         opts.exclude_patterns,
+        opts.exclude_extensions,
         opts.use_default_excludes,
     )?;
     if let Err(e) = cache::save(&snapshot, collector.repo_path()) {

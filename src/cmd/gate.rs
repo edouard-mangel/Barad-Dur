@@ -20,6 +20,7 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
     let collector = Collector::open(&local_path, time_window)?;
 
     let exclude_patterns = &cfg.exclude_patterns;
+    let exclude_extensions = &cfg.exclude_extensions;
     let use_default_excludes = cfg.exclude_use_defaults;
     let current_head = collector.head_commit_hash()?;
 
@@ -33,6 +34,7 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
             no_cache: false,
             cache_only: false,
             exclude_patterns,
+            exclude_extensions,
             use_default_excludes,
         },
     )?;
