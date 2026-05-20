@@ -594,6 +594,32 @@ mod tests {
     }
 
     #[test]
+    fn exclude_ext_flag_single() {
+        let args = parse(&["barad-dur", "analyze", ".", "--exclude-ext", "jar"]);
+        assert_eq!(args.exclude_ext, vec!["jar"]);
+    }
+
+    #[test]
+    fn exclude_ext_flag_multiple() {
+        let args = parse(&[
+            "barad-dur",
+            "analyze",
+            ".",
+            "--exclude-ext",
+            "jar",
+            "--exclude-ext",
+            "min.js",
+        ]);
+        assert_eq!(args.exclude_ext, vec!["jar", "min.js"]);
+    }
+
+    #[test]
+    fn exclude_ext_absent_by_default() {
+        let args = parse(&["barad-dur", "analyze", "."]);
+        assert!(args.exclude_ext.is_empty());
+    }
+
+    #[test]
     fn all_categories_when_none_selected() {
         let args = parse(&["barad-dur", "analyze", "."]);
         assert!(args.should_run("health"));

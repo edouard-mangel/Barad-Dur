@@ -397,6 +397,30 @@ mod tests {
     }
 
     #[test]
+    fn load_exclude_extensions_from_toml() {
+        let dir = TempDir::new().unwrap();
+        let cache_dir = dir.path().join(".repository-analysis");
+        fs::create_dir_all(&cache_dir).unwrap();
+        fs::write(
+            cache_dir.join("barad-dur.toml"),
+            "[exclude]\nextensions = [\"jar\", \"min.js\"]\n",
+        )
+        .unwrap();
+        let cfg = load(dir.path()).unwrap();
+        assert_eq!(cfg.exclude_extensions, vec!["jar", "min.js"]);
+    }
+
+    #[test]
+    fn load_exclude_extensions_defaults_to_empty() {
+        let dir = TempDir::new().unwrap();
+        let cache_dir = dir.path().join(".repository-analysis");
+        fs::create_dir_all(&cache_dir).unwrap();
+        fs::write(cache_dir.join("barad-dur.toml"), "[exclude]\n").unwrap();
+        let cfg = load(dir.path()).unwrap();
+        assert!(cfg.exclude_extensions.is_empty());
+    }
+
+    #[test]
     fn load_output_section() {
         let dir = TempDir::new().unwrap();
         let cache_dir = dir.path().join(".repository-analysis");
@@ -467,6 +491,14 @@ mod tests {
         let cli_patterns = vec!["**/vendor/**".into()];
         let merged = merge_exclude_patterns(toml_patterns, &cli_patterns);
         assert_eq!(merged, vec!["*.resx", "**/vendor/**"]);
+    }
+
+    #[test]
+    fn merge_exclude_extensions_appends_cli_to_toml() {
+        let toml_exts = vec!["jar".into()];
+        let cli_exts = vec!["min.js".into()];
+        let merged = merge_exclude_patterns(toml_exts, &cli_exts);
+        assert_eq!(merged, vec!["jar", "min.js"]);
     }
 
     #[test]

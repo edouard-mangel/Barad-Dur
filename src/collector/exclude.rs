@@ -342,6 +342,28 @@ mod tests {
     }
 
     #[test]
+    fn is_excluded_file_without_extension_not_excluded() {
+        let exts = vec!["jar".to_string()];
+        assert!(!is_excluded(Path::new("Makefile"), &[], &exts, false));
+        assert!(!is_excluded(Path::new("Dockerfile"), &[], &exts, false));
+        assert!(!is_excluded(Path::new("LICENSE"), &[], &exts, false));
+    }
+
+    #[test]
+    fn is_excluded_dotted_directory_not_confused_with_extension() {
+        let exts = vec!["2".to_string()];
+        // "src/v1.2/main.rs" ends with ".rs", not ".2"
+        assert!(!is_excluded(
+            Path::new("src/v1.2/main.rs"),
+            &[],
+            &exts,
+            false
+        ));
+        // but a file literally named "v1.2" (last extension is "2") is excluded
+        assert!(is_excluded(Path::new("src/v1.2"), &[], &exts, false));
+    }
+
+    #[test]
     fn is_excluded_extension_independent_of_defaults() {
         // User extensions work even when defaults are off.
         let exts = vec!["jar".to_string()];
