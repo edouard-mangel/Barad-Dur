@@ -429,7 +429,9 @@ publish-crate:
   cache: []
   before_script: []
   script:
-    - cargo publish --token $CARGO_REGISTRY_TOKEN
+    - git clean -fd
+    - cargo login "$CARGO_REGISTRY_TOKEN"
+    - cargo publish
 
 # ── Docker ───────────────────────────────────
 
