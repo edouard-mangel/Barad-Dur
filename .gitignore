@@ -2,6 +2,7 @@ target/
 .repository-analysis/
 .ncrunch/
 .claude/
+.serena/
 .playwright-mcp/
 other
 
