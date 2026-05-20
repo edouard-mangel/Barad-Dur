@@ -409,6 +409,11 @@ release-publish:
              --upload-file "$file" \
              "${PACKAGE_REGISTRY_URL}/${CI_COMMIT_TAG}/${FILENAME}"
       done
+    # Delete existing release if present so release-cli can recreate it cleanly
+    - |
+      if command -v glab &> /dev/null; then
+        glab release delete "$CI_COMMIT_TAG" --yes 2>/dev/null || true
+      fi
   release:
     tag_name: $CI_COMMIT_TAG
     description: "Release $CI_COMMIT_TAG"
@@ -426,10 +431,11 @@ publish-crate:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
   needs:
     - binary-smoke-test
+  variables:
+    CARGO_HOME: /root/.cargo
   cache: []
   before_script: []
   script:
-    - git clean -fd
     - cargo login "$CARGO_REGISTRY_TOKEN"
     - cargo publish
 
