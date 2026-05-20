@@ -313,7 +313,10 @@ mod tests {
         .unwrap();
 
         let content = std::fs::read_to_string(dir.path().join(".mailmap")).unwrap();
-        assert_eq!(content, existing, "file must be unchanged when all entries exist");
+        assert_eq!(
+            content, existing,
+            "file must be unchanged when all entries exist"
+        );
     }
 
     #[test]
