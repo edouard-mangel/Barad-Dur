@@ -502,6 +502,25 @@ mod tests {
     }
 
     #[test]
+    fn merge_with_cli_wires_exclude_ext() {
+        use crate::cli::{Cli, Commands};
+        use clap::Parser;
+
+        let cli = Cli::parse_from(["barad-dur", "analyze", ".", "--exclude-ext", "jar"]);
+        let args = match cli.command {
+            Commands::Analyze(a) => a,
+            _ => panic!("expected Analyze"),
+        };
+
+        let toml_cfg = RepoConfig {
+            exclude_extensions: vec!["min.js".into()],
+            ..RepoConfig::default()
+        };
+        let merged = merge_with_cli(toml_cfg, &args);
+        assert_eq!(merged.exclude_extensions, vec!["min.js", "jar"]);
+    }
+
+    #[test]
     fn merge_skip_blame_cli_overrides() {
         let merged = merge_bool(false, Some(true));
         assert!(merged);

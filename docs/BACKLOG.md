@@ -68,11 +68,9 @@ Add a graphical representation of file coupling in the HTML report to surface cl
 - Visual clustering makes architectural boundaries (or their absence) immediately apparent
 - Filter controls: minimum coupling threshold, show only top-N files
 
-### Exclude Files by Language / File Type
+### ~~Exclude Files by Language / File Type~~ ✓ Done (v0.17.0)
 
-**Priority**: Nice-to-have
-
-Allow users to exclude files from analysis based on language or file extension — e.g. skip `.jar`, `package-lock.json`, `*.min.js`, vendored assets, or generated files that inflate metrics without adding signal. Could be configured in `.repository-analysis/barad-dur.toml` as an `[exclude]` option alongside the existing `patterns` list, or as a dedicated `[exclude] languages = ["json", "jar"]` key.
+`--exclude-ext <EXT>` CLI flag and `[exclude] extensions = [...]` TOML key added in v0.17.0. Supports bare extensions (`jar`), compound extensions (`min.js`), case-insensitive, leading dots normalised. Language-name aliases (e.g. `rust`, `python`) not yet supported — would map to a set of extensions.
 
 ### Reconsider Afferent/Efferent Coupling
 

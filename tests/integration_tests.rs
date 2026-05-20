@@ -136,6 +136,31 @@ fn contributors_with_since_flag() {
 }
 
 #[test]
+fn analyze_with_exclude_ext_flag() {
+    barad_dur()
+        .args(["analyze", &test_repo(), "--exclude-ext", "rs"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn analyze_exclude_ext_multiple_flags() {
+    barad_dur()
+        .args([
+            "analyze",
+            &test_repo(),
+            "--exclude-ext",
+            "rs",
+            "--exclude-ext",
+            "toml",
+            "--json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("overall_score"));
+}
+
+#[test]
 fn analyze_without_deps_flag_omits_deps_category() {
     let output = barad_dur()
         .args(["analyze", &test_repo(), "--json"])
