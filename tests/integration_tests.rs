@@ -120,6 +120,22 @@ fn analyze_output_to_file() {
 }
 
 #[test]
+fn contributors_subcommand_exits_zero() {
+    barad_dur()
+        .args(["contributors", &test_repo()])
+        .assert()
+        .success();
+}
+
+#[test]
+fn contributors_with_since_flag() {
+    barad_dur()
+        .args(["contributors", &test_repo(), "--since", "1month"])
+        .assert()
+        .success();
+}
+
+#[test]
 fn analyze_without_deps_flag_omits_deps_category() {
     let output = barad_dur()
         .args(["analyze", &test_repo(), "--json"])

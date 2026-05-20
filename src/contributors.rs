@@ -301,6 +301,41 @@ mod tests {
     }
 
     #[test]
+    fn write_mailmap_no_op_when_all_entries_already_exist() {
+        let dir = TempDir::new().unwrap();
+        let existing = "Alice Smith <alice@company.com> <alice@old.com>\n";
+        std::fs::write(dir.path().join(".mailmap"), existing).unwrap();
+
+        write_mailmap_entries(
+            dir.path(),
+            &["Alice Smith <alice@company.com> <alice@old.com>".to_string()],
+        )
+        .unwrap();
+
+        let content = std::fs::read_to_string(dir.path().join(".mailmap")).unwrap();
+        assert_eq!(content, existing, "file must be unchanged when all entries exist");
+    }
+
+    #[test]
+    fn write_mailmap_appends_on_new_line_when_no_trailing_newline() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join(".mailmap"), "# existing header").unwrap();
+
+        write_mailmap_entries(
+            dir.path(),
+            &["Alice Smith <alice@company.com> <alice@old.com>".to_string()],
+        )
+        .unwrap();
+
+        let content = std::fs::read_to_string(dir.path().join(".mailmap")).unwrap();
+        assert!(
+            content.contains("\nAlice Smith"),
+            "new entry must start on its own line, got: {:?}",
+            content
+        );
+    }
+
+    #[test]
     fn write_mailmap_skips_existing_entries() {
         let dir = TempDir::new().unwrap();
         let repo_path = dir.path();
