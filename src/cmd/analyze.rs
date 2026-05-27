@@ -393,7 +393,7 @@ where
 mod tests {
     use super::*;
     use crate::collector::deps::LockedDep;
-    use crate::deps::Ecosystem;
+    use crate::deps::{DepAge, DepTier, Ecosystem};
     use crate::registry::cache::CacheEntry;
     use chrono::{Duration, Utc};
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -420,6 +420,12 @@ mod tests {
     fn progress_start_all_cached() {
         let msg = deps_progress_start(42, 0);
         assert!(msg.contains("42") && msg.contains("cached"), "{msg}");
+        // "all cached" distinguishes this branch from the fetching branch,
+        // catching the `== with !=` mutation that swaps them.
+        assert!(
+            msg.contains("all cached"),
+            "expected 'all cached' in: {msg}"
+        );
     }
 
     #[test]
@@ -488,5 +494,87 @@ mod tests {
         }
 
         assert_eq!(counter.load(Ordering::Relaxed), uncached_count);
+    }
+
+    fn make_dep_age(name: &str, ecosystem: Ecosystem, drift_years: f64) -> DepAge {
+        DepAge {
+            name: name.into(),
+            ecosystem,
+            current_version: "1.0.0".into(),
+            drift_years,
+            tier: DepTier::from_drift(drift_years),
+            vulnerabilities: vec![],
+        }
+    }
+
+    #[test]
+    fn build_ecosystem_reports_single_dep_stats() {
+        let dep = make_dep_age("foo", Ecosystem::Cargo, 3.0);
+        let reports = build_ecosystem_reports(vec![dep]);
+        assert_eq!(reports.len(), 1);
+        let r = &reports[0];
+        assert_eq!(r.total_deps, 1);
+        assert!(
+            (r.total_drift_years - 3.0).abs() < 0.001,
+            "total_drift={}",
+            r.total_drift_years
+        );
+        assert!(
+            (r.mean_drift_years - 3.0).abs() < 0.001,
+            "mean_drift={}",
+            r.mean_drift_years
+        );
+    }
+
+    #[test]
+    fn build_ecosystem_reports_two_deps_mean_drift() {
+        let deps = vec![
+            make_dep_age("foo", Ecosystem::Cargo, 2.0),
+            make_dep_age("bar", Ecosystem::Cargo, 4.0),
+        ];
+        let reports = build_ecosystem_reports(deps);
+        assert_eq!(reports.len(), 1);
+        let r = &reports[0];
+        assert_eq!(r.total_deps, 2);
+        assert!(
+            (r.total_drift_years - 6.0).abs() < 0.001,
+            "total_drift={}",
+            r.total_drift_years
+        );
+        assert!(
+            (r.mean_drift_years - 3.0).abs() < 0.001,
+            "mean_drift={}",
+            r.mean_drift_years
+        );
+    }
+
+    #[test]
+    fn build_ecosystem_reports_filters_critical_deps() {
+        let deps = vec![
+            make_dep_age("old", Ecosystem::Cargo, 6.0), // drift ≥ 5 → Critical
+            make_dep_age("fresh", Ecosystem::Cargo, 0.1), // drift < 0.5 → Fresh
+        ];
+        let reports = build_ecosystem_reports(deps);
+        assert_eq!(reports.len(), 1);
+        let r = &reports[0];
+        assert_eq!(r.total_deps, 2);
+        assert_eq!(r.critical_deps.len(), 1);
+        assert_eq!(r.critical_deps[0].name, "old");
+    }
+
+    #[test]
+    fn build_ecosystem_reports_groups_by_ecosystem() {
+        let deps = vec![
+            make_dep_age("cargo-dep", Ecosystem::Cargo, 1.0),
+            make_dep_age("npm-dep", Ecosystem::Npm, 2.0),
+        ];
+        let reports = build_ecosystem_reports(deps);
+        assert_eq!(reports.len(), 2);
+    }
+
+    #[test]
+    fn build_ecosystem_reports_empty_input_returns_empty() {
+        let reports = build_ecosystem_reports(vec![]);
+        assert!(reports.is_empty());
     }
 }
