@@ -171,7 +171,7 @@ fn analyze_json_and_html_are_mutually_exclusive() {
 #[test]
 fn analyze_verbose_shows_timing_in_stderr() {
     let output = barad_dur()
-        .args(["analyze", &test_repo(), "-v", "--json"])
+        .args(["analyze", &test_repo(), "-v", "--json", "--health"])
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -193,7 +193,7 @@ fn analyze_verbose_shows_timing_in_stderr() {
 #[test]
 fn analyze_no_verbose_has_no_timing_in_stderr() {
     let output = barad_dur()
-        .args(["analyze", &test_repo(), "--json"])
+        .args(["analyze", &test_repo(), "--json", "--health"])
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -222,6 +222,7 @@ fn analyze_html_output_to_file() {
             "analyze",
             &test_repo(),
             "--html",
+            "--health",
             "-o",
             output_path.to_str().unwrap(),
         ])
@@ -238,7 +239,7 @@ fn analyze_html_output_to_file() {
 #[test]
 fn analyze_json_has_expected_categories() {
     let output = barad_dur()
-        .args(["analyze", &test_repo(), "--json"])
+        .args(["analyze", &test_repo(), "--json", "--health"])
         .assert()
         .success()
         .get_output()
