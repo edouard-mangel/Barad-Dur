@@ -65,7 +65,7 @@ pub const JS: &str = r#"
       var topCell = el('td', { className: 'own-top' });
       var topAuthor = f.authors && f.authors[0];
       if (topAuthor) {
-        topCell.append(txt(topAuthor.name + ' (' + topAuthor.pct.toFixed(0) + '%)'));
+        topCell.append(txt(topAuthor.name + ' (' + fmt(topAuthor.pct, 0) + '%)'));
       } else {
         topCell.append(txt('—'));
       }
@@ -75,7 +75,7 @@ pub const JS: &str = r#"
       (f.authors || []).slice(0, 8).forEach(function(a) {
         var idx = authorIndex[a.name] % PALETTE.length;
         var seg = el('div', { className: 'own-seg', style: {
-          width: a.pct.toFixed(1) + '%',
+          width: (Number.isFinite(+a.pct) ? +a.pct : 0).toFixed(1) + '%',
           background: PALETTE[idx]
         }});
         bar.append(seg);

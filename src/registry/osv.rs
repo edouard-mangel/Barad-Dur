@@ -8,11 +8,8 @@ pub fn fetch_vulns(ecosystem_osv_name: &str, name: &str, version: &str) -> Resul
         "version": version
     });
 
-    let response: serde_json::Value = super::client::http()
-        .post(url)
-        .json(&payload)
-        .send()?
-        .json()?;
+    let client = super::client::http().ok_or_else(|| anyhow::anyhow!("HTTP client unavailable"))?;
+    let response: serde_json::Value = client.post(url).json(&payload).send()?.json()?;
 
     let vulns = response["vulns"].as_array().cloned().unwrap_or_default();
 

@@ -7,7 +7,8 @@ pub fn fetch_dates(
     version: &str,
 ) -> Result<(Option<DateTime<Utc>>, String, DateTime<Utc>)> {
     let url = format!("https://crates.io/api/v1/crates/{}/versions", name);
-    let body: serde_json::Value = super::client::http()
+    let client = super::client::http().ok_or_else(|| anyhow::anyhow!("HTTP client unavailable"))?;
+    let body: serde_json::Value = client
         .get(&url)
         .header(
             "User-Agent",

@@ -8,7 +8,8 @@ mod js_hotspots;
 mod js_overview;
 mod js_ownership;
 mod js_shared;
-mod js_treemap;
+mod js_treemap_layout;
+mod js_treemap_ui;
 mod js_trends;
 
 #[cfg(test)]
@@ -61,7 +62,8 @@ fn build_js() -> String {
         js_coupling::JS,
         js_ownership::JS,
         js_age::JS,
-        js_treemap::JS,
+        js_treemap_layout::JS,
+        js_treemap_ui::JS,
         js_trends::JS,
         js_deps::JS,
         js_audit::JS,

@@ -191,3 +191,211 @@ fn html_deps_ecosystem_card_data_in_window_r() {
         "window.R must contain the mean_drift_years value 1.5 serialized in the JSON data blob"
     );
 }
+
+#[test]
+fn html_fmt_helper_present() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("function fmt("),
+        "js_shared.rs must export a fmt() helper so all tabs can safely format numbers"
+    );
+}
+
+#[test]
+fn html_coupling_pct_uses_fmt() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("fmt(p.coupling_pct,"),
+        "coupling_pct must be formatted via fmt() to handle missing values safely"
+    );
+}
+
+#[test]
+fn html_ownership_pct_uses_fmt() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("fmt(topAuthor.pct,"),
+        "ownership pct must be formatted via fmt() to handle missing values safely"
+    );
+}
+
+#[test]
+fn html_audit_pct_of_total_uses_fmt() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("fmt(d.pct_of_total,"),
+        "audit pct_of_total must be formatted via fmt() to handle missing values safely"
+    );
+}
+
+#[test]
+fn html_full_report_with_all_data_renders_ok() {
+    use crate::scorer::{
+        AuditReport, AuthorShare, CouplingPair, DirConcentration, FileOwnership, HotspotFile,
+    };
+
+    let mut report = make_report();
+    report.coupling_pairs = vec![CouplingPair {
+        file_a: "src/a.rs".into(),
+        file_b: "src/b.rs".into(),
+        co_changes: 10,
+        coupling_pct: 75.5,
+        cross_boundary: true,
+    }];
+    report.file_hotspots = vec![HotspotFile {
+        path: "src/big.rs".into(),
+        churn_count: 20,
+        bug_commit_count: 3,
+        loc: 500,
+        total_lines: 600,
+        cyclomatic_complexity: 15,
+        public_methods: 10,
+        properties: 5,
+        hotspot_score: 8.5,
+    }];
+    report.author_ownership = vec![FileOwnership {
+        path: "src/a.rs".into(),
+        authors: vec![AuthorShare {
+            name: "Alice".into(),
+            pct: 60.0,
+        }],
+    }];
+    report.audit = Some(AuditReport {
+        crisis_files: vec![],
+        dir_concentration: vec![DirConcentration {
+            dir: "src/".into(),
+            file_count: 10,
+            loc: 1000,
+            pct_of_total: 74.3,
+        }],
+        dead_files: vec![],
+        velocity_buckets: vec![],
+    });
+
+    let result = render(&report);
+    assert!(
+        result.is_ok(),
+        "full-data render must succeed: {:?}",
+        result.err()
+    );
+    let html = result.unwrap();
+    assert!(
+        html.len() > 10_000,
+        "full report HTML should be substantial, got {} bytes",
+        html.len()
+    );
+    assert!(
+        html.contains("75.5"),
+        "coupling_pct value must appear in window.R"
+    );
+    assert!(
+        html.contains("8.5"),
+        "hotspot_score value must appear in window.R"
+    );
+    assert!(
+        html.contains("74.3"),
+        "pct_of_total value must appear in window.R"
+    );
+}
+
+#[test]
+fn html_tab_render_has_error_boundary() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("safeRender"),
+        "Tab lazy-render must use safeRender() wrapper so any tab builder exception shows a graceful error instead of a blank tab"
+    );
+}
+
+#[test]
+fn html_deps_mean_drift_uses_fmt() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("fmt(eco.mean_drift_years,"),
+        "mean_drift_years must go through fmt() so missing values show — instead of crashing"
+    );
+}
+
+#[test]
+fn html_deps_drift_years_uses_fmt() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("fmt(dep.drift_years,"),
+        "dep.drift_years must go through fmt() so missing values show — instead of crashing"
+    );
+}
+
+#[test]
+fn html_safe_render_error_has_tab_error_class() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("tab-error"),
+        "safeRender error div must use CSS class 'tab-error' for consistent styling"
+    );
+}
+
+#[test]
+fn html_authors_empty_state_uses_no_data_class() {
+    // make_report() has author_cards: vec![] so we hit the empty path
+    let html = render(&make_report()).unwrap();
+    assert!(
+        !html.contains("padding: '48px'"),
+        "Authors tab empty state must not use inline padding style — use className: 'no-data' instead"
+    );
+}
+
+// ---- Empty-state tests: one per tab ----
+
+#[test]
+fn html_treemap_empty_state() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("No file data available for treemap."),
+        "Treemap tab must show its empty-state message when file_hotspots is empty"
+    );
+}
+
+#[test]
+fn html_authors_empty_state() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("No author data available. Run with blame enabled."),
+        "Authors tab must show its empty-state message when author_cards is empty"
+    );
+}
+
+#[test]
+fn html_coupling_empty_state() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("No temporal coupling data available."),
+        "Coupling tab must show its empty-state message when coupling_pairs is empty"
+    );
+}
+
+#[test]
+fn html_ownership_empty_state() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("No ownership data available."),
+        "Ownership tab must show its empty-state message when author_ownership is empty"
+    );
+}
+
+#[test]
+fn html_age_empty_state() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("No file age data available."),
+        "Age tab must show its empty-state message when file_ages is empty"
+    );
+}
+
+#[test]
+fn html_audit_empty_state() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("No audit data available."),
+        "Audit tab must show its empty-state message when audit is None"
+    );
+}

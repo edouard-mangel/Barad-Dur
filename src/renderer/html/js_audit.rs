@@ -114,13 +114,13 @@ pub const JS: &str = r#"
 
       var barArea = el('div', { className: 'conc-bar-area' });
       var pct = d.loc / maxLoc * 100;
-      var fill = el('div', { className: 'conc-bar-fill', style: { width: pct.toFixed(1) + '%' } });
+      var fill = el('div', { className: 'conc-bar-fill', style: { width: (Number.isFinite(pct) ? pct : 0).toFixed(1) + '%' } });
       barArea.append(fill);
 
       var meta = el('div', { className: 'conc-meta' });
-      meta.append(chip(d.loc.toLocaleString() + ' loc', '#1e293b', '#94a3b8'));
+      meta.append(chip((d.loc != null ? d.loc.toLocaleString() : '—') + ' loc', '#1e293b', '#94a3b8'));
       meta.append(chip(d.file_count + ' files', '#1e293b', '#64748b'));
-      meta.append(chip(d.pct_of_total.toFixed(1) + '%', '#1c3547', '#6ee7b7'));
+      meta.append(chip(fmt(d.pct_of_total, 1) + '%', '#1c3547', '#6ee7b7'));
 
       row.append(label, barArea, meta);
       list.append(row);

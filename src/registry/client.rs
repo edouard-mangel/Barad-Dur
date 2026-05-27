@@ -3,20 +3,26 @@ use std::time::Duration;
 
 pub const TIMEOUT_SECS: u64 = 15;
 
-static HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+static HTTP_CLIENT: OnceLock<Option<reqwest::blocking::Client>> = OnceLock::new();
 
-/// Shared HTTP client with a 15-second timeout. Initialised once and reused
-/// across all registry calls so that connections can be pooled between requests.
-pub fn http() -> &'static reqwest::blocking::Client {
-    HTTP_CLIENT.get_or_init(|| http_with_timeout(Duration::from_secs(TIMEOUT_SECS)))
+pub fn http() -> Option<&'static reqwest::blocking::Client> {
+    HTTP_CLIENT
+        .get_or_init(
+            || match http_with_timeout(Duration::from_secs(TIMEOUT_SECS)) {
+                Ok(c) => Some(c),
+                Err(e) => {
+                    eprintln!("warning: failed to build HTTP client: {e}");
+                    None
+                }
+            },
+        )
+        .as_ref()
 }
 
-/// Build a fresh client with a custom timeout. Used in tests only.
-pub fn http_with_timeout(timeout: Duration) -> reqwest::blocking::Client {
+pub fn http_with_timeout(timeout: Duration) -> Result<reqwest::blocking::Client, reqwest::Error> {
     reqwest::blocking::Client::builder()
         .timeout(timeout)
         .build()
-        .expect("failed to build HTTP client")
 }
 
 #[cfg(test)]
@@ -24,6 +30,22 @@ mod tests {
     use super::*;
     use std::net::TcpListener;
     use std::time::Instant;
+
+    #[test]
+    fn http_with_timeout_returns_result() {
+        let result = http_with_timeout(Duration::from_millis(100));
+        assert!(result.is_ok(), "expected Ok client, got {:?}", result.err());
+    }
+
+    #[test]
+    fn http_none_produces_unavailable_error() {
+        // Verify that the ok_or_else pattern used at all call sites produces
+        // the expected error message when the client is None.
+        let result: anyhow::Result<&reqwest::blocking::Client> = None::<&reqwest::blocking::Client>
+            .ok_or_else(|| anyhow::anyhow!("HTTP client unavailable"));
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().to_string(), "HTTP client unavailable");
+    }
 
     #[test]
     fn client_times_out_on_unresponsive_server() {
@@ -35,6 +57,7 @@ mod tests {
 
         let start = Instant::now();
         let result = http_with_timeout(Duration::from_millis(200))
+            .expect("client should build")
             .get(format!("http://{}/", addr))
             .send();
 

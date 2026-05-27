@@ -19,7 +19,7 @@ pub const JS: &str = r#"
       card.appendChild(title);
 
       var drift = document.createElement('p');
-      drift.textContent = 'Mean drift: ' + eco.mean_drift_years.toFixed(1) + ' libyears';
+      drift.textContent = 'Mean drift: ' + fmt(eco.mean_drift_years, 1) + ' libyears';
       card.appendChild(drift);
 
       var criticals = eco.critical_deps || [];
@@ -29,7 +29,7 @@ pub const JS: &str = r#"
         criticals.forEach(function(dep) {
           var li = document.createElement('li');
           var label = '\u26A0 ' + dep.name + ' ' + dep.current_version
-              + ' \u2014 ' + dep.drift_years.toFixed(1) + 'y behind';
+              + ' \u2014 ' + fmt(dep.drift_years, 1) + 'y behind';
           if (dep.vulnerabilities.length) {
             label += ' [' + dep.vulnerabilities.length + ' CVE(s)]';
           }

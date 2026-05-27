@@ -94,6 +94,12 @@ pub const JS: &str = r#"
     return c;
   }
 
+  function fmt(v, n) {
+    if (v == null) return '—';
+    var x = +v;
+    return Number.isFinite(x) ? x.toFixed(n == null ? 0 : n) : '—';
+  }
+
   /* ---- SVG gauge ---- */
   function buildGauge(score) {
     var R_outer = 70, cx = 90, cy = 90;
