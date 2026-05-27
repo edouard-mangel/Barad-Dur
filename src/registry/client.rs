@@ -48,11 +48,23 @@ mod tests {
     }
 
     #[test]
+    fn http_singleton_returns_some() {
+        assert!(
+            http().is_some(),
+            "http() must return Some on a normal system"
+        );
+    }
+
+    #[test]
     fn client_times_out_on_unresponsive_server() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
+        // Accept the connection but keep it open — forces the client to wait
+        // until its own timeout fires rather than getting an immediate reset.
         std::thread::spawn(move || {
-            let _ = listener.accept();
+            if let Ok((_stream, _)) = listener.accept() {
+                std::thread::sleep(Duration::from_secs(60));
+            }
         });
 
         let start = Instant::now();
@@ -62,6 +74,8 @@ mod tests {
             .send();
 
         assert!(result.is_err(), "expected timeout error, got success");
+        let err = result.unwrap_err();
+        assert!(err.is_timeout(), "expected timeout error, got: {err}");
         assert!(
             start.elapsed() < Duration::from_secs(TIMEOUT_SECS / 2),
             "client took too long to time out: {:?}",
