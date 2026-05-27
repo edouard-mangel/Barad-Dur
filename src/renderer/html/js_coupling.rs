@@ -136,7 +136,7 @@ pub const JS: &str = r#"
 
         var pctCell = el('td');
         var pctSpan = el('span', { style: { fontWeight: '700', color: p.coupling_pct > 70 ? '#ef4444' : p.coupling_pct > 40 ? '#f59e0b' : '#10b981' } });
-        pctSpan.append(txt(p.coupling_pct.toFixed(1) + '%'));
+        pctSpan.append(txt(fmt(p.coupling_pct, 1) + '%'));
         pctCell.append(pctSpan);
 
         var cbCell = el('td');

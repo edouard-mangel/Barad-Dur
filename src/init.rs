@@ -235,9 +235,11 @@ fn generate_toml_inner(
 
 fn prompt(question: &str, default: &str) -> String {
     eprint!("     ? {} [{}]: ", question, default);
-    io::stderr().flush().unwrap();
+    let _ = io::stderr().flush();
     let mut input = String::new();
-    io::stdin().lock().read_line(&mut input).unwrap();
+    if io::stdin().lock().read_line(&mut input).is_err() {
+        return default.to_string(); // gracefully return default on I/O failure
+    }
     let trimmed = input.trim();
     if trimmed.is_empty() {
         default.to_string()

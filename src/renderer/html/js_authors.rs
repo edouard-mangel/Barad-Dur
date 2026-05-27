@@ -48,7 +48,7 @@ pub const JS: &str = r#"
 
     var cards = (R.author_cards || []).slice();
     if (cards.length === 0) {
-      var empty = el('div', { style: { padding: '48px', textAlign: 'center', color: '#64748b' } });
+      var empty = el('div', { className: 'no-data' });
       empty.append(txt('No author data available. Run with blame enabled.'));
       container.append(empty);
       return container;
@@ -200,6 +200,17 @@ pub const JS: &str = r#"
     headerRow.append(brandWrap, chips);
     header.append(headerRow);
 
+    function safeRender(name, builder) {
+      try {
+        return builder();
+      } catch (e) {
+        console.error('Tab render error (' + name + '):', e);
+        var d = el('div', { className: 'tab-error' });
+        d.append(txt('Failed to render "' + name + '" tab. Open browser console for details.'));
+        return d;
+      }
+    }
+
     // Tabs
     var tabNames = ['Overview', 'Hotspots', 'Coupling', 'Ownership', 'Age', 'Treemap', 'Trends', 'Authors', 'Dependencies', 'Audit'];
     var tabContents = [
@@ -237,7 +248,7 @@ pub const JS: &str = r#"
 
           // Lazy-render on first visit
           if (contentDivs[idx].dataset.rendered !== '1') {
-            contentDivs[idx].replaceChildren(tabContents[idx]());
+            contentDivs[idx].replaceChildren(safeRender(tabNames[idx], tabContents[idx]));
             contentDivs[idx].dataset.rendered = '1';
           }
         };
@@ -247,7 +258,7 @@ pub const JS: &str = r#"
     });
 
     // Pre-render overview immediately
-    contentDivs[0].replaceChildren(tabContents[0]());
+    contentDivs[0].replaceChildren(safeRender(tabNames[0], tabContents[0]));
     contentDivs[0].dataset.rendered = '1';
 
     // Expose tab-switching for drill-through links
@@ -260,7 +271,7 @@ pub const JS: &str = r#"
       allTabs[idx].className = 'tab active';
       contentDivs[idx].className = 'tab-content active';
       if (contentDivs[idx].dataset.rendered !== '1') {
-        contentDivs[idx].replaceChildren(tabContents[idx]());
+        contentDivs[idx].replaceChildren(safeRender(tabNames[idx], tabContents[idx]));
         contentDivs[idx].dataset.rendered = '1';
       }
       contentDivs[idx].scrollIntoView({ behavior: 'smooth', block: 'start' });

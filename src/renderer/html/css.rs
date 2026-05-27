@@ -706,4 +706,5 @@ svg.radar { display: block; margin: 0 auto; }
 .conc-bar-fill { background: #3b82f6; height: 100%; border-radius: 4px; transition: width 0.3s; }
 .conc-meta { display: flex; gap: 6px; flex-wrap: nowrap; }
 .vel-chart { overflow-x: auto; }
+.tab-error { padding: 24px; color: #ef4444; font-size: 13px; }
 "#;
