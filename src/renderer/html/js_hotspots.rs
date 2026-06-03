@@ -13,9 +13,9 @@ pub const JS: &str = r#"
       'Hotspot Score \u2014 Where risk concentrates',
       'Files are ranked by a composite Hotspot Score combining cyclomatic complexity (code branching), churn count (how often the file changes), and lines of code. High-churn, high-complexity files are the most likely sources of bugs and the hardest to review. Focus refactoring efforts on the top-right corner of the scatter plot.',
       [
-        { color: '#22c55e', label: 'Low risk \u2014 simple + rarely changed' },
-        { color: '#f59e0b', label: 'Medium \u2014 monitor these files' },
-        { color: '#ef4444', label: 'High risk \u2014 complex + frequently changed' }
+        { color: 'var(--c-good-lo)', label: 'Low risk \u2014 simple + rarely changed' },
+        { color: 'var(--c-warn)',    label: 'Medium \u2014 monitor these files' },
+        { color: 'var(--c-danger)',  label: 'High risk \u2014 complex + frequently changed' }
       ]
     ));
 
