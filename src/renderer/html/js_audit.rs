@@ -71,7 +71,7 @@ pub const JS: &str = r#"
 
       var ratioCell = el('td');
       var pct = Math.round(f.crisis_ratio * 100);
-      var color = pct >= 50 ? '#ef4444' : pct >= 25 ? '#f59e0b' : '#10b981';
+      var color = pct >= 50 ? 'var(--c-danger)' : pct >= 25 ? 'var(--c-warn)' : 'var(--c-good)';
       var barWrap = el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } });
       barWrap.append(inlineBar(pct, color));
       var label = el('span', { style: { fontSize: '12px', color: color, minWidth: '36px' } });
@@ -240,7 +240,7 @@ pub const JS: &str = r#"
       var barH = Math.max(1, (b.commit_count / maxCount) * ch);
       var y = (pad.top + ch - barH).toFixed(1);
       var pct = b.commit_count / maxCount * 100;
-      var color = pct >= 60 ? '#10b981' : pct >= 30 ? '#f59e0b' : '#ef4444';
+      var color = pct >= 60 ? 'var(--c-good)' : pct >= 30 ? 'var(--c-warn)' : 'var(--c-danger)';
       var rect = svgEl('rect', {
         x: x, y: y,
         width: String(barW), height: barH.toFixed(1),

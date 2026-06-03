@@ -208,7 +208,11 @@ pub const JS: &str = r#"
     }
     cbfBtn.addEventListener('click', function() {
       document.body.classList.toggle('cbf');
-      localStorage.setItem('cbf-palette', document.body.classList.contains('cbf') ? '1' : '');
+      if (document.body.classList.contains('cbf')) {
+        localStorage.setItem('cbf-palette', '1');
+      } else {
+        localStorage.removeItem('cbf-palette');
+      }
       updateCbfBtn();
     });
     updateCbfBtn();
