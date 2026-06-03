@@ -53,7 +53,7 @@ pub const JS: &str = r#"
 
       var dotLive = el('span');
       dotLive.className = 'tr-legend-dot';
-      dotLive.style.cssText = 'background:#10b981;';
+      dotLive.style.cssText = 'background:var(--c-good);';
       leg.append(dotLive);
       leg.append(txt('Live analysis'));
 
@@ -79,9 +79,9 @@ pub const JS: &str = r#"
     }
 
     function scoreColor(s) {
-      if (s >= 71) return '#10b981';
-      if (s >= 41) return '#f59e0b';
-      return '#ef4444';
+      if (s >= 71) return 'var(--c-good)';
+      if (s >= 41) return 'var(--c-warn)';
+      return 'var(--c-danger)';
     }
 
     function renderChart() {
