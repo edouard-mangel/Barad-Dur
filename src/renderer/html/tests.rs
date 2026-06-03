@@ -51,9 +51,18 @@ fn html_has_cbf_css_tokens() {
     let html = render(&make_report()).unwrap();
     assert!(html.contains("--c-good:"), "--c-good token must be in CSS");
     assert!(html.contains("--c-warn:"), "--c-warn token must be in CSS");
-    assert!(html.contains("--c-danger:"), "--c-danger token must be in CSS");
-    assert!(html.contains("body.cbf"), "body.cbf override block must exist");
-    assert!(html.contains("#38bdf8"), "CBF block must contain sky-blue for --c-good");
+    assert!(
+        html.contains("--c-danger:"),
+        "--c-danger token must be in CSS"
+    );
+    assert!(
+        html.contains("body.cbf"),
+        "body.cbf override block must exist"
+    );
+    assert!(
+        html.contains("#38bdf8"),
+        "CBF block must contain sky-blue for --c-good"
+    );
 }
 
 #[test]
@@ -83,9 +92,18 @@ fn html_title_contains_repo_name() {
 #[test]
 fn html_score_color_uses_css_vars() {
     let html = render(&make_report()).unwrap();
-    assert!(html.contains("var(--c-good)"), "scoreColor must return var(--c-good)");
-    assert!(html.contains("var(--c-warn)"), "scoreColor must return var(--c-warn)");
-    assert!(html.contains("var(--c-danger)"), "scoreColor must return var(--c-danger)");
+    assert!(
+        html.contains("var(--c-good)"),
+        "scoreColor must return var(--c-good)"
+    );
+    assert!(
+        html.contains("var(--c-warn)"),
+        "scoreColor must return var(--c-warn)"
+    );
+    assert!(
+        html.contains("var(--c-danger)"),
+        "scoreColor must return var(--c-danger)"
+    );
 }
 
 // ---- Treemap tests ----
