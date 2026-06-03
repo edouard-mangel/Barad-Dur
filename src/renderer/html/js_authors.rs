@@ -7,9 +7,9 @@ pub const JS: &str = r#"
       'Author Report Cards',
       'Per-contributor metrics derived from git blame and commit history. Files owned = files where author has >50% blame lines. Commit quality scores message length, conventional prefixes, and penalizes low-effort messages.',
       [
-        { color: '#10b981', label: 'Active \u2014 committed in last 30 days' },
-        { color: '#f59e0b', label: 'Aging \u2014 30\u201390 days since last commit' },
-        { color: '#ef4444', label: 'Stale \u2014 90+ days since last commit' }
+        { color: 'var(--c-good)',   label: 'Active \u2014 committed in last 30 days' },
+        { color: 'var(--c-warn)',   label: 'Aging \u2014 30\u201390 days since last commit' },
+        { color: 'var(--c-danger)', label: 'Stale \u2014 90+ days since last commit' }
       ]
     ));
 
@@ -84,15 +84,15 @@ pub const JS: &str = r#"
     var grid = el('div', { className: 'ac-grid' });
 
     function activityColor(days) {
-      if (days <= 30) return '#10b981';
-      if (days <= 90) return '#f59e0b';
-      return '#ef4444';
+      if (days <= 30) return 'var(--c-good)';
+      if (days <= 90) return 'var(--c-warn)';
+      return 'var(--c-danger)';
     }
 
     function qualityColor(q) {
-      if (q >= 70) return '#10b981';
-      if (q >= 40) return '#f59e0b';
-      return '#ef4444';
+      if (q >= 70) return 'var(--c-good)';
+      if (q >= 40) return 'var(--c-warn)';
+      return 'var(--c-danger)';
     }
 
     function renderCards() {
