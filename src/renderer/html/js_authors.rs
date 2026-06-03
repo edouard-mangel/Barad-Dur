@@ -175,6 +175,7 @@ pub const JS: &str = r#"
   }
 
   function renderApp() {
+    if (localStorage.getItem('cbf-palette')) document.body.classList.add('cbf');
     var app = document.getElementById('app');
 
     // Header
@@ -197,6 +198,21 @@ pub const JS: &str = r#"
     if (R.time_window_months && R.time_window_months > 0) {
       chips.append(chip(R.time_window_months + 'mo window', '#2a1f0a', '#fcd34d'));
     }
+    var cbfBtn = el('button', { id: 'cbf-btn', className: 'chip' });
+    function updateCbfBtn() {
+      var on = document.body.classList.contains('cbf');
+      cbfBtn.textContent = on ? '◐ Default' : '◑ CBF';
+      cbfBtn.style.cssText = on
+        ? 'border:1px solid #38bdf8;color:#38bdf8;background:#0c1929;cursor:pointer'
+        : 'border:1px solid #334155;color:#64748b;background:transparent;cursor:pointer';
+    }
+    cbfBtn.addEventListener('click', function() {
+      document.body.classList.toggle('cbf');
+      localStorage.setItem('cbf-palette', document.body.classList.contains('cbf') ? '1' : '');
+      updateCbfBtn();
+    });
+    updateCbfBtn();
+    chips.append(cbfBtn);
     headerRow.append(brandWrap, chips);
     header.append(headerRow);
 
