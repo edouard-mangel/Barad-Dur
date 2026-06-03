@@ -56,7 +56,7 @@ pub const JS: &str = r#"
   }
 
   function scoreColor(s) {
-    return s >= 71 ? '#10b981' : s >= 41 ? '#f59e0b' : '#ef4444';
+    return s >= 71 ? 'var(--c-good)' : s >= 41 ? 'var(--c-warn)' : 'var(--c-danger)';
   }
 
   function fileParts(path) {
@@ -568,9 +568,9 @@ pub const JS: &str = r#"
   }
 
   var defaultScoreHints = [
-    { color: '#ef4444', label: '0\u201339 Critical' },
-    { color: '#f59e0b', label: '40\u201369 Needs work' },
-    { color: '#22c55e', label: '70\u2013100 Healthy' }
+    { color: 'var(--c-danger)', label: '0\u201339 Critical' },
+    { color: 'var(--c-warn)',   label: '40\u201369 Needs work' },
+    { color: 'var(--c-good-lo)', label: '70\u2013100 Healthy' }
   ];
 
   /* ---- Shared floating tooltip singleton ---- */
