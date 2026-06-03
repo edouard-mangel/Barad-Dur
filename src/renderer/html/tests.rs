@@ -47,6 +47,16 @@ fn html_is_valid_document() {
 }
 
 #[test]
+fn html_has_cbf_css_tokens() {
+    let html = render(&make_report()).unwrap();
+    assert!(html.contains("--c-good:"), "--c-good token must be in CSS");
+    assert!(html.contains("--c-warn:"), "--c-warn token must be in CSS");
+    assert!(html.contains("--c-danger:"), "--c-danger token must be in CSS");
+    assert!(html.contains("body.cbf"), "body.cbf override block must exist");
+    assert!(html.contains("#38bdf8"), "CBF block must contain sky-blue for --c-good");
+}
+
+#[test]
 fn html_embeds_report_data() {
     let report = make_report();
     let html = render(&report).unwrap();
