@@ -1,5 +1,21 @@
 pub const CSS: &str = r#"
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --c-good:        #10b981;
+  --c-good-bg:     rgba(16,185,129,0.13);
+  --c-good-lo:     #22c55e;
+  --c-warn:        #f59e0b;
+  --c-warn-bg:     rgba(245,158,11,0.13);
+  --c-danger:      #ef4444;
+  --c-danger-bg:   rgba(239,68,68,0.13);
+  --c-age-mid:     #eab308;
+  --c-age-mid-bg:  rgba(234,179,8,0.13);
+}
+body.cbf {
+  --c-good:        #38bdf8;
+  --c-good-bg:     rgba(56,189,248,0.13);
+  --c-good-lo:     #38bdf8;
+}
 body {
   background: #080a0f;
   color: #e2e8f0;

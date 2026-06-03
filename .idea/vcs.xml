@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="VcsDirectoryMappings">
+    <mapping directory="" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/other/GitNexus" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/other/code-maat" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/other/git-truck" vcs="Git" />
+  </component>
+</project>

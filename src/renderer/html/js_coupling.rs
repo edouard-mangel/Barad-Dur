@@ -57,9 +57,9 @@ pub const JS: &str = r#"
       'Temporal Coupling \u2014 Files that change together',
       'Temporal coupling measures how often two files are modified in the same commit. A high percentage means the files are implicitly linked \u2014 changing one almost always requires changing the other. This can indicate hidden dependencies, duplicated logic, or missing abstractions. Consider extracting shared interfaces or merging tightly coupled files.',
       [
-        { color: '#22c55e', label: '<30% \u2014 Normal co-change' },
-        { color: '#f59e0b', label: '30\u201360% \u2014 Worth investigating' },
-        { color: '#ef4444', label: '>60% \u2014 Strongly coupled, refactor candidate' }
+        { color: 'var(--c-good-lo)', label: '<30% \u2014 Normal co-change' },
+        { color: 'var(--c-warn)',    label: '30\u201360% \u2014 Worth investigating' },
+        { color: 'var(--c-danger)', label: '>60% \u2014 Strongly coupled, refactor candidate' }
       ]
     ));
 
@@ -135,19 +135,19 @@ pub const JS: &str = r#"
         coCell.append(txt(String(p.co_changes)));
 
         var pctCell = el('td');
-        var pctSpan = el('span', { style: { fontWeight: '700', color: p.coupling_pct > 70 ? '#ef4444' : p.coupling_pct > 40 ? '#f59e0b' : '#10b981' } });
+        var pctSpan = el('span', { style: { fontWeight: '700', color: p.coupling_pct > 70 ? 'var(--c-danger)' : p.coupling_pct > 40 ? 'var(--c-warn)' : 'var(--c-good)' } });
         pctSpan.append(txt(fmt(p.coupling_pct, 1) + '%'));
         pctCell.append(pctSpan);
 
         var cbCell = el('td');
         if (p.cross_boundary) {
-          var cbBadge = el('span', { style: { color: '#f59e0b', fontWeight: '600', fontSize: '0.75rem' } });
+          var cbBadge = el('span', { style: { color: 'var(--c-warn)', fontWeight: '600', fontSize: '0.75rem' } });
           cbBadge.append(txt('\u26a0 cross-boundary'));
           cbCell.append(cbBadge);
         }
 
         var barCell = el('td', { className: 'inline-bar' });
-        barCell.append(inlineBar(p.coupling_pct, p.coupling_pct > 70 ? '#ef4444' : p.coupling_pct > 40 ? '#f59e0b' : '#10b981'));
+        barCell.append(inlineBar(p.coupling_pct, p.coupling_pct > 70 ? 'var(--c-danger)' : p.coupling_pct > 40 ? 'var(--c-warn)' : 'var(--c-good)'));
 
         var dismissCell = el('td');
         var dismissBtn = el('button', { className: 'cp-dismiss' });

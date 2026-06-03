@@ -16,18 +16,18 @@ pub const JS: &str = r#"
       'Code Age \u2014 Freshness of the codebase',
       'Each file\u2019s age is the number of days since its last modification (based on the most recent commit that touched it). Old, untouched files may indicate stable, battle-tested code \u2014 or forgotten, potentially brittle code that nobody dares change. Cross-reference with ownership and complexity to distinguish the two.',
       [
-        { color: '#10b981', label: 'Fresh (<90 days) \u2014 actively maintained' },
-        { color: '#eab308', label: '3\u20136 months \u2014 aging, review periodically' },
-        { color: '#f59e0b', label: '6\u201312 months \u2014 stale, check if still relevant' },
-        { color: '#ef4444', label: '>1 year \u2014 potentially abandoned' }
+        { color: 'var(--c-good)',    label: 'Fresh (<90 days) \u2014 actively maintained' },
+        { color: 'var(--c-age-mid)', label: '3\u20136 months \u2014 aging, review periodically' },
+        { color: 'var(--c-warn)',    label: '6\u201312 months \u2014 stale, check if still relevant' },
+        { color: 'var(--c-danger)',  label: '>1 year \u2014 potentially abandoned' }
       ]
     ));
 
     function ageBand(days) {
-      if (days > 365) return { color: '#ef4444', label: '> 1y' };
-      if (days > 180) return { color: '#f59e0b', label: '> 6mo' };
-      if (days > 90)  return { color: '#eab308', label: '> 3mo' };
-      return { color: '#10b981', label: 'Fresh' };
+      if (days > 365) return { color: 'var(--c-danger)',  bg: 'var(--c-danger-bg)',  label: '> 1y' };
+      if (days > 180) return { color: 'var(--c-warn)',    bg: 'var(--c-warn-bg)',    label: '> 6mo' };
+      if (days > 90)  return { color: 'var(--c-age-mid)', bg: 'var(--c-age-mid-bg)', label: '> 3mo' };
+      return            { color: 'var(--c-good)',    bg: 'var(--c-good-bg)',    label: 'Fresh' };
     }
 
     var card = el('div', { className: 'view-card' });
@@ -64,7 +64,7 @@ pub const JS: &str = r#"
 
       var band = ageBand(f.days_since_modified);
       var bandCell = el('td');
-      var bandChip = el('span', { className: 'chip', style: { background: band.color + '22', color: band.color } });
+      var bandChip = el('span', { className: 'chip', style: { background: band.bg, color: band.color } });
       bandChip.append(txt(band.label));
       bandCell.append(bandChip);
 

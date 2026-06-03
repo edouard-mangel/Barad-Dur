@@ -13,9 +13,9 @@ pub const JS: &str = r#"
       'Code Ownership \u2014 Who knows what',
       'Ownership is derived from git blame: each file shows the percentage of lines last modified by each contributor. This reveals knowledge distribution \u2014 files dominated by a single author are "knowledge silos" (bus factor risk), while evenly distributed files have shared understanding. The Gini coefficient (0=perfectly equal, 1=one person owns everything) summarizes overall balance.',
       [
-        { color: '#22c55e', label: 'Shared \u2014 multiple contributors, low bus-factor risk' },
-        { color: '#f59e0b', label: 'Concentrated \u2014 one author >70%, knowledge silo risk' },
-        { color: '#ef4444', label: 'Sole owner \u2014 single author >90%, critical bus-factor' }
+        { color: 'var(--c-good-lo)', label: 'Shared \u2014 multiple contributors, low bus-factor risk' },
+        { color: 'var(--c-warn)',    label: 'Concentrated \u2014 one author >70%, knowledge silo risk' },
+        { color: 'var(--c-danger)',  label: 'Sole owner \u2014 single author >90%, critical bus-factor' }
       ]
     ));
 

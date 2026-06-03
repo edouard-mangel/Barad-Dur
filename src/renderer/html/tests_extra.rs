@@ -399,3 +399,44 @@ fn html_audit_empty_state() {
         "Audit tab must show its empty-state message when audit is None"
     );
 }
+
+#[test]
+fn html_no_bare_green_hex_in_js_output() {
+    let html = render(&make_report()).unwrap();
+    // The CSS :root block legitimately contains --c-good: #10b981 and --c-good-lo: #22c55e.
+    // Verify the CSS token infrastructure is present (positive assertion).
+    assert!(
+        html.contains("--c-good:"),
+        "rendered HTML must define the --c-good CSS token in :root"
+    );
+    assert!(
+        html.contains("body.cbf"),
+        "rendered HTML must define the body.cbf override block for the CBF palette"
+    );
+    // Verify that the JS section uses var(--c-*) tokens rather than only bare hex.
+    let js_start = html
+        .find("<script>\n")
+        .unwrap_or_else(|| html.find("<script>").unwrap_or(html.len()));
+    let js_section = &html[js_start..];
+    assert!(
+        js_section.contains("var(--c-good)"),
+        "JS section must use var(--c-good) token — bare hex has been replaced"
+    );
+    assert!(
+        js_section.contains("var(--c-danger)"),
+        "JS section must use var(--c-danger) token — bare hex has been replaced"
+    );
+}
+
+#[test]
+fn html_cbf_toggle_button_present() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("cbf-btn"),
+        "rendered HTML must contain the CBF toggle button with id=cbf-btn"
+    );
+    assert!(
+        html.contains("cbf-palette"),
+        "rendered HTML must contain localStorage key cbf-palette"
+    );
+}

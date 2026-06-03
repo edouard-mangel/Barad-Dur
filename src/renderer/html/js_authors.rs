@@ -7,9 +7,9 @@ pub const JS: &str = r#"
       'Author Report Cards',
       'Per-contributor metrics derived from git blame and commit history. Files owned = files where author has >50% blame lines. Commit quality scores message length, conventional prefixes, and penalizes low-effort messages.',
       [
-        { color: '#10b981', label: 'Active \u2014 committed in last 30 days' },
-        { color: '#f59e0b', label: 'Aging \u2014 30\u201390 days since last commit' },
-        { color: '#ef4444', label: 'Stale \u2014 90+ days since last commit' }
+        { color: 'var(--c-good)',   label: 'Active \u2014 committed in last 30 days' },
+        { color: 'var(--c-warn)',   label: 'Aging \u2014 30\u201390 days since last commit' },
+        { color: 'var(--c-danger)', label: 'Stale \u2014 90+ days since last commit' }
       ]
     ));
 
@@ -84,15 +84,15 @@ pub const JS: &str = r#"
     var grid = el('div', { className: 'ac-grid' });
 
     function activityColor(days) {
-      if (days <= 30) return '#10b981';
-      if (days <= 90) return '#f59e0b';
-      return '#ef4444';
+      if (days <= 30) return 'var(--c-good)';
+      if (days <= 90) return 'var(--c-warn)';
+      return 'var(--c-danger)';
     }
 
     function qualityColor(q) {
-      if (q >= 70) return '#10b981';
-      if (q >= 40) return '#f59e0b';
-      return '#ef4444';
+      if (q >= 70) return 'var(--c-good)';
+      if (q >= 40) return 'var(--c-warn)';
+      return 'var(--c-danger)';
     }
 
     function renderCards() {
@@ -175,6 +175,7 @@ pub const JS: &str = r#"
   }
 
   function renderApp() {
+    if (localStorage.getItem('cbf-palette')) document.body.classList.add('cbf');
     var app = document.getElementById('app');
 
     // Header
@@ -197,6 +198,25 @@ pub const JS: &str = r#"
     if (R.time_window_months && R.time_window_months > 0) {
       chips.append(chip(R.time_window_months + 'mo window', '#2a1f0a', '#fcd34d'));
     }
+    var cbfBtn = el('button', { id: 'cbf-btn', className: 'chip' });
+    function updateCbfBtn() {
+      var on = document.body.classList.contains('cbf');
+      cbfBtn.textContent = on ? '◐ Default' : '◑ CBF';
+      cbfBtn.style.cssText = on
+        ? 'border:1px solid #38bdf8;color:#38bdf8;background:#0c1929;cursor:pointer'
+        : 'border:1px solid #334155;color:#64748b;background:transparent;cursor:pointer';
+    }
+    cbfBtn.addEventListener('click', function() {
+      document.body.classList.toggle('cbf');
+      if (document.body.classList.contains('cbf')) {
+        localStorage.setItem('cbf-palette', '1');
+      } else {
+        localStorage.removeItem('cbf-palette');
+      }
+      updateCbfBtn();
+    });
+    updateCbfBtn();
+    chips.append(cbfBtn);
     headerRow.append(brandWrap, chips);
     header.append(headerRow);
 
