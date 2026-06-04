@@ -26,9 +26,9 @@ Investigated replacing `git blame --porcelain` subprocess with `git2::Repository
 
 **Conclusion:** The per-blob blame cache already solves the incremental case. For cold runs, the subprocess path remains both faster and more compatible with git CLI semantics. Revisit only if a future version of libgit2 closes the perf gap.
 
-### Selective Blame
+### ~~Selective Blame~~ ✓ Done
 
-For metrics that only need ownership of recently-changed code (churn hotspots), blame only files modified in the time window. Full blame still needed for bus factor and knowledge distribution, but could be deferred or sampled.
+`snapshot_builder.rs` already blames only files modified in the time window (`changed_paths` set, Phase 3). Per-blob cache covers unchanged files on subsequent runs. Known gap: cold first run leaves bus factor / knowledge distribution with partial coverage (only recently-changed files) until the cache warms up.
 
 ---
 
