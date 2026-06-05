@@ -1,5 +1,4 @@
 pub const JS: &str = r#"
-  /* ---- Main render ---- */
   /* ---- Authors tab ---- */
   function buildAuthorsTab() {
     var container = el('div');
