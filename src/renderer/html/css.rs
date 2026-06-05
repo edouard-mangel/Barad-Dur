@@ -16,6 +16,23 @@ body.cbf {
   --c-good-bg:     rgba(56,189,248,0.13);
   --c-good-lo:     #38bdf8;
 }
+body.light {
+  --bg-primary: #f8fafc;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f1f5f9;
+  --bg-card: #f8fafc;
+  --border-color: #e2e8f0;
+  --border-subtle: #e8edf2;
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --text-muted: #94a3b8;
+  --text-dim: #94a3b8;
+  --text-bright: #374151;
+  --text-mono: #1d4ed8;
+  --accent: #d97706;
+  --accent-hover: #2563eb;
+  --link-color: #2563eb;
+}
 body {
   --bg-primary:    #080a0f;
   --bg-secondary:  #0d1117;

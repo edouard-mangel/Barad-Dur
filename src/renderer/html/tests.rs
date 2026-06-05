@@ -11,6 +11,14 @@ fn css_defines_bg_primary_variable() {
     );
 }
 
+#[test]
+fn css_has_light_mode_block() {
+    assert!(
+        css::CSS.contains("body.light"),
+        "CSS const must contain a body.light selector block for light mode overrides"
+    );
+}
+
 fn make_report() -> AnalysisReport {
     AnalysisReport {
         repo_name: "my-repo".into(),
@@ -601,6 +609,19 @@ fn html_trends_legend_labels_in_js() {
     assert!(
         html.contains("Live analysis"),
         "Rendered JS should contain the 'Live analysis' label string"
+    );
+}
+
+#[test]
+fn html_has_light_mode_css_block() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("body.light"),
+        "rendered HTML must contain a body.light CSS selector block"
+    );
+    assert!(
+        html.contains("--bg-primary: #f8fafc"),
+        "body.light block must override --bg-primary with light-mode value #f8fafc"
     );
 }
 
