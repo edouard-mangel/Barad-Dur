@@ -300,6 +300,7 @@ pub const JS: &str = r#"
     app.replaceChildren(header, tabs, ...contentDivs);
   }
 
+  initTheme();
   renderApp();
 })();
 "#;

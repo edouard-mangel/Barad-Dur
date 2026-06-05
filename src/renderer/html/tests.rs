@@ -659,3 +659,25 @@ fn html_trends_legend_no_inner_html() {
         );
     }
 }
+
+#[test]
+fn html_theme_init_function_present() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("initTheme"),
+        "rendered HTML must contain initTheme JS function"
+    );
+    assert!(
+        html.contains("prefers-color-scheme"),
+        "initTheme must check prefers-color-scheme media query for system theme detection"
+    );
+}
+
+#[test]
+fn js_shared_has_toggle_theme_function() {
+    use crate::renderer::html::js_shared;
+    assert!(
+        js_shared::JS.contains("toggleTheme"),
+        "js_shared::JS must define a toggleTheme function"
+    );
+}

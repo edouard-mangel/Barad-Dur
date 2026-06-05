@@ -656,4 +656,29 @@ pub const JS: &str = r#"
     'Circular dependencies':  'Files that mutually depend on each other: A\u2192B and B\u2192A (depth 1), or A\u2192B\u2192C\u2192A (depth 2). Cycles break independent deployment, testing, and understanding of component boundaries. Scoring: 0 \u2192 100, 1\u20132 \u2192 75, 3\u20135 \u2192 50, >5 \u2192 25.',
     'Change coupling smells': 'File pairs that co-change in \u2265 threshold% of commits AND live in different top-level components. Signals hidden cross-module dependencies that violate component boundaries. Scoring: 0 \u2192 100, 1\u20132 \u2192 75, 3\u20135 \u2192 50, >5 \u2192 25.'
   };
+
+  /* ---- Theme initialisation and toggle ---- */
+  function initTheme() {
+    var stored = localStorage.getItem('theme');
+    if (stored === 'light') {
+      document.body.classList.add('light');
+    } else if (stored === 'dark') {
+      // explicit dark preference \u2014 do nothing (dark is default)
+    } else {
+      // no stored preference \u2014 check system
+      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+        document.body.classList.add('light');
+      }
+      // else: dark default, do nothing
+    }
+  }
+
+  function toggleTheme() {
+    var isLight = document.body.classList.toggle('light');
+    if (isLight) {
+      localStorage.setItem('theme', 'light');
+    } else {
+      localStorage.removeItem('theme');
+    }
+  }
 "#;
