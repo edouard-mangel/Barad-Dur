@@ -217,6 +217,7 @@ pub const JS: &str = r#"
     });
     updateCbfBtn();
     chips.append(cbfBtn);
+    chips.append(buildThemeBtn());
     headerRow.append(brandWrap, chips);
     header.append(headerRow);
 

@@ -681,4 +681,18 @@ pub const JS: &str = r#"
       localStorage.removeItem('theme');
     }
   }
+
+  function buildThemeBtn() {
+    var themeBtn = el('button', {
+      id: 'theme-btn',
+      className: 'chip',
+      'aria-label': 'Toggle theme',
+      onClick: function() {
+        toggleTheme();
+        themeBtn.firstChild.nodeValue = document.body.classList.contains('light') ? '☾' : '☀';
+      }
+    });
+    themeBtn.append(txt(document.body.classList.contains('light') ? '☾' : '☀'));
+    return themeBtn;
+  }
 "#;

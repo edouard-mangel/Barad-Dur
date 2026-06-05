@@ -429,6 +429,27 @@ fn html_no_bare_green_hex_in_js_output() {
 }
 
 #[test]
+fn html_theme_toggle_button_present() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("theme-btn"),
+        "rendered HTML must contain the theme toggle button with id=theme-btn"
+    );
+    assert!(
+        html.contains("toggleTheme"),
+        "rendered HTML must call toggleTheme() in the theme button click handler"
+    );
+}
+
+#[test]
+fn js_shared_has_theme_btn_id() {
+    assert!(
+        crate::renderer::html::js_shared::JS.contains("theme-btn"),
+        "js_shared.rs must contain the string 'theme-btn' (the theme toggle button id)"
+    );
+}
+
+#[test]
 fn html_cbf_toggle_button_present() {
     let html = render(&make_report()).unwrap();
     assert!(
