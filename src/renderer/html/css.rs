@@ -33,6 +33,11 @@ body.light {
   --accent-hover: #2563eb;
   --link-color: #2563eb;
 }
+body.light.cbf {
+  --c-good:        #38bdf8;
+  --c-good-bg:     rgba(56,189,248,0.13);
+  --c-good-lo:     #38bdf8;
+}
 body {
   --bg-primary:    #080a0f;
   --bg-secondary:  #0d1117;

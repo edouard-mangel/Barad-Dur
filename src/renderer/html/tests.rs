@@ -19,6 +19,14 @@ fn css_has_light_mode_block() {
     );
 }
 
+#[test]
+fn css_has_light_cbf_compose_block() {
+    assert!(
+        css::CSS.contains("body.light.cbf"),
+        "CSS const must contain a body.light.cbf selector block for CBF + light mode composition"
+    );
+}
+
 fn make_report() -> AnalysisReport {
     AnalysisReport {
         repo_name: "my-repo".into(),
@@ -622,6 +630,19 @@ fn html_has_light_mode_css_block() {
     assert!(
         html.contains("--bg-primary: #f8fafc"),
         "body.light block must override --bg-primary with light-mode value #f8fafc"
+    );
+}
+
+#[test]
+fn html_cbf_light_compose() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("body.light.cbf"),
+        "rendered HTML must contain a body.light.cbf CSS selector block for CBF + light mode composition"
+    );
+    assert!(
+        html.contains("#38bdf8"),
+        "CBF sky-blue value #38bdf8 must appear in the rendered CSS"
     );
 }
 
