@@ -1,6 +1,15 @@
 use super::*;
 use crate::metrics::{CategoryResult, MetricValue, RawValue};
+use crate::renderer::html::css;
 use crate::scorer::{ActionItem, AnalysisReport};
+
+#[test]
+fn css_defines_bg_primary_variable() {
+    assert!(
+        css::CSS.contains("--bg-primary:"),
+        "CSS const must declare --bg-primary custom property in body rule"
+    );
+}
 
 fn make_report() -> AnalysisReport {
     AnalysisReport {
@@ -62,6 +71,35 @@ fn html_has_cbf_css_tokens() {
     assert!(
         html.contains("#38bdf8"),
         "CBF block must contain sky-blue for --c-good"
+    );
+}
+
+#[test]
+fn html_css_uses_custom_properties() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("--bg-primary"),
+        "body rule must declare --bg-primary CSS custom property"
+    );
+    assert!(
+        html.contains("--text-primary"),
+        "body rule must declare --text-primary CSS custom property"
+    );
+    assert!(
+        html.contains("--bg-secondary"),
+        "body rule must declare --bg-secondary CSS custom property"
+    );
+    assert!(
+        html.contains("--border-color"),
+        "body rule must declare --border-color CSS custom property"
+    );
+    assert!(
+        html.contains("--text-muted"),
+        "body rule must declare --text-muted CSS custom property"
+    );
+    assert!(
+        html.contains("--bg-card"),
+        "body rule must declare --bg-card CSS custom property"
     );
 }
 
