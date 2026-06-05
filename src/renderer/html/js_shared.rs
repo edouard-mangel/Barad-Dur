@@ -297,7 +297,7 @@ pub const JS: &str = r#"
     return card;
   }
 
-  function buildHealthMethodology() {
+  function buildMethodologyDetails(metrics) {
     var details = document.createElement('details');
     details.style.cssText = 'margin-top:12px;border-top:1px solid #1e293b;padding-top:10px;';
     var summary = document.createElement('summary');
@@ -306,29 +306,6 @@ pub const JS: &str = r#"
     details.append(summary);
 
     var wrap = el('div', { style: { fontSize: '12px', lineHeight: '1.6', color: '#94a3b8', marginTop: '8px' } });
-
-    var metrics = [
-      { name: 'Bus Factor',
-        what: 'Percentage of files where a single author owns >50% of lines.',
-        scoring: '<10% \u2192 100 | <25% \u2192 75 | <50% \u2192 50 | >50% \u2192 25',
-        why: 'Low bus factor means critical knowledge is concentrated in too few people.' },
-      { name: 'God Objects',
-        what: 'Files with LOC > 500, or LOC > 300 with >15 public methods.',
-        scoring: '0% \u2192 100 | \u22642% \u2192 75 | \u22648% \u2192 50 | >8% \u2192 25',
-        why: 'Large classes with many responsibilities are hard to understand and change (Fowler: Large Class).' },
-      { name: 'Complex Hotspots',
-        what: 'Files above the 75th percentile in both cyclomatic complexity and churn.',
-        scoring: '0 \u2192 100 | 1\u20132 \u2192 75 | 3\u20135 \u2192 50 | >5 \u2192 25',
-        why: 'Code that is both complex and frequently changed is the highest-risk area for bugs (Tornhill).' },
-      { name: 'Long Methods',
-        what: 'Functions with LOC > 40 or cyclomatic complexity > 10.',
-        scoring: '0% \u2192 100 | \u22645% \u2192 75 | \u226415% \u2192 50 | >15% \u2192 25',
-        why: 'Long or complex functions are harder to test, understand, and maintain (Fowler: Long Method).' },
-      { name: 'Code Biomarkers',
-        what: 'Files with nesting depth > 4 or nesting variance > 2.0.',
-        scoring: '0% \u2192 100 | \u22643% \u2192 75 | \u226410% \u2192 50 | >10% \u2192 25',
-        why: 'Deeply nested code signals accumulated complexity. High variance indicates erratic structure (Tornhill: Code Biomarkers).' }
-    ];
 
     metrics.forEach(function(m) {
       var block = el('div', { style: { marginBottom: '10px' } });
@@ -363,66 +340,50 @@ pub const JS: &str = r#"
     return details;
   }
 
+  function buildHealthMethodology() {
+    return buildMethodologyDetails([
+      { name: 'Bus Factor',
+        what: 'Percentage of files where a single author owns >50% of lines.',
+        scoring: '<10% → 100 | <25% → 75 | <50% → 50 | >50% → 25',
+        why: 'Low bus factor means critical knowledge is concentrated in too few people.' },
+      { name: 'God Objects',
+        what: 'Files with LOC > 500, or LOC > 300 with >15 public methods.',
+        scoring: '0% → 100 | ≤2% → 75 | ≤8% → 50 | >8% → 25',
+        why: 'Large classes with many responsibilities are hard to understand and change (Fowler: Large Class).' },
+      { name: 'Complex Hotspots',
+        what: 'Files above the 75th percentile in both cyclomatic complexity and churn.',
+        scoring: '0 → 100 | 1–2 → 75 | 3–5 → 50 | >5 → 25',
+        why: 'Code that is both complex and frequently changed is the highest-risk area for bugs (Tornhill).' },
+      { name: 'Long Methods',
+        what: 'Functions with LOC > 40 or cyclomatic complexity > 10.',
+        scoring: '0% → 100 | ≤5% → 75 | ≤15% → 50 | >15% → 25',
+        why: 'Long or complex functions are harder to test, understand, and maintain (Fowler: Long Method).' },
+      { name: 'Code Biomarkers',
+        what: 'Files with nesting depth > 4 or nesting variance > 2.0.',
+        scoring: '0% → 100 | ≤3% → 75 | ≤10% → 50 | >10% → 25',
+        why: 'Deeply nested code signals accumulated complexity. High variance indicates erratic structure (Tornhill: Code Biomarkers).' }
+    ]);
+  }
+
   function buildCouplingMethodology() {
-    var details = document.createElement('details');
-    details.style.cssText = 'margin-top:12px;border-top:1px solid #1e293b;padding-top:10px;';
-    var summary = document.createElement('summary');
-    summary.style.cssText = 'cursor:pointer;color:#94a3b8;font-size:12px;font-weight:600;letter-spacing:0.03em;user-select:none;padding:4px 0;';
-    summary.append(txt('Methodology'));
-    details.append(summary);
-
-    var wrap = el('div', { style: { fontSize: '12px', lineHeight: '1.6', color: '#94a3b8', marginTop: '8px' } });
-
-    var metrics = [
+    return buildMethodologyDetails([
       { name: 'Afferent coupling (Ca)',
         what: 'Number of files that import this file (incoming). Built by parsing use / import / require statements via tree-sitter into an import graph.',
-        scoring: 'Scored on median Ca across all files (including leaves with Ca\u202f=\u202f0): \u22642 \u2192 100 | \u22645 \u2192 75 | \u226410 \u2192 50 | >10 \u2192 25',
+        scoring: 'Scored on median Ca across all files (including leaves with Ca = 0): ≤2 → 100 | ≤5 → 75 | ≤10 → 50 | >10 → 25',
         why: 'Median rather than max — a single hub (e.g. main.rs) with many importers is expected; what matters is whether the typical file is over-imported. A 0.00 median is normal and healthy.' },
       { name: 'Efferent coupling (Ce)',
         what: 'Number of files this file imports (outgoing). Extracted from the same import graph.',
-        scoring: 'Scored on median Ce across all files: \u22643 \u2192 100 | \u22646 \u2192 75 | \u226412 \u2192 50 | >12 \u2192 25',
+        scoring: 'Scored on median Ce across all files: ≤3 → 100 | ≤6 → 75 | ≤12 → 50 | >12 → 25',
         why: 'Most files in a well-structured codebase are leaf nodes that import few others. A 0.00 median is expected and correct.' },
       { name: 'Circular dependencies',
-        what: 'File pairs that form import cycles: A\u2192B and B\u2192A (depth\u202f1), or A\u2192B\u2192C\u2192A (depth\u202f2).',
-        scoring: '0 \u2192 100 | 1\u20132 \u2192 75 | 3\u20135 \u2192 50 | >5 \u2192 25',
+        what: 'File pairs that form import cycles: A→B and B→A (depth 1), or A→B→C→A (depth 2).',
+        scoring: '0 → 100 | 1–2 → 75 | 3–5 → 50 | >5 → 25',
         why: 'Cycles prevent independent compilation, testing, and deployment. They also make mental models of the codebase harder to build.' },
       { name: 'Change coupling smells',
-        what: 'File pairs that co-change in \u2265\u202f50% of their commits AND live in different top-level components (detected by directory depth).',
-        scoring: '0 \u2192 100 | 1\u20132 \u2192 75 | 3\u20135 \u2192 50 | >5 \u2192 25',
+        what: 'File pairs that co-change in ≥ 50% of their commits AND live in different top-level components (detected by directory depth).',
+        scoring: '0 → 100 | 1–2 → 75 | 3–5 → 50 | >5 → 25',
         why: 'Cross-boundary co-change is a structural red flag: two files that always change together but belong to different modules suggest a hidden dependency that should be made explicit.' }
-    ];
-
-    metrics.forEach(function(m) {
-      var block = el('div', { style: { marginBottom: '10px' } });
-      var title = el('div', { style: { color: '#e2e8f0', fontWeight: '600', marginBottom: '2px' } });
-      title.append(txt(m.name));
-      block.append(title);
-
-      var what = el('div');
-      var whatLabel = el('span', { style: { color: '#64748b' } });
-      whatLabel.append(txt('What: '));
-      what.append(whatLabel, txt(m.what));
-      block.append(what);
-
-      var scoring = el('div');
-      var scoringLabel = el('span', { style: { color: '#64748b' } });
-      scoringLabel.append(txt('Scoring: '));
-      var scoringCode = el('span', { style: { fontFamily: 'monospace', fontSize: '11px' } });
-      scoringCode.append(txt(m.scoring));
-      scoring.append(scoringLabel, scoringCode);
-      block.append(scoring);
-
-      var why = el('div');
-      var whyLabel = el('span', { style: { color: '#64748b' } });
-      whyLabel.append(txt('Why: '));
-      why.append(whyLabel, txt(m.why));
-      block.append(why);
-
-      wrap.append(block);
-    });
-
-    details.append(wrap);
-    return details;
+    ]);
   }
 
   function formatRaw(rv) {
@@ -656,4 +617,43 @@ pub const JS: &str = r#"
     'Circular dependencies':  'Files that mutually depend on each other: A\u2192B and B\u2192A (depth 1), or A\u2192B\u2192C\u2192A (depth 2). Cycles break independent deployment, testing, and understanding of component boundaries. Scoring: 0 \u2192 100, 1\u20132 \u2192 75, 3\u20135 \u2192 50, >5 \u2192 25.',
     'Change coupling smells': 'File pairs that co-change in \u2265 threshold% of commits AND live in different top-level components. Signals hidden cross-module dependencies that violate component boundaries. Scoring: 0 \u2192 100, 1\u20132 \u2192 75, 3\u20135 \u2192 50, >5 \u2192 25.'
   };
+
+  /* ---- Theme initialisation and toggle ---- */
+  function initTheme() {
+    var stored = localStorage.getItem('theme');
+    if (stored === 'light') {
+      document.body.classList.add('light');
+    } else if (stored === 'dark') {
+      // explicit dark preference \u2014 do nothing (dark is default)
+    } else {
+      // no stored preference \u2014 check system
+      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+        document.body.classList.add('light');
+      }
+      // else: dark default, do nothing
+    }
+  }
+
+  function toggleTheme() {
+    var isLight = document.body.classList.toggle('light');
+    if (isLight) {
+      localStorage.setItem('theme', 'light');
+    } else {
+      localStorage.removeItem('theme');
+    }
+  }
+
+  function buildThemeBtn() {
+    var themeBtn = el('button', {
+      id: 'theme-btn',
+      className: 'chip',
+      'aria-label': 'Toggle theme',
+      onClick: function() {
+        toggleTheme();
+        themeBtn.firstChild.nodeValue = document.body.classList.contains('light') ? '☾' : '☀';
+      }
+    });
+    themeBtn.append(txt(document.body.classList.contains('light') ? '☾' : '☀'));
+    return themeBtn;
+  }
 "#;

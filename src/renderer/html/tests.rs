@@ -1,6 +1,31 @@
 use super::*;
 use crate::metrics::{CategoryResult, MetricValue, RawValue};
+use crate::renderer::html::css;
 use crate::scorer::{ActionItem, AnalysisReport};
+
+#[test]
+fn css_defines_bg_primary_variable() {
+    assert!(
+        css::CSS.contains("--bg-primary:"),
+        "CSS const must declare --bg-primary custom property in body rule"
+    );
+}
+
+#[test]
+fn css_has_light_mode_block() {
+    assert!(
+        css::CSS.contains("body.light"),
+        "CSS const must contain a body.light selector block for light mode overrides"
+    );
+}
+
+#[test]
+fn css_has_light_cbf_compose_block() {
+    assert!(
+        css::CSS.contains("body.light.cbf"),
+        "CSS const must contain a body.light.cbf selector block for CBF + light mode composition"
+    );
+}
 
 fn make_report() -> AnalysisReport {
     AnalysisReport {
@@ -62,6 +87,35 @@ fn html_has_cbf_css_tokens() {
     assert!(
         html.contains("#38bdf8"),
         "CBF block must contain sky-blue for --c-good"
+    );
+}
+
+#[test]
+fn html_css_uses_custom_properties() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("--bg-primary"),
+        "body rule must declare --bg-primary CSS custom property"
+    );
+    assert!(
+        html.contains("--text-primary"),
+        "body rule must declare --text-primary CSS custom property"
+    );
+    assert!(
+        html.contains("--bg-secondary"),
+        "body rule must declare --bg-secondary CSS custom property"
+    );
+    assert!(
+        html.contains("--border-color"),
+        "body rule must declare --border-color CSS custom property"
+    );
+    assert!(
+        html.contains("--text-muted"),
+        "body rule must declare --text-muted CSS custom property"
+    );
+    assert!(
+        html.contains("--bg-card"),
+        "body rule must declare --bg-card CSS custom property"
     );
 }
 
@@ -567,6 +621,32 @@ fn html_trends_legend_labels_in_js() {
 }
 
 #[test]
+fn html_has_light_mode_css_block() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("body.light"),
+        "rendered HTML must contain a body.light CSS selector block"
+    );
+    assert!(
+        html.contains("--bg-primary: #f8fafc"),
+        "body.light block must override --bg-primary with light-mode value #f8fafc"
+    );
+}
+
+#[test]
+fn html_cbf_light_compose() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("body.light.cbf"),
+        "rendered HTML must contain a body.light.cbf CSS selector block for CBF + light mode composition"
+    );
+    assert!(
+        html.contains("#38bdf8"),
+        "CBF sky-blue value #38bdf8 must appear in the rendered CSS"
+    );
+}
+
+#[test]
 fn html_trends_legend_no_inner_html() {
     let html = render(&make_report()).unwrap();
     let legend_region = html
@@ -578,4 +658,26 @@ fn html_trends_legend_no_inner_html() {
             "Legend construction must not use innerHTML (security constraint)"
         );
     }
+}
+
+#[test]
+fn html_theme_init_function_present() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("initTheme"),
+        "rendered HTML must contain initTheme JS function"
+    );
+    assert!(
+        html.contains("prefers-color-scheme"),
+        "initTheme must check prefers-color-scheme media query for system theme detection"
+    );
+}
+
+#[test]
+fn js_shared_has_toggle_theme_function() {
+    use crate::renderer::html::js_shared;
+    assert!(
+        js_shared::JS.contains("toggleTheme"),
+        "js_shared::JS must define a toggleTheme function"
+    );
 }

@@ -26,9 +26,9 @@ Investigated replacing `git blame --porcelain` subprocess with `git2::Repository
 
 **Conclusion:** The per-blob blame cache already solves the incremental case. For cold runs, the subprocess path remains both faster and more compatible with git CLI semantics. Revisit only if a future version of libgit2 closes the perf gap.
 
-### Selective Blame
+### ~~Selective Blame~~ ✓ Done
 
-For metrics that only need ownership of recently-changed code (churn hotspots), blame only files modified in the time window. Full blame still needed for bus factor and knowledge distribution, but could be deferred or sampled.
+`snapshot_builder.rs` already blames only files modified in the time window (`changed_paths` set, Phase 3). Per-blob cache covers unchanged files on subsequent runs. Known gap: cold first run leaves bus factor / knowledge distribution with partial coverage (only recently-changed files) until the cache warms up.
 
 ---
 
@@ -48,15 +48,9 @@ A guided CLI command (`barad-dur init` or `barad-dur config`) that helps users c
 
 Could be a TUI (e.g. `ratatui`) or a simple question-and-answer flow (e.g. `dialoguer`).
 
-### Accessible Colors in HTML Report
+### ~~Accessible Colors in HTML Report~~ ✓ Done (MR !12)
 
-**Priority**: Nice-to-have
-
-Audit and update the color palette used in the self-contained HTML report (`src/renderer/html.rs`) for WCAG AA compliance. Targets:
-
-- Score badge colors (red / orange / green) — verify contrast ratios against white/dark backgrounds
-- Chart colors (D3 palette) — add patterns or labels as fallback for color-blind users
-- Consider a `prefers-color-scheme` media query for dark-mode support
+CSS custom property tokens (`--c-good`, `--c-warn`, `--c-danger`, etc.) with a `body.cbf` override block. All semantic hex colors in JS converted to `var(--c-*)`. Toggle button in the page header persists choice in `localStorage`.
 
 ### Coupling Cluster Visualization
 

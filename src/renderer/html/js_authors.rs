@@ -1,5 +1,4 @@
 pub const JS: &str = r#"
-  /* ---- Main render ---- */
   /* ---- Authors tab ---- */
   function buildAuthorsTab() {
     var container = el('div');
@@ -217,6 +216,7 @@ pub const JS: &str = r#"
     });
     updateCbfBtn();
     chips.append(cbfBtn);
+    chips.append(buildThemeBtn());
     headerRow.append(brandWrap, chips);
     header.append(headerRow);
 
@@ -300,6 +300,7 @@ pub const JS: &str = r#"
     app.replaceChildren(header, tabs, ...contentDivs);
   }
 
+  initTheme();
   renderApp();
 })();
 "#;
