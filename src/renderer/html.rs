@@ -43,14 +43,12 @@ pub fn render(report: &AnalysisReport) -> Result<String> {
     Ok(html)
 }
 
-fn build_js(report: &AnalysisReport) -> String {
-    let has_test_pairs = report.coupling_pairs.iter().any(|p| p.is_test_pair);
-    let coupling_js = js_coupling::js(has_test_pairs);
+fn build_js(_report: &AnalysisReport) -> String {
     [
         js_shared::JS,
         js_overview::JS,
         js_hotspots::JS,
-        coupling_js.as_str(),
+        js_coupling::JS,
         js_ownership::JS,
         js_age::JS,
         js_treemap_layout::JS,

@@ -1,4 +1,4 @@
-const JS_TEMPLATE: &str = r#"
+pub const JS: &str = r#"
   /* ---- Coupling tab ---- */
   // Auto-exclude patterns for coupling: interface/implementation, lock files, test files, module indexes
   function isAutoExcluded(a, b) {
@@ -145,7 +145,11 @@ const JS_TEMPLATE: &str = r#"
             cbBadge.append(txt('⚠ cross-boundary'));
             cbCell.append(cbBadge);
           }
-          /*TP_BADGE*/
+          if (p.is_test_pair) {
+            var tpBadge = el('span', { title: 'Expected coupling — production file and its test file naturally change together.', style: { marginLeft: '4px', cursor: 'default' } });
+            tpBadge.append(txt('🧪'));
+            cbCell.append(tpBadge);
+          }
 
           var barCell = el('td', { className: 'inline-bar' });
           barCell.append(inlineBar(p.coupling_pct, p.coupling_pct > 70 ? 'var(--c-danger)' : p.coupling_pct > 40 ? 'var(--c-warn)' : 'var(--c-good)'));
@@ -266,14 +270,3 @@ const JS_TEMPLATE: &str = r#"
     return container;
   }
 "#;
-
-const JS_TEST_PAIR_BADGE: &str = "if (p.is_test_pair) {\
-            var tpBadge = el('span', { title: 'Expected coupling \u{2014} production file and its test file naturally change together.', style: { marginLeft: '4px', cursor: 'default' } });\
-            tpBadge.append(txt('\u{1F9EA}'));\
-            cbCell.append(tpBadge);\
-          }";
-
-pub fn js(has_test_pairs: bool) -> String {
-    let badge = if has_test_pairs { JS_TEST_PAIR_BADGE } else { "" };
-    JS_TEMPLATE.replace("/*TP_BADGE*/", badge)
-}

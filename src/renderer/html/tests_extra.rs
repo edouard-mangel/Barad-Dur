@@ -501,8 +501,8 @@ fn coupling_tab_no_test_pair_badge_for_regular_pairs() {
     }];
     let html = render(&report).unwrap();
     assert!(
-        !html.contains("Expected coupling"),
-        "no test pair badge for regular coupling pairs"
+        !html.contains("\"is_test_pair\":true"),
+        "window.R must not contain is_test_pair:true for regular coupling pairs"
     );
 }
 
