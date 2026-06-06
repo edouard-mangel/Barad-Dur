@@ -13,13 +13,18 @@ const DEFAULT_EXCLUDE_EXTENSIONS: &[&str] = &[
 /// These use suffix matching on the full filename (e.g. "pb.go" matches "user.pb.go").
 const DEFAULT_EXCLUDE_COMPOUND_EXTENSIONS: &[&str] = &[
     // Protocol Buffers generated (compound extensions)
-    "pb.go", "pb.h", "pb.cc", "pb.swift",
+    "pb.go",
+    "pb.h",
+    "pb.cc",
+    "pb.swift",
     // C# generated
-    "g.cs", "generated.cs",
+    "g.cs",
+    "generated.cs",
     // TypeScript declarations
     "d.ts",
     // Minified assets
-    "min.js", "min.css",
+    "min.js",
+    "min.css",
 ];
 
 /// Default path patterns excluded from analysis (tooling config, lockfiles).
@@ -409,26 +414,86 @@ mod tests {
 
     #[test]
     fn is_excluded_matches_generated_directories() {
-        assert!(is_excluded(Path::new("node_modules/lodash/index.js"), &[], &[], true));
-        assert!(is_excluded(Path::new("vendor/github.com/foo/bar.go"), &[], &[], true));
-        assert!(is_excluded(Path::new("src/__pycache__/utils.cpython-311.pyc"), &[], &[], true));
-        assert!(is_excluded(Path::new("myapp.egg-info/PKG-INFO"), &[], &[], true));
-        assert!(is_excluded(Path::new("target/debug/build/out/main.rs"), &[], &[], true));
-        assert!(is_excluded(Path::new(".next/server/pages/index.js"), &[], &[], true));
-        assert!(is_excluded(Path::new(".nuxt/components.d.ts"), &[], &[], true));
+        assert!(is_excluded(
+            Path::new("node_modules/lodash/index.js"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(
+            Path::new("vendor/github.com/foo/bar.go"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(
+            Path::new("src/__pycache__/utils.cpython-311.pyc"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(
+            Path::new("myapp.egg-info/PKG-INFO"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(
+            Path::new("target/debug/build/out/main.rs"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(
+            Path::new(".next/server/pages/index.js"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(
+            Path::new(".nuxt/components.d.ts"),
+            &[],
+            &[],
+            true
+        ));
         assert!(is_excluded(Path::new("out/Release/chrome"), &[], &[], true));
-        assert!(is_excluded(Path::new("src/gen/proto/user.go"), &[], &[], true));
-        assert!(is_excluded(Path::new("src/generated/api/client.ts"), &[], &[], true));
+        assert!(is_excluded(
+            Path::new("src/gen/proto/user.go"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(
+            Path::new("src/generated/api/client.ts"),
+            &[],
+            &[],
+            true
+        ));
         assert!(is_excluded(Path::new(".gradle/caches/foo"), &[], &[], true));
-        assert!(is_excluded(Path::new(".mvn/wrapper/maven-wrapper.jar"), &[], &[], true));
-        assert!(is_excluded(Path::new("build/outputs/apk/debug.apk"), &[], &[], true));
+        assert!(is_excluded(
+            Path::new(".mvn/wrapper/maven-wrapper.jar"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(
+            Path::new("build/outputs/apk/debug.apk"),
+            &[],
+            &[],
+            true
+        ));
         assert!(is_excluded(Path::new("proto/user_pb2.py"), &[], &[], true));
         // dist is intentionally NOT excluded
         assert!(!is_excluded(Path::new("dist/published.js"), &[], &[], true));
         // regular source must NOT be excluded
         assert!(!is_excluded(Path::new("src/main.rs"), &[], &[], true));
         // use_defaults=false disables these
-        assert!(!is_excluded(Path::new("node_modules/foo/bar.js"), &[], &[], false));
+        assert!(!is_excluded(
+            Path::new("node_modules/foo/bar.js"),
+            &[],
+            &[],
+            false
+        ));
     }
 
     #[test]
@@ -437,9 +502,19 @@ mod tests {
         assert!(is_excluded(Path::new("proto/user.pb.go"), &[], &[], true));
         assert!(is_excluded(Path::new("proto/user.pb.h"), &[], &[], true));
         assert!(is_excluded(Path::new("proto/user.pb.cc"), &[], &[], true));
-        assert!(is_excluded(Path::new("proto/user.pb.swift"), &[], &[], true));
+        assert!(is_excluded(
+            Path::new("proto/user.pb.swift"),
+            &[],
+            &[],
+            true
+        ));
         // C# generated
-        assert!(is_excluded(Path::new("src/Api/Client.g.cs"), &[], &[], true));
+        assert!(is_excluded(
+            Path::new("src/Api/Client.g.cs"),
+            &[],
+            &[],
+            true
+        ));
         assert!(is_excluded(
             Path::new("src/Api/Client.generated.cs"),
             &[],
