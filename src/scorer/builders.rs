@@ -80,6 +80,31 @@ pub(super) fn build_hotspots(snapshot: &RepoSnapshot) -> Vec<HotspotFile> {
     files
 }
 
+fn file_stem(path: &str) -> String {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    // Strip only the last extension so compound extensions like .test.ts are preserved
+    match name.rfind('.') {
+        Some(pos) => name[..pos].to_string(),
+        None => name.to_string(),
+    }
+}
+
+fn is_test_of(prod: &str, test: &str) -> bool {
+    test == format!("{}test", prod)
+        || test == format!("{}tests", prod)
+        || test == format!("{}.test", prod)
+        || test == format!("{}.spec", prod)
+        || test == format!("{}_test", prod)
+        || test == format!("{}_spec", prod)
+        || test == format!("test_{}", prod)
+}
+
+fn is_test_pair(a: &str, b: &str) -> bool {
+    let sa = file_stem(a).to_lowercase();
+    let sb = file_stem(b).to_lowercase();
+    is_test_of(&sa, &sb) || is_test_of(&sb, &sa)
+}
+
 pub(super) fn build_coupling_pairs(
     snapshot: &RepoSnapshot,
     component_depth: usize,
@@ -108,7 +133,10 @@ pub(super) fn build_coupling_pairs(
                 co_changes: *co,
                 coupling_pct,
                 cross_boundary,
-                is_test_pair: false,
+                is_test_pair: is_test_pair(
+                    &a.to_string_lossy(),
+                    &b.to_string_lossy(),
+                ),
             }
         })
         .collect()
@@ -345,6 +373,44 @@ mod tests {
             })
             .collect();
         snapshot
+    }
+
+    #[test]
+    fn is_test_pair_detects_suffix_test() {
+        assert!(is_test_pair("src/UserService.java", "tests/UserServiceTest.java"));
+        assert!(is_test_pair("src/UserService.java", "tests/UserServiceTests.java"));
+        assert!(is_test_pair("tests/UserServiceTest.java", "src/UserService.java")); // symmetric
+    }
+
+    #[test]
+    fn is_test_pair_detects_dot_test_spec() {
+        assert!(is_test_pair("src/parser.ts", "src/parser.test.ts"));
+        assert!(is_test_pair("src/parser.ts", "src/parser.spec.ts"));
+        assert!(is_test_pair("src/parser.test.ts", "src/parser.ts"));
+    }
+
+    #[test]
+    fn is_test_pair_detects_underscore_test_spec() {
+        assert!(is_test_pair("user.go", "user_test.go"));
+        assert!(is_test_pair("user.go", "user_spec.go"));
+        assert!(is_test_pair("user_test.go", "user.go"));
+    }
+
+    #[test]
+    fn is_test_pair_detects_test_prefix() {
+        assert!(is_test_pair("user.py", "test_user.py"));
+        assert!(is_test_pair("test_user.py", "user.py"));
+    }
+
+    #[test]
+    fn is_test_pair_case_insensitive() {
+        assert!(is_test_pair("UserService.cs", "USERSERVICETEST.cs"));
+    }
+
+    #[test]
+    fn is_test_pair_rejects_unrelated_pairs() {
+        assert!(!is_test_pair("src/user.rs", "src/order.rs"));
+        assert!(!is_test_pair("src/user.rs", "src/user_handler.rs"));
     }
 
     #[test]
