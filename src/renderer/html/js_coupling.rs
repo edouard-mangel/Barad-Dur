@@ -215,9 +215,9 @@ pub const JS: &str = r#"
       var instHRow = el('tr');
       [
         { label: 'File', tip: null },
-        { label: 'Ca (afferent)', tip: 'Number of files that import this file (incoming dependencies).' },
-        { label: 'Ce (efferent)', tip: 'Number of files this file imports (outgoing dependencies).' },
-        { label: 'Instability', tip: 'Ce ÷ (Ca + Ce). Ranges from 0 (stable, depended upon) to 1 (unstable, depends on others).' }
+        { label: 'Ca', tip: 'Afferent coupling: number of files that import this file. High Ca = many dependents, risky to change.' },
+        { label: 'Ce', tip: 'Efferent coupling: number of files this file imports. High Ce = many dependencies.' },
+        { label: 'Instability', tip: 'Ce / (Ca + Ce). 0 = stable (depended upon). 1 = unstable (depends on others).' }
       ].forEach(function(col) {
         instHRow.append(thWithTip(col.label, col.tip));
       });
@@ -225,7 +225,7 @@ pub const JS: &str = r#"
       instTable.append(instThead);
 
       var instTbody = el('tbody');
-      perFileCoupling.slice(0, 50).forEach(function(f) {
+      perFileCoupling.slice().sort(function(a, b) { return b.instability - a.instability; }).slice(0, 50).forEach(function(f) {
         var fRow = el('tr');
 
         var fileCell = el('td');

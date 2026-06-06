@@ -503,3 +503,45 @@ fn coupling_tab_shows_no_data_message_when_per_file_coupling_empty() {
         "coupling tab JS must contain the no-data message literal for the empty-state branch"
     );
 }
+
+// ---- Instability table column tooltips (step 03-02) ----
+
+#[test]
+fn coupling_tab_instability_table_has_column_tooltips() {
+    use crate::scorer::FileCouplingMetrics;
+
+    let mut report = make_report();
+    report.per_file_coupling = vec![
+        FileCouplingMetrics {
+            path: "src/stable.rs".into(),
+            ca: 10,
+            ce: 2,
+            instability: 0.17,
+        },
+        FileCouplingMetrics {
+            path: "src/unstable.rs".into(),
+            ca: 1,
+            ce: 9,
+            instability: 0.9,
+        },
+    ];
+    let html = render(&report).unwrap();
+
+    // Ca column tooltip
+    assert!(
+        html.contains("Afferent coupling: number of files that import this file. High Ca = many dependents, risky to change."),
+        "Ca column header must use thWithTip() with the exact afferent coupling tooltip"
+    );
+
+    // Ce column tooltip
+    assert!(
+        html.contains("Efferent coupling: number of files this file imports. High Ce = many dependencies."),
+        "Ce column header must use thWithTip() with the exact efferent coupling tooltip"
+    );
+
+    // Instability column tooltip
+    assert!(
+        html.contains("Ce / (Ca + Ce). 0 = stable (depended upon). 1 = unstable (depends on others)."),
+        "Instability column header must use thWithTip() with the exact instability formula tooltip"
+    );
+}
