@@ -478,13 +478,19 @@ fn coupling_tab_shows_test_pair_badge_when_is_test_pair() {
         is_test_pair: true,
     }];
     let html = render(&report).unwrap();
+    // The emoji appears in the JS template; window.R carrying is_test_pair:true is what
+    // drives the JS badge condition — assert the data was serialised correctly.
+    assert!(
+        html.contains("\"is_test_pair\":true"),
+        "window.R must carry is_test_pair:true so the JS badge condition fires"
+    );
     assert!(
         html.contains("\u{1F9EA}"),
-        "coupling tab must show 🧪 badge for test pairs"
+        "JS template must contain the 🧪 badge code"
     );
     assert!(
         html.contains("Expected coupling"),
-        "badge must include tooltip explaining expected coupling"
+        "JS template must include the tooltip text"
     );
 }
 
@@ -502,7 +508,7 @@ fn coupling_tab_no_test_pair_badge_for_regular_pairs() {
     let html = render(&report).unwrap();
     assert!(
         !html.contains("\"is_test_pair\":true"),
-        "window.R must not contain is_test_pair:true for regular coupling pairs"
+        "window.R must not carry is_test_pair:true for regular coupling pairs"
     );
 }
 

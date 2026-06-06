@@ -43,6 +43,7 @@ pub fn render(report: &AnalysisReport) -> Result<String> {
     Ok(html)
 }
 
+// _report is kept for future per-report JS customisation (feature flags, conditional modules).
 fn build_js(_report: &AnalysisReport) -> String {
     [
         js_shared::JS,
