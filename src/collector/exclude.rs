@@ -9,6 +9,19 @@ const DEFAULT_EXCLUDE_EXTENSIONS: &[&str] = &[
     "md", "txt", "rst", "adoc", "textile",
 ];
 
+/// Default compound extensions excluded from analysis (generated files).
+/// These use suffix matching on the full filename (e.g. "pb.go" matches "user.pb.go").
+const DEFAULT_EXCLUDE_COMPOUND_EXTENSIONS: &[&str] = &[
+    // Protocol Buffers generated (compound extensions)
+    "pb.go", "pb.h", "pb.cc", "pb.swift",
+    // C# generated
+    "g.cs", "generated.cs",
+    // TypeScript declarations
+    "d.ts",
+    // Minified assets
+    "min.js", "min.css",
+];
+
 /// Default path patterns excluded from analysis (tooling config, lockfiles).
 /// Lockfiles inflate churn/coupling metrics without reflecting real code changes.
 const DEFAULT_EXCLUDE_PATTERNS: &[&str] = &[
@@ -63,6 +76,13 @@ pub fn is_excluded(
             if DEFAULT_EXCLUDE_EXTENSIONS.iter().any(|&e| e == ext_lower) {
                 return true;
             }
+        }
+        let path_lower = path_str.to_lowercase();
+        if DEFAULT_EXCLUDE_COMPOUND_EXTENSIONS
+            .iter()
+            .any(|&e| path_lower.ends_with(&format!(".{}", e)))
+        {
+            return true;
         }
         if DEFAULT_EXCLUDE_PATTERNS
             .iter()
@@ -370,5 +390,36 @@ mod tests {
         assert!(is_excluded(Path::new("lib/foo.jar"), &[], &exts, false));
         // And do not suppress defaults when on.
         assert!(is_excluded(Path::new("README.md"), &[], &exts, true));
+    }
+
+    #[test]
+    fn is_excluded_matches_generated_extensions() {
+        // Protocol Buffers
+        assert!(is_excluded(Path::new("proto/user.pb.go"), &[], &[], true));
+        assert!(is_excluded(Path::new("proto/user.pb.h"), &[], &[], true));
+        assert!(is_excluded(Path::new("proto/user.pb.cc"), &[], &[], true));
+        assert!(is_excluded(Path::new("proto/user.pb.swift"), &[], &[], true));
+        // C# generated
+        assert!(is_excluded(Path::new("src/Api/Client.g.cs"), &[], &[], true));
+        assert!(is_excluded(
+            Path::new("src/Api/Client.generated.cs"),
+            &[],
+            &[],
+            true
+        ));
+        // TypeScript declarations
+        assert!(is_excluded(Path::new("types/index.d.ts"), &[], &[], true));
+        // Minified assets
+        assert!(is_excluded(Path::new("dist/app.min.js"), &[], &[], true));
+        assert!(is_excluded(
+            Path::new("dist/styles.min.css"),
+            &[],
+            &[],
+            true
+        ));
+        // Regular source should still pass
+        assert!(!is_excluded(Path::new("src/main.rs"), &[], &[], true));
+        assert!(!is_excluded(Path::new("src/user.go"), &[], &[], true));
+        assert!(!is_excluded(Path::new("src/client.ts"), &[], &[], true));
     }
 }
