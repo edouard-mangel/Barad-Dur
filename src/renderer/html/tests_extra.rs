@@ -462,3 +462,44 @@ fn html_cbf_toggle_button_present() {
         "rendered HTML must contain localStorage key cbf-palette"
     );
 }
+
+// ---- Instability panel tests (step 03-01) ----
+
+#[test]
+fn coupling_tab_renders_instability_panel_when_data_present() {
+    use crate::scorer::FileCouplingMetrics;
+
+    let mut report = make_report();
+    report.per_file_coupling = vec![FileCouplingMetrics {
+        path: "src/main.rs".into(),
+        ca: 2,
+        ce: 8,
+        instability: 0.8,
+    }];
+    let html = render(&report).unwrap();
+    // The "Instability by File" heading must appear in the JS function
+    assert!(
+        html.contains("Instability by File"),
+        "coupling tab must render an 'Instability by File' heading"
+    );
+    // The per_file_coupling data must be serialised into window.R
+    assert!(
+        html.contains("per_file_coupling"),
+        "window.R must contain the per_file_coupling field when data is present"
+    );
+    // The instability value 0.8 must appear in window.R JSON
+    assert!(
+        html.contains("0.8"),
+        "window.R must contain the instability value 0.8 for the test entry"
+    );
+}
+
+#[test]
+fn coupling_tab_shows_no_data_message_when_per_file_coupling_empty() {
+    // make_report() already has per_file_coupling: vec![]
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("No static import data available."),
+        "coupling tab JS must contain the no-data message literal for the empty-state branch"
+    );
+}
