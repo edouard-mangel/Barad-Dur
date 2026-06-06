@@ -242,6 +242,7 @@ fn html_full_report_with_all_data_renders_ok() {
         co_changes: 10,
         coupling_pct: 75.5,
         cross_boundary: true,
+        is_test_pair: false,
     }];
     report.file_hotspots = vec![HotspotFile {
         path: "src/big.rs".into(),
