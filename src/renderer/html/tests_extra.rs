@@ -535,13 +535,17 @@ fn coupling_tab_instability_table_has_column_tooltips() {
 
     // Ce column tooltip
     assert!(
-        html.contains("Efferent coupling: number of files this file imports. High Ce = many dependencies."),
+        html.contains(
+            "Efferent coupling: number of files this file imports. High Ce = many dependencies."
+        ),
         "Ce column header must use thWithTip() with the exact efferent coupling tooltip"
     );
 
     // Instability column tooltip
     assert!(
-        html.contains("Ce / (Ca + Ce). 0 = stable (depended upon). 1 = unstable (depends on others)."),
+        html.contains(
+            "Ce / (Ca + Ce). 0 = stable (depended upon). 1 = unstable (depends on others)."
+        ),
         "Instability column header must use thWithTip() with the exact instability formula tooltip"
     );
 }
