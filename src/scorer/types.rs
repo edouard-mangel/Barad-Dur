@@ -24,6 +24,7 @@ pub struct CouplingPair {
     pub co_changes: usize,
     pub coupling_pct: f64,
     pub cross_boundary: bool,
+    pub is_test_pair: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

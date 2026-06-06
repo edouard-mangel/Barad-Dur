@@ -108,6 +108,7 @@ pub(super) fn build_coupling_pairs(
                 co_changes: *co,
                 coupling_pct,
                 cross_boundary,
+                is_test_pair: false,
             }
         })
         .collect()
@@ -344,6 +345,30 @@ mod tests {
             })
             .collect();
         snapshot
+    }
+
+    #[test]
+    fn coupling_pair_non_test_pair_is_false() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp/test"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        snapshot.files = vec![make_file_entry("src/foo.rs"), make_file_entry("src/bar.rs")];
+        let a = PathBuf::from("src/foo.rs");
+        let b = PathBuf::from("src/bar.rs");
+        snapshot.file_change_pairs = vec![(a.clone(), b.clone(), 3)];
+        snapshot
+            .commits_by_file
+            .insert(a, vec![CommitId(0), CommitId(1), CommitId(2)]);
+        snapshot
+            .commits_by_file
+            .insert(b, vec![CommitId(0), CommitId(1), CommitId(2)]);
+
+        let pairs = build_coupling_pairs(&snapshot, 1);
+        assert_eq!(pairs.len(), 1);
+        assert!(!pairs[0].is_test_pair);
     }
 
     #[test]
