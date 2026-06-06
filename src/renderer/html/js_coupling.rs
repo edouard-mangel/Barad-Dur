@@ -204,7 +204,7 @@ pub const JS: &str = r#"
     instHeader.append(txt('Instability by File'));
     instabilityCard.append(instHeader);
 
-    var instDesc = el('div', { style: { fontSize: '13px', color: '#94a3b8', margin: '6px 0 12px' } });
+    var instDesc = el('div', { style: { fontSize: '13px', color: 'var(--text-muted)', margin: '6px 0 12px' } });
     instDesc.append(txt('Instability = Ce ÷ (Ca + Ce). 0 = maximally stable (depended upon, changes carefully). 1 = maximally unstable (depends on others, safe to change freely).'));
     instabilityCard.append(instDesc);
 

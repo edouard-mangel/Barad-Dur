@@ -444,6 +444,36 @@ mod tests {
     }
 
     #[test]
+    fn coupling_pair_test_file_is_flagged() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp/test"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        snapshot.files = vec![
+            make_file_entry("src/user.go"),
+            make_file_entry("src/user_test.go"),
+        ];
+        let a = PathBuf::from("src/user.go");
+        let b = PathBuf::from("src/user_test.go");
+        snapshot.file_change_pairs = vec![(a.clone(), b.clone(), 3)];
+        snapshot
+            .commits_by_file
+            .insert(a, vec![CommitId(0), CommitId(1), CommitId(2)]);
+        snapshot
+            .commits_by_file
+            .insert(b, vec![CommitId(0), CommitId(1), CommitId(2)]);
+
+        let pairs = build_coupling_pairs(&snapshot, 1);
+        assert_eq!(pairs.len(), 1);
+        assert!(
+            pairs[0].is_test_pair,
+            "user.go ↔ user_test.go must be flagged as a test pair"
+        );
+    }
+
+    #[test]
     fn per_file_coupling_no_deps() {
         // file with no imports and no dependents → ca=0, ce=0, instability=0.0
         let snapshot = make_snapshot_with_imports(vec!["src/isolated.rs"], vec![]);
