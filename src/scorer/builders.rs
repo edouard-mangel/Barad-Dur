@@ -4,7 +4,9 @@ use crate::metrics::coupling::extract_component;
 use crate::snapshot::RepoSnapshot;
 
 use super::actions::score_commit_message;
-use super::types::{AuthorCard, AuthorShare, CouplingPair, FileAge, FileOwnership, HotspotFile};
+use super::types::{
+    AuthorCard, AuthorShare, CouplingPair, FileAge, FileCouplingMetrics, FileOwnership, HotspotFile,
+};
 
 const BUG_KEYWORDS: &[&str] = &["fix", "bug", "broken", "crash", "regression"];
 
@@ -273,6 +275,10 @@ pub(super) fn build_author_cards(snapshot: &RepoSnapshot) -> Vec<AuthorCard> {
 
     cards.sort_by(|a, b| b.commit_count.cmp(&a.commit_count));
     cards
+}
+
+pub(super) fn build_per_file_coupling(_snapshot: &RepoSnapshot) -> Vec<FileCouplingMetrics> {
+    Vec::new()
 }
 
 #[cfg(test)]

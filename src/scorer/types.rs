@@ -97,6 +97,14 @@ pub struct AuditReport {
     pub velocity_buckets: Vec<VelocityBucket>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct FileCouplingMetrics {
+    pub path: String,
+    pub ca: usize,
+    pub ce: usize,
+    pub instability: f64,
+}
+
 /// Metadata about the remote repository origin (populated when a URL is given).
 #[derive(Debug, Clone, Serialize)]
 pub struct RemoteMeta {
@@ -136,6 +144,7 @@ pub struct AnalysisReport {
     pub history: Vec<HistoryEntry>,
     pub dep_ecosystem_reports: Vec<crate::deps::EcosystemReport>,
     pub audit: Option<AuditReport>,
+    pub per_file_coupling: Vec<FileCouplingMetrics>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
