@@ -236,16 +236,8 @@ mod tests {
             "src/lib.rs",
             "entry.path must match"
         );
-        assert_eq!(
-            entry["ca"].as_u64().unwrap(),
-            3,
-            "entry.ca must match"
-        );
-        assert_eq!(
-            entry["ce"].as_u64().unwrap(),
-            5,
-            "entry.ce must match"
-        );
+        assert_eq!(entry["ca"].as_u64().unwrap(), 3, "entry.ca must match");
+        assert_eq!(entry["ce"].as_u64().unwrap(), 5, "entry.ce must match");
         assert!(
             (entry["instability"].as_f64().unwrap() - 0.625).abs() < 1e-9,
             "entry.instability must match"

@@ -227,6 +227,22 @@ fn render_dep_section(dep_reports: &[crate::deps::EcosystemReport]) -> String {
     out
 }
 
+fn render_top_unstable_files(report: &AnalysisReport) -> String {
+    if report.per_file_coupling.is_empty() {
+        return String::new();
+    }
+
+    report.per_file_coupling.iter().take(5).fold(
+        String::from("    Top unstable files:\n"),
+        |acc, m| {
+            acc + &format!(
+                "      {:.2}  {}  (Ca={}, Ce={})\n",
+                m.instability, m.path, m.ca, m.ce
+            )
+        },
+    )
+}
+
 fn render_categories(
     report: &AnalysisReport,
     trend: Option<&TrendSummary>,
@@ -249,6 +265,8 @@ fn render_categories(
             .copied();
         out.push_str(&render_single_category(cat, delta, verbosity));
     }
+
+    out.push_str(&render_top_unstable_files(report));
 
     if !report.dep_ecosystem_reports.is_empty() {
         out.push_str(&render_dep_section(&report.dep_ecosystem_reports));
@@ -564,5 +582,90 @@ mod tests {
         );
         assert!(output.contains("6.2y"), "output should contain drift years");
         assert!(output.contains("1 CVE"), "output should contain CVE count");
+    }
+
+    #[test]
+    fn cli_shows_top_unstable_files_sorted_by_instability() {
+        use crate::scorer::FileCouplingMetrics;
+        let mut report = make_report();
+        // Builder (step 02-02) produces vec sorted descending by instability
+        report.per_file_coupling = vec![
+            FileCouplingMetrics {
+                path: "src/unstable.rs".into(),
+                ca: 1,
+                ce: 9,
+                instability: 0.9,
+            },
+            FileCouplingMetrics {
+                path: "src/mid.rs".into(),
+                ca: 2,
+                ce: 3,
+                instability: 0.5,
+            },
+            FileCouplingMetrics {
+                path: "src/stable.rs".into(),
+                ca: 5,
+                ce: 0,
+                instability: 0.1,
+            },
+        ];
+        let output = render(&report, 0, None);
+
+        // Section header must appear
+        assert!(
+            output.contains("unstable"),
+            "output should contain 'unstable' section header"
+        );
+
+        // All 3 file paths must appear
+        assert!(
+            output.contains("src/unstable.rs"),
+            "output should contain most unstable file"
+        );
+        assert!(
+            output.contains("src/mid.rs"),
+            "output should contain mid-instability file"
+        );
+        assert!(
+            output.contains("src/stable.rs"),
+            "output should contain stable file"
+        );
+
+        // Instability values must appear in descending order
+        let pos_unstable = output
+            .find("src/unstable.rs")
+            .expect("unstable.rs not found");
+        let pos_mid = output.find("src/mid.rs").expect("mid.rs not found");
+        let pos_stable = output.find("src/stable.rs").expect("stable.rs not found");
+        assert!(
+            pos_unstable < pos_mid && pos_mid < pos_stable,
+            "files must appear in descending instability order: unstable={pos_unstable}, mid={pos_mid}, stable={pos_stable}"
+        );
+
+        // Instability values and Ca/Ce values must appear
+        assert!(
+            output.contains("0.90"),
+            "output should contain instability 0.90"
+        );
+        assert!(
+            output.contains("0.50"),
+            "output should contain instability 0.50"
+        );
+        assert!(
+            output.contains("0.10"),
+            "output should contain instability 0.10"
+        );
+        assert!(output.contains("Ca=1"), "output should contain Ca=1");
+        assert!(output.contains("Ce=9"), "output should contain Ce=9");
+    }
+
+    #[test]
+    fn cli_skips_unstable_section_when_no_data() {
+        let report = make_report(); // per_file_coupling is empty by default
+        let output = render(&report, 0, None);
+        assert!(
+            !output.contains("unstable"),
+            "output should not contain 'unstable' when per_file_coupling is empty"
+        );
     }
 }
