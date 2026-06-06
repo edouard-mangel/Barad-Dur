@@ -68,6 +68,7 @@ pub fn is_excluded(
     use_defaults: bool,
 ) -> bool {
     let path_str = path.to_string_lossy();
+    let path_lower = path_str.to_lowercase();
 
     // Check built-in defaults (by extension and path pattern)
     if use_defaults {
@@ -77,7 +78,6 @@ pub fn is_excluded(
                 return true;
             }
         }
-        let path_lower = path_str.to_lowercase();
         if DEFAULT_EXCLUDE_COMPOUND_EXTENSIONS
             .iter()
             .any(|&e| path_lower.ends_with(&format!(".{}", e)))
@@ -94,7 +94,6 @@ pub fn is_excluded(
 
     // Check user-specified extensions (simple and compound, e.g. "jar", "min.js")
     if !extensions.is_empty() {
-        let path_lower = path_str.to_lowercase();
         for ext in extensions {
             let ext_lower = ext.trim_start_matches('.').to_lowercase();
             if path_lower.ends_with(&format!(".{}", ext_lower)) {
@@ -421,5 +420,7 @@ mod tests {
         assert!(!is_excluded(Path::new("src/main.rs"), &[], &[], true));
         assert!(!is_excluded(Path::new("src/user.go"), &[], &[], true));
         assert!(!is_excluded(Path::new("src/client.ts"), &[], &[], true));
+        // use_defaults=false: generated extensions should NOT be excluded
+        assert!(!is_excluded(Path::new("proto/user.pb.go"), &[], &[], false));
     }
 }
