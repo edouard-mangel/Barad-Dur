@@ -133,10 +133,7 @@ pub(super) fn build_coupling_pairs(
                 co_changes: *co,
                 coupling_pct,
                 cross_boundary,
-                is_test_pair: is_test_pair(
-                    &a.to_string_lossy(),
-                    &b.to_string_lossy(),
-                ),
+                is_test_pair: is_test_pair(&a.to_string_lossy(), &b.to_string_lossy()),
             }
         })
         .collect()
@@ -377,9 +374,18 @@ mod tests {
 
     #[test]
     fn is_test_pair_detects_suffix_test() {
-        assert!(is_test_pair("src/UserService.java", "tests/UserServiceTest.java"));
-        assert!(is_test_pair("src/UserService.java", "tests/UserServiceTests.java"));
-        assert!(is_test_pair("tests/UserServiceTest.java", "src/UserService.java")); // symmetric
+        assert!(is_test_pair(
+            "src/UserService.java",
+            "tests/UserServiceTest.java"
+        ));
+        assert!(is_test_pair(
+            "src/UserService.java",
+            "tests/UserServiceTests.java"
+        ));
+        assert!(is_test_pair(
+            "tests/UserServiceTest.java",
+            "src/UserService.java"
+        )); // symmetric
     }
 
     #[test]
