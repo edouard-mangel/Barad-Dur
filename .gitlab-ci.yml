@@ -175,11 +175,12 @@ semver-check:
       allow_failure: true
 
 # Mutation testing — per-feature: scoped to the MR diff or last commit on main.
-# Runs on every MR and every push to main. Blocking (allow_failure: false).
-mutation:
+# Split into 3 parallel shards + an aggregating gate. Blocking (allow_failure: false on gate).
+# Each shard runs ~1/3 of the mutant list concurrently; nextest speeds up each test invocation.
+.mutation-shard: &mutation-shard
   stage: analysis
   <<: *rust-tools-base
-  timeout: 4 hours
+  timeout: 2 hours
   script:
     - |
       if [ -n "$CI_MERGE_REQUEST_DIFF_BASE_SHA" ]; then
@@ -188,46 +189,110 @@ mutation:
         git diff HEAD~1..HEAD > recent.diff
       fi
       if [ ! -s recent.diff ]; then
-        echo "Empty diff — no source changes, skipping mutation run"
+        echo "skipping mutation run" > mutants-${SHARD_INDEX}.log
         exit 0
       fi
-      cargo binstall --no-confirm cargo-mutants
+      cargo binstall --no-confirm cargo-mutants cargo-nextest
       BARAD_DUR_TEST_REPO=${CI_PROJECT_DIR} cargo mutants \
         --file src/registry/client.rs \
         --file src/registry/mod.rs \
         --file src/cmd/analyze.rs \
-        --timeout 300 --jobs 2 2>&1 | tee mutants.log
+        --shard ${SHARD_INDEX}/3 \
+        --test-tool nextest \
+        --timeout 300 --jobs 2 \
+        --output mutants-out-${SHARD_INDEX} \
+        2>&1 | tee mutants-${SHARD_INDEX}.log
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
+  allow_failure: false
+
+mutation-0:
+  <<: *mutation-shard
+  variables:
+    SHARD_INDEX: "0"
+  artifacts:
+    paths:
+      - mutants-0.log
+      - mutants-out-0/
+    when: always
+    expire_in: 1 week
+
+mutation-1:
+  <<: *mutation-shard
+  variables:
+    SHARD_INDEX: "1"
+  artifacts:
+    paths:
+      - mutants-1.log
+      - mutants-out-1/
+    when: always
+    expire_in: 1 week
+
+mutation-2:
+  <<: *mutation-shard
+  variables:
+    SHARD_INDEX: "2"
+  artifacts:
+    paths:
+      - mutants-2.log
+      - mutants-out-2/
+    when: always
+    expire_in: 1 week
+
+# Gate: aggregates all shard logs and enforces the ≥80% kill rate.
+mutation-gate:
+  stage: analysis
+  image: python:3.12-slim
+  needs:
+    - job: mutation-0
+      artifacts: true
+    - job: mutation-1
+      artifacts: true
+    - job: mutation-2
+      artifacts: true
+  script:
     - |
       python3 << 'PYEOF'
-      import re, sys
-      with open('mutants.log') as f:
-          content = f.read()
-      if 'skipping mutation run' in content:
+      import re, sys, os
+      total_caught = total_missed = total_timeout = total_unviable = total_tested = 0
+      all_skipped = True
+      for i in range(3):
+          path = f'mutants-{i}.log'
+          if not os.path.exists(path):
+              continue
+          content = open(path).read()
+          if 'skipping mutation run' in content:
+              continue
+          if 'ERROR cargo test failed' in content:
+              print(f'Shard {i}: baseline tests failed — cannot compute kill rate')
+              sys.exit(1)
+          all_skipped = False
+          m = re.search(r'(\d+) mutants tested.*?(\d+) caught.*?(\d+) missed.*?(\d+) timeout.*?(\d+) unviable', content)
+          if not m:
+              continue
+          tested, caught, missed, timeout_n, unviable = map(int, m.groups())
+          total_tested += tested
+          total_caught += caught
+          total_missed += missed
+          total_timeout += timeout_n
+          total_unviable += unviable
+      if all_skipped:
+          print('All shards skipped — no source changes')
           sys.exit(0)
-      m = re.search(r'(\d+) mutants tested.*?(\d+) caught.*?(\d+) missed.*?(\d+) timeout.*?(\d+) unviable', content)
-      if not m:
-          print('No mutants generated — skipping kill rate gate')
-          sys.exit(0)
-      total, caught, missed, timeout_n, unviable = map(int, m.groups())
-      viable = total - unviable
+      viable = total_tested - total_unviable
       if viable == 0:
           print('No viable mutants — skipping gate')
           sys.exit(0)
       # TIMEOUTs count as caught: a mutant that causes a >300s test run is
       # exercised by tests and cannot ship undetected — it just fails slowly.
-      effective_caught = caught + timeout_n
+      effective_caught = total_caught + total_timeout
       rate = effective_caught / viable * 100
-      print(f'Kill rate: {effective_caught}/{viable} viable mutants = {rate:.1f}% ({caught} fast + {timeout_n} timeout)')
+      print(f'Kill rate: {effective_caught}/{viable} viable = {rate:.1f}% ({total_caught} fast + {total_timeout} timeout, {total_missed} missed)')
       if rate < 80:
-          print(f'FAIL: {rate:.1f}% < 80% required. Add tests for {missed} missed mutant(s).')
+          print(f'FAIL: {rate:.1f}% < 80% required. Add tests for {total_missed} missed mutant(s).')
           sys.exit(1)
       print(f'PASS: {rate:.1f}% >= 80%')
       PYEOF
-  artifacts:
-    paths:
-      - mutants.out/
-    when: always
-    expire_in: 1 week
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
   allow_failure: false
