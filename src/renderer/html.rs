@@ -38,17 +38,19 @@ pub fn render(report: &AnalysisReport) -> Result<String> {
         title = title,
         json = json,
         css = css::CSS,
-        js = build_js(),
+        js = build_js(report),
     );
     Ok(html)
 }
 
-fn build_js() -> String {
+fn build_js(report: &AnalysisReport) -> String {
+    let has_test_pairs = report.coupling_pairs.iter().any(|p| p.is_test_pair);
+    let coupling_js = js_coupling::js(has_test_pairs);
     [
         js_shared::JS,
         js_overview::JS,
         js_hotspots::JS,
-        js_coupling::JS,
+        coupling_js.as_str(),
         js_ownership::JS,
         js_age::JS,
         js_treemap_layout::JS,

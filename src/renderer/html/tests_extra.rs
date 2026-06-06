@@ -464,6 +464,48 @@ fn html_cbf_toggle_button_present() {
     );
 }
 
+// ---- Test pair badge tests (step 05) ----
+
+#[test]
+fn coupling_tab_shows_test_pair_badge_when_is_test_pair() {
+    let mut report = make_report();
+    report.coupling_pairs = vec![crate::scorer::CouplingPair {
+        file_a: "src/user.rs".into(),
+        file_b: "src/user_test.rs".into(),
+        co_changes: 10,
+        coupling_pct: 80.0,
+        cross_boundary: false,
+        is_test_pair: true,
+    }];
+    let html = render(&report).unwrap();
+    assert!(
+        html.contains("\u{1F9EA}"),
+        "coupling tab must show 🧪 badge for test pairs"
+    );
+    assert!(
+        html.contains("Expected coupling"),
+        "badge must include tooltip explaining expected coupling"
+    );
+}
+
+#[test]
+fn coupling_tab_no_test_pair_badge_for_regular_pairs() {
+    let mut report = make_report();
+    report.coupling_pairs = vec![crate::scorer::CouplingPair {
+        file_a: "src/user.rs".into(),
+        file_b: "src/order.rs".into(),
+        co_changes: 5,
+        coupling_pct: 60.0,
+        cross_boundary: false,
+        is_test_pair: false,
+    }];
+    let html = render(&report).unwrap();
+    assert!(
+        !html.contains("Expected coupling"),
+        "no test pair badge for regular coupling pairs"
+    );
+}
+
 // ---- Instability panel tests (step 03-01) ----
 
 #[test]
