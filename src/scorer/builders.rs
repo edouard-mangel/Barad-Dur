@@ -4,7 +4,9 @@ use crate::metrics::coupling::extract_component;
 use crate::snapshot::RepoSnapshot;
 
 use super::actions::score_commit_message;
-use super::types::{AuthorCard, AuthorShare, CouplingPair, FileAge, FileOwnership, HotspotFile};
+use super::types::{
+    AuthorCard, AuthorShare, CouplingPair, FileAge, FileCouplingMetrics, FileOwnership, HotspotFile,
+};
 
 const BUG_KEYWORDS: &[&str] = &["fix", "bug", "broken", "crash", "regression"];
 
@@ -275,12 +277,189 @@ pub(super) fn build_author_cards(snapshot: &RepoSnapshot) -> Vec<AuthorCard> {
     cards
 }
 
+pub(super) fn build_per_file_coupling(snapshot: &RepoSnapshot) -> Vec<FileCouplingMetrics> {
+    let mut metrics: Vec<FileCouplingMetrics> = snapshot
+        .files
+        .iter()
+        .map(|file| {
+            let path_str = file.path.to_string_lossy().to_string();
+            let ce = snapshot
+                .import_graph
+                .get(&file.path)
+                .map(|imports| imports.len())
+                .unwrap_or(0);
+            let ca = snapshot
+                .import_graph
+                .values()
+                .filter(|imports| imports.contains(&file.path))
+                .count();
+            let instability = if ca + ce == 0 {
+                0.0
+            } else {
+                ce as f64 / (ca + ce) as f64
+            };
+            FileCouplingMetrics {
+                path: path_str,
+                ca,
+                ce,
+                instability,
+            }
+        })
+        .collect();
+
+    metrics.sort_by(|a, b| {
+        b.instability
+            .partial_cmp(&a.instability)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.path.cmp(&b.path))
+    });
+    metrics
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::snapshot::{Author, BlameLine, Commit, CommitId, FileEntry, TimeWindow};
     use chrono::Utc;
     use std::path::PathBuf;
+
+    fn make_snapshot_with_imports(
+        files: Vec<&str>,
+        import_graph: Vec<(&str, Vec<&str>)>,
+    ) -> RepoSnapshot {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp/test"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        snapshot.files = files.into_iter().map(make_file_entry).collect();
+        snapshot.import_graph = import_graph
+            .into_iter()
+            .map(|(from, imports)| {
+                (
+                    PathBuf::from(from),
+                    imports.into_iter().map(PathBuf::from).collect(),
+                )
+            })
+            .collect();
+        snapshot
+    }
+
+    #[test]
+    fn per_file_coupling_no_deps() {
+        // file with no imports and no dependents → ca=0, ce=0, instability=0.0
+        let snapshot = make_snapshot_with_imports(vec!["src/isolated.rs"], vec![]);
+
+        let result = build_per_file_coupling(&snapshot);
+
+        assert_eq!(result.len(), 1);
+        let m = &result[0];
+        assert_eq!(m.path, "src/isolated.rs");
+        assert_eq!(m.ca, 0);
+        assert_eq!(m.ce, 0);
+        assert!((m.instability - 0.0_f64).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn per_file_coupling_mixed_deps() {
+        // file imported by 3 others and importing 1 → ca=3, ce=1, instability=0.25
+        let snapshot = make_snapshot_with_imports(
+            vec![
+                "src/core.rs",
+                "src/a.rs",
+                "src/b.rs",
+                "src/c.rs",
+                "src/dep.rs",
+            ],
+            vec![
+                ("src/a.rs", vec!["src/core.rs"]),
+                ("src/b.rs", vec!["src/core.rs"]),
+                ("src/c.rs", vec!["src/core.rs"]),
+                ("src/core.rs", vec!["src/dep.rs"]),
+            ],
+        );
+
+        let result = build_per_file_coupling(&snapshot);
+
+        let core = result.iter().find(|m| m.path == "src/core.rs").unwrap();
+        assert_eq!(core.ca, 3, "ca should be 3 (imported by a, b, c)");
+        assert_eq!(core.ce, 1, "ce should be 1 (imports dep)");
+        assert!(
+            (core.instability - 0.25_f64).abs() < 1e-10,
+            "instability should be 0.25, got {}",
+            core.instability
+        );
+    }
+
+    #[test]
+    fn per_file_coupling_pure_efferent() {
+        // file with ce=5, ca=0 → instability=1.0
+        let snapshot = make_snapshot_with_imports(
+            vec![
+                "src/leaf.rs",
+                "src/dep1.rs",
+                "src/dep2.rs",
+                "src/dep3.rs",
+                "src/dep4.rs",
+                "src/dep5.rs",
+            ],
+            vec![(
+                "src/leaf.rs",
+                vec![
+                    "src/dep1.rs",
+                    "src/dep2.rs",
+                    "src/dep3.rs",
+                    "src/dep4.rs",
+                    "src/dep5.rs",
+                ],
+            )],
+        );
+
+        let result = build_per_file_coupling(&snapshot);
+
+        let leaf = result.iter().find(|m| m.path == "src/leaf.rs").unwrap();
+        assert_eq!(leaf.ca, 0);
+        assert_eq!(leaf.ce, 5);
+        assert!(
+            (leaf.instability - 1.0_f64).abs() < f64::EPSILON,
+            "instability should be 1.0, got {}",
+            leaf.instability
+        );
+    }
+
+    #[test]
+    fn per_file_coupling_pure_afferent() {
+        // file with ca=5, ce=0 → instability=0.0
+        let snapshot = make_snapshot_with_imports(
+            vec![
+                "src/stable.rs",
+                "src/user1.rs",
+                "src/user2.rs",
+                "src/user3.rs",
+                "src/user4.rs",
+                "src/user5.rs",
+            ],
+            vec![
+                ("src/user1.rs", vec!["src/stable.rs"]),
+                ("src/user2.rs", vec!["src/stable.rs"]),
+                ("src/user3.rs", vec!["src/stable.rs"]),
+                ("src/user4.rs", vec!["src/stable.rs"]),
+                ("src/user5.rs", vec!["src/stable.rs"]),
+            ],
+        );
+
+        let result = build_per_file_coupling(&snapshot);
+
+        let stable = result.iter().find(|m| m.path == "src/stable.rs").unwrap();
+        assert_eq!(stable.ca, 5);
+        assert_eq!(stable.ce, 0);
+        assert!(
+            (stable.instability - 0.0_f64).abs() < f64::EPSILON,
+            "instability should be 0.0, got {}",
+            stable.instability
+        );
+    }
 
     fn make_commit(id: u32, message: &str) -> Commit {
         Commit {

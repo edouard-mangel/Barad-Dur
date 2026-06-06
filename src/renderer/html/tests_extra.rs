@@ -36,6 +36,7 @@ fn make_report() -> AnalysisReport {
         history: vec![],
         dep_ecosystem_reports: vec![],
         audit: None,
+        per_file_coupling: vec![],
     }
 }
 
@@ -459,5 +460,92 @@ fn html_cbf_toggle_button_present() {
     assert!(
         html.contains("cbf-palette"),
         "rendered HTML must contain localStorage key cbf-palette"
+    );
+}
+
+// ---- Instability panel tests (step 03-01) ----
+
+#[test]
+fn coupling_tab_renders_instability_panel_when_data_present() {
+    use crate::scorer::FileCouplingMetrics;
+
+    let mut report = make_report();
+    report.per_file_coupling = vec![FileCouplingMetrics {
+        path: "src/main.rs".into(),
+        ca: 2,
+        ce: 8,
+        instability: 0.8,
+    }];
+    let html = render(&report).unwrap();
+    // The "Instability by File" heading must appear in the JS function
+    assert!(
+        html.contains("Instability by File"),
+        "coupling tab must render an 'Instability by File' heading"
+    );
+    // The per_file_coupling data must be serialised into window.R
+    assert!(
+        html.contains("per_file_coupling"),
+        "window.R must contain the per_file_coupling field when data is present"
+    );
+    // The instability value 0.8 must appear in window.R JSON
+    assert!(
+        html.contains("0.8"),
+        "window.R must contain the instability value 0.8 for the test entry"
+    );
+}
+
+#[test]
+fn coupling_tab_shows_no_data_message_when_per_file_coupling_empty() {
+    // make_report() already has per_file_coupling: vec![]
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("No static import data available."),
+        "coupling tab JS must contain the no-data message literal for the empty-state branch"
+    );
+}
+
+// ---- Instability table column tooltips (step 03-02) ----
+
+#[test]
+fn coupling_tab_instability_table_has_column_tooltips() {
+    use crate::scorer::FileCouplingMetrics;
+
+    let mut report = make_report();
+    report.per_file_coupling = vec![
+        FileCouplingMetrics {
+            path: "src/stable.rs".into(),
+            ca: 10,
+            ce: 2,
+            instability: 0.17,
+        },
+        FileCouplingMetrics {
+            path: "src/unstable.rs".into(),
+            ca: 1,
+            ce: 9,
+            instability: 0.9,
+        },
+    ];
+    let html = render(&report).unwrap();
+
+    // Ca column tooltip
+    assert!(
+        html.contains("Afferent coupling: number of files that import this file. High Ca = many dependents, risky to change."),
+        "Ca column header must use thWithTip() with the exact afferent coupling tooltip"
+    );
+
+    // Ce column tooltip
+    assert!(
+        html.contains(
+            "Efferent coupling: number of files this file imports. High Ce = many dependencies."
+        ),
+        "Ce column header must use thWithTip() with the exact efferent coupling tooltip"
+    );
+
+    // Instability column tooltip
+    assert!(
+        html.contains(
+            "Ce / (Ca + Ce). 0 = stable (depended upon). 1 = unstable (depends on others)."
+        ),
+        "Instability column header must use thWithTip() with the exact instability formula tooltip"
     );
 }
