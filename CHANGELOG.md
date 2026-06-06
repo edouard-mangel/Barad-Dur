@@ -2,6 +2,53 @@
 
 All notable changes to this project will be documented here.
 
+## [Unreleased]
+
+### Added
+- Light/dark theme toggle in HTML report header — persists choice in `localStorage`
+- `body.light` CSS block with full light-mode palette
+- `body.light.cbf` CSS block for CBF + light mode combination
+- `initTheme` / `toggleTheme` JS functions in shared JS layer
+
+### Changed
+- All semantic UI colors extracted to CSS custom properties (`--c-good`, `--c-warn`, `--c-danger`, etc.) — bare hex removed from JS
+
+## [0.17.1] - 2026-05-21
+
+### Fixed
+- CI: fixed `CARGO_HOME` path and release-publish idempotency for crates.io job
+- CI: switched to `cargo login` + `git clean` approach for reliable crates.io publish
+
+## [0.17.0] - 2026-05-20
+
+### Added
+- `--exclude-ext <EXT>` CLI flag and `[exclude] extensions = [...]` TOML key — skip files by extension (bare ext, compound ext like `min.js`, case-insensitive)
+
+### Fixed
+- Cache: `.repository-analysis/` directory always written on its own line in `.gitignore` (no longer appended inline)
+
+### Changed
+- CI: mutation testing now counts `TIMEOUT` outcomes as caught (contributing to kill rate)
+
+### Internal
+- `contributors` module: `pub(crate)` on internal helpers, improved doc coverage
+
+## [0.14.1] - 2026-05-06
+
+### Changed
+- CI: automated `cargo publish` to crates.io on tagged releases via `CARGO_REGISTRY_TOKEN`
+- CI: Docker registry login uses `--password-stdin` for secure credential handling
+
+## [0.14.0] - 2026-05-06
+
+### Added
+- New **Audit** tab in HTML report: legacy-codebase diagnostics (crisis files, dead files, dir concentration, velocity buckets)
+- Tooltips and methodology explanations throughout the HTML report
+- `watch` subcommand: installs a post-commit git hook that re-runs analysis on every commit
+
+### Fixed
+- Kotlin complexity: `public_methods` and `properties` counters now wired correctly
+
 ## [0.12.0] - 2026-04-14
 
 ### Added
