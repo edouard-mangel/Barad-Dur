@@ -60,6 +60,7 @@ fn make_report() -> AnalysisReport {
         history: vec![],
         dep_ecosystem_reports: vec![],
         audit: None,
+        per_file_coupling: vec![],
     }
 }
 

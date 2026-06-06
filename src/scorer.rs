@@ -9,7 +9,7 @@ pub use types::*;
 use actions::generate_top_actions;
 use builders::{
     build_author_cards, build_author_ownership, build_coupling_pairs, build_file_ages,
-    build_hotspots,
+    build_hotspots, build_per_file_coupling,
 };
 
 use std::collections::HashMap;
@@ -65,6 +65,7 @@ pub fn build_report(
     let author_cards = build_author_cards(snapshot);
 
     let audit = Some(audit::build_audit_report(snapshot));
+    let per_file_coupling = build_per_file_coupling(snapshot);
 
     AnalysisReport {
         repo_name: snapshot.name.clone(),
@@ -85,6 +86,7 @@ pub fn build_report(
         history: Vec::new(),
         dep_ecosystem_reports: Vec::new(),
         audit,
+        per_file_coupling,
     }
 }
 
@@ -332,6 +334,22 @@ mod tests {
         );
         let cards = build_author_cards(&snapshot);
         assert!(cards.is_empty());
+    }
+
+    #[test]
+    fn build_report_populates_per_file_coupling_empty_snapshot() {
+        let snapshot = RepoSnapshot::new(
+            std::path::PathBuf::from("/tmp"),
+            "test-repo".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        let categories = vec![make_category("Health", 80)];
+        let report = build_report(&snapshot, categories, None, WEIGHTS, 2);
+        assert!(
+            report.per_file_coupling.is_empty(),
+            "per_file_coupling should be empty for an empty snapshot"
+        );
     }
 
     #[test]
