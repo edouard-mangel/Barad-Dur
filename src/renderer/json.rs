@@ -211,6 +211,61 @@ mod tests {
     }
 
     #[test]
+    fn json_output_contains_per_file_coupling_array() {
+        use crate::scorer::FileCouplingMetrics;
+
+        let mut report = make_report();
+        report.per_file_coupling = vec![FileCouplingMetrics {
+            path: "src/lib.rs".into(),
+            ca: 3,
+            ce: 5,
+            instability: 0.625,
+        }];
+
+        let output = render(&report, false, None).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+        let arr = parsed["per_file_coupling"]
+            .as_array()
+            .expect("per_file_coupling must be a JSON array");
+        assert_eq!(arr.len(), 1, "array must contain exactly one entry");
+
+        let entry = &arr[0];
+        assert_eq!(
+            entry["path"].as_str().unwrap(),
+            "src/lib.rs",
+            "entry.path must match"
+        );
+        assert_eq!(
+            entry["ca"].as_u64().unwrap(),
+            3,
+            "entry.ca must match"
+        );
+        assert_eq!(
+            entry["ce"].as_u64().unwrap(),
+            5,
+            "entry.ce must match"
+        );
+        assert!(
+            (entry["instability"].as_f64().unwrap() - 0.625).abs() < 1e-9,
+            "entry.instability must match"
+        );
+    }
+
+    #[test]
+    fn json_output_per_file_coupling_empty_when_no_data() {
+        let report = make_report(); // per_file_coupling is already vec![]
+
+        let output = render(&report, false, None).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+        let arr = parsed["per_file_coupling"]
+            .as_array()
+            .expect("per_file_coupling must be present as an empty JSON array, not absent");
+        assert!(arr.is_empty(), "per_file_coupling array must be empty");
+    }
+
+    #[test]
     fn json_render_trend_snapshots_have_required_fields() {
         use crate::scorer::HistoryEntry;
         use crate::trend::{TrendDelta, TrendSummary};
