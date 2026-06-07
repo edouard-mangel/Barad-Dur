@@ -9,6 +9,24 @@ const DEFAULT_EXCLUDE_EXTENSIONS: &[&str] = &[
     "md", "txt", "rst", "adoc", "textile",
 ];
 
+/// Default compound extensions excluded from analysis (generated files).
+/// These use suffix matching on the full filename (e.g. "pb.go" matches "user.pb.go").
+const DEFAULT_EXCLUDE_COMPOUND_EXTENSIONS: &[&str] = &[
+    // Protocol Buffers generated (compound extensions)
+    "pb.go",
+    "pb.h",
+    "pb.cc",
+    "pb.swift",
+    // C# generated
+    "g.cs",
+    "generated.cs",
+    // TypeScript declarations
+    "d.ts",
+    // Minified assets
+    "min.js",
+    "min.css",
+];
+
 /// Default path patterns excluded from analysis (tooling config, lockfiles).
 /// Lockfiles inflate churn/coupling metrics without reflecting real code changes.
 const DEFAULT_EXCLUDE_PATTERNS: &[&str] = &[
@@ -44,6 +62,22 @@ const DEFAULT_EXCLUDE_PATTERNS: &[&str] = &[
     "**/l10n/**",
     "**/locales/**",
     "**/locale/**",
+    // Generated build artefact directories
+    "**/node_modules/**",
+    "**/vendor/**",
+    "**/__pycache__/**",
+    "**/*.egg-info/**",
+    "**/target/**",
+    "**/.next/**",
+    "**/.nuxt/**",
+    "**/out/**",
+    "**/gen/**",
+    "**/generated/**",
+    "**/.gradle/**",
+    "**/.mvn/**",
+    "**/build/**",
+    // Python protobuf generated (compound suffix, not a plain extension)
+    "**/*_pb2.py",
 ];
 
 /// Returns true if the file should be excluded based on the given glob patterns,
@@ -55,6 +89,7 @@ pub fn is_excluded(
     use_defaults: bool,
 ) -> bool {
     let path_str = path.to_string_lossy();
+    let path_lower = path_str.to_lowercase();
 
     // Check built-in defaults (by extension and path pattern)
     if use_defaults {
@@ -63,6 +98,12 @@ pub fn is_excluded(
             if DEFAULT_EXCLUDE_EXTENSIONS.iter().any(|&e| e == ext_lower) {
                 return true;
             }
+        }
+        if DEFAULT_EXCLUDE_COMPOUND_EXTENSIONS
+            .iter()
+            .any(|&e| path_lower.ends_with(&format!(".{}", e)))
+        {
+            return true;
         }
         if DEFAULT_EXCLUDE_PATTERNS
             .iter()
@@ -74,7 +115,6 @@ pub fn is_excluded(
 
     // Check user-specified extensions (simple and compound, e.g. "jar", "min.js")
     if !extensions.is_empty() {
-        let path_lower = path_str.to_lowercase();
         for ext in extensions {
             let ext_lower = ext.trim_start_matches('.').to_lowercase();
             if path_lower.ends_with(&format!(".{}", ext_lower)) {
@@ -370,5 +410,132 @@ mod tests {
         assert!(is_excluded(Path::new("lib/foo.jar"), &[], &exts, false));
         // And do not suppress defaults when on.
         assert!(is_excluded(Path::new("README.md"), &[], &exts, true));
+    }
+
+    #[test]
+    fn is_excluded_matches_generated_directories() {
+        assert!(is_excluded(
+            Path::new("node_modules/lodash/index.js"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(
+            Path::new("vendor/github.com/foo/bar.go"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(
+            Path::new("src/__pycache__/utils.cpython-311.pyc"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(
+            Path::new("myapp.egg-info/PKG-INFO"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(
+            Path::new("target/debug/build/out/main.rs"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(
+            Path::new(".next/server/pages/index.js"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(
+            Path::new(".nuxt/components.d.ts"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(Path::new("out/Release/chrome"), &[], &[], true));
+        assert!(is_excluded(
+            Path::new("src/gen/proto/user.go"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(
+            Path::new("src/generated/api/client.ts"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(Path::new(".gradle/caches/foo"), &[], &[], true));
+        assert!(is_excluded(
+            Path::new(".mvn/wrapper/maven-wrapper.jar"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(
+            Path::new("build/outputs/apk/debug.apk"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(Path::new("proto/user_pb2.py"), &[], &[], true));
+        // dist is intentionally NOT excluded
+        assert!(!is_excluded(Path::new("dist/published.js"), &[], &[], true));
+        // regular source must NOT be excluded
+        assert!(!is_excluded(Path::new("src/main.rs"), &[], &[], true));
+        // use_defaults=false disables these
+        assert!(!is_excluded(
+            Path::new("node_modules/foo/bar.js"),
+            &[],
+            &[],
+            false
+        ));
+    }
+
+    #[test]
+    fn is_excluded_matches_generated_extensions() {
+        // Protocol Buffers
+        assert!(is_excluded(Path::new("proto/user.pb.go"), &[], &[], true));
+        assert!(is_excluded(Path::new("proto/user.pb.h"), &[], &[], true));
+        assert!(is_excluded(Path::new("proto/user.pb.cc"), &[], &[], true));
+        assert!(is_excluded(
+            Path::new("proto/user.pb.swift"),
+            &[],
+            &[],
+            true
+        ));
+        // C# generated
+        assert!(is_excluded(
+            Path::new("src/Api/Client.g.cs"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(
+            Path::new("src/Api/Client.generated.cs"),
+            &[],
+            &[],
+            true
+        ));
+        // TypeScript declarations
+        assert!(is_excluded(Path::new("types/index.d.ts"), &[], &[], true));
+        // Minified assets
+        assert!(is_excluded(Path::new("dist/app.min.js"), &[], &[], true));
+        assert!(is_excluded(
+            Path::new("dist/styles.min.css"),
+            &[],
+            &[],
+            true
+        ));
+        // Regular source should still pass
+        assert!(!is_excluded(Path::new("src/main.rs"), &[], &[], true));
+        assert!(!is_excluded(Path::new("src/user.go"), &[], &[], true));
+        assert!(!is_excluded(Path::new("src/client.ts"), &[], &[], true));
+        // use_defaults=false: generated extensions should NOT be excluded
+        assert!(!is_excluded(Path::new("proto/user.pb.go"), &[], &[], false));
     }
 }

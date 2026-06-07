@@ -242,6 +242,7 @@ fn html_full_report_with_all_data_renders_ok() {
         co_changes: 10,
         coupling_pct: 75.5,
         cross_boundary: true,
+        is_test_pair: false,
     }];
     report.file_hotspots = vec![HotspotFile {
         path: "src/big.rs".into(),
@@ -460,6 +461,54 @@ fn html_cbf_toggle_button_present() {
     assert!(
         html.contains("cbf-palette"),
         "rendered HTML must contain localStorage key cbf-palette"
+    );
+}
+
+// ---- Test pair badge tests (step 05) ----
+
+#[test]
+fn coupling_tab_shows_test_pair_badge_when_is_test_pair() {
+    let mut report = make_report();
+    report.coupling_pairs = vec![crate::scorer::CouplingPair {
+        file_a: "src/user.rs".into(),
+        file_b: "src/user_test.rs".into(),
+        co_changes: 10,
+        coupling_pct: 80.0,
+        cross_boundary: false,
+        is_test_pair: true,
+    }];
+    let html = render(&report).unwrap();
+    // The emoji appears in the JS template; window.R carrying is_test_pair:true is what
+    // drives the JS badge condition — assert the data was serialised correctly.
+    assert!(
+        html.contains("\"is_test_pair\":true"),
+        "window.R must carry is_test_pair:true so the JS badge condition fires"
+    );
+    assert!(
+        html.contains("\u{1F9EA}"),
+        "JS template must contain the 🧪 badge code"
+    );
+    assert!(
+        html.contains("Expected coupling"),
+        "JS template must include the tooltip text"
+    );
+}
+
+#[test]
+fn coupling_tab_no_test_pair_badge_for_regular_pairs() {
+    let mut report = make_report();
+    report.coupling_pairs = vec![crate::scorer::CouplingPair {
+        file_a: "src/user.rs".into(),
+        file_b: "src/order.rs".into(),
+        co_changes: 5,
+        coupling_pct: 60.0,
+        cross_boundary: false,
+        is_test_pair: false,
+    }];
+    let html = render(&report).unwrap();
+    assert!(
+        !html.contains("\"is_test_pair\":true"),
+        "window.R must not carry is_test_pair:true for regular coupling pairs"
     );
 }
 

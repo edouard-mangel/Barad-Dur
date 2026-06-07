@@ -38,12 +38,13 @@ pub fn render(report: &AnalysisReport) -> Result<String> {
         title = title,
         json = json,
         css = css::CSS,
-        js = build_js(),
+        js = build_js(report),
     );
     Ok(html)
 }
 
-fn build_js() -> String {
+// _report is kept for future per-report JS customisation (feature flags, conditional modules).
+fn build_js(_report: &AnalysisReport) -> String {
     [
         js_shared::JS,
         js_overview::JS,

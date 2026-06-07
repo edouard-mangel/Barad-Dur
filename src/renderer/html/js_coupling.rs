@@ -145,6 +145,11 @@ pub const JS: &str = r#"
             cbBadge.append(txt('⚠ cross-boundary'));
             cbCell.append(cbBadge);
           }
+          if (p.is_test_pair) {
+            var tpBadge = el('span', { title: 'Expected coupling — production file and its test file naturally change together.', style: { marginLeft: '4px', cursor: 'default' } });
+            tpBadge.append(txt('🧪'));
+            cbCell.append(tpBadge);
+          }
 
           var barCell = el('td', { className: 'inline-bar' });
           barCell.append(inlineBar(p.coupling_pct, p.coupling_pct > 70 ? 'var(--c-danger)' : p.coupling_pct > 40 ? 'var(--c-warn)' : 'var(--c-good)'));
@@ -199,7 +204,7 @@ pub const JS: &str = r#"
     instHeader.append(txt('Instability by File'));
     instabilityCard.append(instHeader);
 
-    var instDesc = el('div', { style: { fontSize: '13px', color: '#94a3b8', margin: '6px 0 12px' } });
+    var instDesc = el('div', { style: { fontSize: '13px', color: 'var(--text-muted)', margin: '6px 0 12px' } });
     instDesc.append(txt('Instability = Ce ÷ (Ca + Ce). 0 = maximally stable (depended upon, changes carefully). 1 = maximally unstable (depends on others, safe to change freely).'));
     instabilityCard.append(instDesc);
 
