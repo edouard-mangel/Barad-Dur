@@ -535,7 +535,7 @@ docker:
     - docker push ${IMAGE_TAG}
     # Sign by digest — immutable, covers every tag pointing at this image
     - DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' ${IMAGE_TAG})
-    - echo "${COSIGN_PRIVATE_KEY}" | base64 -d > /tmp/cosign.key
+    - printf '%s' "${COSIGN_PRIVATE_KEY}" | base64 -d > /tmp/cosign.key
     - cosign sign --key /tmp/cosign.key --yes "${DIGEST}"
     - rm -f /tmp/cosign.key
     - |
