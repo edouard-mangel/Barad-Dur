@@ -476,9 +476,9 @@ release-publish:
       done
     # Delete existing release if present so release-cli can recreate it cleanly
     - |
-      if command -v glab &> /dev/null; then
-        glab release delete "$CI_COMMIT_TAG" --yes 2>/dev/null || true
-      fi
+      curl -s --request DELETE \
+        --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/releases/${CI_COMMIT_TAG}" || true
   release:
     tag_name: $CI_COMMIT_TAG
     description: "Release $CI_COMMIT_TAG"
@@ -502,7 +502,10 @@ publish-crate:
   before_script: []
   script:
     - cargo login "$CARGO_REGISTRY_TOKEN"
-    - cargo publish --allow-dirty
+    - |
+      if ! cargo publish --allow-dirty 2>&1 | tee /tmp/publish.out; then
+        grep -q "already exists" /tmp/publish.out && echo "Already published — skipping." || exit 1
+      fi
 
 # ── Docker ───────────────────────────────────
 
