@@ -18,6 +18,7 @@ pub struct HotspotFile {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
 pub struct CouplingPair {
     pub file_a: String,
     pub file_b: String,
@@ -126,6 +127,7 @@ pub struct ActionItem {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
 pub struct AnalysisReport {
     pub repo_name: String,
     pub branch: String,
