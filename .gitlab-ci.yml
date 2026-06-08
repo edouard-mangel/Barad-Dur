@@ -518,6 +518,10 @@ docker:
     IMAGE_TAG_LATEST: ${CI_REGISTRY_IMAGE}:latest
     COSIGN_VERSION: "v3.0.6"
   before_script:
+    - |
+      echo "Waiting for Docker daemon..."
+      until docker info > /dev/null 2>&1; do sleep 1; done
+      echo "Docker daemon ready."
     - echo "${CI_REGISTRY_PASSWORD}" | docker login -u ${CI_REGISTRY_USER} --password-stdin ${CI_REGISTRY}
     - apk add --no-cache curl
     - curl -sSfL "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64"
