@@ -4,6 +4,8 @@ All notable changes to this project will be documented here.
 
 ## [Unreleased]
 
+## [0.17.2] - 2026-06-08
+
 ### Added
 - Light/dark theme toggle in HTML report header — persists choice in `localStorage`
 - `body.light` CSS block with full light-mode palette
