@@ -4,6 +4,12 @@ All notable changes to this project will be documented here.
 
 ## [Unreleased]
 
+## [0.17.3] - 2026-06-08
+
+### Internal
+- `CouplingPair` and `AnalysisReport` marked `#[non_exhaustive]` — prevents semver violations when output fields are added in future releases
+- CI: `cargo publish --allow-dirty` to handle Cargo.lock regeneration during publish
+
 ## [0.17.2] - 2026-06-08
 
 ### Added

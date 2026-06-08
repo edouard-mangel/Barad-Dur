@@ -112,7 +112,7 @@ Pre-built images are published to the GitLab container registry on every release
 ```bash
 docker pull lab.frogg.it:5050/edouard_mangel/barad-dur:latest
 # or pin to a specific version:
-docker pull lab.frogg.it:5050/edouard_mangel/barad-dur:v0.17.2
+docker pull lab.frogg.it:5050/edouard_mangel/barad-dur:v0.17.3
 ```
 
 Run it by mounting a repository into `/repo`:
