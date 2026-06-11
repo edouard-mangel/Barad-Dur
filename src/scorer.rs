@@ -87,6 +87,7 @@ pub fn build_report(
         dep_ecosystem_reports: Vec::new(),
         audit,
         per_file_coupling,
+        score_thresholds: ScoreThresholds::default(),
     }
 }
 

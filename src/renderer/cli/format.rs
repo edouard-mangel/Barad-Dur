@@ -1,12 +1,11 @@
+use crate::scorer::{score_band, ScoreBand};
 use colored::Colorize;
 
 pub(crate) fn colorize_by_score(s: &str, score: u32) -> colored::ColoredString {
-    if score >= 71 {
-        s.green()
-    } else if score >= 41 {
-        s.yellow()
-    } else {
-        s.red()
+    match score_band(score) {
+        ScoreBand::Good => s.green(),
+        ScoreBand::Warn => s.yellow(),
+        ScoreBand::Danger => s.red(),
     }
 }
 
@@ -42,5 +41,32 @@ pub(crate) fn direction_word(direction: &crate::trend::VelocityDirection) -> &'s
         VelocityDirection::Improving => "improving",
         VelocityDirection::Declining => "declining",
         VelocityDirection::Stable => "stable",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scorer::{SCORE_GOOD_MIN, SCORE_WARN_MIN};
+    use colored::Color;
+
+    #[test]
+    fn cli_colors_follow_the_shared_band_thresholds() {
+        assert_eq!(
+            colorize_by_score("x", SCORE_GOOD_MIN).fgcolor,
+            Some(Color::Green)
+        );
+        assert_eq!(
+            colorize_by_score("x", SCORE_GOOD_MIN - 1).fgcolor,
+            Some(Color::Yellow)
+        );
+        assert_eq!(
+            colorize_by_score("x", SCORE_WARN_MIN).fgcolor,
+            Some(Color::Yellow)
+        );
+        assert_eq!(
+            colorize_by_score("x", SCORE_WARN_MIN - 1).fgcolor,
+            Some(Color::Red)
+        );
     }
 }

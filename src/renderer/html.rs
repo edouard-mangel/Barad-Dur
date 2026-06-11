@@ -1,16 +1,16 @@
-mod css;
-mod js_age;
-mod js_audit;
-mod js_authors;
-mod js_coupling;
-mod js_deps;
-mod js_hotspots;
-mod js_overview;
-mod js_ownership;
-mod js_shared;
-mod js_treemap_layout;
-mod js_treemap_ui;
-mod js_trends;
+const CSS: &str = include_str!("templates/style.css");
+const JS_SHARED: &str = include_str!("templates/shared.js");
+const JS_OVERVIEW: &str = include_str!("templates/overview.js");
+const JS_HOTSPOTS: &str = include_str!("templates/hotspots.js");
+const JS_COUPLING: &str = include_str!("templates/coupling.js");
+const JS_OWNERSHIP: &str = include_str!("templates/ownership.js");
+const JS_AGE: &str = include_str!("templates/age.js");
+const JS_TREEMAP_LAYOUT: &str = include_str!("templates/treemap_layout.js");
+const JS_TREEMAP_UI: &str = include_str!("templates/treemap_ui.js");
+const JS_TRENDS: &str = include_str!("templates/trends.js");
+const JS_DEPS: &str = include_str!("templates/deps.js");
+const JS_AUDIT: &str = include_str!("templates/audit.js");
+const JS_AUTHORS: &str = include_str!("templates/authors.js");
 
 #[cfg(test)]
 mod tests;
@@ -25,7 +25,7 @@ use anyhow::Result;
 /// All CSS, JS, and data are inlined. No external dependencies.
 pub fn render(report: &AnalysisReport) -> Result<String> {
     let json = serde_json::to_string(report)?;
-    let json = json.replace("</", "<\\/");
+    let json = super::escape::escape_json_for_script(&json);
     let title = format!("{} — Barad-dûr Report", report.repo_name);
 
     let html = format!(
@@ -37,7 +37,7 @@ pub fn render(report: &AnalysisReport) -> Result<String> {
 <script>\n{js}\n</script>\n</body>\n</html>",
         title = title,
         json = json,
-        css = css::CSS,
+        css = CSS,
         js = build_js(report),
     );
     Ok(html)
@@ -46,18 +46,18 @@ pub fn render(report: &AnalysisReport) -> Result<String> {
 // _report is kept for future per-report JS customisation (feature flags, conditional modules).
 fn build_js(_report: &AnalysisReport) -> String {
     [
-        js_shared::JS,
-        js_overview::JS,
-        js_hotspots::JS,
-        js_coupling::JS,
-        js_ownership::JS,
-        js_age::JS,
-        js_treemap_layout::JS,
-        js_treemap_ui::JS,
-        js_trends::JS,
-        js_deps::JS,
-        js_audit::JS,
-        js_authors::JS,
+        JS_SHARED,
+        JS_OVERVIEW,
+        JS_HOTSPOTS,
+        JS_COUPLING,
+        JS_OWNERSHIP,
+        JS_AGE,
+        JS_TREEMAP_LAYOUT,
+        JS_TREEMAP_UI,
+        JS_TRENDS,
+        JS_DEPS,
+        JS_AUDIT,
+        JS_AUTHORS,
     ]
     .concat()
 }

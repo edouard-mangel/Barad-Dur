@@ -37,6 +37,7 @@ fn make_report() -> AnalysisReport {
         dep_ecosystem_reports: vec![],
         audit: None,
         per_file_coupling: vec![],
+        score_thresholds: Default::default(),
     }
 }
 
@@ -446,8 +447,8 @@ fn html_theme_toggle_button_present() {
 #[test]
 fn js_shared_has_theme_btn_id() {
     assert!(
-        crate::renderer::html::js_shared::JS.contains("theme-btn"),
-        "js_shared.rs must contain the string 'theme-btn' (the theme toggle button id)"
+        super::JS_SHARED.contains("theme-btn"),
+        "shared.js must contain the string 'theme-btn' (the theme toggle button id)"
     );
 }
 

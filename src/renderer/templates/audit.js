@@ -1,4 +1,4 @@
-pub const JS: &str = r#"
+
   /* ---- Audit tab ---- */
   function buildAuditTab() {
     var container = document.createDocumentFragment();
@@ -272,4 +272,3 @@ pub const JS: &str = r#"
     section.append(chartWrap);
     return section;
   }
-"#;

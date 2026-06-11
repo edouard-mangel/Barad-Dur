@@ -193,6 +193,7 @@ mod tests {
             dep_ecosystem_reports: vec![],
             audit: None,
             per_file_coupling: vec![],
+            score_thresholds: Default::default(),
         }
     }
 

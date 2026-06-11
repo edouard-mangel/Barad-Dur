@@ -1,4 +1,4 @@
-pub const JS: &str = r#"
+
   /* ---- Age tab ---- */
   function buildAgeTab() {
     var files = (R.file_ages || []).slice().sort(function(a, b) {
@@ -77,4 +77,3 @@ pub const JS: &str = r#"
     container.append(card);
     return container;
   }
-"#;
