@@ -1,4 +1,4 @@
-pub const JS: &str = r#"
+
   /* ---- Trends tab ---- */
   function buildTrendsTab() {
     var container = document.createDocumentFragment();
@@ -76,12 +76,6 @@ pub const JS: &str = r#"
       if (entry.category_scores && entry.category_scores[metric] !== undefined) return entry.category_scores[metric];
       if (entry.metrics && entry.metrics[metric] !== undefined) return entry.metrics[metric];
       return 0;
-    }
-
-    function scoreColor(s) {
-      if (s >= 71) return 'var(--c-good)';
-      if (s >= 41) return 'var(--c-warn)';
-      return 'var(--c-danger)';
     }
 
     function renderChart() {
@@ -189,4 +183,3 @@ pub const JS: &str = r#"
 
     return container;
   }
-"#;

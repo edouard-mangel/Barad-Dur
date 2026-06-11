@@ -56,6 +56,11 @@ export interface FileAge {
   days_since_modified: number
 }
 
+export interface ScoreThresholds {
+  good_min: number
+  warn_min: number
+}
+
 export interface AnalysisReport {
   repo_name: string
   branch: string
@@ -71,6 +76,7 @@ export interface AnalysisReport {
   coupling_pairs: CouplingPair[]
   author_ownership: FileOwnership[]
   file_ages: FileAge[]
+  score_thresholds?: ScoreThresholds
 }
 
 export function isAnalysisReport(obj: unknown): obj is AnalysisReport {
@@ -87,22 +93,47 @@ export function isAnalysisReport(obj: unknown): obj is AnalysisReport {
   )
 }
 
+// Band thresholds are defined once in the Rust scorer (scorer/types.rs) and
+// shipped inside every report as `score_thresholds`. The defaults below only
+// cover reports generated before that field existed.
+let bands: ScoreThresholds = { good_min: 71, warn_min: 41 }
+
+export function applyScoreThresholds(t: ScoreThresholds | undefined): void {
+  if (t && typeof t.good_min === 'number' && typeof t.warn_min === 'number') {
+    bands = t
+  }
+}
+
+type Band = 'good' | 'warn' | 'danger'
+
+function scoreBand(score: number): Band {
+  if (score >= bands.good_min) return 'good'
+  if (score >= bands.warn_min) return 'warn'
+  return 'danger'
+}
+
+const BAND_COLORS: Record<Band, string> = {
+  good: '#10b981',
+  warn: '#f59e0b',
+  danger: '#ef4444',
+}
+
+const BAND_CLASSES: Record<Band, string> = {
+  good: 'score-green',
+  warn: 'score-yellow',
+  danger: 'score-red',
+}
+
 export function scoreColor(score: number): string {
-  if (score > 70) return '#10b981'
-  if (score > 40) return '#f59e0b'
-  return '#ef4444'
+  return BAND_COLORS[scoreBand(score)]
 }
 
 export function scoreClass(score: number): string {
-  if (score > 70) return 'score-green'
-  if (score > 40) return 'score-yellow'
-  return 'score-red'
+  return BAND_CLASSES[scoreBand(score)]
 }
 
 export function scoreBgClass(score: number): string {
-  if (score > 70) return 'bg-score-green'
-  if (score > 40) return 'bg-score-yellow'
-  return 'bg-score-red'
+  return `bg-${BAND_CLASSES[scoreBand(score)]}`
 }
 
 export function formatRawValue(raw: RawValue): string {

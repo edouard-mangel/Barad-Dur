@@ -105,6 +105,33 @@ The binary is at `target/release/barad-dur`.
 
 ### Docker
 
+#### Pull the pre-built image
+
+Pre-built images are published to the GitLab container registry on every release:
+
+```bash
+docker pull lab.frogg.it:5050/edouard_mangel/barad-dur:latest
+# or pin to a specific version:
+docker pull lab.frogg.it:5050/edouard_mangel/barad-dur:v0.17.3
+```
+
+Run it by mounting a repository into `/repo`:
+
+```bash
+docker run --rm -v /path/to/repo:/repo lab.frogg.it:5050/edouard_mangel/barad-dur        # CLI summary
+docker run --rm -v /path/to/repo:/repo lab.frogg.it:5050/edouard_mangel/barad-dur analyze . --json
+docker run --rm -v /path/to/repo:/repo -v $(pwd):/output \
+  lab.frogg.it:5050/edouard_mangel/barad-dur analyze . --html -o /output/report.html
+```
+
+All images are signed with [cosign](https://github.com/sigstore/cosign). Verify with the public key in `cosign.pub`:
+
+```bash
+cosign verify --key cosign.pub lab.frogg.it:5050/edouard_mangel/barad-dur:latest
+```
+
+#### Build from source
+
 Build a minimal (~31MB) container image from scratch:
 
 ```bash

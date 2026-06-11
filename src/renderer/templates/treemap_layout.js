@@ -1,4 +1,4 @@
-pub const JS: &str = r#"
+
   /* ---- Treemap layout ---- */
 
   function buildFileTree(files) {
@@ -280,4 +280,3 @@ pub const JS: &str = r#"
       }
     }
   };
-"#;

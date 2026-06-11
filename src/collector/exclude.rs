@@ -30,16 +30,16 @@ const DEFAULT_EXCLUDE_COMPOUND_EXTENSIONS: &[&str] = &[
 /// Default path patterns excluded from analysis (tooling config, lockfiles).
 /// Lockfiles inflate churn/coupling metrics without reflecting real code changes.
 const DEFAULT_EXCLUDE_PATTERNS: &[&str] = &[
-    // Lockfiles
-    "pnpm-lock.yaml",
-    "package-lock.json",
-    "yarn.lock",
-    "Cargo.lock",
-    "Gemfile.lock",
-    "poetry.lock",
-    "composer.lock",
-    "go.sum",
-    "flake.lock",
+    // Lockfiles — use **/ prefix so nested paths (monorepos) are also excluded
+    "**/pnpm-lock.yaml",
+    "**/package-lock.json",
+    "**/yarn.lock",
+    "**/Cargo.lock",
+    "**/Gemfile.lock",
+    "**/poetry.lock",
+    "**/composer.lock",
+    "**/go.sum",
+    "**/flake.lock",
     "**/*.lock",
     // App / environment config (churn noise, not real code changes)
     "**/appsettings*.json",
@@ -277,6 +277,30 @@ mod tests {
         assert!(is_excluded(Path::new("poetry.lock"), &[], &[], true));
         // Not excluded when defaults disabled
         assert!(!is_excluded(Path::new("pnpm-lock.yaml"), &[], &[], false));
+    }
+
+    #[test]
+    fn is_excluded_matches_nested_lockfiles() {
+        // Monorepo layout: lockfiles in subdirectories must also be excluded
+        assert!(is_excluded(
+            Path::new("apps/web/pnpm-lock.yaml"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(
+            Path::new("packages/ui/package-lock.json"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(
+            Path::new("services/api/go.sum"),
+            &[],
+            &[],
+            true
+        ));
+        assert!(is_excluded(Path::new("backend/Cargo.lock"), &[], &[], true));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-pub const JS: &str = r#"
+
 (function() {
   'use strict';
 
@@ -55,8 +55,14 @@ pub const JS: &str = r#"
     return node;
   }
 
+  /* Band thresholds come from the report itself (scorer/types.rs is the
+     single source of truth); the fallback only covers pre-threshold reports. */
+  var BANDS = (R && R.score_thresholds) || { good_min: 71, warn_min: 41 };
+
   function scoreColor(s) {
-    return s >= 71 ? 'var(--c-good)' : s >= 41 ? 'var(--c-warn)' : 'var(--c-danger)';
+    return s >= BANDS.good_min ? 'var(--c-good)'
+      : s >= BANDS.warn_min ? 'var(--c-warn)'
+      : 'var(--c-danger)';
   }
 
   function fileParts(path) {
@@ -656,4 +662,3 @@ pub const JS: &str = r#"
     themeBtn.append(txt(document.body.classList.contains('light') ? '☾' : '☀'));
     return themeBtn;
   }
-"#;

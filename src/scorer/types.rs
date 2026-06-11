@@ -18,6 +18,7 @@ pub struct HotspotFile {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
 pub struct CouplingPair {
     pub file_a: String,
     pub file_b: String,
@@ -126,6 +127,7 @@ pub struct ActionItem {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
 pub struct AnalysisReport {
     pub repo_name: String,
     pub branch: String,
@@ -146,6 +148,7 @@ pub struct AnalysisReport {
     pub dep_ecosystem_reports: Vec<crate::deps::EcosystemReport>,
     pub audit: Option<AuditReport>,
     pub per_file_coupling: Vec<FileCouplingMetrics>,
+    pub score_thresholds: ScoreThresholds,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -173,4 +176,65 @@ pub struct HistoryEntry {
     pub schema_version: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+}
+
+/// Minimum score (inclusive) for the "good" band.
+pub const SCORE_GOOD_MIN: u32 = 71;
+/// Minimum score (inclusive) for the "warn" band; below is "danger".
+pub const SCORE_WARN_MIN: u32 = 41;
+
+/// Qualitative band for a 0–100 score. Single source of truth for every
+/// renderer (CLI colors, HTML report, dashboard) — renderers must not
+/// re-derive thresholds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScoreBand {
+    Good,
+    Warn,
+    Danger,
+}
+
+pub fn score_band(score: u32) -> ScoreBand {
+    match score {
+        s if s >= SCORE_GOOD_MIN => ScoreBand::Good,
+        s if s >= SCORE_WARN_MIN => ScoreBand::Warn,
+        _ => ScoreBand::Danger,
+    }
+}
+
+/// Band thresholds serialized into every report so JS/TS consumers read the
+/// verdict boundaries instead of hardcoding them.
+#[derive(Debug, Clone, Serialize)]
+pub struct ScoreThresholds {
+    pub good_min: u32,
+    pub warn_min: u32,
+}
+
+impl Default for ScoreThresholds {
+    fn default() -> Self {
+        Self {
+            good_min: SCORE_GOOD_MIN,
+            warn_min: SCORE_WARN_MIN,
+        }
+    }
+}
+
+#[cfg(test)]
+mod band_tests {
+    use super::*;
+
+    #[test]
+    fn band_boundaries_match_documented_thresholds() {
+        assert_eq!(score_band(100), ScoreBand::Good);
+        assert_eq!(score_band(SCORE_GOOD_MIN), ScoreBand::Good);
+        assert_eq!(score_band(SCORE_GOOD_MIN - 1), ScoreBand::Warn);
+        assert_eq!(score_band(SCORE_WARN_MIN), ScoreBand::Warn);
+        assert_eq!(score_band(SCORE_WARN_MIN - 1), ScoreBand::Danger);
+        assert_eq!(score_band(0), ScoreBand::Danger);
+    }
+
+    #[test]
+    fn default_thresholds_serialize_for_consumers() {
+        let json = serde_json::to_string(&ScoreThresholds::default()).unwrap();
+        assert_eq!(json, r#"{"good_min":71,"warn_min":41}"#);
+    }
 }

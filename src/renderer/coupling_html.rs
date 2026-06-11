@@ -4,7 +4,7 @@ use crate::coupling::CouplingReport;
 /// force-directed graph. All CSS and JS are inlined -- no external dependencies.
 pub fn render_coupling_html(report: &CouplingReport) -> String {
     let json_data = serde_json::to_string(report).unwrap_or_else(|_| "{}".to_string());
-    let escaped_json = json_data.replace("</", "<\\/");
+    let escaped_json = super::escape::escape_json_for_script(&json_data);
 
     format!(
         "<!DOCTYPE html>\n\
