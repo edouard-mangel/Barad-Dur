@@ -1,4 +1,4 @@
-pub const JS: &str = r#"
+
   /* ---- Dependencies tab ---- */
   function buildDepsTab() {
     var container = document.createElement('div');
@@ -42,4 +42,3 @@ pub const JS: &str = r#"
     });
     return container;
   }
-"#;

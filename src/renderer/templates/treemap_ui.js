@@ -1,4 +1,4 @@
-pub const JS: &str = r#"
+
   /* ---- Treemap tab UI ---- */
 
   function buildTreemapTab() {
@@ -545,4 +545,3 @@ pub const JS: &str = r#"
     renderTreemap();
     return container;
   }
-"#;

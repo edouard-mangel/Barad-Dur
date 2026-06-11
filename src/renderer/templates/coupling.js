@@ -1,4 +1,4 @@
-pub const JS: &str = r#"
+
   /* ---- Coupling tab ---- */
   // Auto-exclude patterns for coupling: interface/implementation, lock files, test files, module indexes
   function isAutoExcluded(a, b) {
@@ -269,4 +269,3 @@ pub const JS: &str = r#"
     container.append(instabilityCard);
     return container;
   }
-"#;

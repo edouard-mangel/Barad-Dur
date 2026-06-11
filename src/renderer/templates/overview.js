@@ -1,4 +1,4 @@
-pub const JS: &str = r#"
+
   /* ---- Overview tab ---- */
   function buildOverviewTab() {
     var wrapper = el('div');
@@ -46,4 +46,3 @@ pub const JS: &str = r#"
     wrapper.append(div);
     return wrapper;
   }
-"#;

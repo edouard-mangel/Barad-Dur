@@ -3,6 +3,7 @@ use std::io::IsTerminal;
 use std::path::PathBuf;
 
 use crate::cli::CouplingArgs;
+use crate::coupling::builder::build_coupling_report;
 use crate::coupling::collector::{collect_snapshots, CollectionResult};
 use crate::coupling::dependency::{analyze_dependency_coupling, DependencyAnalysis};
 use crate::coupling::discovery::discover_repos;
@@ -10,7 +11,7 @@ use crate::coupling::scorer::score_coupling_pairs;
 use crate::coupling::team::analyze_team_coupling;
 use crate::coupling::temporal::{analyze_temporal_coupling, TemporalCouplingPair};
 use crate::coupling::types::CouplingPair;
-use crate::coupling::{CouplingReport, CouplingReportSummary, RepoInfo};
+use crate::coupling::RepoInfo;
 use crate::renderer;
 use crate::renderer::coupling_cli::render_coupling_table;
 use crate::renderer::coupling_json::render_coupling_json;
@@ -125,27 +126,12 @@ fn render_coupling_output(
             })
             .collect();
 
-        let highest = combined_pairs
-            .first()
-            .map(|p| p.combined_score)
-            .unwrap_or(0.0);
-
-        let pairs_above = combined_pairs
-            .iter()
-            .filter(|p| p.combined_score >= args.min_score)
-            .count();
-
-        let report = CouplingReport {
-            repos: repos.clone(),
-            pairs: combined_pairs.to_vec(),
-            summary: CouplingReportSummary {
-                total_repos: repos.len(),
-                total_pairs_analyzed: repos.len() * (repos.len().saturating_sub(1)) / 2,
-                pairs_above_threshold: pairs_above,
-                highest_coupling_score: highest,
-            },
-            blast_radius: dep_analysis.blast_radius.clone(),
-        };
+        let report = build_coupling_report(
+            repos,
+            combined_pairs.to_vec(),
+            dep_analysis.blast_radius.clone(),
+            args.min_score,
+        );
 
         if use_html {
             let output = renderer::coupling_html::render_coupling_html(&report);

@@ -1,4 +1,4 @@
-pub const JS: &str = r#"
+
   /* ---- Authors tab ---- */
   function buildAuthorsTab() {
     var container = el('div');
@@ -303,4 +303,3 @@ pub const JS: &str = r#"
   initTheme();
   renderApp();
 })();
-"#;

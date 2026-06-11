@@ -1,4 +1,4 @@
-pub const JS: &str = r#"
+
   /* ---- Ownership tab ---- */
   function buildOwnershipTab() {
     var files = R.author_ownership || [];
@@ -106,4 +106,3 @@ pub const JS: &str = r#"
     container.append(card);
     return container;
   }
-"#;

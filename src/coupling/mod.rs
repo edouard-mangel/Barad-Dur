@@ -1,3 +1,4 @@
+pub mod builder;
 pub mod collector;
 pub mod dependency;
 pub mod discovery;

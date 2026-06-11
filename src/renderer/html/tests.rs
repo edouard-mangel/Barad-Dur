@@ -1,12 +1,12 @@
 use super::*;
 use crate::metrics::{CategoryResult, MetricValue, RawValue};
-use crate::renderer::html::css;
+
 use crate::scorer::{ActionItem, AnalysisReport};
 
 #[test]
 fn css_defines_bg_primary_variable() {
     assert!(
-        css::CSS.contains("--bg-primary:"),
+        super::CSS.contains("--bg-primary:"),
         "CSS const must declare --bg-primary custom property in body rule"
     );
 }
@@ -14,7 +14,7 @@ fn css_defines_bg_primary_variable() {
 #[test]
 fn css_has_light_mode_block() {
     assert!(
-        css::CSS.contains("body.light"),
+        super::CSS.contains("body.light"),
         "CSS const must contain a body.light selector block for light mode overrides"
     );
 }
@@ -22,7 +22,7 @@ fn css_has_light_mode_block() {
 #[test]
 fn css_has_light_cbf_compose_block() {
     assert!(
-        css::CSS.contains("body.light.cbf"),
+        super::CSS.contains("body.light.cbf"),
         "CSS const must contain a body.light.cbf selector block for CBF + light mode composition"
     );
 }
@@ -61,6 +61,7 @@ fn make_report() -> AnalysisReport {
         dep_ecosystem_reports: vec![],
         audit: None,
         per_file_coupling: vec![],
+        score_thresholds: Default::default(),
     }
 }
 
@@ -142,6 +143,33 @@ fn html_title_contains_repo_name() {
     let report = make_report();
     let html = render(&report).unwrap();
     assert!(html.contains("<title>my-repo"));
+}
+
+#[test]
+fn html_embeds_score_thresholds_in_window_r() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains(r#""score_thresholds":{"good_min":71,"warn_min":41}"#),
+        "window.R must carry the band thresholds so JS consumers read them instead of hardcoding"
+    );
+}
+
+#[test]
+fn js_score_color_reads_embedded_thresholds() {
+    assert!(
+        super::JS_SHARED.contains("score_thresholds"),
+        "shared.js scoreColor must read R.score_thresholds, not hardcode 71/41"
+    );
+}
+
+#[test]
+fn js_score_color_is_defined_exactly_once() {
+    let js = super::build_js(&make_report());
+    assert_eq!(
+        js.matches("function scoreColor(").count(),
+        1,
+        "scoreColor must exist only in shared.js — tab modules must not shadow it"
+    );
 }
 
 #[test]
@@ -676,9 +704,8 @@ fn html_theme_init_function_present() {
 
 #[test]
 fn js_shared_has_toggle_theme_function() {
-    use crate::renderer::html::js_shared;
     assert!(
-        js_shared::JS.contains("toggleTheme"),
-        "js_shared::JS must define a toggleTheme function"
+        super::JS_SHARED.contains("toggleTheme"),
+        "shared.js must define a toggleTheme function"
     );
 }

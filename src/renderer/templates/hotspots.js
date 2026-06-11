@@ -1,4 +1,4 @@
-pub const JS: &str = r#"
+
   /* ---- Hotspots tab ---- */
   function buildHotspotsTab() {
     var files = R.file_hotspots || [];
@@ -231,4 +231,3 @@ pub const JS: &str = r#"
 
     return wrap;
   }
-"#;

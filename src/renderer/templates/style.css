@@ -1,4 +1,4 @@
-pub const CSS: &str = r#"
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --c-good:        #10b981;
@@ -760,4 +760,3 @@ svg.radar { display: block; margin: 0 auto; }
 .conc-meta { display: flex; gap: 6px; flex-wrap: nowrap; }
 .vel-chart { overflow-x: auto; }
 .tab-error { padding: 24px; color: #ef4444; font-size: 13px; }
-"#;

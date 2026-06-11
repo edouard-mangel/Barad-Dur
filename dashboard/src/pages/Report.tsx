@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import type { AnalysisReport } from '../types'
-import { isAnalysisReport } from '../types'
+import { applyScoreThresholds, isAnalysisReport } from '../types'
 import ScoreGauge from '../components/ScoreGauge'
 import RadarChart from '../components/RadarChart'
 import CategoryCard from '../components/CategoryCard'
@@ -37,8 +37,12 @@ export default function Report() {
     }
     try {
       const data = JSON.parse(raw) as unknown
-      if (isAnalysisReport(data)) setReport(data)
-      else void navigate('/')
+      if (isAnalysisReport(data)) {
+        applyScoreThresholds(data.score_thresholds)
+        setReport(data)
+      } else {
+        void navigate('/')
+      }
     } catch {
       void navigate('/')
     }
