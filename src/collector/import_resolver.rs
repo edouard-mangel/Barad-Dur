@@ -41,7 +41,29 @@ fn resolve_single_import(raw: &str, source: &Path, known: &HashSet<&PathBuf>) ->
         "cs" => resolve_csharp_import(raw),
         _ => Vec::new(),
     };
-    candidates.into_iter().find(|c| known.contains(c))
+    candidates
+        .into_iter()
+        .map(|c| normalize_path(&c))
+        .find(|c| known.contains(c))
+}
+
+/// Lexically normalize a path: drop `.` segments and fold `..` into the
+/// preceding component. Renderers join files by their *string* form, so
+/// resolved paths must serialize identically to `snapshot.files` paths;
+/// folding `..` also lets parent-directory imports match `known` at all
+/// (`Path` equality keeps `..` components).
+fn normalize_path(path: &Path) -> PathBuf {
+    use std::path::Component;
+    path.components().fold(PathBuf::new(), |mut acc, comp| {
+        match comp {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                acc.pop();
+            }
+            other => acc.push(other),
+        }
+        acc
+    })
 }
 
 fn resolve_rust_import(raw: &str) -> Vec<PathBuf> {
@@ -117,4 +139,72 @@ fn resolve_java_import(raw: &str) -> Vec<PathBuf> {
 fn resolve_csharp_import(raw: &str) -> Vec<PathBuf> {
     let segments = raw.replace('.', "/");
     vec![PathBuf::from(format!("{}.cs", segments))]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(path: &str) -> FileEntry {
+        FileEntry {
+            path: PathBuf::from(path),
+            size_bytes: 100,
+            is_binary: false,
+            depth: 1,
+            blob_oid: String::new(),
+        }
+    }
+
+    fn raw(source: &str, imports: Vec<&str>) -> RawImports {
+        let mut m = RawImports::new();
+        m.insert(
+            PathBuf::from(source),
+            imports.into_iter().map(String::from).collect(),
+        );
+        m
+    }
+
+    #[test]
+    fn ts_relative_import_resolves_to_normalized_path() {
+        // The resolved path must serialize WITHOUT the ./ segment —
+        // renderers join on the string form, not on Path equality.
+        let files = vec![
+            entry("dashboard/src/App.tsx"),
+            entry("dashboard/src/pages/Landing.tsx"),
+        ];
+        let graph = resolve_imports(
+            &raw("dashboard/src/App.tsx", vec!["./pages/Landing"]),
+            &files,
+        );
+
+        let targets = &graph[&PathBuf::from("dashboard/src/App.tsx")];
+        assert_eq!(
+            targets[0].to_string_lossy(),
+            "dashboard/src/pages/Landing.tsx",
+            "resolved path must not contain a ./ segment"
+        );
+    }
+
+    #[test]
+    fn ts_parent_import_resolves_across_directories() {
+        // ../shared/util from src/a/b.ts must reach src/shared/util.ts.
+        // Path::components() keeps ParentDir, so without lexical
+        // normalization this import silently fails to resolve.
+        let files = vec![entry("src/a/b.ts"), entry("src/shared/util.ts")];
+        let graph = resolve_imports(&raw("src/a/b.ts", vec!["../shared/util"]), &files);
+
+        let targets = graph
+            .get(&PathBuf::from("src/a/b.ts"))
+            .expect("parent-directory import must resolve");
+        assert_eq!(targets[0].to_string_lossy(), "src/shared/util.ts");
+    }
+
+    #[test]
+    fn js_relative_import_resolves_to_normalized_path() {
+        let files = vec![entry("web/main.js"), entry("web/lib/api.js")];
+        let graph = resolve_imports(&raw("web/main.js", vec!["./lib/api"]), &files);
+
+        let targets = &graph[&PathBuf::from("web/main.js")];
+        assert_eq!(targets[0].to_string_lossy(), "web/lib/api.js");
+    }
 }

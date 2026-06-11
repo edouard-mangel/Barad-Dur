@@ -121,6 +121,8 @@ mod tests {
             dep_ecosystem_reports: vec![],
             audit: None,
             per_file_coupling: vec![],
+            import_edges: vec![],
+            import_cycles: vec![],
             score_thresholds: Default::default(),
         }
     }
@@ -243,6 +245,43 @@ mod tests {
             (entry["instability"].as_f64().unwrap() - 0.625).abs() < 1e-9,
             "entry.instability must match"
         );
+    }
+
+    #[test]
+    fn json_output_contains_import_edges_array() {
+        use crate::scorer::ImportEdge;
+
+        let mut report = make_report();
+        report.import_edges = vec![ImportEdge {
+            from: "src/main.rs".into(),
+            to: "src/lib.rs".into(),
+        }];
+
+        let output = render(&report, false, None).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+        let arr = parsed["import_edges"]
+            .as_array()
+            .expect("import_edges must be a JSON array");
+        assert_eq!(arr.len(), 1, "array must contain exactly one edge");
+        assert_eq!(arr[0]["from"].as_str().unwrap(), "src/main.rs");
+        assert_eq!(arr[0]["to"].as_str().unwrap(), "src/lib.rs");
+    }
+
+    #[test]
+    fn json_output_contains_import_cycles_array() {
+        let mut report = make_report();
+        report.import_cycles = vec![vec!["src/a.rs".into(), "src/b.rs".into()]];
+
+        let output = render(&report, false, None).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+        let arr = parsed["import_cycles"]
+            .as_array()
+            .expect("import_cycles must be a JSON array");
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0][0].as_str().unwrap(), "src/a.rs");
+        assert_eq!(arr[0][1].as_str().unwrap(), "src/b.rs");
     }
 
     #[test]

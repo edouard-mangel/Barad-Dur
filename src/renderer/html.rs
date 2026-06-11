@@ -3,6 +3,7 @@ const JS_SHARED: &str = include_str!("templates/shared.js");
 const JS_OVERVIEW: &str = include_str!("templates/overview.js");
 const JS_HOTSPOTS: &str = include_str!("templates/hotspots.js");
 const JS_COUPLING: &str = include_str!("templates/coupling.js");
+const JS_GRAPH: &str = include_str!("templates/graph.js");
 const JS_OWNERSHIP: &str = include_str!("templates/ownership.js");
 const JS_AGE: &str = include_str!("templates/age.js");
 const JS_TREEMAP_LAYOUT: &str = include_str!("templates/treemap_layout.js");
@@ -50,6 +51,7 @@ fn build_js(_report: &AnalysisReport) -> String {
         JS_OVERVIEW,
         JS_HOTSPOTS,
         JS_COUPLING,
+        JS_GRAPH,
         JS_OWNERSHIP,
         JS_AGE,
         JS_TREEMAP_LAYOUT,
