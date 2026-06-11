@@ -61,6 +61,8 @@ fn make_report() -> AnalysisReport {
         dep_ecosystem_reports: vec![],
         audit: None,
         per_file_coupling: vec![],
+        import_edges: vec![],
+        import_cycles: vec![],
         score_thresholds: Default::default(),
     }
 }

@@ -37,6 +37,8 @@ fn make_report() -> AnalysisReport {
         dep_ecosystem_reports: vec![],
         audit: None,
         per_file_coupling: vec![],
+        import_edges: vec![],
+        import_cycles: vec![],
         score_thresholds: Default::default(),
     }
 }
@@ -597,5 +599,136 @@ fn coupling_tab_instability_table_has_column_tooltips() {
             "Ce / (Ca + Ce). 0 = stable (depended upon). 1 = unstable (depends on others)."
         ),
         "Instability column header must use thWithTip() with the exact instability formula tooltip"
+    );
+}
+
+// ---- Import dependency graph tab ----
+
+#[test]
+fn graph_tab_is_registered_in_tab_bar() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("'Graph'"),
+        "the tab bar must include a 'Graph' entry in tabNames"
+    );
+    assert!(
+        html.contains("function buildGraphTab"),
+        "the embedded JS must define buildGraphTab()"
+    );
+}
+
+#[test]
+fn graph_tab_embeds_import_edges_in_window_r() {
+    use crate::scorer::ImportEdge;
+
+    let mut report = make_report();
+    report.import_edges = vec![ImportEdge {
+        from: "src/cmd/analyze.rs".into(),
+        to: "src/scorer.rs".into(),
+    }];
+    let html = render(&report).unwrap();
+    assert!(
+        html.contains("import_edges"),
+        "window.R must contain the import_edges field"
+    );
+    assert!(
+        html.contains("src/cmd/analyze.rs"),
+        "window.R must contain the edge source path"
+    );
+}
+
+#[test]
+fn graph_tab_has_empty_state_message() {
+    // make_report() has import_edges: vec![] — the JS must carry the
+    // empty-state branch for repos where no imports were resolved.
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("No import graph data available."),
+        "graph tab JS must contain the no-data message literal"
+    );
+}
+
+#[test]
+fn graph_tab_marks_cycle_edges() {
+    use crate::scorer::ImportEdge;
+
+    let mut report = make_report();
+    report.import_edges = vec![
+        ImportEdge {
+            from: "src/a.rs".into(),
+            to: "src/b.rs".into(),
+        },
+        ImportEdge {
+            from: "src/b.rs".into(),
+            to: "src/a.rs".into(),
+        },
+    ];
+    report.import_cycles = vec![vec!["src/a.rs".into(), "src/b.rs".into()]];
+    let html = render(&report).unwrap();
+    assert!(
+        html.contains("import_cycles"),
+        "window.R must carry import_cycles and the JS must read it"
+    );
+    assert!(
+        html.contains("stroke-dasharray"),
+        "cycle edges must be drawn dashed (stroke-dasharray present in JS)"
+    );
+    assert!(
+        html.contains("Circular dependency"),
+        "the legend must explain the dashed cycle edges"
+    );
+}
+
+#[test]
+fn graph_tab_has_focus_mode() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("Click a node to focus its neighbourhood"),
+        "the graph tab must advertise click-to-focus"
+    );
+}
+
+#[test]
+fn graph_tab_has_directory_grouping_toggle() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("Group by directory"),
+        "the graph tab must offer a directory aggregation toggle"
+    );
+}
+
+#[test]
+fn graph_tab_has_min_degree_slider() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("Min degree"),
+        "the graph tab must offer a min-degree filter"
+    );
+}
+
+#[test]
+fn graph_tab_has_svg_export() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("Export SVG"),
+        "the graph tab must offer an SVG export button"
+    );
+}
+
+#[test]
+fn coupling_instability_table_links_to_graph() {
+    use crate::scorer::FileCouplingMetrics;
+
+    let mut report = make_report();
+    report.per_file_coupling = vec![FileCouplingMetrics {
+        path: "src/main.rs".into(),
+        ca: 2,
+        ce: 8,
+        instability: 0.8,
+    }];
+    let html = render(&report).unwrap();
+    assert!(
+        html.contains("__focusGraphNode"),
+        "instability table rows must drill through to the graph tab via __focusGraphNode"
     );
 }

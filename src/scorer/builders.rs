@@ -5,7 +5,8 @@ use crate::snapshot::RepoSnapshot;
 
 use super::actions::score_commit_message;
 use super::types::{
-    AuthorCard, AuthorShare, CouplingPair, FileAge, FileCouplingMetrics, FileOwnership, HotspotFile,
+    AuthorCard, AuthorShare, CouplingPair, FileAge, FileCouplingMetrics, FileOwnership,
+    HotspotFile, ImportEdge,
 };
 
 const BUG_KEYWORDS: &[&str] = &["fix", "bug", "broken", "crash", "regression"];
@@ -342,6 +343,62 @@ pub(super) fn build_per_file_coupling(snapshot: &RepoSnapshot) -> Vec<FileCoupli
     metrics
 }
 
+pub(super) fn build_import_edges(snapshot: &RepoSnapshot) -> Vec<ImportEdge> {
+    let mut edges: Vec<ImportEdge> = snapshot
+        .import_graph
+        .iter()
+        .flat_map(|(from, imports)| {
+            imports.iter().map(|to| ImportEdge {
+                from: from.to_string_lossy().to_string(),
+                to: to.to_string_lossy().to_string(),
+            })
+        })
+        .collect();
+
+    edges.sort_by(|a, b| a.from.cmp(&b.from).then_with(|| a.to.cmp(&b.to)));
+    edges
+}
+
+/// Detect import cycles as sorted node lists: A↔B (depth 1) and
+/// A→B→C→A (depth 2). Same semantics as the circular-dependencies
+/// metric, but keeps the member files so renderers can highlight the
+/// offending edges instead of only counting them.
+pub(super) fn build_import_cycles(snapshot: &RepoSnapshot) -> Vec<Vec<String>> {
+    let graph = &snapshot.import_graph;
+    let mut cycles: HashSet<Vec<String>> = HashSet::new();
+
+    for (a, targets_a) in graph {
+        for b in targets_a {
+            let Some(targets_b) = graph.get(b) else {
+                continue;
+            };
+            if targets_b.contains(a) {
+                let mut pair = vec![
+                    a.to_string_lossy().to_string(),
+                    b.to_string_lossy().to_string(),
+                ];
+                pair.sort();
+                cycles.insert(pair);
+            }
+            for c in targets_b {
+                if c != a && c != b && graph.get(c).map(|t| t.contains(a)).unwrap_or(false) {
+                    let mut trio = vec![
+                        a.to_string_lossy().to_string(),
+                        b.to_string_lossy().to_string(),
+                        c.to_string_lossy().to_string(),
+                    ];
+                    trio.sort();
+                    cycles.insert(trio);
+                }
+            }
+        }
+    }
+
+    let mut result: Vec<Vec<String>> = cycles.into_iter().collect();
+    result.sort();
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -471,6 +528,94 @@ mod tests {
             pairs[0].is_test_pair,
             "user.go ↔ user_test.go must be flagged as a test pair"
         );
+    }
+
+    #[test]
+    fn import_edges_empty_graph() {
+        let snapshot = make_snapshot_with_imports(vec!["src/isolated.rs"], vec![]);
+
+        assert!(build_import_edges(&snapshot).is_empty());
+    }
+
+    #[test]
+    fn import_edges_flattens_and_sorts_graph() {
+        // HashMap iteration order is arbitrary — edges must come out
+        // sorted by (from, to) so report output stays deterministic.
+        let snapshot = make_snapshot_with_imports(
+            vec!["src/a.rs", "src/b.rs", "src/core.rs", "src/dep.rs"],
+            vec![
+                ("src/b.rs", vec!["src/core.rs"]),
+                ("src/a.rs", vec!["src/dep.rs", "src/core.rs"]),
+            ],
+        );
+
+        let edges = build_import_edges(&snapshot);
+
+        let as_pairs: Vec<(&str, &str)> = edges
+            .iter()
+            .map(|e| (e.from.as_str(), e.to.as_str()))
+            .collect();
+        assert_eq!(
+            as_pairs,
+            vec![
+                ("src/a.rs", "src/core.rs"),
+                ("src/a.rs", "src/dep.rs"),
+                ("src/b.rs", "src/core.rs"),
+            ]
+        );
+    }
+
+    #[test]
+    fn import_cycles_empty_graph() {
+        let snapshot = make_snapshot_with_imports(vec!["src/a.rs"], vec![]);
+
+        assert!(build_import_cycles(&snapshot).is_empty());
+    }
+
+    #[test]
+    fn import_cycles_chain_without_cycle_is_empty() {
+        let snapshot = make_snapshot_with_imports(
+            vec!["src/a.rs", "src/b.rs", "src/c.rs"],
+            vec![
+                ("src/a.rs", vec!["src/b.rs"]),
+                ("src/b.rs", vec!["src/c.rs"]),
+            ],
+        );
+
+        assert!(build_import_cycles(&snapshot).is_empty());
+    }
+
+    #[test]
+    fn import_cycles_detects_direct_cycle() {
+        let snapshot = make_snapshot_with_imports(
+            vec!["src/a.rs", "src/b.rs"],
+            vec![
+                ("src/a.rs", vec!["src/b.rs"]),
+                ("src/b.rs", vec!["src/a.rs"]),
+            ],
+        );
+
+        let cycles = build_import_cycles(&snapshot);
+
+        assert_eq!(cycles, vec![vec!["src/a.rs", "src/b.rs"]]);
+    }
+
+    #[test]
+    fn import_cycles_detects_depth_two_cycle_once() {
+        // a→b→c→a is reachable from all three starting points but must
+        // be reported as a single cycle.
+        let snapshot = make_snapshot_with_imports(
+            vec!["src/a.rs", "src/b.rs", "src/c.rs"],
+            vec![
+                ("src/a.rs", vec!["src/b.rs"]),
+                ("src/b.rs", vec!["src/c.rs"]),
+                ("src/c.rs", vec!["src/a.rs"]),
+            ],
+        );
+
+        let cycles = build_import_cycles(&snapshot);
+
+        assert_eq!(cycles, vec![vec!["src/a.rs", "src/b.rs", "src/c.rs"]]);
     }
 
     #[test]

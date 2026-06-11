@@ -9,7 +9,7 @@ pub use types::*;
 use actions::generate_top_actions;
 use builders::{
     build_author_cards, build_author_ownership, build_coupling_pairs, build_file_ages,
-    build_hotspots, build_per_file_coupling,
+    build_hotspots, build_import_cycles, build_import_edges, build_per_file_coupling,
 };
 
 use std::collections::HashMap;
@@ -66,6 +66,8 @@ pub fn build_report(
 
     let audit = Some(audit::build_audit_report(snapshot));
     let per_file_coupling = build_per_file_coupling(snapshot);
+    let import_edges = build_import_edges(snapshot);
+    let import_cycles = build_import_cycles(snapshot);
 
     AnalysisReport {
         repo_name: snapshot.name.clone(),
@@ -87,6 +89,8 @@ pub fn build_report(
         dep_ecosystem_reports: Vec::new(),
         audit,
         per_file_coupling,
+        import_edges,
+        import_cycles,
         score_thresholds: ScoreThresholds::default(),
     }
 }
@@ -350,6 +354,22 @@ mod tests {
         assert!(
             report.per_file_coupling.is_empty(),
             "per_file_coupling should be empty for an empty snapshot"
+        );
+    }
+
+    #[test]
+    fn build_report_populates_import_edges_empty_snapshot() {
+        let snapshot = RepoSnapshot::new(
+            std::path::PathBuf::from("/tmp"),
+            "test-repo".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        let categories = vec![make_category("Health", 80)];
+        let report = build_report(&snapshot, categories, None, WEIGHTS, 2);
+        assert!(
+            report.import_edges.is_empty(),
+            "import_edges should be empty for an empty snapshot"
         );
     }
 

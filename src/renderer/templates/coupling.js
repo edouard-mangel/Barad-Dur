@@ -233,13 +233,17 @@
       perFileCoupling.slice().sort(function(a, b) { return b.instability - a.instability; }).slice(0, 50).forEach(function(f) {
         var fRow = el('tr');
 
-        var fileCell = el('td');
+        var fileCell = el('td', { style: { cursor: 'pointer' }, title: 'View in import graph' });
         var fParts = fileParts(f.path);
         var dirSpan = el('span', { className: 'file-dir' });
         dirSpan.append(txt(fParts.dir));
         var nameSpan = el('span', { className: 'file-name' });
         nameSpan.append(txt(fParts.name));
         fileCell.append(dirSpan, nameSpan);
+        fileCell.addEventListener('click', function() {
+          if (window.__switchToTab) window.__switchToTab('graph');
+          if (window.__focusGraphNode) window.__focusGraphNode(f.path);
+        });
 
         var caCell = el('td');
         caCell.append(txt(String(f.ca)));

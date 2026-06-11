@@ -232,11 +232,12 @@
     }
 
     // Tabs
-    var tabNames = ['Overview', 'Hotspots', 'Coupling', 'Ownership', 'Age', 'Treemap', 'Trends', 'Authors', 'Dependencies', 'Audit'];
+    var tabNames = ['Overview', 'Hotspots', 'Coupling', 'Graph', 'Ownership', 'Age', 'Treemap', 'Trends', 'Authors', 'Dependencies', 'Audit'];
     var tabContents = [
       buildOverviewTab,
       buildHotspotsTab,
       buildCouplingTab,
+      buildGraphTab,
       buildOwnershipTab,
       buildAgeTab,
       buildTreemapTab,
