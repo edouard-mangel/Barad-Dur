@@ -107,6 +107,13 @@ pub struct FileCouplingMetrics {
     pub instability: f64,
 }
 
+/// One directed edge of the static import graph: `from` imports `to`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportEdge {
+    pub from: String,
+    pub to: String,
+}
+
 /// Metadata about the remote repository origin (populated when a URL is given).
 #[derive(Debug, Clone, Serialize)]
 pub struct RemoteMeta {
@@ -148,6 +155,9 @@ pub struct AnalysisReport {
     pub dep_ecosystem_reports: Vec<crate::deps::EcosystemReport>,
     pub audit: Option<AuditReport>,
     pub per_file_coupling: Vec<FileCouplingMetrics>,
+    pub import_edges: Vec<ImportEdge>,
+    /// Import cycles as sorted member-file lists (depth 1 and 2).
+    pub import_cycles: Vec<Vec<String>>,
     pub score_thresholds: ScoreThresholds,
 }
 
