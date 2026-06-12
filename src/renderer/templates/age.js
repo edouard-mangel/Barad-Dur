@@ -54,6 +54,7 @@
       var nameSpan = el('span', { className: 'file-name' });
       nameSpan.append(txt(parts.name));
       fileCell.append(dirSpan, nameSpan);
+      linkFileCell(fileCell, f.path, 'Hotspots');
 
       var dateCell = el('td', { style: { fontFamily: 'monospace', fontSize: '11px', color: '#64748b' } });
       var dateStr = f.last_modified ? f.last_modified.slice(0, 10) : '—';
