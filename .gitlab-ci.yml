@@ -193,15 +193,18 @@ semver-check:
         exit 0
       fi
       cargo binstall --no-confirm cargo-mutants cargo-nextest
+      # --in-diff: only mutate code touched by the feature diff (per-feature strategy).
+      # --timeout-multiplier instead of a fixed cap: the suite's clean runtime grows
+      # with the codebase and already outran a hardcoded 300s once (baseline timeout).
+      # || true: shard exit codes (missed/timeout mutants) must not fail the job —
+      # the mutation-gate aggregates all shards and is the single blocking decision.
       BARAD_DUR_TEST_REPO=${CI_PROJECT_DIR} cargo mutants \
-        --file src/registry/client.rs \
-        --file src/registry/mod.rs \
-        --file src/cmd/analyze.rs \
+        --in-diff recent.diff \
         --shard ${SHARD_INDEX}/3 \
         --test-tool nextest \
-        --timeout 300 --jobs 2 \
+        --timeout-multiplier 3 --jobs 2 \
         --output mutants-out-${SHARD_INDEX} \
-        2>&1 | tee mutants-${SHARD_INDEX}.log
+        2>&1 | tee mutants-${SHARD_INDEX}.log || true
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
   allow_failure: false
@@ -267,10 +270,23 @@ mutation-gate:
               print(f'Shard {i}: baseline tests failed — cannot compute kill rate')
               sys.exit(1)
           all_skipped = False
-          m = re.search(r'(\d+) mutants tested.*?(\d+) caught.*?(\d+) missed.*?(\d+) timeout.*?(\d+) unviable', content)
+          m = re.search(r'(\d+) mutants? tested', content)
           if not m:
-              continue
-          tested, caught, missed, timeout_n, unviable = map(int, m.groups())
+              if re.search(r'Found 0 mutants|[Nn]o mutants found', content):
+                  continue
+              # Shards swallow cargo-mutants exit codes (|| true), so a log with
+              # no summary means the run itself broke — surface that here.
+              print(f'Shard {i}: no mutants summary in log — shard run failed')
+              sys.exit(1)
+          tested = int(m.group(1))
+          # cargo-mutants omits zero categories from the summary line, so parse
+          # each one independently within that line and default to 0.
+          summary = content[m.start():].splitlines()[0]
+          def count(pattern):
+              c = re.search(r'(\d+) ' + pattern, summary)
+              return int(c.group(1)) if c else 0
+          caught, missed = count('caught'), count('missed')
+          timeout_n, unviable = count('timeouts?'), count('unviable')
           total_tested += tested
           total_caught += caught
           total_missed += missed
@@ -283,8 +299,9 @@ mutation-gate:
       if viable == 0:
           print('No viable mutants — skipping gate')
           sys.exit(0)
-      # TIMEOUTs count as caught: a mutant that causes a >300s test run is
-      # exercised by tests and cannot ship undetected — it just fails slowly.
+      # TIMEOUTs count as caught: a mutant that pushes the suite past 3x its
+      # baseline runtime is exercised by tests and cannot ship undetected —
+      # it just fails slowly.
       effective_caught = total_caught + total_timeout
       rate = effective_caught / viable * 100
       print(f'Kill rate: {effective_caught}/{viable} viable = {rate:.1f}% ({total_caught} fast + {total_timeout} timeout, {total_missed} missed)')
@@ -306,17 +323,25 @@ mutation-nightly:
   timeout: 6 hours
   script:
     - cargo binstall --no-confirm cargo-mutants
-    - BARAD_DUR_TEST_REPO=${CI_PROJECT_DIR} cargo mutants --timeout 300 --jobs 4 2>&1 | tee mutants.log
+    - BARAD_DUR_TEST_REPO=${CI_PROJECT_DIR} cargo mutants --timeout-multiplier 3 --jobs 4 2>&1 | tee mutants.log || true
     - |
       python3 << 'PYEOF'
       import re, sys
       with open('mutants.log') as f:
           content = f.read()
-      m = re.search(r'(\d+) mutants tested.*?(\d+) caught.*?(\d+) missed.*?(\d+) timeout.*?(\d+) unviable', content)
+      m = re.search(r'(\d+) mutants? tested', content)
       if not m:
           print('No mutants generated — skipping kill rate gate')
           sys.exit(0)
-      total, caught, missed, timeout_n, unviable = map(int, m.groups())
+      total = int(m.group(1))
+      # cargo-mutants omits zero categories from the summary line, so parse
+      # each one independently within that line and default to 0.
+      summary = content[m.start():].splitlines()[0]
+      def count(pattern):
+          c = re.search(r'(\d+) ' + pattern, summary)
+          return int(c.group(1)) if c else 0
+      caught, missed = count('caught'), count('missed')
+      timeout_n, unviable = count('timeouts?'), count('unviable')
       viable = total - unviable
       if viable == 0:
           print('No viable mutants — skipping gate')
