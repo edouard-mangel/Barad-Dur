@@ -216,6 +216,15 @@
       title.append(txt(f.path));
       detailBody.append(title);
 
+      var jump = el('div', { className: 'tm-detail-links', style: { display: 'flex', gap: '6px', marginBottom: '10px' } });
+      ['Hotspots', 'Graph'].forEach(function(tab) {
+        var b = el('button', { className: 'chip', style: { cursor: 'pointer' } });
+        b.append(txt('View in ' + tab.toLowerCase()));
+        b.addEventListener('click', function() { focusFileOnTab(tab, f.path); });
+        jump.append(b);
+      });
+      detailBody.append(jump);
+
       function row(label, value) {
         var r = el('div', { className: 'tm-detail-row' });
         var l = el('span');
@@ -540,6 +549,17 @@
 
     svg.addEventListener('mouseleave', function() {
       tooltip.style.display = 'none';
+    });
+
+    // Cross-tab entry point: reset to the root view (the file may sit inside
+    // a zoomed-out directory), then highlight it and open its detail panel.
+    registerFileFocus('treemap', function(path) {
+      var f = fileMap[path];
+      if (!f) return; // beyond the top-2000 LOC cap
+      navStack = [];
+      currentRoot = tree;
+      renderTreemap();
+      showDetail(f);
     });
 
     renderTreemap();

@@ -734,6 +734,49 @@ fn coupling_instability_table_links_to_graph() {
 }
 
 #[test]
+fn audit_file_lists_link_to_hotspots() {
+    let html = render(&make_report()).unwrap();
+    let links = html
+        .matches("linkFileCell(pathCell, f.path, 'Hotspots')")
+        .count();
+    assert!(
+        links >= 2,
+        "crisis-files and dead-files tables must drill through to Hotspots (found {links} call sites)"
+    );
+}
+
+#[test]
+fn treemap_registers_file_focus() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("registerFileFocus('treemap'"),
+        "treemap must be a cross-tab focus target (zoom to file + detail panel)"
+    );
+}
+
+#[test]
+fn treemap_detail_links_to_other_tabs() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("tm-detail-links"),
+        "treemap detail panel must offer jumps to other file-centric tabs"
+    );
+}
+
+#[test]
+fn report_has_quick_open_palette() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("qo-overlay"),
+        "report must include the quick-open palette overlay"
+    );
+    assert!(
+        html.contains("Jump to file"),
+        "quick-open input must carry its placeholder"
+    );
+}
+
+#[test]
 fn report_has_cross_tab_file_navigation() {
     let html = render(&make_report()).unwrap();
     assert!(

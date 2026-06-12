@@ -216,6 +216,11 @@
     });
     updateCbfBtn();
     chips.append(cbfBtn);
+    var quickOpen = buildQuickOpen();
+    var qoBtn = el('button', { className: 'chip', title: 'Jump to file (Ctrl+K)', style: { cursor: 'pointer' } });
+    qoBtn.append(txt('🔍 Ctrl+K'));
+    qoBtn.addEventListener('click', quickOpen.open);
+    chips.append(qoBtn);
     chips.append(buildThemeBtn());
     headerRow.append(brandWrap, chips);
     header.append(headerRow);

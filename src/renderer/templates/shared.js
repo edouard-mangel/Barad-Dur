@@ -701,3 +701,106 @@
     cell.title = 'View in ' + tabName.toLowerCase();
     cell.addEventListener('click', function() { focusFileOnTab(tabName, path); });
   }
+
+  /* ---- Quick-open palette (Ctrl/Cmd+K) ----
+     Fuzzy-ish jump to any analyzed file: row click / Enter goes to
+     Hotspots, per-row buttons go to Graph or Treemap. */
+  function buildQuickOpen() {
+    var overlay = el('div', { className: 'qo-overlay', style: {
+      position: 'fixed', inset: '0', background: 'rgba(2,6,23,0.6)',
+      display: 'none', zIndex: '1000', alignItems: 'flex-start', justifyContent: 'center'
+    }});
+    var box = el('div', { style: {
+      marginTop: '12vh', width: 'min(560px, 90vw)',
+      background: 'var(--bg-panel, #0f172a)', border: '1px solid #334155',
+      borderRadius: '10px', boxShadow: '0 18px 50px rgba(0,0,0,0.5)', overflow: 'hidden'
+    }});
+    var input = el('input', { type: 'search', placeholder: 'Jump to file… (Esc to close)', style: {
+      width: '100%', boxSizing: 'border-box', background: 'transparent', color: 'inherit',
+      border: 'none', borderBottom: '1px solid #1e293b', outline: 'none',
+      padding: '12px 14px', fontSize: '14px'
+    }});
+    var list = el('div', { style: { maxHeight: '50vh', overflowY: 'auto' } });
+    box.append(input, list);
+    overlay.append(box);
+
+    var sel = 0, rows = [];
+
+    function go(tab, path) {
+      close();
+      focusFileOnTab(tab, path);
+    }
+
+    function paint() {
+      rows.forEach(function(r, i) {
+        r.style.background = i === sel ? '#1e293b' : 'transparent';
+      });
+    }
+
+    function renderList() {
+      var q = input.value.toLowerCase();
+      list.replaceChildren();
+      rows = [];
+      sel = 0;
+      if (!q) return;
+      (R.file_hotspots || [])
+        .filter(function(f) { return f.path.toLowerCase().indexOf(q) !== -1; })
+        .slice(0, 12)
+        .forEach(function(f) {
+          var row = el('div', { className: 'qo-row', style: {
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            gap: '10px', padding: '8px 14px', cursor: 'pointer', fontSize: '13px'
+          }});
+          var parts = fileParts(f.path);
+          var label = el('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } });
+          var dirSpan = el('span', { className: 'file-dir' });
+          dirSpan.append(txt(parts.dir));
+          var nameSpan = el('span', { className: 'file-name' });
+          nameSpan.append(txt(parts.name));
+          label.append(dirSpan, nameSpan);
+          var dests = el('span', { style: { display: 'flex', gap: '4px', flexShrink: '0' } });
+          ['Graph', 'Treemap'].forEach(function(tab) {
+            var b = el('button', { className: 'chip', style: { cursor: 'pointer', fontSize: '10px' } });
+            b.append(txt(tab.toLowerCase()));
+            b.addEventListener('click', function(ev) { ev.stopPropagation(); go(tab, f.path); });
+            dests.append(b);
+          });
+          row.append(label, dests);
+          row.addEventListener('click', function() { go('Hotspots', f.path); });
+          row.addEventListener('mousemove', function() {
+            sel = rows.indexOf(row);
+            paint();
+          });
+          list.append(row);
+          rows.push(row);
+        });
+      paint();
+    }
+
+    function open() {
+      overlay.style.display = 'flex';
+      input.value = '';
+      list.replaceChildren();
+      rows = [];
+      input.focus();
+    }
+    function close() { overlay.style.display = 'none'; }
+
+    input.addEventListener('input', renderList);
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'ArrowDown') { sel = Math.min(sel + 1, rows.length - 1); paint(); e.preventDefault(); }
+      else if (e.key === 'ArrowUp') { sel = Math.max(sel - 1, 0); paint(); e.preventDefault(); }
+      else if (e.key === 'Enter' && rows[sel]) { rows[sel].click(); }
+      else if (e.key === 'Escape') { close(); }
+    });
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
+    document.addEventListener('keydown', function(e) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        if (overlay.style.display === 'none') open(); else close();
+      }
+    });
+
+    document.body.append(overlay);
+    return { open: open };
+  }
