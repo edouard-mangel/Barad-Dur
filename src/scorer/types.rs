@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::metrics::CategoryResult;
 
 #[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
 pub struct HotspotFile {
     pub path: String,
     pub churn_count: usize,
@@ -15,6 +16,8 @@ pub struct HotspotFile {
     pub public_methods: u32,
     pub properties: u32,
     pub hotspot_score: f64,
+    /// Commits touching the file per 1/12 of the analysis window (oldest first).
+    pub churn_timeline: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]

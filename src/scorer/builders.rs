@@ -11,6 +11,32 @@ use super::types::{
 
 const BUG_KEYWORDS: &[&str] = &["fix", "bug", "broken", "crash", "regression"];
 
+/// Number of equal time slices the analysis window is split into for the
+/// per-file churn sparkline. All files share the same axis so timelines
+/// are comparable across rows.
+const CHURN_TIMELINE_BUCKETS: usize = 12;
+
+fn churn_timeline(
+    commit_ids: Option<&Vec<crate::snapshot::CommitId>>,
+    ts_by_id: &HashMap<crate::snapshot::CommitId, i64>,
+    min_ts: i64,
+    max_ts: i64,
+) -> Vec<u32> {
+    if min_ts > max_ts {
+        return vec![0; CHURN_TIMELINE_BUCKETS]; // snapshot has no commits
+    }
+    let span = (max_ts - min_ts + 1) as i128;
+    commit_ids
+        .into_iter()
+        .flatten()
+        .filter_map(|id| ts_by_id.get(id))
+        .fold(vec![0u32; CHURN_TIMELINE_BUCKETS], |mut acc, ts| {
+            let idx = ((*ts - min_ts) as i128 * CHURN_TIMELINE_BUCKETS as i128 / span) as usize;
+            acc[idx.min(CHURN_TIMELINE_BUCKETS - 1)] += 1;
+            acc
+        })
+}
+
 pub(super) fn build_hotspots(snapshot: &RepoSnapshot) -> Vec<HotspotFile> {
     // Pre-classify bug-fix commits by ID to avoid O(files × commits) message scanning.
     let bug_commit_ids: HashSet<crate::snapshot::CommitId> = snapshot
@@ -22,6 +48,15 @@ pub(super) fn build_hotspots(snapshot: &RepoSnapshot) -> Vec<HotspotFile> {
         })
         .map(|c| c.id)
         .collect();
+
+    let ts_by_id: HashMap<crate::snapshot::CommitId, i64> = snapshot
+        .commits
+        .iter()
+        .map(|c| (c.id, c.timestamp.timestamp()))
+        .collect();
+    let (min_ts, max_ts) = ts_by_id
+        .values()
+        .fold((i64::MAX, i64::MIN), |(lo, hi), &t| (lo.min(t), hi.max(t)));
 
     let mut files: Vec<HotspotFile> = snapshot
         .files
@@ -48,6 +83,7 @@ pub(super) fn build_hotspots(snapshot: &RepoSnapshot) -> Vec<HotspotFile> {
                 public_methods: metrics.public_methods,
                 properties: metrics.properties,
                 hotspot_score: 0.0,
+                churn_timeline: churn_timeline(commit_ids, &ts_by_id, min_ts, max_ts),
             }
         })
         .collect();
@@ -753,6 +789,84 @@ mod tests {
             depth: 1,
             blob_oid: String::new(),
         }
+    }
+
+    fn make_commit_at(id: u32, ts: chrono::DateTime<Utc>) -> Commit {
+        Commit {
+            id: CommitId(id),
+            author: 0,
+            timestamp: ts,
+            message: "chore: touch".to_string(),
+            files_changed: vec![],
+            is_merge: false,
+            parent_count: 1,
+        }
+    }
+
+    #[test]
+    fn churn_timeline_buckets_commits_across_window() {
+        use chrono::TimeZone;
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp/test"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        let t0 = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+        let t_end = Utc.with_ymd_and_hms(2026, 12, 1, 0, 0, 0).unwrap();
+        snapshot.files = vec![make_file_entry("src/lib.rs")];
+        snapshot.commits = vec![make_commit_at(0, t0), make_commit_at(1, t_end)];
+        snapshot
+            .commits_by_file
+            .insert(PathBuf::from("src/lib.rs"), vec![CommitId(0), CommitId(1)]);
+
+        let hotspots = build_hotspots(&snapshot);
+        let timeline = &hotspots[0].churn_timeline;
+        assert_eq!(timeline.len(), 12);
+        assert_eq!(timeline[0], 1, "oldest commit lands in the first bucket");
+        assert_eq!(timeline[11], 1, "newest commit lands in the last bucket");
+        assert_eq!(timeline.iter().sum::<u32>(), 2);
+    }
+
+    #[test]
+    fn churn_timeline_single_commit_window() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp/test"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        snapshot.files = vec![make_file_entry("src/lib.rs")];
+        snapshot.commits = vec![make_commit(0, "feat: only commit")];
+        snapshot
+            .commits_by_file
+            .insert(PathBuf::from("src/lib.rs"), vec![CommitId(0)]);
+
+        let hotspots = build_hotspots(&snapshot);
+        let timeline = &hotspots[0].churn_timeline;
+        assert_eq!(timeline.len(), 12);
+        assert_eq!(
+            timeline.iter().sum::<u32>(),
+            1,
+            "zero-span window must not panic or drop the commit"
+        );
+    }
+
+    #[test]
+    fn churn_timeline_is_all_zeros_for_untouched_file() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp/test"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        snapshot.files = vec![make_file_entry("src/lib.rs")];
+        snapshot.commits = vec![make_commit(0, "feat: touches nothing tracked")];
+
+        let hotspots = build_hotspots(&snapshot);
+        let timeline = &hotspots[0].churn_timeline;
+        assert_eq!(timeline.len(), 12);
+        assert!(timeline.iter().all(|&v| v == 0));
     }
 
     #[test]
