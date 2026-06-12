@@ -11,7 +11,7 @@ Named after the Dark Tower of Mordor — because nothing escapes its gaze.
 
 ## What it does
 
-Barad-dur analyzes git metadata (commits, blame, file tree) and source code complexity, then produces a scored report across 5 categories:
+Barad-dur analyzes git metadata (commits, blame, file tree) and source code complexity, then produces a scored report across six categories (Dependencies is opt-in):
 
 | Category | Metrics | Weight |
 |----------|---------|--------|
@@ -67,13 +67,21 @@ This produces per-file metrics: **LOC** (excluding blanks/comments), **cyclomati
 
 A self-contained single-file HTML report with:
 
-- **Overview tab** — score gauge, radar chart, expandable category cards, top recommendations
-- **Hotspots tab** — scatter plot (complexity vs churn, radius = LOC) + sortable table
-- **Coupling tab** — temporal coupling pairs ranked by coupling percentage
-- **Ownership tab** — per-file ownership bars derived from blame, with author legend
-- **Age tab** — file staleness with age bands (Fresh / > 3mo / > 6mo / > 1y)
+- **Overview** — score gauge, radar chart, expandable category cards, top recommendations
+- **Hotspots** — scatter plot (complexity vs churn, radius = LOC) with axis ticks + sortable, filterable table (score, CC, churn, bug-fix commits, LOC); clicking a row or a bubble highlights its counterpart
+- **Coupling** — temporal coupling pairs ranked by coupling percentage, with auto-exclusion of expected pairs (lock files, test pairs, module indexes) and a per-file instability table (Ca / Ce / I)
+- **Graph** — interactive force-directed import dependency graph: click-to-focus neighbourhoods, circular dependencies as dashed red edges, directory grouping, min-degree filter, SVG export
+- **Ownership** — per-file ownership bars derived from blame, with author legend
+- **Age** — file staleness with age bands (Fresh / > 3mo / > 6mo / > 1y)
+- **Treemap** — zoomable file treemap (rectangles or circle packing) sized by LOC, colorable by metric, with per-file detail panel
+- **Trends** — historical score evolution from `trends.json` (see `backfill`)
+- **Authors** — per-contributor report cards
+- **Dependencies** — libyear drift and CVE findings (when `--deps` is enabled)
+- **Audit** — crisis files, directory concentration, dead files, velocity buckets
 
-No external dependencies — all CSS, JS, and data are inlined. Works offline. Dark theme.
+Tabs are connected: file cells drill through to the Hotspots and Graph views, and the current tab + selected file are mirrored into the URL hash (`#tab=graph&file=src/scorer.rs`) so any view can be shared as a deep link.
+
+No external dependencies — all CSS, JS, and data are inlined. Works offline. Dark theme with a light-mode toggle.
 
 **[Live example — this repo](https://barad-dur-b514a9.froggit.page/report.html)** (updated on every push to `main`)
 
@@ -378,10 +386,18 @@ The JSON output includes these top-level fields:
 | `categories` | array | Per-category scores and metrics |
 | `top_actions` | array | Suggested improvements |
 | `remote_meta` | object \| null | Remote repo metadata (populated for URL targets; enriched with GitHub API data when `--token` is provided) |
-| `file_hotspots` | array | Files ranked by hotspot score (churn x complexity x LOC) |
+| `file_hotspots` | array | Files ranked by hotspot score (churn x complexity x LOC), incl. bug-fix commit counts |
 | `coupling_pairs` | array | Temporally coupled file pairs with coupling percentage |
+| `per_file_coupling` | array | Per-file afferent/efferent coupling and instability (Ca / Ce / I) |
+| `import_edges` | array | Directed static import graph edges (`from` imports `to`) |
+| `import_cycles` | array | Circular import groups (member file lists, depth 1–2) |
 | `author_ownership` | array | Per-file ownership breakdown from blame |
 | `file_ages` | array | File staleness (days since last modification) |
+| `author_cards` | array | Per-contributor activity report cards |
+| `history` | array | Prior analysis snapshots (from `trends.json`) |
+| `dep_ecosystem_reports` | array | Per-ecosystem dependency drift and CVE findings (with `--deps`) |
+| `audit` | object \| null | Crisis files, directory concentration, dead files, velocity buckets |
+| `score_thresholds` | object | Score band cut-offs (good/warn) used by all renderers |
 
 ## Architecture
 
@@ -418,6 +434,8 @@ cargo test --test integration_tests # end-to-end tests
 cargo run -- analyze . -v
 ```
 
+Test quality is enforced with mutation testing (cargo-mutants): every push to `main` runs mutants scoped to the change's diff behind a ≥ 80% kill-rate gate, and a nightly job covers the full codebase.
+
 ## Shipped
 
 - **v0.5.0** — AST analysis via tree-sitter (Rust, JS, TS, Python, Go, Java, C#), historical trend tracking with backfill, per-blob blame cache
@@ -433,6 +451,7 @@ cargo run -- analyze . -v
 - **v0.15.0** — File exclusion: `--exclude` (glob), `--exclude-ext` (extension), `--no-default-excludes`; built-in exclusions for translation/resource files (*.resx, *.po, *.xlf, *.strings…)
 - **v0.16.0** — `gate --max-decline` (fail if score drops faster than N pts/run averaged over 8 runs), `coupling --coupling-window` (configurable temporal window)
 - **v0.17.0** — `[exclude] extensions` config key in `barad-dur.toml`, compound extension support (`min.js`), case-insensitive extension matching
+- **Unreleased** — import dependency **Graph tab** (cycles, click-to-focus, directory grouping, min-degree filter, SVG export), raw `import_edges`/`import_cycles` in JSON, `../`-import resolution fix, Hotspots polish (Bugs column, axis ticks, filter, bidirectional row↔dot highlight), cross-tab file navigation with URL-hash deep links, per-feature mutation testing gate in CI
 
 ## Roadmap
 
