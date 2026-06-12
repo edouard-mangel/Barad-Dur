@@ -120,17 +120,31 @@ Pre-built images are published to the GitLab container registry on every release
 ```bash
 docker pull lab.frogg.it:5050/edouard_mangel/barad-dur:latest
 # or pin to a specific version:
-docker pull lab.frogg.it:5050/edouard_mangel/barad-dur:v0.17.3
+docker pull lab.frogg.it:5050/edouard_mangel/barad-dur:v0.18.0
 ```
 
-Run it by mounting a repository into `/repo`:
+The image's entrypoint is the `barad-dur` binary (default command: `analyze .`, working directory `/repo`), so every subcommand works by mounting a repository into `/repo`:
 
 ```bash
-docker run --rm -v /path/to/repo:/repo lab.frogg.it:5050/edouard_mangel/barad-dur        # CLI summary
+# Analyze: CLI summary, JSON, or self-contained HTML report
+docker run --rm -v /path/to/repo:/repo lab.frogg.it:5050/edouard_mangel/barad-dur
+docker run --rm -v /path/to/repo:/repo lab.frogg.it:5050/edouard_mangel/barad-dur analyze . -v
 docker run --rm -v /path/to/repo:/repo lab.frogg.it:5050/edouard_mangel/barad-dur analyze . --json
 docker run --rm -v /path/to/repo:/repo -v $(pwd):/output \
   lab.frogg.it:5050/edouard_mangel/barad-dur analyze . --html -o /output/report.html
+
+# Quality gate in CI — exits non-zero when scores fall below the threshold
+docker run --rm -v /path/to/repo:/repo lab.frogg.it:5050/edouard_mangel/barad-dur gate . --min-score 70
+
+# Analyze a remote repository by URL — no local clone or mount needed
+docker run --rm lab.frogg.it:5050/edouard_mangel/barad-dur analyze https://github.com/BurntSushi/ripgrep
+
+# Other subcommands work the same way
+docker run --rm -v /path/to/repo:/repo lab.frogg.it:5050/edouard_mangel/barad-dur contributors .
+docker run --rm -v /path/to/repo:/repo lab.frogg.it:5050/edouard_mangel/barad-dur init .
 ```
+
+The snapshot cache is written to `/repo/.repository-analysis/`, so repeated runs against the same mount skip re-collection (use `--no-cache` to force it).
 
 All images are signed with [cosign](https://github.com/sigstore/cosign). Verify with the public key in `cosign.pub`:
 
