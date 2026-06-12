@@ -838,6 +838,19 @@ fn hotspot_table_shows_bug_commit_column() {
 }
 
 #[test]
+fn hotspot_bugs_column_explains_heuristic_in_tooltip() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("fix, bug, broken, crash or regression"),
+        "Bugs header tooltip must spell out the keyword heuristic behind the count"
+    );
+    assert!(
+        html.contains("not part of the Score"),
+        "Bugs header tooltip must clarify the count does not feed the hotspot score"
+    );
+}
+
+#[test]
 fn unscored_metric_renders_dash() {
     let html = render(&make_report()).unwrap();
     assert!(

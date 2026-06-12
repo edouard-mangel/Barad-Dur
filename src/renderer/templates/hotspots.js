@@ -203,9 +203,15 @@
       var thead = el('thead');
       var tr = el('tr');
 
-      function th(label, col) {
+      function th(label, col, tip) {
         var t = el('th', { className: 'th-sort' + (col === sortCol ? ' active-sort' : '') });
         t.append(txt(label + (col === sortCol ? (sortAsc ? ' ▲' : ' ▼') : '')));
+        if (tip) {
+          var icon = tipIcon(tip);
+          // hovering explains, clicking should not also re-sort
+          icon.addEventListener('click', function(ev) { ev.stopPropagation(); });
+          t.append(icon);
+        }
         t.addEventListener('click', function() {
           if (sortCol === col) { sortAsc = !sortAsc; } else { sortCol = col; sortAsc = false; }
           tableWrap.replaceChildren(buildTable());
@@ -221,7 +227,10 @@
         th('CC', 'cyclomatic_complexity'),
         th('Churn', 'churn_count'),
         trendTh,
-        th('Bugs', 'bug_commit_count'),
+        th('Bugs', 'bug_commit_count',
+          'Commits touching this file whose message contains fix, bug, broken, crash or regression '
+          + '(case-insensitive substring match). A heuristic for how often the file needs fixing — '
+          + 'displayed for context, not part of the Score.'),
         th('LOC', 'loc')
       );
       thead.append(tr);
