@@ -62,6 +62,7 @@
       var name = el('span', { className: 'path-name' });
       name.append(txt(parts.name));
       pathCell.append(dir, name);
+      linkFileCell(pathCell, f.path, 'Hotspots');
 
       var totalCell = el('td');
       totalCell.append(txt(String(f.total_commit_count)));
@@ -167,6 +168,7 @@
       var name = el('span', { className: 'path-name' });
       name.append(txt(parts.name));
       pathCell.append(dir, name);
+      linkFileCell(pathCell, f.path, 'Hotspots');
 
       var daysCell = el('td');
       var daysColor = f.days_since_modified > 365 ? '#ef4444' : '#f59e0b';
