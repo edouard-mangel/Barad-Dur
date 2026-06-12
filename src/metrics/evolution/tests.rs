@@ -90,7 +90,7 @@ fn structural_investment_keyword_commits() {
         RawValue::Float(r) => assert!((r - 0.30).abs() < 0.01, "Expected ~0.30, got {}", r),
         _ => panic!("Expected Float"),
     }
-    assert_eq!(result.score, 92);
+    assert_eq!(result.score, Some(92));
 }
 
 #[test]
@@ -126,7 +126,7 @@ fn structural_investment_rename_commits() {
         RawValue::Float(r) => assert!((r - 0.20).abs() < 0.01, "Expected ~0.20, got {}", r),
         _ => panic!("Expected Float"),
     }
-    assert!(result.score >= 80);
+    assert!(result.score.unwrap() >= 80);
 }
 
 #[test]
@@ -160,7 +160,7 @@ fn structural_investment_deletion_commits() {
         RawValue::Float(r) => assert!((r - 0.10).abs() < 0.01, "Expected ~0.10, got {}", r),
         _ => panic!("Expected Float"),
     }
-    assert_eq!(result.score, 55);
+    assert_eq!(result.score, Some(55));
 }
 
 #[test]
@@ -189,7 +189,7 @@ fn structural_investment_none_scores_low() {
         RawValue::Float(r) => assert_eq!(r, 0.0),
         _ => panic!("Expected Float"),
     }
-    assert_eq!(result.score, 25);
+    assert_eq!(result.score, Some(25));
 }
 
 #[test]
@@ -249,5 +249,5 @@ fn commit_cadence_detects_regularity() {
 
     let result = commit_cadence(&snapshot, &crate::config::EvolutionThresholds::default());
     assert!(result.description.contains("regular") || result.description.contains("moderate"));
-    assert!(result.score >= 70);
+    assert!(result.score.unwrap() >= 70);
 }

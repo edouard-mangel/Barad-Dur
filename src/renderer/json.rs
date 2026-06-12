@@ -103,7 +103,7 @@ mod tests {
                     name: "Bus factor".into(),
                     description: "2 (risky)".into(),
                     raw_value: RawValue::Integer(2),
-                    score: 50,
+                    score: Some(50),
                 }],
             }],
             top_actions: vec![ActionItem {
@@ -125,6 +125,22 @@ mod tests {
             import_cycles: vec![],
             score_thresholds: Default::default(),
         }
+    }
+
+    #[test]
+    fn json_unscored_metric_serializes_as_null() {
+        let mut report = make_report();
+        report.categories[0].metrics.push(MetricValue {
+            name: "Knowledge distribution".into(),
+            description: "Solo project — not applicable".into(),
+            raw_value: RawValue::Text("N/A".into()),
+            score: None,
+        });
+        let output = render(&report, false, None).unwrap();
+        assert!(
+            output.contains(r#""score":null"#),
+            "insufficient-data metrics must serialize score as null, not a number"
+        );
     }
 
     #[test]

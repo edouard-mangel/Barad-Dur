@@ -4,7 +4,8 @@ export interface MetricValue {
   name: string
   description: string
   raw_value: RawValue
-  score: number
+  /** 0–100, or null when the repo lacks the data to judge this metric. */
+  score: number | null
 }
 
 export interface CategoryResult {

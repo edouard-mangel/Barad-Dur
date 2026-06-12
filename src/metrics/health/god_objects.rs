@@ -67,7 +67,7 @@ pub(super) fn god_objects(snapshot: &RepoSnapshot) -> MetricValue {
             count, source_total, pct
         ),
         raw_value: RawValue::List(gods),
-        score,
+        score: Some(score),
     }
 }
 
@@ -115,7 +115,7 @@ mod tests {
         );
         add_normal_files(&mut snapshot, 99); // 1/100 = 1% → score 75
         let result = god_objects(&snapshot);
-        assert_eq!(result.score, 75);
+        assert_eq!(result.score, Some(75));
         match &result.raw_value {
             RawValue::List(v) => assert_eq!(v.len(), 1),
             _ => panic!("Expected List"),
@@ -143,7 +143,7 @@ mod tests {
         );
         add_normal_files(&mut snapshot, 99); // 1/100 = 1% → score 75
         let result = god_objects(&snapshot);
-        assert_eq!(result.score, 75); // LOC>300 AND methods>15
+        assert_eq!(result.score, Some(75)); // LOC>300 AND methods>15
     }
 
     #[test]
@@ -166,7 +166,7 @@ mod tests {
             },
         );
         let result = god_objects(&snapshot);
-        assert_eq!(result.score, 100);
+        assert_eq!(result.score, Some(100));
     }
 
     #[test]
@@ -190,7 +190,7 @@ mod tests {
             },
         );
         let result = god_objects(&snapshot);
-        assert_eq!(result.score, 100);
+        assert_eq!(result.score, Some(100));
     }
 
     #[test]
@@ -215,7 +215,7 @@ mod tests {
         );
         add_normal_files(&mut snapshot, 99); // 1/100 = 1% → score 75
         let result = god_objects(&snapshot);
-        assert_eq!(result.score, 75);
+        assert_eq!(result.score, Some(75));
     }
 
     #[test]
@@ -239,7 +239,7 @@ mod tests {
             },
         );
         let result = god_objects(&snapshot);
-        assert_eq!(result.score, 100);
+        assert_eq!(result.score, Some(100));
     }
 
     #[test]
@@ -266,7 +266,7 @@ mod tests {
         }
         add_normal_files(&mut snapshot, 95); // 5/100 = 5% ≤ 8% → score 50
         let result = god_objects(&snapshot);
-        assert_eq!(result.score, 50);
+        assert_eq!(result.score, Some(50));
     }
 
     #[test]
@@ -293,7 +293,7 @@ mod tests {
         }
         add_normal_files(&mut snapshot, 90); // 10/100 = 10% > 8% → score 25
         let result = god_objects(&snapshot);
-        assert_eq!(result.score, 25);
+        assert_eq!(result.score, Some(25));
     }
 
     #[test]
@@ -320,7 +320,7 @@ mod tests {
         }
         add_normal_files(&mut snapshot, 98); // 2/100 = 2% ≤ 2% → score 75
         let result = god_objects(&snapshot);
-        assert_eq!(result.score, 75);
+        assert_eq!(result.score, Some(75));
     }
 
     #[test]
@@ -345,7 +345,7 @@ mod tests {
         );
         add_normal_files(&mut snapshot, 99); // 1/100 = 1% → score 75
         let result = god_objects(&snapshot);
-        assert_eq!(result.score, 75); // flagged: 1/100 = 1%
+        assert_eq!(result.score, Some(75)); // flagged: 1/100 = 1%
     }
 
     #[test]
@@ -369,7 +369,7 @@ mod tests {
             },
         );
         let result = god_objects(&snapshot);
-        assert_eq!(result.score, 100); // loc=300 is not > 300
+        assert_eq!(result.score, Some(100)); // loc=300 is not > 300
     }
 
     #[test]
@@ -417,6 +417,6 @@ mod tests {
             },
         );
         let result = god_objects(&snapshot);
-        assert_eq!(result.score, 100);
+        assert_eq!(result.score, Some(100));
     }
 }

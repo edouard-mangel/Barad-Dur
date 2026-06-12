@@ -4,7 +4,7 @@ use chrono::{Duration, Utc};
 use std::path::PathBuf;
 
 #[test]
-fn compute_team_small_team_scores_100() {
+fn compute_team_small_team_metrics_unscored() {
     // Fewer than MIN_TEAM_SIZE authors → all metrics N/A, category scores 100
     let mut snapshot = RepoSnapshot::new(
         PathBuf::from("/tmp"),
@@ -20,8 +20,10 @@ fn compute_team_small_team_scores_100() {
         });
     }
     let result = compute_team(&snapshot, &crate::config::TeamThresholds::default());
+    // Category keeps 100 (gates must not punish N/A), but the individual
+    // metrics carry no score — renderers show a dash, not a fake 100.
     assert_eq!(result.score, 100);
-    assert!(result.metrics.iter().all(|m| m.score == 100));
+    assert!(result.metrics.iter().all(|m| m.score.is_none()));
     assert!(result
         .metrics
         .iter()
@@ -44,26 +46,26 @@ fn make_solo_snapshot() -> RepoSnapshot {
 }
 
 #[test]
-fn knowledge_distribution_solo_project_scores_100() {
+fn knowledge_distribution_solo_project_has_no_score() {
     let snapshot = make_solo_snapshot();
     let result = knowledge_distribution(&snapshot, &crate::config::TeamThresholds::default());
-    assert_eq!(result.score, 100);
+    assert_eq!(result.score, None);
     assert!(result.description.contains("Solo project"));
 }
 
 #[test]
-fn ownership_clarity_solo_project_scores_100() {
+fn ownership_clarity_solo_project_has_no_score() {
     let snapshot = make_solo_snapshot();
     let result = ownership_clarity(&snapshot, &crate::config::TeamThresholds::default());
-    assert_eq!(result.score, 100);
+    assert_eq!(result.score, None);
     assert!(result.description.contains("Solo project"));
 }
 
 #[test]
-fn collaboration_patterns_solo_project_scores_100() {
+fn collaboration_patterns_solo_project_has_no_score() {
     let snapshot = make_solo_snapshot();
     let result = collaboration_patterns(&snapshot, &crate::config::TeamThresholds::default());
-    assert_eq!(result.score, 100);
+    assert_eq!(result.score, None);
     assert!(result.description.contains("Solo project"));
 }
 
@@ -113,7 +115,7 @@ fn knowledge_distribution_detects_concentration() {
         RawValue::Float(gini) => assert!(gini >= 0.5, "Expected Gini >= 0.5, got {}", gini),
         _ => panic!("Expected Float"),
     }
-    assert!(result.score <= 50);
+    assert!(result.score.unwrap() <= 50);
 }
 
 #[test]

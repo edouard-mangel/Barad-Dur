@@ -62,7 +62,7 @@ fn afferent_coupling(snapshot: &RepoSnapshot) -> MetricValue {
             name: "Afferent coupling".to_string(),
             description: "No import dependencies detected".to_string(),
             raw_value: RawValue::Count(0),
-            score: 100,
+            score: None,
         };
     }
 
@@ -96,7 +96,7 @@ fn afferent_coupling(snapshot: &RepoSnapshot) -> MetricValue {
             median_ca, mean_ca, max_ca
         ),
         raw_value: RawValue::Float(median_ca),
-        score,
+        score: Some(score),
     }
 }
 
@@ -110,7 +110,7 @@ fn efferent_coupling(snapshot: &RepoSnapshot) -> MetricValue {
             name: "Efferent coupling".to_string(),
             description: "No import dependencies detected".to_string(),
             raw_value: RawValue::Count(0),
-            score: 100,
+            score: None,
         };
     }
 
@@ -149,7 +149,7 @@ fn efferent_coupling(snapshot: &RepoSnapshot) -> MetricValue {
             median_ce, mean_ce, max_ce
         ),
         raw_value: RawValue::Float(median_ce),
-        score,
+        score: Some(score),
     }
 }
 
@@ -187,7 +187,7 @@ fn change_coupling_smells(snapshot: &RepoSnapshot, thresholds: &CouplingThreshol
             thresholds.change_coupling_min_ratio * 100.0
         ),
         raw_value: RawValue::Count(smell_count),
-        score,
+        score: Some(score),
     }
 }
 
@@ -237,7 +237,7 @@ fn circular_dependencies(snapshot: &RepoSnapshot) -> MetricValue {
         name: "Circular dependencies".to_string(),
         description: format!("{} circular dependency pairs detected", count),
         raw_value: RawValue::List(cycle_list),
-        score,
+        score: Some(score),
     }
 }
 

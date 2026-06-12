@@ -43,7 +43,7 @@ fn make_report() -> AnalysisReport {
                 name: "Bus factor".into(),
                 description: "OK".into(),
                 raw_value: RawValue::Integer(3),
-                score: 75,
+                score: Some(75),
             }],
         }],
         top_actions: vec![ActionItem {

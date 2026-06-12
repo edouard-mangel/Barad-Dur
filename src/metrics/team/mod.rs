@@ -16,11 +16,11 @@ pub fn compute_team(
                 snapshot.authors.len()
             ),
             raw_value: RawValue::Text("N/A".to_string()),
-            score: 100,
+            score: None,
         };
         return CategoryResult {
             name: "Team".to_string(),
-            score: 100,
+            score: 0,
             metrics: vec![
                 na("Knowledge distribution"),
                 na("Contributor activity"),
@@ -28,7 +28,8 @@ pub fn compute_team(
                 na("Collaboration patterns"),
                 na("Merge patterns"),
             ],
-        };
+        }
+        .compute_score();
     }
 
     let metrics = vec![
@@ -58,7 +59,7 @@ fn knowledge_distribution(
             name: "Knowledge distribution".to_string(),
             description: "Solo project — not applicable".to_string(),
             raw_value: RawValue::Text("N/A".to_string()),
-            score: 100,
+            score: None,
         };
     }
 
@@ -67,7 +68,7 @@ fn knowledge_distribution(
             name: "Knowledge distribution".to_string(),
             description: "No blame data available".to_string(),
             raw_value: RawValue::Text("N/A".to_string()),
-            score: 50,
+            score: None,
         };
     }
 
@@ -85,7 +86,7 @@ fn knowledge_distribution(
             name: "Knowledge distribution".to_string(),
             description: "No blame data".to_string(),
             raw_value: RawValue::Text("N/A".to_string()),
-            score: 50,
+            score: None,
         };
     }
 
@@ -128,7 +129,7 @@ fn knowledge_distribution(
         name: "Knowledge distribution".to_string(),
         description: format!("Gini {:.2} ({})", gini, label),
         raw_value: RawValue::Float(gini),
-        score,
+        score: Some(score),
     }
 }
 
@@ -142,7 +143,7 @@ fn contributor_activity(
             name: "Contributor activity".to_string(),
             description: "No authors".to_string(),
             raw_value: RawValue::Text("N/A".to_string()),
-            score: 50,
+            score: None,
         };
     }
 
@@ -185,7 +186,7 @@ fn contributor_activity(
             active_authors, total_authors, pct
         ),
         raw_value: RawValue::Percentage(pct),
-        score,
+        score: Some(score),
     }
 }
 
@@ -200,7 +201,7 @@ fn ownership_clarity(
             name: "Ownership clarity".to_string(),
             description: "Solo project — not applicable".to_string(),
             raw_value: RawValue::Text("N/A".to_string()),
-            score: 100,
+            score: None,
         };
     }
 
@@ -209,7 +210,7 @@ fn ownership_clarity(
             name: "Ownership clarity".to_string(),
             description: "No blame data".to_string(),
             raw_value: RawValue::Text("N/A".to_string()),
-            score: 50,
+            score: None,
         };
     }
 
@@ -249,7 +250,7 @@ fn ownership_clarity(
         name: "Ownership clarity".to_string(),
         description: format!("{:.0}% of files have a clear owner", pct),
         raw_value: RawValue::Percentage(pct),
-        score,
+        score: Some(score),
     }
 }
 
@@ -264,7 +265,7 @@ fn collaboration_patterns(
             name: "Collaboration patterns".to_string(),
             description: "Solo project — not applicable".to_string(),
             raw_value: RawValue::Text("N/A".to_string()),
-            score: 100,
+            score: None,
         };
     }
 
@@ -273,7 +274,7 @@ fn collaboration_patterns(
             name: "Collaboration patterns".to_string(),
             description: "No blame data".to_string(),
             raw_value: RawValue::Text("N/A".to_string()),
-            score: 50,
+            score: None,
         };
     }
 
@@ -324,7 +325,7 @@ fn collaboration_patterns(
         name: "Collaboration patterns".to_string(),
         description: format!("{} directory silos detected out of {}", count, total_dirs),
         raw_value: RawValue::Count(count),
-        score,
+        score: Some(score),
     }
 }
 
@@ -338,7 +339,7 @@ fn merge_patterns(
             name: "Merge patterns".to_string(),
             description: "No commits".to_string(),
             raw_value: RawValue::Text("N/A".to_string()),
-            score: 50,
+            score: None,
         };
     }
 
@@ -388,7 +389,7 @@ fn merge_patterns(
         name: "Merge patterns".to_string(),
         description,
         raw_value: RawValue::Count(merge_count),
-        score,
+        score: Some(score),
     }
 }
 
