@@ -734,6 +734,44 @@ fn coupling_instability_table_links_to_graph() {
 }
 
 #[test]
+fn report_has_cross_tab_file_navigation() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("function focusFileOnTab("),
+        "report must expose a shared cross-tab file navigation entry point"
+    );
+    assert!(
+        html.contains("registerFileFocus("),
+        "tabs must register their file-focus handlers in the shared registry"
+    );
+}
+
+#[test]
+fn report_restores_state_from_url_hash() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("function parseHashState("),
+        "report must parse tab/file deep-link state from the URL hash"
+    );
+    assert!(
+        html.contains("history.replaceState"),
+        "selection changes must be reflected in the URL hash for shareable deep links"
+    );
+}
+
+#[test]
+fn age_and_ownership_tables_link_to_hotspots() {
+    let html = render(&make_report()).unwrap();
+    let links = html
+        .matches("linkFileCell(fileCell, f.path, 'Hotspots')")
+        .count();
+    assert!(
+        links >= 2,
+        "age and ownership file cells must drill through to the Hotspots tab (found {links} call sites)"
+    );
+}
+
+#[test]
 fn hotspot_table_shows_bug_commit_column() {
     let html = render(&make_report()).unwrap();
     assert!(
