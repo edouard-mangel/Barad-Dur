@@ -203,9 +203,15 @@
       var thead = el('thead');
       var tr = el('tr');
 
-      function th(label, col) {
+      function th(label, col, tip) {
         var t = el('th', { className: 'th-sort' + (col === sortCol ? ' active-sort' : '') });
         t.append(txt(label + (col === sortCol ? (sortAsc ? ' ▲' : ' ▼') : '')));
+        if (tip) {
+          var icon = tipIcon(tip);
+          // hovering explains, clicking should not also re-sort
+          icon.addEventListener('click', function(ev) { ev.stopPropagation(); });
+          t.append(icon);
+        }
         t.addEventListener('click', function() {
           if (sortCol === col) { sortAsc = !sortAsc; } else { sortCol = col; sortAsc = false; }
           tableWrap.replaceChildren(buildTable());
@@ -213,16 +219,31 @@
         return t;
       }
 
-      var trendTh = el('th', { title: 'Commits over the analysis window (oldest → newest)' });
-      trendTh.append(txt('Trend'));
+      var COL_TIPS = {
+        File: 'Path relative to the repository root. Click a row to highlight its bubble in the scatter plot.',
+        Score: 'Composite hotspot score 0–100: normalized churn (50%), cyclomatic complexity (30%) and '
+          + 'LOC (20%), each relative to the repository maximum. High = complex, large and frequently changed.',
+        CC: 'Cyclomatic complexity — the number of independent paths through the file’s code '
+          + '(decision points such as if/match/loops), measured by tree-sitter AST analysis.',
+        Churn: 'Number of commits that touched this file within the analysis window.',
+        Trend: 'Commits touching this file per 1/12 of the analysis window, oldest on the left. '
+          + 'All rows share the same time axis, so shapes are comparable.',
+        Bugs: 'Commits touching this file whose message contains fix, bug, broken, crash or regression '
+          + '(case-insensitive substring match). A heuristic for how often the file needs fixing — '
+          + 'displayed for context, not part of the Score.',
+        LOC: 'Lines of code, excluding blanks and comments.'
+      };
+
+      var trendTh = el('th');
+      trendTh.append(txt('Trend'), tipIcon(COL_TIPS.Trend));
       tr.append(
-        th('File', 'path'),
-        th('Score', 'hotspot_score'),
-        th('CC', 'cyclomatic_complexity'),
-        th('Churn', 'churn_count'),
+        th('File', 'path', COL_TIPS.File),
+        th('Score', 'hotspot_score', COL_TIPS.Score),
+        th('CC', 'cyclomatic_complexity', COL_TIPS.CC),
+        th('Churn', 'churn_count', COL_TIPS.Churn),
         trendTh,
-        th('Bugs', 'bug_commit_count'),
-        th('LOC', 'loc')
+        th('Bugs', 'bug_commit_count', COL_TIPS.Bugs),
+        th('LOC', 'loc', COL_TIPS.LOC)
       );
       thead.append(tr);
       table.append(thead);

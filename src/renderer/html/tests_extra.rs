@@ -838,6 +838,37 @@ fn hotspot_table_shows_bug_commit_column() {
 }
 
 #[test]
+fn hotspot_bugs_column_explains_heuristic_in_tooltip() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("fix, bug, broken, crash or regression"),
+        "Bugs header tooltip must spell out the keyword heuristic behind the count"
+    );
+    assert!(
+        html.contains("not part of the Score"),
+        "Bugs header tooltip must clarify the count does not feed the hotspot score"
+    );
+}
+
+#[test]
+fn hotspot_all_columns_have_tooltips() {
+    let html = render(&make_report()).unwrap();
+    for fragment in [
+        "normalized churn (50%)",         // Score: the exact formula weights
+        "independent paths",              // CC
+        "commits that touched this file", // Churn
+        "oldest on the left",             // Trend
+        "excluding blanks and comments",  // LOC
+        "highlight its bubble",           // File: explains row click
+    ] {
+        assert!(
+            html.contains(fragment),
+            "hotspot column tooltip fragment missing: {fragment:?}"
+        );
+    }
+}
+
+#[test]
 fn unscored_metric_renders_dash() {
     let html = render(&make_report()).unwrap();
     assert!(
