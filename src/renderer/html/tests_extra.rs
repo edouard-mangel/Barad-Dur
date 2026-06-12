@@ -734,6 +734,42 @@ fn coupling_instability_table_links_to_graph() {
 }
 
 #[test]
+fn hotspot_table_shows_bug_commit_column() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("'Bugs', 'bug_commit_count'"),
+        "hotspot table must expose the bug_commit_count field as a sortable Bugs column"
+    );
+}
+
+#[test]
+fn hotspot_scatter_has_axis_ticks() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("hs-axis-tick"),
+        "hotspot scatter must render numeric axis tick labels"
+    );
+}
+
+#[test]
+fn hotspot_table_has_text_filter() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("hs-filter"),
+        "hotspot table must offer a text filter input"
+    );
+}
+
+#[test]
+fn hotspot_selection_plots_missing_dot() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("function makeDot("),
+        "selecting an unplotted file must add its scatter dot on demand via makeDot()"
+    );
+}
+
+#[test]
 fn hotspot_table_rows_highlight_scatter_dot() {
     let html = render(&make_report()).unwrap();
     assert!(
