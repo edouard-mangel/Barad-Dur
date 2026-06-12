@@ -851,6 +851,24 @@ fn hotspot_bugs_column_explains_heuristic_in_tooltip() {
 }
 
 #[test]
+fn hotspot_all_columns_have_tooltips() {
+    let html = render(&make_report()).unwrap();
+    for fragment in [
+        "normalized churn (50%)",         // Score: the exact formula weights
+        "independent paths",              // CC
+        "commits that touched this file", // Churn
+        "oldest on the left",             // Trend
+        "excluding blanks and comments",  // LOC
+        "highlight its bubble",           // File: explains row click
+    ] {
+        assert!(
+            html.contains(fragment),
+            "hotspot column tooltip fragment missing: {fragment:?}"
+        );
+    }
+}
+
+#[test]
 fn unscored_metric_renders_dash() {
     let html = render(&make_report()).unwrap();
     assert!(
