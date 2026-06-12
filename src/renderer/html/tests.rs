@@ -209,6 +209,7 @@ fn make_treemap_report() -> AnalysisReport {
             public_methods: 3,
             properties: 1,
             hotspot_score: 72.0,
+            churn_timeline: vec![],
         },
         HotspotFile {
             path: "src/lib.rs".into(),
@@ -220,6 +221,7 @@ fn make_treemap_report() -> AnalysisReport {
             public_methods: 5,
             properties: 2,
             hotspot_score: 45.0,
+            churn_timeline: vec![],
         },
         HotspotFile {
             path: "tests/test_a.rs".into(),
@@ -231,6 +233,7 @@ fn make_treemap_report() -> AnalysisReport {
             public_methods: 2,
             properties: 0,
             hotspot_score: 20.0,
+            churn_timeline: vec![],
         },
         HotspotFile {
             path: "tests/test_b.rs".into(),
@@ -242,6 +245,7 @@ fn make_treemap_report() -> AnalysisReport {
             public_methods: 1,
             properties: 0,
             hotspot_score: 10.0,
+            churn_timeline: vec![],
         },
     ];
     report.file_ages = vec![
