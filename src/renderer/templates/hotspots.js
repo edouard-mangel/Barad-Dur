@@ -119,6 +119,7 @@
     var tableWrap = el('div', { style: { overflowX: 'auto' } });
     var sortCol = 'hotspot_score';
     var sortAsc = false;
+    var selected = null;
 
     function buildTable() {
       var sorted = files.slice().sort(function(a, b) {
@@ -157,7 +158,12 @@
       var tbody = el('tbody');
       sorted.slice(0, 50).forEach(function(f) {
         var parts = fileParts(f.path);
-        var row = el('tr', { 'data-path': f.path });
+        var row = el('tr', {
+          'data-path': f.path,
+          className: f.path === selected ? 'hs-row-highlight' : '',
+          title: 'Highlight in scatter plot',
+          style: { cursor: 'pointer' }
+        });
         var fileCell = el('td');
         var dirSpan = el('span', { className: 'file-dir' });
         dirSpan.append(txt(parts.dir));
@@ -191,8 +197,30 @@
     tableCard.append(tableWrap);
     wrap.append(tableCard);
 
-    // Click scatter dot → highlight matching table row
-    var selectedDot = null;
+    // Shared selection: one file highlighted in both the scatter plot and the
+    // table. Returns false when the click toggled the selection off.
+    function selectHotspot(path) {
+      scatter.querySelectorAll('.hs-scatter-dot').forEach(function(d) {
+        d.setAttribute('class', 'hs-scatter-dot');
+      });
+      tableWrap.querySelectorAll('.hs-row-highlight').forEach(function(r) {
+        r.classList.remove('hs-row-highlight');
+      });
+
+      if (selected === path) {
+        selected = null;
+        return false;
+      }
+      selected = path;
+
+      var dot = scatter.querySelector('.hs-scatter-dot[data-path="' + CSS.escape(path) + '"]');
+      if (dot) dot.setAttribute('class', 'hs-scatter-dot active');
+      var row = tableWrap.querySelector('tr[data-path="' + CSS.escape(path) + '"]');
+      if (row) row.classList.add('hs-row-highlight');
+      return true;
+    }
+
+    // Click scatter dot → highlight + scroll to matching table row
     scatter.addEventListener('click', function(e) {
       var dot = e.target;
       // Walk up for SVG elements (closest() unreliable on SVG)
@@ -201,32 +229,23 @@
         dot = dot.parentNode;
       }
       if (!dot || dot === scatter) return;
-      var path = dot.getAttribute('data-path');
+      if (!selectHotspot(dot.getAttribute('data-path'))) return;
+      var row = tableWrap.querySelector('.hs-row-highlight');
+      if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
 
-      // Clear previous
-      scatter.querySelectorAll('.hs-scatter-dot').forEach(function(d) {
-        d.setAttribute('class', 'hs-scatter-dot');
-      });
-      tableWrap.querySelectorAll('.hs-row-highlight').forEach(function(r) {
-        r.classList.remove('hs-row-highlight');
-      });
-
-      // Toggle off if same dot clicked
-      if (selectedDot === path) {
-        selectedDot = null;
-        return;
+    // Click table row → highlight + scroll to matching scatter dot.
+    // Delegated on tableWrap so it survives sort rebuilds; header rows carry
+    // no data-path and fall through to their own sort handlers.
+    tableWrap.addEventListener('click', function(e) {
+      var row = e.target;
+      while (row && row !== tableWrap) {
+        if (row.tagName === 'TR' && row.getAttribute('data-path')) break;
+        row = row.parentNode;
       }
-      selectedDot = path;
-
-      // Highlight dot
-      dot.setAttribute('class', 'hs-scatter-dot active');
-
-      // Highlight and scroll to table row
-      var row = tableWrap.querySelector('tr[data-path="' + CSS.escape(path) + '"]');
-      if (row) {
-        row.classList.add('hs-row-highlight');
-        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
+      if (!row || row === tableWrap) return;
+      if (!selectHotspot(row.getAttribute('data-path'))) return;
+      plotCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
 
     return wrap;

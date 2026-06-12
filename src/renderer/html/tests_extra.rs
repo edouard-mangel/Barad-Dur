@@ -732,3 +732,16 @@ fn coupling_instability_table_links_to_graph() {
         "instability table rows must drill through to the graph tab via __focusGraphNode"
     );
 }
+
+#[test]
+fn hotspot_table_rows_highlight_scatter_dot() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("function selectHotspot("),
+        "Hotspots tab must share one selectHotspot() between scatter dots and table rows"
+    );
+    assert!(
+        html.contains("Highlight in scatter plot"),
+        "hotspot table rows must advertise click-to-highlight via their tooltip"
+    );
+}
