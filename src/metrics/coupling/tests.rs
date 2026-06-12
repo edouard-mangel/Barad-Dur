@@ -7,7 +7,7 @@ use std::path::PathBuf;
 fn afferent_coupling_empty_graph() {
     let snapshot = make_snapshot();
     let result = afferent_coupling(&snapshot);
-    assert_eq!(result.score, 100);
+    assert_eq!(result.score, None);
 }
 
 #[test]
@@ -24,7 +24,7 @@ fn afferent_coupling_single_hub_scores_well() {
             .insert(PathBuf::from(&name), vec![PathBuf::from("core.rs")]);
     }
     let result = afferent_coupling(&snapshot);
-    assert_eq!(result.score, 100); // median Ca=0, single hub is fine
+    assert_eq!(result.score, Some(100)); // median Ca=0, single hub is fine
 }
 
 #[test]
@@ -49,7 +49,11 @@ fn afferent_coupling_widespread_deps_scores_lower() {
             .insert(PathBuf::from(format!("f{}.rs", i)), targets);
     }
     let result = afferent_coupling(&snapshot);
-    assert!(result.score <= 50, "score={}, expected <=50", result.score);
+    assert!(
+        result.score.unwrap() <= 50,
+        "score={:?}, expected <=50",
+        result.score
+    );
 }
 
 #[test]
@@ -73,7 +77,7 @@ fn afferent_coupling_description_shows_distribution() {
 fn efferent_coupling_empty_graph() {
     let snapshot = make_snapshot();
     let result = efferent_coupling(&snapshot);
-    assert_eq!(result.score, 100);
+    assert_eq!(result.score, None);
 }
 
 #[test]
@@ -99,7 +103,7 @@ fn efferent_coupling_single_heavy_file_scores_well() {
             .insert(PathBuf::from(&name), vec![PathBuf::from("util.rs")]);
     }
     let result = efferent_coupling(&snapshot);
-    assert_eq!(result.score, 100); // median Ce ≈ 0
+    assert_eq!(result.score, Some(100)); // median Ce ≈ 0
 }
 
 #[test]
@@ -118,7 +122,7 @@ fn efferent_coupling_all_heavy_scores_low() {
         );
     }
     let result = efferent_coupling(&snapshot);
-    assert_eq!(result.score, 25);
+    assert_eq!(result.score, Some(25));
 }
 
 #[test]
@@ -145,7 +149,7 @@ fn circular_deps_none() {
         .insert(PathBuf::from("a.rs"), vec![PathBuf::from("b.rs")]);
     // b does not import a → no cycle
     let result = circular_dependencies(&snapshot);
-    assert_eq!(result.score, 100);
+    assert_eq!(result.score, Some(100));
 }
 
 #[test]
@@ -158,7 +162,7 @@ fn circular_deps_direct() {
         .import_graph
         .insert(PathBuf::from("b.rs"), vec![PathBuf::from("a.rs")]);
     let result = circular_dependencies(&snapshot);
-    assert_eq!(result.score, 75); // 1 cycle
+    assert_eq!(result.score, Some(75)); // 1 cycle
 }
 
 #[test]
@@ -175,7 +179,7 @@ fn circular_deps_transitive_depth2() {
         .import_graph
         .insert(PathBuf::from("c.rs"), vec![PathBuf::from("a.rs")]);
     let result = circular_dependencies(&snapshot);
-    assert!(result.score < 100, "should detect depth-2 cycle");
+    assert!(result.score.unwrap() < 100, "should detect depth-2 cycle");
 }
 
 #[test]
@@ -189,7 +193,7 @@ fn circular_deps_many() {
         snapshot.import_graph.insert(b, vec![a]);
     }
     let result = circular_dependencies(&snapshot);
-    assert_eq!(result.score, 25);
+    assert_eq!(result.score, Some(25));
 }
 
 use crate::config::CouplingThresholds;
@@ -241,7 +245,7 @@ fn change_coupling_same_component_excluded() {
         (0u32..10).map(CommitId).collect::<Vec<_>>(),
     );
     let result = change_coupling_smells(&snapshot, &default_thresholds());
-    assert_eq!(result.score, 100);
+    assert_eq!(result.score, Some(100));
 }
 
 #[test]
@@ -259,7 +263,7 @@ fn change_coupling_cross_component_above_threshold_counted() {
         (0u32..10).map(CommitId).collect::<Vec<_>>(),
     );
     let result = change_coupling_smells(&snapshot, &default_thresholds());
-    assert_eq!(result.score, 75); // 1 smell
+    assert_eq!(result.score, Some(75)); // 1 smell
 }
 
 #[test]
@@ -277,7 +281,7 @@ fn change_coupling_ratio_below_threshold_excluded() {
         (0u32..10).map(CommitId).collect::<Vec<_>>(),
     );
     let result = change_coupling_smells(&snapshot, &default_thresholds());
-    assert_eq!(result.score, 100);
+    assert_eq!(result.score, Some(100));
 }
 
 #[test]
@@ -288,7 +292,7 @@ fn change_coupling_missing_commits_entry_excluded() {
         .push((PathBuf::from("src/a.rs"), PathBuf::from("tests/b.rs"), 5));
     // No commits_by_file entries → min(0,0) == 0 → skip
     let result = change_coupling_smells(&snapshot, &default_thresholds());
-    assert_eq!(result.score, 100);
+    assert_eq!(result.score, Some(100));
 }
 
 fn make_cross_boundary_snapshot(n: usize) -> RepoSnapshot {
@@ -311,19 +315,19 @@ fn make_cross_boundary_snapshot(n: usize) -> RepoSnapshot {
 fn change_coupling_scoring_bands() {
     assert_eq!(
         change_coupling_smells(&make_snapshot(), &default_thresholds()).score,
-        100
+        Some(100)
     );
     assert_eq!(
         change_coupling_smells(&make_cross_boundary_snapshot(2), &default_thresholds()).score,
-        75
+        Some(75)
     );
     assert_eq!(
         change_coupling_smells(&make_cross_boundary_snapshot(4), &default_thresholds()).score,
-        50
+        Some(50)
     );
     assert_eq!(
         change_coupling_smells(&make_cross_boundary_snapshot(6), &default_thresholds()).score,
-        25
+        Some(25)
     );
 }
 
@@ -342,7 +346,7 @@ fn change_coupling_depth1_same_component() {
         (0u32..10).map(CommitId).collect::<Vec<_>>(),
     );
     let result = change_coupling_smells(&snapshot, &thresholds_with_depth(1));
-    assert_eq!(result.score, 100);
+    assert_eq!(result.score, Some(100));
 }
 
 #[test]
@@ -362,7 +366,7 @@ fn change_coupling_depth3_different_component() {
         (0u32..10).map(CommitId).collect::<Vec<_>>(),
     );
     let result = change_coupling_smells(&snapshot, &thresholds_with_depth(3));
-    assert_eq!(result.score, 75); // 1 smell
+    assert_eq!(result.score, Some(75)); // 1 smell
 }
 
 #[test]

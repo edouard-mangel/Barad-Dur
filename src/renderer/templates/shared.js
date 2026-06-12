@@ -275,10 +275,16 @@
       if (mTip) nameDiv.append(tipIcon(mTip));
       var rawDiv = el('div', { className: 'metric-raw' });
       rawDiv.append(txt(m.description || formatRaw(m.raw_value)));
-      var scoreDiv = el('div', { className: 'metric-score', style: { color: scoreColor(m.score) } });
-      scoreDiv.append(txt(String(m.score)));
+      // score == null: not enough data to judge this metric — show a dash
+      var unscored = m.score == null;
+      var scoreDiv = el('div', {
+        className: 'metric-score',
+        style: { color: unscored ? '#64748b' : scoreColor(m.score) }
+      });
+      scoreDiv.append(txt(unscored ? '—' : String(m.score)));
+      if (unscored) scoreDiv.title = 'Not enough data to score this metric';
       var barDiv = el('div', { style: { width: '80px' } });
-      barDiv.append(scoreBar(m.score));
+      if (!unscored) barDiv.append(scoreBar(m.score));
       row.append(nameDiv, rawDiv, scoreDiv, barDiv);
       body.append(row);
     });

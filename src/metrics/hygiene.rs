@@ -55,7 +55,7 @@ fn commit_message_quality(
             name: "Commit message quality".to_string(),
             description: "No commits".to_string(),
             raw_value: RawValue::Text("N/A".to_string()),
-            score: 50,
+            score: None,
         };
     }
 
@@ -70,7 +70,7 @@ fn commit_message_quality(
             name: "Commit message quality".to_string(),
             description: "No commits in window".to_string(),
             raw_value: RawValue::Text("N/A".to_string()),
-            score: 50,
+            score: None,
         };
     }
 
@@ -104,7 +104,7 @@ fn commit_message_quality(
             quality_pct, conventional_pct
         ),
         raw_value: RawValue::Percentage(quality_pct),
-        score,
+        score: Some(score),
     }
 }
 
@@ -149,7 +149,7 @@ fn history_cleanliness(
             name: "History cleanliness".to_string(),
             description: "No commits".to_string(),
             raw_value: RawValue::Text("N/A".to_string()),
-            score: 50,
+            score: None,
         };
     }
 
@@ -193,7 +193,7 @@ fn history_cleanliness(
             merge_pct, octopus_merges, empty_messages
         ),
         raw_value: RawValue::Count(issues),
-        score,
+        score: Some(score),
     }
 }
 
@@ -257,7 +257,7 @@ fn gitignore_coverage(
         } else {
             RawValue::List(suspicious)
         },
-        score,
+        score: Some(score),
     }
 }
 
@@ -280,7 +280,7 @@ fn firefighting_ratio(
             name: "Firefighting ratio".to_string(),
             description: "No commits in window".to_string(),
             raw_value: RawValue::Text("N/A".to_string()),
-            score: 50,
+            score: None,
         };
     }
 
@@ -313,7 +313,7 @@ fn firefighting_ratio(
             "{firefighting} firefighting commits ({pct:.1}% of {total} non-merge commits)"
         ),
         raw_value: RawValue::Percentage(pct),
-        score,
+        score: Some(score),
     }
 }
 
@@ -361,8 +361,8 @@ mod tests {
             _ => panic!("Expected Percentage"),
         }
         assert!(
-            result.score <= 35,
-            "40% firefighting should score ≤35, got {}",
+            result.score.unwrap() <= 35,
+            "40% firefighting should score ≤35, got {:?}",
             result.score
         );
     }
@@ -495,7 +495,7 @@ mod tests {
             },
         ];
         let result = firefighting_ratio(&snapshot, &crate::config::HygieneThresholds::default());
-        assert_eq!(result.score, 90, "0% firefighting should score 90");
+        assert_eq!(result.score, Some(90), "0% firefighting should score 90");
     }
 
     #[test]
@@ -512,7 +512,7 @@ mod tests {
             RawValue::Text(ref s) => assert_eq!(s, "N/A"),
             _ => panic!("Expected Text(N/A) for empty commit list"),
         }
-        assert_eq!(result.score, 50);
+        assert_eq!(result.score, None);
     }
 
     #[test]
@@ -675,6 +675,6 @@ mod tests {
             ),
             _ => panic!("Expected List"),
         }
-        assert!(result.score < 100);
+        assert!(result.score.unwrap() < 100);
     }
 }

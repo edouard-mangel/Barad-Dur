@@ -44,7 +44,7 @@ fn growth_trend(
             name: "Growth trend".to_string(),
             description: "No commits".to_string(),
             raw_value: RawValue::Text("N/A".to_string()),
-            score: 50,
+            score: None,
         };
     }
 
@@ -85,7 +85,7 @@ fn growth_trend(
         name: "Growth trend".to_string(),
         description: format!("{:+} files, {:+} lines in window", net_files, net_lines),
         raw_value: RawValue::Integer(net_files),
-        score,
+        score: Some(score),
     }
 }
 
@@ -149,7 +149,7 @@ fn refactoring_ratio(
             name: "Refactoring ratio".to_string(),
             description: "No commits".to_string(),
             raw_value: RawValue::Text("N/A".to_string()),
-            score: 50,
+            score: None,
         };
     }
 
@@ -164,7 +164,7 @@ fn refactoring_ratio(
             name: "Refactoring ratio".to_string(),
             description: "No commits in window".to_string(),
             raw_value: RawValue::Text("N/A".to_string()),
-            score: 50,
+            score: None,
         };
     }
 
@@ -186,7 +186,7 @@ fn refactoring_ratio(
             n_structural, total, pct
         ),
         raw_value: RawValue::Float(ratio),
-        score,
+        score: Some(score),
     }
 }
 
@@ -223,7 +223,7 @@ fn code_age(
             name: "Code age".to_string(),
             description: "No blame data".to_string(),
             raw_value: RawValue::Text("N/A".to_string()),
-            score: 50,
+            score: None,
         };
     }
 
@@ -255,7 +255,7 @@ fn code_age(
         name: "Code age".to_string(),
         description,
         raw_value: RawValue::Float(age_months),
-        score,
+        score: Some(score),
     }
 }
 
@@ -295,7 +295,7 @@ fn commit_cadence(
             name: "Commit cadence".to_string(),
             description: "No commits in window".to_string(),
             raw_value: RawValue::Text("N/A".to_string()),
-            score: 50,
+            score: None,
         };
     }
 
@@ -333,7 +333,7 @@ fn commit_cadence(
         name: "Commit cadence".to_string(),
         description: format!("{:.1} commits/day, {} pattern", commits_per_day, regularity),
         raw_value: RawValue::Float(commits_per_day),
-        score,
+        score: Some(score),
     }
 }
 

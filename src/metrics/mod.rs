@@ -19,7 +19,10 @@ pub struct MetricValue {
     pub name: String,
     pub description: String,
     pub raw_value: RawValue,
-    pub score: u32, // 0-100
+    /// 0–100, or `None` when the repository lacks the data to judge this
+    /// metric (solo project, no blame, no commits in window, …).
+    /// Serialized as `null`; renderers display a dash.
+    pub score: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -72,14 +75,67 @@ pub(crate) fn author_line_counts(lines: &[BlameLine]) -> HashMap<AuthorId, usize
 }
 
 impl CategoryResult {
-    /// Compute category score as average of metric scores.
+    /// Compute category score as the average of scored metrics. Unscored
+    /// metrics (`score: None`, insufficient data) don't drag the average.
+    /// When *no* metric could be scored the category defaults to 100 — the
+    /// historical effective behavior for not-applicable categories (e.g.
+    /// Team on a solo repo), so gates don't fail on missing data.
     pub fn compute_score(mut self) -> Self {
-        if self.metrics.is_empty() {
-            self.score = 0;
+        let scored: Vec<u32> = self.metrics.iter().filter_map(|m| m.score).collect();
+        self.score = if self.metrics.is_empty() {
+            0
+        } else if scored.is_empty() {
+            100
         } else {
-            let total: u32 = self.metrics.iter().map(|m| m.score).sum();
-            self.score = total / self.metrics.len() as u32;
-        }
+            scored.iter().sum::<u32>() / scored.len() as u32
+        };
         self
+    }
+}
+
+#[cfg(test)]
+mod score_tests {
+    use super::*;
+
+    fn metric(score: Option<u32>) -> MetricValue {
+        MetricValue {
+            name: "m".into(),
+            description: "d".into(),
+            raw_value: RawValue::Count(0),
+            score,
+        }
+    }
+
+    #[test]
+    fn category_average_skips_unscored_metrics() {
+        let cat = CategoryResult {
+            name: "Test".into(),
+            score: 0,
+            metrics: vec![metric(Some(80)), metric(None), metric(Some(40))],
+        }
+        .compute_score();
+        assert_eq!(cat.score, 60, "None metrics must not drag the average");
+    }
+
+    #[test]
+    fn category_with_no_scored_metrics_defaults_to_100() {
+        let cat = CategoryResult {
+            name: "Test".into(),
+            score: 0,
+            metrics: vec![metric(None), metric(None)],
+        }
+        .compute_score();
+        assert_eq!(cat.score, 100);
+    }
+
+    #[test]
+    fn category_with_no_metrics_scores_zero() {
+        let cat = CategoryResult {
+            name: "Test".into(),
+            score: 0,
+            metrics: vec![],
+        }
+        .compute_score();
+        assert_eq!(cat.score, 0);
     }
 }

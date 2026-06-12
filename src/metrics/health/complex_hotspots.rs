@@ -16,7 +16,7 @@ pub(super) fn complex_hotspots(snapshot: &RepoSnapshot) -> MetricValue {
             name: "Complex hotspots".to_string(),
             description: "No AST data available".to_string(),
             raw_value: RawValue::Count(0),
-            score: 100,
+            score: None,
         };
     }
 
@@ -50,7 +50,7 @@ pub(super) fn complex_hotspots(snapshot: &RepoSnapshot) -> MetricValue {
         name: "Complex hotspots".to_string(),
         description: format!("{} files with high complexity and high churn", count),
         raw_value: RawValue::List(hotspots),
-        score,
+        score: Some(score),
     }
 }
 
@@ -127,7 +127,7 @@ mod tests {
             );
         }
         let result = complex_hotspots(&snapshot);
-        assert_eq!(result.score, 75); // 1 hotspot → score 75
+        assert_eq!(result.score, Some(75)); // 1 hotspot → score 75
         match &result.raw_value {
             RawValue::List(v) => assert_eq!(v.len(), 1),
             _ => panic!("Expected List"),
@@ -161,7 +161,7 @@ mod tests {
             );
         }
         let result = complex_hotspots(&snapshot);
-        assert_eq!(result.score, 100);
+        assert_eq!(result.score, Some(100));
     }
 
     #[test]
@@ -198,7 +198,7 @@ mod tests {
             );
         }
         let result = complex_hotspots(&snapshot);
-        assert_eq!(result.score, 100); // no file has BOTH high CC AND high churn
+        assert_eq!(result.score, Some(100)); // no file has BOTH high CC AND high churn
     }
 
     #[test]
@@ -245,7 +245,7 @@ mod tests {
             );
         }
         let result = complex_hotspots(&snapshot);
-        assert_eq!(result.score, 50);
+        assert_eq!(result.score, Some(50));
     }
 
     #[test]
@@ -284,6 +284,6 @@ mod tests {
             );
         }
         let result = complex_hotspots(&snapshot);
-        assert_eq!(result.score, 100); // no file strictly above p75 in BOTH dimensions
+        assert_eq!(result.score, Some(100)); // no file strictly above p75 in BOTH dimensions
     }
 }
