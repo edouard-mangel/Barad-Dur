@@ -257,9 +257,11 @@
 
       if (selected === path) {
         selected = null;
+        setHashState('hotspots', null);
         return false;
       }
       selected = path;
+      setHashState('hotspots', path);
 
       var dot = scatter.querySelector('.hs-scatter-dot[data-path="' + CSS.escape(path) + '"]');
       if (!dot) {
@@ -302,6 +304,20 @@
       if (!row || row === tableWrap) return;
       if (!selectHotspot(row.getAttribute('data-path'))) return;
       plotCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+
+    // Cross-tab entry point: select the file and scroll its row into view
+    registerFileFocus('hotspots', function(path) {
+      if (selected !== path) selectHotspot(path);
+      var row = tableWrap.querySelector('tr[data-path="' + CSS.escape(path) + '"]');
+      if (!row) {
+        // File outside the visible top-50 — narrow the filter so its row appears
+        filterInput.value = path;
+        filterQuery = path.toLowerCase();
+        tableWrap.replaceChildren(buildTable());
+        row = tableWrap.querySelector('tr[data-path="' + CSS.escape(path) + '"]');
+      }
+      if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
 
     return wrap;

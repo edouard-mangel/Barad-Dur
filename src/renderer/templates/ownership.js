@@ -61,6 +61,7 @@
       var nameSpan = el('span', { className: 'file-name' });
       nameSpan.append(txt(parts.name));
       fileCell.append(dirSpan, nameSpan);
+      linkFileCell(fileCell, f.path, 'Hotspots');
 
       var topCell = el('td', { className: 'own-top' });
       var topAuthor = f.authors && f.authors[0];

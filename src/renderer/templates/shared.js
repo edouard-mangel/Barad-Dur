@@ -662,3 +662,42 @@
     themeBtn.append(txt(document.body.classList.contains('light') ? '☾' : '☀'));
     return themeBtn;
   }
+
+  /* ---- Cross-tab file navigation + URL hash state ----
+     Tabs register a file-focus handler at build time; focusFileOnTab()
+     switches tabs (building lazily if needed), invokes the handler, and
+     mirrors the selection into the URL hash so views are deep-linkable. */
+  var fileFocusHandlers = {};
+
+  function registerFileFocus(tabName, handler) {
+    fileFocusHandlers[tabName.toLowerCase()] = handler;
+  }
+
+  function focusFileOnTab(tabName, path) {
+    if (window.__switchToTab) window.__switchToTab(tabName);
+    var handler = fileFocusHandlers[tabName.toLowerCase()];
+    if (handler) handler(path);
+    setHashState(tabName, path);
+  }
+
+  function setHashState(tabName, path) {
+    var h = '#tab=' + encodeURIComponent(tabName.toLowerCase());
+    if (path) h += '&file=' + encodeURIComponent(path);
+    history.replaceState(null, '', h);
+  }
+
+  function parseHashState() {
+    var out = {};
+    location.hash.replace(/^#/, '').split('&').forEach(function(part) {
+      var i = part.indexOf('=');
+      if (i > 0) out[decodeURIComponent(part.slice(0, i))] = decodeURIComponent(part.slice(i + 1));
+    });
+    return out;
+  }
+
+  /* Make a table file-cell drill through to a file-centric tab */
+  function linkFileCell(cell, path, tabName) {
+    cell.style.cursor = 'pointer';
+    cell.title = 'View in ' + tabName.toLowerCase();
+    cell.addEventListener('click', function() { focusFileOnTab(tabName, path); });
+  }

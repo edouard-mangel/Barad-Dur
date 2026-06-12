@@ -272,6 +272,7 @@
             contentDivs[idx].replaceChildren(safeRender(tabNames[idx], tabContents[idx]));
             contentDivs[idx].dataset.rendered = '1';
           }
+          setHashState(tabNames[idx]);
         };
       })(i, tab));
 
@@ -299,6 +300,16 @@
     };
 
     app.replaceChildren(header, tabs, ...contentDivs);
+
+    // Restore tab + file selection from the URL hash (deep links)
+    var initial = parseHashState();
+    if (initial.tab) {
+      if (initial.file) {
+        focusFileOnTab(initial.tab, initial.file);
+      } else {
+        window.__switchToTab(initial.tab);
+      }
+    }
   }
 
   initTheme();
