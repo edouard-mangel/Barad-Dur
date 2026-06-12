@@ -18,7 +18,7 @@ pub(super) fn bus_factor(snapshot: &RepoSnapshot, _thresholds: &HealthThresholds
             name: "Bus factor".to_string(),
             description: "Solo project — not applicable".to_string(),
             raw_value: RawValue::Text("N/A".to_string()),
-            score: 100,
+            score: None,
         };
     }
 
@@ -27,7 +27,7 @@ pub(super) fn bus_factor(snapshot: &RepoSnapshot, _thresholds: &HealthThresholds
             name: "Bus factor".to_string(),
             description: "No blame data available".to_string(),
             raw_value: RawValue::Text("N/A".to_string()),
-            score: 50,
+            score: None,
         };
     }
 
@@ -54,7 +54,7 @@ pub(super) fn bus_factor(snapshot: &RepoSnapshot, _thresholds: &HealthThresholds
         name: "Bus factor".to_string(),
         description: format!("{:.0}% of files single-author dominated", pct),
         raw_value: RawValue::Percentage(pct),
-        score,
+        score: Some(score),
     }
 }
 
@@ -127,7 +127,7 @@ mod tests {
     }
 
     #[test]
-    fn bus_factor_solo_project_scores_100() {
+    fn bus_factor_solo_project_has_no_score() {
         let mut snapshot = make_snapshot();
         snapshot.authors = vec![Author {
             id: 0,
@@ -139,7 +139,7 @@ mod tests {
         snapshot.blame_map.insert(PathBuf::from("file.rs"), blame);
 
         let result = bus_factor(&snapshot, &HealthThresholds::default());
-        assert_eq!(result.score, 100);
+        assert_eq!(result.score, None);
         assert!(result.description.contains("Solo project"));
     }
 
@@ -148,7 +148,7 @@ mod tests {
         let snapshot = make_snapshot_with_blame();
         let result = bus_factor(&snapshot, &HealthThresholds::default());
         // Alice owns 80% → 1/1 file dominated → 100% → score = 25
-        assert_eq!(result.score, 25);
+        assert_eq!(result.score, Some(25));
         match result.raw_value {
             RawValue::Percentage(p) => assert!((p - 100.0).abs() < 1.0),
             _ => panic!("Expected Percentage"),
@@ -170,7 +170,7 @@ mod tests {
                 .insert(PathBuf::from(format!("f{}.rs", i)), lines);
         }
         let result = bus_factor(&snapshot, &HealthThresholds::default());
-        assert_eq!(result.score, 100);
+        assert_eq!(result.score, Some(100));
         match result.raw_value {
             RawValue::Percentage(p) => assert!((p - 0.0).abs() < 1.0),
             _ => panic!("Expected Percentage"),
@@ -198,7 +198,7 @@ mod tests {
                 .insert(PathBuf::from(format!("balanced{}.rs", i)), lines);
         }
         let result = bus_factor(&snapshot, &HealthThresholds::default());
-        assert_eq!(result.score, 75);
+        assert_eq!(result.score, Some(75));
     }
 
     #[test]
@@ -214,7 +214,7 @@ mod tests {
         snapshot.blame_map.insert(PathBuf::from("file.rs"), lines);
         let result = bus_factor(&snapshot, &HealthThresholds::default());
         // 0% dominated → score 100
-        assert_eq!(result.score, 100);
+        assert_eq!(result.score, Some(100));
         match result.raw_value {
             RawValue::Percentage(p) => assert!((p - 0.0).abs() < 1.0),
             _ => panic!("Expected Percentage"),
@@ -242,7 +242,7 @@ mod tests {
                 .insert(PathBuf::from(format!("balanced{}.rs", i)), lines);
         }
         let result = bus_factor(&snapshot, &HealthThresholds::default());
-        assert_eq!(result.score, 75); // 10% is not < 10.0
+        assert_eq!(result.score, Some(75)); // 10% is not < 10.0
     }
 
     #[test]
@@ -268,7 +268,7 @@ mod tests {
                 .insert(PathBuf::from(format!("bal{}.rs", i)), lines);
         }
         let result = bus_factor(&snapshot, &HealthThresholds::default());
-        assert_eq!(result.score, 50); // 25% is not < 25.0
+        assert_eq!(result.score, Some(50)); // 25% is not < 25.0
     }
 
     #[test]
@@ -294,6 +294,6 @@ mod tests {
                 .insert(PathBuf::from(format!("bal{}.rs", i)), lines);
         }
         let result = bus_factor(&snapshot, &HealthThresholds::default());
-        assert_eq!(result.score, 25); // 50% is not < 50.0
+        assert_eq!(result.score, Some(25)); // 50% is not < 50.0
     }
 }

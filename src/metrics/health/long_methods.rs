@@ -19,7 +19,7 @@ pub(super) fn long_methods(snapshot: &RepoSnapshot) -> MetricValue {
             name: "Long methods".to_string(),
             description: "No functions found".to_string(),
             raw_value: RawValue::List(vec![]),
-            score: 100,
+            score: None,
         };
     }
 
@@ -54,7 +54,7 @@ pub(super) fn long_methods(snapshot: &RepoSnapshot) -> MetricValue {
         name: "Long methods".to_string(),
         description: format!("{}/{} functions flagged ({:.1}%)", count, total, pct),
         raw_value: RawValue::List(offenders),
-        score,
+        score: Some(score),
     }
 }
 
@@ -92,7 +92,7 @@ mod tests {
         let mut snapshot = make_snapshot();
         add_normal_functions(&mut snapshot, 20);
         let result = long_methods(&snapshot);
-        assert_eq!(result.score, 100);
+        assert_eq!(result.score, Some(100));
         assert!(matches!(&result.raw_value, RawValue::List(v) if v.is_empty()));
     }
 
@@ -112,7 +112,7 @@ mod tests {
         );
         // 1 out of 20 = 5% -> score 75
         let result = long_methods(&snapshot);
-        assert_eq!(result.score, 75);
+        assert_eq!(result.score, Some(75));
         match &result.raw_value {
             RawValue::List(v) => {
                 assert_eq!(v.len(), 1);
@@ -139,7 +139,7 @@ mod tests {
         );
         // 1 out of 20 = 5% -> score 75
         let result = long_methods(&snapshot);
-        assert_eq!(result.score, 75);
+        assert_eq!(result.score, Some(75));
         match &result.raw_value {
             RawValue::List(v) => {
                 assert_eq!(v.len(), 1);
@@ -165,7 +165,7 @@ mod tests {
             .collect();
         add_file_with_functions(&mut snapshot, "src/bad.rs", bad_fns);
         let result = long_methods(&snapshot);
-        assert_eq!(result.score, 50);
+        assert_eq!(result.score, Some(50));
     }
 
     #[test]
@@ -183,19 +183,19 @@ mod tests {
             .collect();
         add_file_with_functions(&mut snapshot, "src/bad.rs", bad_fns);
         let result = long_methods(&snapshot);
-        assert_eq!(result.score, 25);
+        assert_eq!(result.score, Some(25));
     }
 
     #[test]
-    fn empty_repo_scores_100() {
+    fn empty_repo_has_no_score() {
         let snapshot = make_snapshot();
         let result = long_methods(&snapshot);
-        assert_eq!(result.score, 100);
+        assert_eq!(result.score, None);
         assert_eq!(result.description, "No functions found");
     }
 
     #[test]
-    fn no_functions_scores_100() {
+    fn no_functions_has_no_score() {
         let mut snapshot = make_snapshot();
         // File exists but has no functions
         snapshot.file_metrics.insert(
@@ -206,7 +206,7 @@ mod tests {
             },
         );
         let result = long_methods(&snapshot);
-        assert_eq!(result.score, 100);
+        assert_eq!(result.score, None);
         assert_eq!(result.description, "No functions found");
     }
 
@@ -224,7 +224,7 @@ mod tests {
             }],
         );
         let result = long_methods(&snapshot);
-        assert_eq!(result.score, 100);
+        assert_eq!(result.score, Some(100));
     }
 
     #[test]
@@ -241,6 +241,6 @@ mod tests {
             }],
         );
         let result = long_methods(&snapshot);
-        assert_eq!(result.score, 100);
+        assert_eq!(result.score, Some(100));
     }
 }

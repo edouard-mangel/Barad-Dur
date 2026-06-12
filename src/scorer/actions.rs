@@ -36,7 +36,10 @@ pub(super) fn generate_top_actions(categories: &[CategoryResult]) -> Vec<ActionI
 
     for cat in categories {
         for metric in &cat.metrics {
-            low_metrics.push((&cat.name, &metric.name, metric.score));
+            // Unscored metrics (insufficient data) cannot drive suggestions.
+            if let Some(score) = metric.score {
+                low_metrics.push((&cat.name, &metric.name, score));
+            }
         }
     }
 
@@ -192,7 +195,7 @@ mod tests {
                 name: format!("{} metric", name),
                 description: "test".to_string(),
                 raw_value: RawValue::Integer(0),
-                score,
+                score: Some(score),
             }],
         }
     }
@@ -253,13 +256,13 @@ mod tests {
                         name: "Bus factor".to_string(),
                         description: "bad".to_string(),
                         raw_value: RawValue::Integer(1),
-                        score: 20,
+                        score: Some(20),
                     },
                     MetricValue {
                         name: "Churn hotspots".to_string(),
                         description: "ok".to_string(),
                         raw_value: RawValue::Count(0),
-                        score: 90,
+                        score: Some(90),
                     },
                 ],
             },
@@ -270,7 +273,7 @@ mod tests {
                     name: "Knowledge distribution".to_string(),
                     description: "bad".to_string(),
                     raw_value: RawValue::Float(0.8),
-                    score: 15,
+                    score: Some(15),
                 }],
             },
         ];

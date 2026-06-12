@@ -18,7 +18,7 @@ pub(super) fn biomarkers(snapshot: &RepoSnapshot) -> MetricValue {
             name: "Code biomarkers".to_string(),
             description: "No source files found".to_string(),
             raw_value: RawValue::List(vec![]),
-            score: 100,
+            score: None,
         };
     }
 
@@ -62,7 +62,7 @@ pub(super) fn biomarkers(snapshot: &RepoSnapshot) -> MetricValue {
             count, source_total, pct
         ),
         raw_value: RawValue::List(flagged),
-        score,
+        score: Some(score),
     }
 }
 
@@ -92,7 +92,7 @@ mod tests {
         let mut snapshot = make_snapshot();
         add_normal_files(&mut snapshot, 20);
         let result = biomarkers(&snapshot);
-        assert_eq!(result.score, 100);
+        assert_eq!(result.score, Some(100));
         assert!(matches!(&result.raw_value, RawValue::List(v) if v.is_empty()));
     }
 
@@ -110,7 +110,7 @@ mod tests {
         );
         // 1/100 = 1% <= 3% -> 75
         let result = biomarkers(&snapshot);
-        assert_eq!(result.score, 75);
+        assert_eq!(result.score, Some(75));
         match &result.raw_value {
             RawValue::List(v) => {
                 assert_eq!(v.len(), 1);
@@ -134,7 +134,7 @@ mod tests {
         );
         // 1/100 = 1% <= 3% -> 75
         let result = biomarkers(&snapshot);
-        assert_eq!(result.score, 75);
+        assert_eq!(result.score, Some(75));
         match &result.raw_value {
             RawValue::List(v) => {
                 assert_eq!(v.len(), 1);
@@ -160,7 +160,7 @@ mod tests {
         }
         // 5/100 = 5% <= 10% -> 50
         let result = biomarkers(&snapshot);
-        assert_eq!(result.score, 50);
+        assert_eq!(result.score, Some(50));
     }
 
     #[test]
@@ -179,14 +179,14 @@ mod tests {
         }
         // 12/100 = 12% > 10% -> 25
         let result = biomarkers(&snapshot);
-        assert_eq!(result.score, 25);
+        assert_eq!(result.score, Some(25));
     }
 
     #[test]
-    fn empty_repo_scores_100() {
+    fn empty_repo_has_no_score() {
         let snapshot = make_snapshot();
         let result = biomarkers(&snapshot);
-        assert_eq!(result.score, 100);
+        assert_eq!(result.score, None);
         assert_eq!(result.description, "No source files found");
     }
 
@@ -202,7 +202,7 @@ mod tests {
             },
         );
         let result = biomarkers(&snapshot);
-        assert_eq!(result.score, 100);
+        assert_eq!(result.score, Some(100));
     }
 
     #[test]
@@ -217,6 +217,6 @@ mod tests {
             },
         );
         let result = biomarkers(&snapshot);
-        assert_eq!(result.score, 100);
+        assert_eq!(result.score, Some(100));
     }
 }

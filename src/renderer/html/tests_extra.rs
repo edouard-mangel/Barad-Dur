@@ -19,7 +19,7 @@ fn make_report() -> AnalysisReport {
                 name: "Bus factor".into(),
                 description: "OK".into(),
                 raw_value: RawValue::Integer(3),
-                score: 75,
+                score: Some(75),
             }],
         }],
         top_actions: vec![ActionItem {
@@ -834,6 +834,19 @@ fn hotspot_table_shows_bug_commit_column() {
     assert!(
         html.contains("'Bugs', 'bug_commit_count'"),
         "hotspot table must expose the bug_commit_count field as a sortable Bugs column"
+    );
+}
+
+#[test]
+fn unscored_metric_renders_dash() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("Not enough data to score this metric"),
+        "metrics with score null must display a dash with an explanatory tooltip"
+    );
+    assert!(
+        html.contains("m.score == null"),
+        "metric rows must branch on null scores instead of stringifying them"
     );
 }
 

@@ -13,7 +13,7 @@ pub(super) fn churn_ownership_risk(snapshot: &RepoSnapshot) -> MetricValue {
             name: "Churn-ownership risk".to_string(),
             description: "Solo project — not applicable".to_string(),
             raw_value: RawValue::Text("N/A".to_string()),
-            score: 100,
+            score: None,
         };
     }
 
@@ -22,7 +22,7 @@ pub(super) fn churn_ownership_risk(snapshot: &RepoSnapshot) -> MetricValue {
             name: "Churn-ownership risk".to_string(),
             description: "No blame or churn data available".to_string(),
             raw_value: RawValue::Text("N/A".to_string()),
-            score: 50,
+            score: None,
         };
     }
 
@@ -58,7 +58,7 @@ pub(super) fn churn_ownership_risk(snapshot: &RepoSnapshot) -> MetricValue {
             if count == 1 { "" } else { "s" }
         ),
         raw_value: RawValue::List(risky),
-        score,
+        score: Some(score),
     }
 }
 
@@ -143,20 +143,20 @@ mod tests {
         s.commits_by_file
             .insert(PathBuf::from("a.rs"), (0..30u32).map(CommitId).collect());
         let m = churn_ownership_risk(&s);
-        assert_eq!(m.score, 100);
+        assert_eq!(m.score, None);
         assert!(matches!(m.raw_value, RawValue::Text(_)));
     }
 
     #[test]
-    fn no_blame_data_returns_50() {
+    fn no_blame_data_has_no_score() {
         let mut s = make_snapshot();
         add_authors(&mut s, &["Alice", "Bob"]);
         let m = churn_ownership_risk(&s);
-        assert_eq!(m.score, 50);
+        assert_eq!(m.score, None);
     }
 
     #[test]
-    fn no_churn_data_returns_50() {
+    fn no_churn_data_has_no_score() {
         // blame_map is non-empty but commits_by_file is empty
         let mut s = make_snapshot();
         add_authors(&mut s, &["Alice", "Bob"]);
@@ -164,7 +164,7 @@ mod tests {
             .insert(PathBuf::from("a.rs"), blame_dominated(0, 100));
         // commits_by_file intentionally left empty
         let m = churn_ownership_risk(&s);
-        assert_eq!(m.score, 50);
+        assert_eq!(m.score, None);
     }
 
     #[test]
@@ -187,7 +187,7 @@ mod tests {
             );
         }
         let m = churn_ownership_risk(&s);
-        assert_eq!(m.score, 75, "1 risky file → score 75");
+        assert_eq!(m.score, Some(75), "1 risky file → score 75");
         match &m.raw_value {
             RawValue::List(v) => assert_eq!(v.len(), 1),
             _ => panic!("expected List"),
@@ -214,7 +214,7 @@ mod tests {
             );
         }
         let m = churn_ownership_risk(&s);
-        assert_eq!(m.score, 100, "shared ownership should not be flagged");
+        assert_eq!(m.score, Some(100), "shared ownership should not be flagged");
     }
 
     #[test]
@@ -232,7 +232,8 @@ mod tests {
         }
         let m = churn_ownership_risk(&s);
         assert_eq!(
-            m.score, 100,
+            m.score,
+            Some(100),
             "low-churn single-owner files should not be flagged"
         );
     }

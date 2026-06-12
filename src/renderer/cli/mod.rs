@@ -170,12 +170,20 @@ fn render_single_category(
 
     if verbosity > 0 {
         for metric in &cat.metrics {
-            let score_indicator = format_score_dot(metric.score);
+            // Unscored metric (insufficient data): dimmed dot + dash.
+            let score_indicator = metric
+                .score
+                .map(format_score_dot)
+                .unwrap_or_else(|| "○".dimmed().to_string());
+            let score_label = metric
+                .score
+                .map(format_score_number)
+                .unwrap_or_else(|| "—".dimmed().to_string());
             out.push_str(&format!(
                 "    {} {} {}  {}\n",
                 score_indicator,
                 metric.name,
-                format_score_number(metric.score),
+                score_label,
                 metric.description.dimmed()
             ));
             if verbosity > 1 {
@@ -321,7 +329,7 @@ mod tests {
                     name: "Bus factor".into(),
                     description: "2 (risky)".into(),
                     raw_value: RawValue::Integer(2),
-                    score: 50,
+                    score: Some(50),
                 }],
             }],
             top_actions: vec![ActionItem {
@@ -384,6 +392,26 @@ mod tests {
         let report = make_report();
         let output = render(&report, 0, None);
         assert!(output.contains("Barad-dur"));
+    }
+
+    #[test]
+    fn render_verbose_shows_dash_for_unscored_metric() {
+        let mut report = make_report();
+        report.categories[0].metrics.push(MetricValue {
+            name: "Knowledge distribution".into(),
+            description: "Solo project — not applicable".into(),
+            raw_value: RawValue::Text("N/A".into()),
+            score: None,
+        });
+        let output = render(&report, 1, None);
+        assert!(
+            output.contains("—"),
+            "unscored metrics must render a dash in verbose CLI output"
+        );
+        assert!(
+            !output.contains("Knowledge distribution 100"),
+            "unscored metrics must not display a fake score"
+        );
     }
 
     #[test]

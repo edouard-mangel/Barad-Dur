@@ -27,8 +27,11 @@ pub fn build_history_entry(
 
     for cat in &report.categories {
         categories.insert(cat.name.clone(), cat.score);
+        // Unscored metrics (insufficient data) carry no trend signal.
         for m in &cat.metrics {
-            metrics.insert(m.name.clone(), m.score);
+            if let Some(score) = m.score {
+                metrics.insert(m.name.clone(), score);
+            }
         }
     }
 
@@ -118,7 +121,7 @@ mod tests {
                 name: format!("{} metric", name),
                 description: "test".to_string(),
                 raw_value: RawValue::Integer(0),
-                score,
+                score: Some(score),
             }],
         }
     }

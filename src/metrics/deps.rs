@@ -17,7 +17,7 @@ fn score_ecosystem(report: &EcosystemReport) -> MetricValue {
             name: format!("{} dependencies", report.ecosystem.display_name()),
             description: "No dependencies found".to_string(),
             raw_value: RawValue::Count(0),
-            score: 100,
+            score: None,
         };
     }
 
@@ -51,7 +51,7 @@ fn score_ecosystem(report: &EcosystemReport) -> MetricValue {
         name: format!("{} dependencies", report.ecosystem.display_name()),
         description,
         raw_value: RawValue::Float(report.mean_drift_years),
-        score,
+        score: Some(score),
     }
 }
 
@@ -88,19 +88,19 @@ mod tests {
     #[test]
     fn fresh_deps_score_100() {
         let metric = score_ecosystem(&make_report(Ecosystem::Cargo, 0.2, vec![]));
-        assert_eq!(metric.score, 100);
+        assert_eq!(metric.score, Some(100));
     }
 
     #[test]
     fn one_year_drift_scores_75() {
         let metric = score_ecosystem(&make_report(Ecosystem::Npm, 1.5, vec![]));
-        assert_eq!(metric.score, 75);
+        assert_eq!(metric.score, Some(75));
     }
 
     #[test]
     fn critical_drift_scores_25() {
         let metric = score_ecosystem(&make_report(Ecosystem::Pip, 7.0, vec![]));
-        assert_eq!(metric.score, 25);
+        assert_eq!(metric.score, Some(25));
     }
 
     #[test]
@@ -126,7 +126,7 @@ mod tests {
         };
         // base=100, penalty=2*5=10 → 90
         let metric = score_ecosystem(&make_report(Ecosystem::Npm, 0.2, vec![dep]));
-        assert_eq!(metric.score, 90);
+        assert_eq!(metric.score, Some(90));
     }
 
     #[test]

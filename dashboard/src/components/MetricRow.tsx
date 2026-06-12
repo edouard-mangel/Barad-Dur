@@ -92,21 +92,30 @@ export default function MetricRow({ metric }: Props) {
         </span>
       </div>
 
-      {/* Score bar */}
-      <ScoreBar score={metric.score} height="4px" />
+      {/* Score bar (empty track when unscored) */}
+      {metric.score == null ? (
+        <div
+          className="relative flex-1 rounded-full overflow-hidden"
+          style={{ height: '4px', backgroundColor: 'rgba(255,255,255,0.06)' }}
+        />
+      ) : (
+        <ScoreBar score={metric.score} height="4px" />
+      )}
 
-      {/* Score number */}
+      {/* Score number — dash when the repo lacks data to judge this metric */}
       <span
-        className={scoreClass(metric.score)}
+        className={metric.score == null ? '' : scoreClass(metric.score)}
+        title={metric.score == null ? 'Not enough data to score this metric' : undefined}
         style={{
           fontFamily: 'JetBrains Mono, monospace',
           fontSize: '0.75rem',
           fontWeight: 600,
           textAlign: 'right',
           tabularNums: 'true',
+          ...(metric.score == null ? { color: 'rgba(148, 163, 184, 0.5)' } : {}),
         } as React.CSSProperties}
       >
-        {metric.score}
+        {metric.score ?? '—'}
       </span>
     </div>
   )
