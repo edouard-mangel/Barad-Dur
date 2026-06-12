@@ -162,6 +162,30 @@
       tableWrap.replaceChildren(buildTable());
     });
 
+    // Mini bar chart of f.churn_timeline: commits per 1/12 of the window,
+    // oldest on the left. All rows share the window axis, so shapes compare.
+    function buildSparkline(buckets) {
+      var bw = 4, gap = 1, h = 14;
+      var w = buckets.length * (bw + gap);
+      var svg = svgEl('svg', {
+        class: 'hs-sparkline', width: String(w), height: String(h),
+        viewBox: '0 0 ' + w + ' ' + h
+      });
+      var max = buckets.reduce(function(m, v) { return Math.max(m, v); }, 1);
+      buckets.forEach(function(v, i) {
+        var bh = v === 0 ? 1 : Math.max(2, Math.round(v / max * h));
+        svg.append(svgEl('rect', {
+          x: String(i * (bw + gap)), y: String(h - bh),
+          width: String(bw), height: String(bh), rx: '1',
+          fill: v === 0 ? '#1e293b' : '#60a5fa'
+        }));
+      });
+      var titleEl = svgEl('title');
+      titleEl.append(txt('Commits per 1/12 of the analysis window (oldest → newest)'));
+      svg.append(titleEl);
+      return svg;
+    }
+
     function buildTable() {
       var visible = filterQuery
         ? files.filter(function(f) { return f.path.toLowerCase().indexOf(filterQuery) !== -1; })
@@ -189,11 +213,14 @@
         return t;
       }
 
+      var trendTh = el('th', { title: 'Commits over the analysis window (oldest → newest)' });
+      trendTh.append(txt('Trend'));
       tr.append(
         th('File', 'path'),
         th('Score', 'hotspot_score'),
         th('CC', 'cyclomatic_complexity'),
         th('Churn', 'churn_count'),
+        trendTh,
         th('Bugs', 'bug_commit_count'),
         th('LOC', 'loc')
       );
@@ -228,13 +255,16 @@
         var churnCell = el('td');
         churnCell.append(txt(String(f.churn_count)));
 
+        var trendCell = el('td');
+        trendCell.append(buildSparkline(f.churn_timeline || []));
+
         var bugsCell = el('td');
         bugsCell.append(txt(String(f.bug_commit_count)));
 
         var locCell = el('td');
         locCell.append(txt(String(f.loc)));
 
-        row.append(fileCell, scoreCell, ccCell, churnCell, bugsCell, locCell);
+        row.append(fileCell, scoreCell, ccCell, churnCell, trendCell, bugsCell, locCell);
         tbody.append(row);
       });
       table.append(tbody);

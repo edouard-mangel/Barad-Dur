@@ -257,6 +257,7 @@ fn html_full_report_with_all_data_renders_ok() {
         public_methods: 10,
         properties: 5,
         hotspot_score: 8.5,
+        churn_timeline: vec![],
     }];
     report.author_ownership = vec![FileOwnership {
         path: "src/a.rs".into(),
@@ -811,6 +812,19 @@ fn age_and_ownership_tables_link_to_hotspots() {
     assert!(
         links >= 2,
         "age and ownership file cells must drill through to the Hotspots tab (found {links} call sites)"
+    );
+}
+
+#[test]
+fn hotspot_table_has_churn_sparkline() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("hs-sparkline"),
+        "hotspot rows must render a churn-over-time sparkline"
+    );
+    assert!(
+        html.contains("churn_timeline"),
+        "sparkline must read the churn_timeline field serialized into window.R"
     );
 }
 
