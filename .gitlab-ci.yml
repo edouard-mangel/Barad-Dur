@@ -22,6 +22,16 @@ variables:
   SECRET_DETECTION_ENABLED: 'true'
   GIT_DEPTH: "0"
 
+# Froggit's shared runners intermittently fail with Docker bridge networking
+# errors ("bridge port not forwarding") — retry infrastructure-level failures
+# automatically instead of failing the pipeline on them.
+default:
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
+
 # Code cache — only registry index + git checkouts. The target/ dir is too large
 # (30k+ files) and stalls Froggit's shared runners on upload. Instead, each job
 # recompiles from source (~2 min) which is faster than downloading a stale cache.
