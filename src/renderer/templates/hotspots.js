@@ -95,7 +95,27 @@
     var plotW = svgW - pad * 2;
     var plotH2 = svgH - pad * 2;
 
-    files.slice(0, 80).forEach(function(f) {
+    // Numeric tick labels so the axes are readable without hovering each bubble
+    [0, Math.round(maxCC / 2), maxCC].forEach(function(v) {
+      var tickX = pad + (v / maxCC) * plotW;
+      var t = svgEl('text', {
+        x: String(tickX), y: String(svgH - pad + 10), 'text-anchor': 'middle',
+        fill: '#475569', 'font-size': '8', 'font-family': 'sans-serif', class: 'hs-axis-tick'
+      });
+      t.append(txt(String(v)));
+      scatter.append(t);
+    });
+    [0, Math.round(maxChurn / 2), maxChurn].forEach(function(v) {
+      var tickY = (svgH - pad) - (v / maxChurn) * plotH2;
+      var t = svgEl('text', {
+        x: String(pad - 4), y: String(tickY + 3), 'text-anchor': 'end',
+        fill: '#475569', 'font-size': '8', 'font-family': 'sans-serif', class: 'hs-axis-tick'
+      });
+      t.append(txt(String(v)));
+      scatter.append(t);
+    });
+
+    function makeDot(f) {
       var cx = pad + (f.cyclomatic_complexity / maxCC) * plotW;
       var cy = (svgH - pad) - (f.churn_count / maxChurn) * plotH2;
       var r = 4 + (f.loc / maxLOC) * 10;
@@ -108,7 +128,11 @@
       var titleEl = svgEl('title');
       titleEl.append(txt(fileParts(f.path).name + ' (CC:' + f.cyclomatic_complexity + ', churn:' + f.churn_count + ', LOC:' + f.loc + ')'));
       circle.append(titleEl);
-      scatter.append(circle);
+      return circle;
+    }
+
+    files.slice(0, 300).forEach(function(f) {
+      scatter.append(makeDot(f));
     });
 
     plotCard.append(scatter);
@@ -120,9 +144,29 @@
     var sortCol = 'hotspot_score';
     var sortAsc = false;
     var selected = null;
+    var filterQuery = '';
+
+    var filterInput = el('input', {
+      type: 'search',
+      placeholder: 'Filter files…',
+      className: 'hs-filter',
+      style: {
+        background: 'var(--bg-panel, #0f172a)', color: 'inherit',
+        border: '1px solid #334155', borderRadius: '6px',
+        padding: '5px 10px', fontSize: '13px', width: '220px',
+        margin: '12px 12px 0 12px'
+      }
+    });
+    filterInput.addEventListener('input', function() {
+      filterQuery = filterInput.value.toLowerCase();
+      tableWrap.replaceChildren(buildTable());
+    });
 
     function buildTable() {
-      var sorted = files.slice().sort(function(a, b) {
+      var visible = filterQuery
+        ? files.filter(function(f) { return f.path.toLowerCase().indexOf(filterQuery) !== -1; })
+        : files;
+      var sorted = visible.slice().sort(function(a, b) {
         var av = a[sortCol], bv = b[sortCol];
         if (typeof av === 'string') av = av.toLowerCase();
         if (typeof bv === 'string') bv = bv.toLowerCase();
@@ -150,6 +194,7 @@
         th('Score', 'hotspot_score'),
         th('CC', 'cyclomatic_complexity'),
         th('Churn', 'churn_count'),
+        th('Bugs', 'bug_commit_count'),
         th('LOC', 'loc')
       );
       thead.append(tr);
@@ -183,10 +228,13 @@
         var churnCell = el('td');
         churnCell.append(txt(String(f.churn_count)));
 
+        var bugsCell = el('td');
+        bugsCell.append(txt(String(f.bug_commit_count)));
+
         var locCell = el('td');
         locCell.append(txt(String(f.loc)));
 
-        row.append(fileCell, scoreCell, ccCell, churnCell, locCell);
+        row.append(fileCell, scoreCell, ccCell, churnCell, bugsCell, locCell);
         tbody.append(row);
       });
       table.append(tbody);
@@ -194,7 +242,7 @@
     }
 
     tableWrap.append(buildTable());
-    tableCard.append(tableWrap);
+    tableCard.append(filterInput, tableWrap);
     wrap.append(tableCard);
 
     // Shared selection: one file highlighted in both the scatter plot and the
@@ -214,6 +262,14 @@
       selected = path;
 
       var dot = scatter.querySelector('.hs-scatter-dot[data-path="' + CSS.escape(path) + '"]');
+      if (!dot) {
+        // File outside the initial render cap — plot its dot on demand
+        var match = files.find(function(x) { return x.path === path; });
+        if (match) {
+          dot = makeDot(match);
+          scatter.append(dot);
+        }
+      }
       if (dot) dot.setAttribute('class', 'hs-scatter-dot active');
       var row = tableWrap.querySelector('tr[data-path="' + CSS.escape(path) + '"]');
       if (row) row.classList.add('hs-row-highlight');
