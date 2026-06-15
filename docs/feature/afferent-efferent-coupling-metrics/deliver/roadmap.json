@@ -1,0 +1,116 @@
+{
+  "roadmap": {
+    "project_id": "afferent-efferent-coupling-metrics",
+    "created_at": "2026-06-06T10:45:57Z",
+    "total_steps": 8,
+    "phases": 4
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Audit and validate existing Ca/Ce computation",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Audit Ca scoring bands and median semantics",
+          "criteria": "Tests confirm that: (1) afferent_coupling returns score=100 when import_graph is empty, (2) a single hub file with 20 dependents scores 100 because median Ca across all files is 0, (3) a fully-connected 10-file graph where every file has Ca=9 scores <=50, (4) the description string contains 'median:', 'mean:', and 'max:'. All four assertions already pass without code change; any failing assertion reveals a computation bug that must be fixed before proceeding.",
+          "test_file": "src/metrics/coupling/tests.rs",
+          "scenario_name": "afferent_coupling_empty_graph, afferent_coupling_single_hub_scores_well, afferent_coupling_widespread_deps_scores_lower, afferent_coupling_description_shows_distribution"
+        },
+        {
+          "id": "01-02",
+          "name": "Audit Ce scoring bands and median semantics",
+          "criteria": "Tests confirm that: (1) efferent_coupling returns score=100 when import_graph is empty, (2) a single heavy importer (25 deps) among 36 files scores 100 because median Ce is 0, (3) 10 files each with Ce=15 scores 25, (4) the description string contains 'median:', 'mean:', and 'max:'. All four assertions already pass without code change; any failing assertion reveals a computation bug that must be fixed.",
+          "test_file": "src/metrics/coupling/tests.rs",
+          "scenario_name": "efferent_coupling_empty_graph, efferent_coupling_single_heavy_file_scores_well, efferent_coupling_all_heavy_scores_low, efferent_coupling_description_shows_distribution"
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Data model: per-file coupling metrics in AnalysisReport",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Add FileCouplingMetrics struct and per_file_coupling field to AnalysisReport",
+          "criteria": "A new public struct FileCouplingMetrics is added to src/scorer/types.rs with fields: path: String, ca: usize, ce: usize, instability: f64. The AnalysisReport struct gains a new field per_file_coupling: Vec<FileCouplingMetrics>. The field is serialized by serde (appears in JSON output). build_report() populates it by calling a new builder function. A test in src/scorer.rs asserts that build_report() with an empty snapshot produces an empty per_file_coupling vec. No abstractness field is added at this stage (no abstract/concrete classification data available in RepoSnapshot).",
+          "test_file": "src/scorer.rs",
+          "scenario_name": "build_report_populates_per_file_coupling_empty_snapshot"
+        },
+        {
+          "id": "02-02",
+          "name": "Implement build_per_file_coupling() builder function",
+          "criteria": "A pure function build_per_file_coupling(snapshot: &RepoSnapshot) -> Vec<FileCouplingMetrics> is added to src/scorer/builders.rs. For each file in snapshot.files: ca = count of files in import_graph whose target list contains this file's path; ce = import_graph.get(&file.path).map(|v| v.len()).unwrap_or(0); instability = if ca + ce == 0 { 0.0 } else { ce as f64 / (ca + ce) as f64 }. The result is sorted descending by instability, then by path as a tiebreaker. Tests cover: (1) file with no imports and no dependents has ca=0, ce=0, instability=0.0; (2) file imported by 3 others and importing 1 has ca=3, ce=1, instability=0.25; (3) file with ce=5 and ca=0 has instability=1.0 (maximally unstable); (4) file with ca=5 and ce=0 has instability=0.0 (maximally stable). Function signature follows (snapshot -> value) pattern with no mutation of inputs.",
+          "test_file": "src/scorer/builders.rs",
+          "scenario_name": "per_file_coupling_no_deps, per_file_coupling_mixed_deps, per_file_coupling_pure_efferent, per_file_coupling_pure_afferent"
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "HTML renderer: instability panel in Coupling tab",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Add instability summary section to buildCouplingTab()",
+          "criteria": "In src/renderer/html/js_coupling.rs, buildCouplingTab() is extended to render a second panel below the temporal coupling table. The panel reads R.per_file_coupling (an array of {path, ca, ce, instability} objects). If the array is absent or empty, the panel displays 'No static import data available.' Otherwise it renders a table with columns: File, Ca (afferent), Ce (efferent), Instability. Each instability value is coloured: <=0.3 green (var(--c-good)), <=0.7 amber (var(--c-warn)), >0.7 red (var(--c-danger)). An inline bar proportional to instability is shown beside the value. The table is capped at 50 rows. A panel header explains: 'Instability = Ce / (Ca + Ce). 0 = maximally stable (depended upon, changes carefully). 1 = maximally unstable (depends on others, safe to change freely).' No innerHTML is used; all DOM nodes created via el() and txt() helpers.",
+          "test_file": "src/renderer/html/tests_extra.rs",
+          "scenario_name": "coupling_tab_renders_instability_panel_when_data_present, coupling_tab_shows_no_data_message_when_per_file_coupling_empty"
+        },
+        {
+          "id": "03-02",
+          "name": "Add column tooltips and sort-by-instability default to instability table",
+          "criteria": "The instability table in buildCouplingTab() uses thWithTip() for column headers with the following tooltip text: Ca — 'Afferent coupling: number of files that import this file. High Ca = many dependents, risky to change.'; Ce — 'Efferent coupling: number of files this file imports. High Ce = many dependencies.'; Instability — 'Ce / (Ca + Ce). 0 = stable (depended upon). 1 = unstable (depends on others).'. Rows are sorted by instability descending before rendering (pure sort on R.per_file_coupling.slice(), no mutation of original array). A test asserts the rendered HTML string contains the tooltip text for each column header.",
+          "test_file": "src/renderer/html/tests_extra.rs",
+          "scenario_name": "coupling_tab_instability_table_has_column_tooltips"
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "CLI and JSON output: surface instability in analyze output",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "JSON output includes per_file_coupling array automatically",
+          "criteria": "Because AnalysisReport is serialized via serde_json::to_value in src/renderer/json.rs, the per_file_coupling field added in step 02-01 appears in JSON output with no renderer changes. A test in src/renderer/json.rs asserts that render(&report_with_one_coupling_entry, false, None) produces JSON where parsed[\"per_file_coupling\"] is an array of length 1 containing an object with keys 'path', 'ca', 'ce', 'instability'. A second test asserts that a report with an empty per_file_coupling produces parsed[\"per_file_coupling\"] as an empty array (not absent).",
+          "test_file": "src/renderer/json.rs",
+          "scenario_name": "json_output_contains_per_file_coupling_array, json_output_per_file_coupling_empty_when_no_data"
+        },
+        {
+          "id": "04-02",
+          "name": "CLI analyze output shows top unstable files in Coupling category",
+          "criteria": "In the CLI renderer (src/renderer/cli.rs or equivalent), after the existing Coupling category score block, print a compact 'Top unstable files' section showing up to 5 files from per_file_coupling sorted by instability descending. Each line format: '  {instability:.2}  {path}  (Ca={ca}, Ce={ce})'. The section is skipped entirely when per_file_coupling is empty. A unit test asserts that rendering a report with three coupling entries prints lines containing the instability values in descending order and the file paths. A second test asserts that rendering a report with empty per_file_coupling produces no 'unstable' text in the output.",
+          "test_file": "src/renderer/cli.rs",
+          "scenario_name": "cli_shows_top_unstable_files_sorted_by_instability, cli_skips_unstable_section_when_no_data"
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "src/metrics/coupling/",
+      "src/scorer/",
+      "src/renderer/html/",
+      "src/renderer/"
+    ],
+    "test_directories": [
+      "src/metrics/coupling/tests.rs",
+      "src/scorer/builders.rs",
+      "src/scorer.rs",
+      "src/renderer/html/tests_extra.rs",
+      "src/renderer/json.rs",
+      "src/renderer/cli.rs"
+    ],
+    "excluded_patterns": [
+      "src/renderer/coupling_json.rs",
+      "src/renderer/coupling_cli.rs",
+      "src/renderer/coupling_html.rs"
+    ]
+  },
+  "validation": {
+    "status": "pending",
+    "reviewer": "solution-architect-reviewer",
+    "approved_at": "TODO"
+  }
+}
