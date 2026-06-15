@@ -121,6 +121,7 @@ The pipeline produces `barad-dur-report.html` as an artifact:
 
 - For large repositories (>10K commits), consider analyzing a shorter time window:
   add `--since 3months` via the analysis options
+- For repositories with more than 50,000 commits, add `--skip-blame` to `ANALYSIS_OPTIONS` to significantly reduce analysis time.
 - The `--skip-blame` flag significantly speeds up analysis at the cost of some metrics accuracy
 - Default timeout is 30 minutes — increase `BARAD_DUR_TIMEOUT` for very large repos
 
@@ -145,3 +146,7 @@ analyze-my-repo:
   variables:
     REPO_URL: "..."
 ```
+
+**Parallel vs resource_group trade-offs**: The default (parallel) lets all triggered jobs run concurrently, giving faster total throughput but higher peak runner load. Adding `resource_group` forces jobs to run sequentially, which lowers peak runner load at the cost of longer wall-clock time for callers. Use the default parallel mode unless runner queue depth becomes a bottleneck; switch to `resource_group` only when you observe jobs waiting significantly longer than the analysis itself takes.
+
+**Staggering schedules for large rollouts**: For company-wide rollouts with more than 10 teams triggering simultaneously, consider offsetting cron schedules (e.g., stagger by 5–10 minutes per team) to distribute runner load without requiring `resource_group`. This preserves parallel throughput within each team's window while smoothing aggregate demand across teams.
