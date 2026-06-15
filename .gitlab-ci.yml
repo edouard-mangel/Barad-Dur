@@ -637,10 +637,18 @@ analyze-api:
           esac
         done
       fi
+    # ── Validate ANALYSIS_OPTIONS (shell injection guard) ──
+    - |
+      if [ -n "${ANALYSIS_OPTIONS:-}" ]; then
+        if echo "${ANALYSIS_OPTIONS}" | grep -qE '[;&|`$()<>\\]'; then
+          echo "ERROR: ANALYSIS_OPTIONS contains forbidden shell metacharacters"
+          exit 1
+        fi
+      fi
     # ── Run analysis (HTML report) ──
     - |
       echo "Running barad-dur analysis..."
-      barad-dur analyze /tmp/target --html -o barad-dur-report.html ${CATEGORY_FLAGS}
+      barad-dur analyze /tmp/target --html -o barad-dur-report.html ${CATEGORY_FLAGS} ${ANALYSIS_OPTIONS:-}
     # ── Optional quality gate ──
     - |
       if [ -n "${MIN_SCORE:-}" ]; then
