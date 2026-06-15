@@ -1,0 +1,206 @@
+journey:
+  name: pipeline-trigger-api
+  version: "1.0"
+  description: >
+    Distribute barad-dur as a CI/CD-triggered API on Froggit GitLab.
+    Other pipelines call it via pipeline trigger token, it runs analysis
+    on a target repo, and returns the JSON report as a pipeline artifact.
+
+actors:
+  - id: fatima
+    name: Fatima Benali
+    role: DevOps Engineer
+    type: human
+    context: Configures calling pipeline, manages trigger tokens
+  - id: caller-pipeline
+    name: nightly-quality pipeline
+    role: Automated CI job
+    type: automated
+    context: Triggers barad-dur and consumes the report
+  - id: barad-dur-pipeline
+    name: barad-dur analyze-api job
+    role: Triggered pipeline
+    type: automated
+    context: Runs analysis, produces artifact
+
+trigger_variables:
+  required:
+    - name: REPO_URL
+      type: string
+      description: Git HTTPS URL of the repository to analyze
+      example: "https://froggit.example.com/team/my-service.git"
+    - name: REPO_BRANCH
+      type: string
+      description: Branch to analyze (used for clone)
+      example: "main"
+      default: "main"
+  optional:
+    - name: ANALYSIS_OPTIONS
+      type: string
+      description: >
+        Additional CLI flags passed to barad-dur analyze.
+        Space-separated. e.g. "--skip-blame --since 3months"
+      example: "--skip-blame"
+      default: ""
+    - name: MIN_SCORE
+      type: integer
+      description: >
+        Minimum overall score threshold. If set, the job exits non-zero
+        when the score falls below this value (gate behavior).
+      example: 60
+      default: null
+    - name: CATEGORIES
+      type: string
+      description: >
+        Comma-separated list of categories to analyze.
+        If empty, all categories are run.
+      example: "health,team"
+      default: ""
+
+artifacts:
+  - name: barad-dur-report.json
+    format: JSON
+    path: barad-dur-report.json
+    expire_in: "1 month"
+    description: Full analysis report in JSON format
+
+steps:
+  - id: setup-token
+    name: Create trigger token
+    actor: fatima
+    action: Create a pipeline trigger token on the barad-dur project
+    location: "Froggit > barad-dur > Settings > CI/CD > Pipeline triggers"
+    emotional_state: cautious
+    artifacts_produced: [trigger-token]
+    error_paths:
+      - condition: Insufficient permissions
+        outcome: Cannot create trigger (need Maintainer role)
+
+  - id: store-token
+    name: Store token as CI variable
+    actor: fatima
+    action: Save trigger token as masked CI variable in calling project
+    location: "Froggit > calling-project > Settings > CI/CD > Variables"
+    emotional_state: cautious
+    artifacts_consumed: [trigger-token]
+    artifacts_produced: [ci-variable-BARAD_DUR_TRIGGER_TOKEN]
+
+  - id: configure-caller
+    name: Write calling pipeline job
+    actor: fatima
+    action: Add trigger job to calling project .gitlab-ci.yml
+    emotional_state: focused
+    artifacts_consumed: [ci-variable-BARAD_DUR_TRIGGER_TOKEN]
+
+  - id: trigger
+    name: Trigger barad-dur pipeline
+    actor: caller-pipeline
+    action: >
+      POST /api/v4/projects/:id/trigger/pipeline
+      with token, ref, and variables
+    emotional_state: neutral
+    artifacts_consumed:
+      - ci-variable-BARAD_DUR_TRIGGER_TOKEN
+      - REPO_URL
+      - REPO_BRANCH
+    artifacts_produced: [pipeline-id]
+    error_paths:
+      - condition: Invalid token
+        outcome: HTTP 401 Unauthorized
+      - condition: Wrong project ID
+        outcome: HTTP 404 Not Found
+      - condition: Invalid ref
+        outcome: HTTP 400 Bad Request
+
+  - id: run-analysis
+    name: Run barad-dur analysis
+    actor: barad-dur-pipeline
+    action: >
+      Execute: barad-dur analyze $REPO_URL --json --pretty $ANALYSIS_OPTIONS
+      Output: barad-dur-report.json
+    emotional_state: neutral
+    artifacts_consumed: [REPO_URL, REPO_BRANCH, ANALYSIS_OPTIONS]
+    artifacts_produced: [barad-dur-report.json]
+    error_paths:
+      - condition: Invalid REPO_URL
+        outcome: "Clone failure: repository not found"
+      - condition: Private repo without access
+        outcome: "Clone failure: authentication failed"
+      - condition: Repository too large
+        outcome: Job timeout (configurable, default 1 hour)
+      - condition: Empty repository
+        outcome: Warning in report, zero commits
+
+  - id: optional-gate
+    name: Apply score gate (if MIN_SCORE set)
+    actor: barad-dur-pipeline
+    action: >
+      If MIN_SCORE is set, run: barad-dur gate . --min-score $MIN_SCORE
+      Exit non-zero if score below threshold.
+    emotional_state: neutral
+    artifacts_consumed: [barad-dur-report.json, MIN_SCORE]
+    error_paths:
+      - condition: Score below threshold
+        outcome: Job fails with exit code 1
+
+  - id: poll-status
+    name: Poll pipeline status
+    actor: caller-pipeline
+    action: >
+      GET /api/v4/projects/:id/pipelines/:pipeline_id
+      Wait until status is success or failed.
+    emotional_state: neutral
+    artifacts_consumed: [pipeline-id]
+    error_paths:
+      - condition: Pipeline stuck or timeout
+        outcome: Caller's own timeout triggers
+
+  - id: download-artifact
+    name: Download report artifact
+    actor: caller-pipeline
+    action: >
+      GET /api/v4/projects/:id/jobs/artifacts/main/download?job=analyze-api
+      Extract barad-dur-report.json
+    emotional_state: neutral
+    artifacts_consumed: [pipeline-id]
+    artifacts_produced: [local-barad-dur-report.json]
+    error_paths:
+      - condition: Pipeline failed (no artifact)
+        outcome: HTTP 404 or empty artifact
+      - condition: Artifact expired
+        outcome: HTTP 404
+
+  - id: consume-report
+    name: Parse and use report
+    actor: caller-pipeline
+    action: >
+      Parse JSON, extract overall_score, category scores.
+      Fail calling pipeline if score below team threshold.
+    emotional_state: neutral
+    artifacts_consumed: [local-barad-dur-report.json]
+
+shared_artifacts:
+  - id: trigger-token
+    name: Pipeline Trigger Token
+    source: Froggit UI (barad-dur project settings)
+    consumers: [store-token, trigger]
+    sensitivity: secret
+
+  - id: pipeline-id
+    name: Triggered Pipeline ID
+    source: GitLab trigger API response
+    consumers: [poll-status, download-artifact]
+    type: integer
+
+  - id: barad-dur-report-json
+    name: Analysis Report (JSON)
+    source: barad-dur CLI output
+    consumers: [download-artifact, consume-report]
+    format: JSON
+    schema_ref: "barad-dur --json output schema"
+
+  - id: repo-url
+    name: Target Repository URL
+    source: Caller pipeline variable
+    consumers: [trigger, run-analysis]
+    type: string
