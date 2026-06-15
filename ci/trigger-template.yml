@@ -21,6 +21,7 @@
 #   REPO_BRANCH    — Branch to analyze (default: main)
 #   MIN_SCORE      — Minimum score threshold for quality gate (0-100)
 #   CATEGORIES     — Comma-separated: health,team,evolution,hygiene
+#   ANALYSIS_OPTIONS  — Extra barad-dur CLI flags (e.g. "--no-cache --top 20")
 #   BARAD_DUR_TIMEOUT — Max wait time in seconds (default: 1800)
 
 .barad-dur-analysis:
@@ -58,6 +59,9 @@
       fi
       if [ -n "${CATEGORIES:-}" ]; then
         TRIGGER_BODY="${TRIGGER_BODY}&variables[CATEGORIES]=${CATEGORIES}"
+      fi
+      if [ -n "${ANALYSIS_OPTIONS:-}" ]; then
+        TRIGGER_BODY="${TRIGGER_BODY}&variables[ANALYSIS_OPTIONS]=${ANALYSIS_OPTIONS}"
       fi
       echo "Triggering barad-dur analysis..."
       RESPONSE=$(curl -s -w "\n%{http_code}" \
