@@ -22,13 +22,20 @@ jobs:
       - name: Push branch to Froggit
         env:
           FROGGIT_SSH_KEY: ${{ secrets.FROGGIT_SSH_KEY }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
+          # Validate HEAD_REF before using it in a git refspec
+          if ! echo "${HEAD_REF}" | grep -qE '^[A-Za-z0-9._/-]+$'; then
+            echo "ERROR: branch name '${HEAD_REF}' contains disallowed characters"
+            exit 1
+          fi
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           echo "$FROGGIT_SSH_KEY" | tr -d '\r' > ~/.ssh/froggit_key
           chmod 600 ~/.ssh/froggit_key
           ssh-keyscan -H lab.frogg.it >> ~/.ssh/known_hosts
           export GIT_SSH_COMMAND="ssh -i ~/.ssh/froggit_key -o IdentitiesOnly=yes"
-          BRANCH="contrib/${{ github.event.pull_request.number }}/${{ github.event.pull_request.head.ref }}"
+          BRANCH="contrib/${PR_NUMBER}/${HEAD_REF}"
           git remote add froggit git@lab.frogg.it:Edouard_Mangel/barad-dur.git
           git push froggit HEAD:"refs/heads/${BRANCH}" --force
 
