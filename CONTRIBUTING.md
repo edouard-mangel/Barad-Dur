@@ -57,10 +57,22 @@ The metric receives a `&RepoSnapshot` and must not perform I/O.
 
 ## Submitting changes
 
-1. Fork and create a branch
+### Via GitHub (recommended for external contributors)
+
+1. Fork the repo on GitHub and create a branch
 2. Make your change with tests
 3. Run `cargo test && cargo clippy && cargo fmt --check`
-4. Open a merge request with a description of what and why
+4. Open a **GitHub PR** — a bot will automatically:
+   - Push your branch to Froggit (the primary CI host)
+   - Open a Froggit MR and post the link as a PR comment
+5. Full CI runs on Froggit: mutation testing (≥ 80% kill rate), coverage (≥ 80%), SAST
+6. The maintainer reviews and merges the **Froggit MR** — your GitHub PR closes automatically
+
+> Do not merge directly on GitHub. The Froggit pipeline is the authoritative gate.
+
+### Via Froggit (for maintainers)
+
+Open a merge request directly on [lab.frogg.it](https://lab.frogg.it/Edouard_Mangel/barad-dur).
 
 ## License
 

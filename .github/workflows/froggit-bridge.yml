@@ -1,0 +1,152 @@
+name: Froggit Bridge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+# Minimal permissions — only PR comments need write access
+permissions:
+  pull-requests: write
+
+jobs:
+  # ── Bridge: push branch → Froggit and create/update MR ──────────────────
+  bridge:
+    runs-on: ubuntu-latest
+    if: github.event.action != 'closed'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Push branch to Froggit
+        env:
+          FROGGIT_SSH_KEY: ${{ secrets.FROGGIT_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          echo "$FROGGIT_SSH_KEY" | tr -d '\r' > ~/.ssh/froggit_key
+          chmod 600 ~/.ssh/froggit_key
+          ssh-keyscan -H lab.frogg.it >> ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/froggit_key -o IdentitiesOnly=yes"
+          BRANCH="contrib/${{ github.event.pull_request.number }}/${{ github.event.pull_request.head.ref }}"
+          git remote add froggit git@lab.frogg.it:Edouard_Mangel/barad-dur.git
+          git push froggit HEAD:"refs/heads/${BRANCH}" --force
+
+      - name: Create or update Froggit MR
+        id: froggit-mr
+        env:
+          FROGGIT_API_TOKEN: ${{ secrets.FROGGIT_API_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          BRANCH="contrib/${PR_NUMBER}/${HEAD_REF}"
+          ENCODED_BRANCH=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$BRANCH")
+          BASE_URL="https://lab.frogg.it/api/v4/projects/2692"
+
+          DESCRIPTION=$(cat <<EOF
+          Bridged from GitHub PR #${PR_NUMBER} by @${PR_AUTHOR}: ${PR_URL}
+
+          Real CI (mutation testing, coverage, SAST) runs here on Froggit.
+          Do not merge on GitHub — merge this MR on Froggit; GitHub will auto-close the PR.
+
+          ---
+          *[Bridge: github-pr-${PR_NUMBER}]*
+          EOF
+          )
+
+          # Check if MR already exists for this source branch
+          EXISTING_IID=$(curl -sf \
+            -H "PRIVATE-TOKEN: ${FROGGIT_API_TOKEN}" \
+            "${BASE_URL}/merge_requests?source_branch=${ENCODED_BRANCH}&state=opened" \
+            | jq -r '.[0].iid // empty')
+
+          if [ -n "$EXISTING_IID" ]; then
+            RESPONSE=$(curl -sf -X PUT \
+              -H "PRIVATE-TOKEN: ${FROGGIT_API_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -n \
+                    --arg title "[GitHub PR #${PR_NUMBER}] ${PR_TITLE}" \
+                    --arg desc "$DESCRIPTION" \
+                    '{title: $title, description: $desc}')" \
+              "${BASE_URL}/merge_requests/${EXISTING_IID}")
+          else
+            RESPONSE=$(curl -sf -X POST \
+              -H "PRIVATE-TOKEN: ${FROGGIT_API_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -n \
+                    --arg source "$BRANCH" \
+                    --arg title "[GitHub PR #${PR_NUMBER}] ${PR_TITLE}" \
+                    --arg desc "$DESCRIPTION" \
+                    '{source_branch: $source, target_branch: "main", title: $title, description: $desc, remove_source_branch: true}')" \
+              "${BASE_URL}/merge_requests")
+          fi
+
+          MR_URL=$(echo "$RESPONSE" | jq -r '.web_url')
+          echo "mr_url=${MR_URL}" >> $GITHUB_OUTPUT
+
+      - name: Post or update PR comment
+        uses: actions/github-script@v7
+        env:
+          MR_URL: ${{ steps.froggit-mr.outputs.mr_url }}
+        with:
+          script: |
+            const mrUrl = process.env.MR_URL;
+            const marker = '<!-- froggit-bridge-comment -->';
+            const body = [
+              marker,
+              `🔗 **Froggit CI running:** ${mrUrl}`,
+              '',
+              'Full CI (mutation testing ≥ 80%, coverage ≥ 80%, SAST) runs on Froggit.',
+              'This PR will close automatically once the Froggit MR is merged.',
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+  # ── Cleanup: delete contrib branch when PR is closed ─────────────────────
+  cleanup:
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed'
+    steps:
+      - name: Delete contrib branch on Froggit
+        env:
+          FROGGIT_API_TOKEN: ${{ secrets.FROGGIT_API_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          BRANCH="contrib/${PR_NUMBER}/${HEAD_REF}"
+          ENCODED_BRANCH=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$BRANCH")
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+            -H "PRIVATE-TOKEN: ${FROGGIT_API_TOKEN}" \
+            "https://lab.frogg.it/api/v4/projects/2692/repository/branches/${ENCODED_BRANCH}")
+          if [ "$HTTP_STATUS" = "204" ]; then
+            echo "Branch ${BRANCH} deleted from Froggit."
+          elif [ "$HTTP_STATUS" = "404" ]; then
+            echo "Branch ${BRANCH} not found on Froggit (already deleted or never pushed)."
+          else
+            echo "Unexpected HTTP ${HTTP_STATUS} when deleting branch."
+            exit 1
+          fi

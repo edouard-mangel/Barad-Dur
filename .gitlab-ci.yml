@@ -15,6 +15,7 @@ stages:
   - deploy
   - release
   - docker
+  - mirror
   - api
 
 variables:
@@ -590,6 +591,26 @@ docker:
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+
+# ── Mirror ──────────────────────────────────
+
+github-sync:
+  stage: mirror
+  image: alpine:3
+  before_script:
+    - apk add --no-cache git openssh-client
+    - eval $(ssh-agent -s)
+    - echo "$GITHUB_SSH_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - ssh-keyscan -H github.com >> ~/.ssh/known_hosts
+  script:
+    - git remote add github git@github.com:edouard-mangel/Barad-Dur.git 2>/dev/null || true
+    - git push github HEAD:main
+    - git push github --tags
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule" && $CI_PIPELINE_SOURCE != "trigger"
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+  allow_failure: true
 
 # ── API (Pipeline Trigger) ──────────────────
 
