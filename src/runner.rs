@@ -31,7 +31,7 @@ pub fn resolve_snapshot(
     }
 
     if let Some(cached) = cache::load(collector.repo_path())? {
-        if !cache::is_stale(&cached, current_head) {
+        if !cache::is_stale(&cached, current_head, &collector.time_window) {
             if opts.verbose {
                 eprintln!("Using cached snapshot.");
             }
