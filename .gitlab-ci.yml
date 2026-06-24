@@ -580,7 +580,8 @@ docker:
   before_script:
     - |
       echo "Waiting for Docker daemon..."
-      until docker info > /dev/null 2>&1; do sleep 1; done
+      timeout 120 sh -c 'until docker info > /dev/null 2>&1; do sleep 2; done' \
+        || { echo "ERROR: Docker daemon did not start within 120s"; exit 1; }
       echo "Docker daemon ready."
     - echo "${CI_REGISTRY_PASSWORD}" | docker login -u ${CI_REGISTRY_USER} --password-stdin ${CI_REGISTRY}
     - apk add --no-cache curl
