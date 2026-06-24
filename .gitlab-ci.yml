@@ -81,7 +81,7 @@ build-presentation:
   stage: build
   image: node:22-slim
   before_script:
-    - corepack enable && corepack prepare pnpm@latest --activate
+    - corepack enable && corepack prepare pnpm@10.33.2 --activate
   script:
     - cd docs/presentation/slidev
     - pnpm install --frozen-lockfile
