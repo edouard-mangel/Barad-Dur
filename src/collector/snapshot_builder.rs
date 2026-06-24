@@ -294,7 +294,7 @@ impl Collector {
         let branch = repo
             .head()
             .ok()
-            .and_then(|h| h.shorthand().map(String::from))
+            .and_then(|h| h.shorthand().ok().map(String::from))
             .unwrap_or_else(|| "main".to_string());
 
         let mut snapshot = RepoSnapshot {

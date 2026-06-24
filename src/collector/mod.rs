@@ -38,7 +38,7 @@ impl Collector {
     pub fn repo_name(&self) -> String {
         // Prefer remote URL so the name is stable across worktrees.
         if let Ok(remote) = self.repo.find_remote("origin") {
-            if let Some(url) = remote.url() {
+            if let Ok(url) = remote.url() {
                 let segment = url.rsplit('/').next().unwrap_or(url);
                 let segment = segment.rsplit(':').next().unwrap_or(segment);
                 let name = segment.trim_end_matches(".git");
@@ -60,7 +60,7 @@ impl Collector {
         self.repo
             .head()
             .ok()
-            .and_then(|h| h.shorthand().map(String::from))
+            .and_then(|h| h.shorthand().ok().map(String::from))
             .unwrap_or_else(|| "main".to_string())
     }
 
