@@ -46,6 +46,8 @@ fn render_repo_info(report: &AnalysisReport) -> String {
             "Window:".dimmed(),
             report.time_window_months
         ));
+    } else {
+        out.push_str(&format!("  {} full history\n", "Window:".dimmed()));
     }
     if let Some(meta) = &report.remote_meta {
         out.push_str(&format!("  {} {}\n", "Source:".dimmed(), meta.url.bold()));
