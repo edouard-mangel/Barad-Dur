@@ -23,6 +23,11 @@ yarn.lock
 # Dashboard
 dashboard/node_modules/
 dashboard/dist/
+
+# Slidev presentation (lock file needed for reproducible CI builds)
+docs/presentation/slidev/node_modules/
+docs/presentation/slidev/barad-dur.pdf
+!docs/presentation/slidev/pnpm-lock.yaml
 mutants.out/
 mutants.out.old/
 .worktrees/
