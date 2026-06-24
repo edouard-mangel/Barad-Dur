@@ -103,7 +103,7 @@ fn build_dir_concentration(snapshot: &RepoSnapshot) -> Vec<DirConcentration> {
         })
         .collect();
 
-    dirs.sort_by(|a, b| b.loc.cmp(&a.loc));
+    dirs.sort_by_key(|d| std::cmp::Reverse(d.loc));
     dirs
 }
 
@@ -143,7 +143,7 @@ fn build_dead_files(snapshot: &RepoSnapshot) -> Vec<DeadFile> {
         })
         .collect();
 
-    files.sort_by(|a, b| b.days_since_modified.cmp(&a.days_since_modified));
+    files.sort_by_key(|f| std::cmp::Reverse(f.days_since_modified));
     files
 }
 

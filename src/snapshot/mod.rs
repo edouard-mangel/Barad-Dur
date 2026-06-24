@@ -273,7 +273,7 @@ impl RepoSnapshot {
         let mut pairs = count_co_changed_pairs(&self.commits, &known_files);
 
         // Sort by count descending for easy access
-        pairs.sort_by(|a, b| b.2.cmp(&a.2));
+        pairs.sort_by_key(|p| std::cmp::Reverse(p.2));
         self.file_change_pairs = pairs;
     }
 }

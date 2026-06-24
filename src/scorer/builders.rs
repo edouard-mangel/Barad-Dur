@@ -236,7 +236,7 @@ pub(super) fn build_file_ages(snapshot: &RepoSnapshot) -> Vec<FileAge> {
             }
         })
         .collect();
-    ages.sort_by(|a, b| b.days_since_modified.cmp(&a.days_since_modified));
+    ages.sort_by_key(|a| std::cmp::Reverse(a.days_since_modified));
     ages
 }
 
@@ -336,7 +336,7 @@ pub(super) fn build_author_cards(snapshot: &RepoSnapshot) -> Vec<AuthorCard> {
         })
         .collect();
 
-    cards.sort_by(|a, b| b.commit_count.cmp(&a.commit_count));
+    cards.sort_by_key(|c| std::cmp::Reverse(c.commit_count));
     cards
 }
 
