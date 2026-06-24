@@ -77,6 +77,22 @@ fmt-check:
 
 # ── Build ─────────────────────────────────────
 
+build-presentation:
+  stage: build
+  image: node:22-slim
+  before_script:
+    - corepack enable && corepack prepare pnpm@latest --activate
+  script:
+    - cd docs/presentation/slidev
+    - pnpm install --frozen-lockfile
+    - pnpm build
+  artifacts:
+    paths:
+      - docs/presentation/slidev/dist/
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
 # Clippy and release build share one runner: clippy (debug) runs first,
 # then the release build reuses the already-compiled dependency artifacts.
 build:
@@ -409,11 +425,13 @@ pages:
   stage: deploy
   needs:
     - self-analysis
+    - build-presentation
   script:
-    - mkdir -p public
+    - mkdir -p public/presentation
     - cp site/index.html public/index.html
     - cp barad-dur-report.html public/report.html
     - cp barad-dur-report.json public/report.json
+    - cp -r docs/presentation/slidev/dist/. public/presentation/
   artifacts:
     paths:
       - public

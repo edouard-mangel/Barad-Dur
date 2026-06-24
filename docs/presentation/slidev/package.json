@@ -1,0 +1,16 @@
+{
+  "name": "barad-dur-presentation",
+  "private": true,
+  "scripts": {
+    "dev": "slidev slides.md --open",
+    "build": "slidev build slides.md --base /presentation/",
+    "export": "slidev export slides.md --format pdf --output barad-dur.pdf"
+  },
+  "dependencies": {
+    "@slidev/cli": "^0.49.0",
+    "@slidev/theme-default": "latest"
+  },
+  "devDependencies": {
+    "playwright-chromium": "^1.61.0"
+  }
+}
