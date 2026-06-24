@@ -56,14 +56,19 @@ barad-dur is a Rust CLI distributed as pre-built binaries and a Docker image. Th
 └─────────────────────────────────────────────────────────┘
 ```
 
-## What Is Being Added
+## What Was Added (release-pipeline feature)
 
-1. **Binary smoke test job** — runs the Linux musl binary after `release-linux` completes, validating the artifact executes and produces expected output before publishing.
-2. **Docker image scan job** — `trivy` scan of the built image for CVEs before push to registry.
-3. **Per-feature mutation job** — a second `mutation` job triggered on MR/push to main (not schedule), scoped to files changed in the current commit range, gated at ≥80% kill rate.
-4. **Nightly full-codebase mutation job** — the existing `mutation` job retargeted to full codebase on schedule (no diff filter).
-5. **JUnit XML from `cargo test`** — structured test report surfaced in GitLab MR UI.
-6. **Release checklist validation** — `semver-check` and `cargo-deny` promoted from `allow_failure: true` to blocking on tag pipelines.
+1. **Docker image scan job** — `trivy` scan of the built image for CVEs after push to registry. Commit `faf26d0`.
+2. **Per-feature mutation job** — `mutation` job triggered on MR/push to main (not schedule), scoped to files changed in the current commit range, gated at ≥80% kill rate. Commit `4b72f97`.
+3. **Nightly full-codebase mutation job** — the existing `mutation` job retargeted to full codebase on schedule (no diff filter). Commit `4b72f97`.
+
+## Deferred Items
+
+The following were identified in the audit but not implemented in this feature:
+
+- **Binary smoke test**: Validates musl static binary executes correctly before `release-publish`. Design spec exists in ci-cd-pipeline.md.
+- **JUnit XML from `cargo test`**: Structured test report for GitLab MR UI. Requires cargo-nextest migration.
+- **Release checklist validation**: `semver-check` and `cargo-deny` promoted to blocking on tag pipelines.
 
 ## Rejected Alternatives
 

@@ -233,6 +233,7 @@ semver-check:
         --output mutants-out-${SHARD_INDEX} \
         2>&1 | tee mutants-${SHARD_INDEX}.log || true
   rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
   allow_failure: false
 
@@ -341,6 +342,7 @@ mutation-gate:
       print(f'PASS: {rate:.1f}% >= 80%')
       PYEOF
   rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
   allow_failure: false
 
@@ -610,6 +612,22 @@ docker:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
 
+trivy-scan:
+  stage: docker
+  image: aquasec/trivy:latest
+  needs:
+    - docker
+  variables:
+    TRIVY_USERNAME: $CI_REGISTRY_USER
+    TRIVY_PASSWORD: $CI_REGISTRY_PASSWORD
+    TRIVY_AUTH_URL: $CI_REGISTRY
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+  script:
+    - trivy image --exit-code 1 --severity CRITICAL ${CI_REGISTRY_IMAGE}:${CI_COMMIT_REF_SLUG}
+  allow_failure: true
+
 # ── Mirror ──────────────────────────────────
 
 github-sync:
@@ -628,7 +646,6 @@ github-sync:
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule" && $CI_PIPELINE_SOURCE != "trigger"
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
-  allow_failure: true
 
 # ── API (Pipeline Trigger) ──────────────────
 
