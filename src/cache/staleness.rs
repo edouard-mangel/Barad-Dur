@@ -10,7 +10,7 @@ use chrono::{DateTime, Duration, Utc};
 /// The 1-hour tolerance lets repeated runs of the same relative spec (e.g. `--since 3months`)
 /// reuse the cache; specs that differ by days or more (e.g. `3months` vs `9months`) are treated
 /// as distinct and will trigger a fresh collection.
-pub fn is_stale(cached: &RepoSnapshot, current_head: &str, requested: &TimeWindow) -> bool {
+pub(crate) fn is_stale(cached: &RepoSnapshot, current_head: &str, requested: &TimeWindow) -> bool {
     if cached.head_commit != current_head {
         return true;
     }
