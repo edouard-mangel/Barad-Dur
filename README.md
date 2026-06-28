@@ -93,6 +93,20 @@ No external dependencies — all CSS, JS, and data are inlined. Works offline. D
 cargo install barad-dur
 ```
 
+> **Install fails to resolve `clap = "^4"`** (cargo lists only `3.2.x` candidates)?
+> Your local crates.io index is stale or behind an incomplete registry mirror — the
+> published crate correctly requires clap 4 and resolves fine against a current index.
+> Fixes, cheapest first:
+>
+> ```bash
+> cargo install barad-dur --locked   # uses the shipped Cargo.lock, skips re-resolution
+> rm -rf ~/.cargo/registry/index && cargo install barad-dur --locked   # force a fresh index
+> rustup update                      # update cargo itself, then retry
+> ```
+>
+> If `~/.cargo/config.toml` has a `[source.crates-io] replace-with` mirror, that mirror
+> is the culprit — bypass it or have it re-synced.
+
 ### Prerequisites
 
 - Rust 1.85+ (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)

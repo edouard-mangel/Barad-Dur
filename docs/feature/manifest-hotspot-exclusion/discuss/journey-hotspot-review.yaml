@@ -1,0 +1,45 @@
+journey:
+  id: hotspot-review
+  feature: manifest-hotspot-exclusion
+  persona: tech-lead-running-analysis
+  goal: Identify real code refactoring targets from the hotspots view
+  depth: lightweight
+
+  backbone:
+    - run-analysis
+    - open-hotspots
+    - interpret-list
+    - act-on-targets
+
+  steps:
+    - id: run-analysis
+      action: barad-dur analyze . on a manifest-bearing repo
+      system: Snapshot built; excluded files dropped at construction
+      shared_artifacts: [snapshot, default_exclude_patterns]
+    - id: open-hotspots
+      action: View hotspots (CLI / HTML / dashboard)
+      system: Renders top-N ranked files from snapshot
+      shared_artifacts: [hotspot_list]
+    - id: interpret-list
+      action: Read ranked files, decide what to refactor
+      system: List contains only source/logic files (no manifests)
+      emotion: trust-increases
+    - id: act-on-targets
+      action: Select a code hotspot to work on
+      system: Targets are actionable code
+
+  edge_paths:
+    - condition: exclude.use_defaults = false (or --no-default-excludes)
+      outcome: Manifests reappear in hotspots (expected, consistent)
+    - condition: deps category / dependency-coupling enabled
+      outcome: Unaffected — manifests read from disk, not snapshot
+    - condition: monorepo with nested manifests
+      outcome: Nested manifests also dropped via **/ globs
+
+  invariants:
+    - id: deps-unaffected
+      statement: Excluding manifests from the snapshot does not change deps/CVE output
+      basis: collector/deps.rs reads lockfiles from disk
+    - id: coupling-unaffected
+      statement: Dependency-based coupling pairs are unchanged
+      basis: coupling/dependency.rs reads manifests from disk (repo_root.join)

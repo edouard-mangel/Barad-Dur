@@ -145,6 +145,7 @@
     var sortAsc = false;
     var selected = null;
     var filterQuery = '';
+    var dismissed = {};
 
     var filterInput = el('input', {
       type: 'search',
@@ -187,9 +188,11 @@
     }
 
     function buildTable() {
-      var visible = filterQuery
-        ? files.filter(function(f) { return f.path.toLowerCase().indexOf(filterQuery) !== -1; })
-        : files;
+      var visible = files.filter(function(f) {
+        if (dismissed[f.path]) return false;
+        if (filterQuery && f.path.toLowerCase().indexOf(filterQuery) === -1) return false;
+        return true;
+      });
       var sorted = visible.slice().sort(function(a, b) {
         var av = a[sortCol], bv = b[sortCol];
         if (typeof av === 'string') av = av.toLowerCase();
@@ -243,7 +246,8 @@
         th('Churn', 'churn_count', COL_TIPS.Churn),
         trendTh,
         th('Bugs', 'bug_commit_count', COL_TIPS.Bugs),
-        th('LOC', 'loc', COL_TIPS.LOC)
+        th('LOC', 'loc', COL_TIPS.LOC),
+        el('th', { title: 'Dismiss a file from this list' })
       );
       thead.append(tr);
       table.append(thead);
@@ -285,15 +289,62 @@
         var locCell = el('td');
         locCell.append(txt(String(f.loc)));
 
-        row.append(fileCell, scoreCell, ccCell, churnCell, trendCell, bugsCell, locCell);
+        var dismissCell = el('td');
+        var dismissBtn = el('button', {
+          className: 'hs-dismiss',
+          title: 'Dismiss this file from the list',
+          style: {
+            background: 'none', border: 'none', color: 'var(--text-muted, #94a3b8)',
+            cursor: 'pointer', fontSize: '15px', lineHeight: '1', padding: '0 4px'
+          }
+        });
+        dismissBtn.append(txt('×'));
+        dismissBtn.addEventListener('click', function(ev) {
+          ev.stopPropagation();
+          dismissed[f.path] = true;
+          tableWrap.replaceChildren(buildTable());
+          updateDismissBar();
+        });
+        dismissCell.append(dismissBtn);
+
+        row.append(fileCell, scoreCell, ccCell, churnCell, trendCell, bugsCell, locCell, dismissCell);
         tbody.append(row);
       });
       table.append(tbody);
       return table;
     }
 
+    // Dismissed-rows controls: a reset button + a count, mirroring the coupling tab.
+    // Dismissal is client-side and ephemeral (lost on reload).
+    var dismissStatus = el('span', {
+      className: 'hs-dismiss-status',
+      style: { fontSize: '12px', color: 'var(--text-muted, #94a3b8)', margin: '0 8px' }
+    });
+    var resetBtn = el('button', {
+      className: 'hs-dismiss-reset',
+      style: {
+        background: 'var(--bg-panel, #0f172a)', color: 'inherit',
+        border: '1px solid #334155', borderRadius: '6px',
+        padding: '5px 10px', fontSize: '12px', cursor: 'pointer',
+        margin: '12px 0 0 0'
+      }
+    });
+    resetBtn.append(txt('Reset dismissed'));
+    resetBtn.addEventListener('click', function() {
+      dismissed = {};
+      tableWrap.replaceChildren(buildTable());
+      updateDismissBar();
+    });
+
+    function updateDismissBar() {
+      var n = Object.keys(dismissed).length;
+      dismissStatus.replaceChildren(txt(n > 0 ? (n + ' dismissed') : ''));
+      resetBtn.style.display = n > 0 ? '' : 'none';
+    }
+
     tableWrap.append(buildTable());
-    tableCard.append(filterInput, tableWrap);
+    tableCard.append(filterInput, resetBtn, dismissStatus, tableWrap);
+    updateDismissBar();
     wrap.append(tableCard);
 
     // Shared selection: one file highlighted in both the scatter plot and the
