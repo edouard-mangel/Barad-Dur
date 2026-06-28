@@ -19,13 +19,18 @@ function colStyle(active: boolean): React.CSSProperties {
 export default function HotspotsView({ files }: Props) {
   const svgRef = useRef<SVGSVGElement>(null)
   const [sort, setSort] = useState<SortKey>('hotspot_score')
+  // Client-side, ephemeral dismissal — mirrors the coupling tab. Keyed by path so
+  // sorting stays correct.
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set())
 
-  const sorted = [...files].sort((a, b) => b[sort] - a[sort]).slice(0, 50)
+  const visible = files.filter(f => !dismissed.has(f.path))
+  const sorted = [...visible].sort((a, b) => b[sort] - a[sort]).slice(0, 50)
 
   useEffect(() => {
-    if (!svgRef.current || files.length === 0) return
+    if (!svgRef.current) return
     const svg = d3.select(svgRef.current)
     svg.selectAll('*').remove()
+    if (visible.length === 0) return
 
     const W = 560, H = 260
     const M = { top: 20, right: 20, bottom: 40, left: 50 }
@@ -35,15 +40,15 @@ export default function HotspotsView({ files }: Props) {
     const g = svg.append('g').attr('transform', `translate(${M.left},${M.top})`)
 
     const xScale = d3.scaleLinear()
-      .domain([0, d3.max(files, f => f.cyclomatic_complexity) ?? 1])
+      .domain([0, d3.max(visible, f => f.cyclomatic_complexity) ?? 1])
       .range([0, w])
 
     const yScale = d3.scaleLinear()
-      .domain([0, d3.max(files, f => f.churn_count) ?? 1])
+      .domain([0, d3.max(visible, f => f.churn_count) ?? 1])
       .range([h, 0])
 
     const rScale = d3.scaleSqrt()
-      .domain([0, d3.max(files, f => f.loc) ?? 1])
+      .domain([0, d3.max(visible, f => f.loc) ?? 1])
       .range([2, 14])
 
     const colorScale = d3.scaleLinear<string>()
@@ -90,7 +95,7 @@ export default function HotspotsView({ files }: Props) {
 
     // Bubbles
     g.selectAll('circle')
-      .data(files)
+      .data(visible)
       .join('circle')
       .attr('cx', f => xScale(f.cyclomatic_complexity))
       .attr('cy', f => yScale(f.churn_count))
@@ -104,7 +109,7 @@ export default function HotspotsView({ files }: Props) {
       .text(f =>
         `${f.path}\nscore: ${f.hotspot_score.toFixed(0)}\nchurn: ${f.churn_count}\nbug commits: ${f.bug_commit_count}\ncc: ${f.cyclomatic_complexity}\nloc: ${f.loc}`
       )
-  }, [files])
+  }, [files, dismissed])
 
   if (files.length === 0) {
     return (
@@ -124,6 +129,19 @@ export default function HotspotsView({ files }: Props) {
         <svg ref={svgRef} width={560} height={260} style={{ display: 'block' }} />
       </div>
 
+      {/* Dismissed-rows controls — ephemeral, mirrors the coupling tab */}
+      {dismissed.size > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontFamily: 'JetBrains Mono', fontSize: '0.7rem', color: 'rgba(148,163,184,0.6)' }}>
+          <span>{dismissed.size} dismissed</span>
+          <button
+            onClick={() => setDismissed(new Set())}
+            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '0.25rem 0.6rem', color: 'inherit', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit' }}
+          >
+            Reset dismissed
+          </button>
+        </div>
+      )}
+
       {/* Table */}
       <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, padding: '1rem 1.25rem', backgroundColor: 'rgba(255,255,255,0.02)', overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'JetBrains Mono', fontSize: '0.72rem' }}>
@@ -137,6 +155,7 @@ export default function HotspotsView({ files }: Props) {
               <th style={{ textAlign: 'right', padding: '0.4rem 0.5rem', fontWeight: 400, color: 'rgba(148,163,184,0.5)' }}>Bugs</th>
               <th style={{ textAlign: 'right', padding: '0.4rem 0.5rem', fontWeight: 400, color: 'rgba(148,163,184,0.5)' }}>Methods</th>
               <th style={{ textAlign: 'right', padding: '0.4rem 0.5rem', fontWeight: 400, color: 'rgba(148,163,184,0.5)' }}>Props</th>
+              <th style={{ width: 28 }} aria-label="Dismiss" />
             </tr>
           </thead>
           <tbody>
@@ -158,6 +177,16 @@ export default function HotspotsView({ files }: Props) {
                   <td style={{ textAlign: 'right', padding: '0.4rem 0.5rem', color: f.bug_commit_count > 0 ? '#f87171' : 'rgba(148,163,184,0.45)' }}>{f.bug_commit_count > 0 ? f.bug_commit_count : '—'}</td>
                   <td style={{ textAlign: 'right', padding: '0.4rem 0.5rem', color: 'rgba(148,163,184,0.45)' }}>{f.public_methods}</td>
                   <td style={{ textAlign: 'right', padding: '0.4rem 0.5rem', color: 'rgba(148,163,184,0.45)' }}>{f.properties}</td>
+                  <td style={{ textAlign: 'right', padding: '0.4rem 0.5rem' }}>
+                    <button
+                      aria-label={`Dismiss ${f.path}`}
+                      title="Dismiss this file from the list"
+                      onClick={() => setDismissed(prev => new Set(prev).add(f.path))}
+                      style={{ background: 'none', border: 'none', color: 'rgba(148,163,184,0.6)', cursor: 'pointer', fontSize: '0.95rem', lineHeight: 1, padding: '0 0.25rem' }}
+                    >
+                      ×
+                    </button>
+                  </td>
                 </tr>
               )
             })}

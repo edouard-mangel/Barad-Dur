@@ -124,6 +124,39 @@ fn html_css_uses_custom_properties() {
 }
 
 #[test]
+fn html_hotspots_has_dismiss_controls() {
+    // AC-D6: the hotspots view ships a per-row dismiss control and a reset control,
+    // mirroring the coupling-pair dismissal. Behavior (click → hide row) is client-side
+    // JS verified manually; this guards that the controls are present in the template
+    // and not accidentally removed. Markers are hotspots-specific (hs-*) because
+    // coupling.js already contributes "Reset dismissed"/"cp-dismiss" to the document.
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("hs-dismiss"),
+        "hotspots table must include a per-row dismiss control (hs-dismiss class)"
+    );
+    assert!(
+        html.contains("hs-dismiss-reset"),
+        "hotspots view must include a reset-dismissed control (hs-dismiss-reset class)"
+    );
+}
+
+#[test]
+fn html_hotspots_dismiss_is_keyed_by_path() {
+    // AC-D3: dismissal must be keyed by file path, so re-sorting/filtering the table
+    // keeps the correct rows hidden (not whatever row lands in the dismissed slot).
+    // The JS isn't executable from the Rust harness, so this statically pins the
+    // path-keyed wiring — `dismissed[f.path]` — against a regression to index keying.
+    // The behavioral counterpart lives in dashboard HotspotsView.test.tsx.
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("dismissed[f.path]"),
+        "hotspots dismissal must be keyed by file path (dismissed[f.path]) so it \
+         survives re-sorting/filtering, not by row index"
+    );
+}
+
+#[test]
 fn html_embeds_report_data() {
     let report = make_report();
     let html = render(&report).unwrap();
