@@ -107,6 +107,24 @@ cargo install barad-dur
 > If `~/.cargo/config.toml` has a `[source.crates-io] replace-with` mirror, that mirror
 > is the culprit — bypass it or have it re-synced.
 
+> **Build fails on macOS with `ld: symbol(s) not found for architecture x86_64`** — on an Apple
+> Silicon (M1/M2/M3/M4) Mac? Your Rust toolchain is the **Intel** build and is compiling everything
+> for `x86_64`, so the final link against arm64 objects fails. Two tells in the output:
+> - the linker error names `x86_64` even though the machine is arm64, and
+> - earlier warnings cite deployment target `10.12` — Rust's default for `x86_64-apple-darwin`
+>   (the native `aarch64-apple-darwin` target defaults to `11.0`).
+>
+> This usually means `rustup` was first installed from a terminal running under Rosetta 2. Fix:
+>
+> ```bash
+> rustc -vV | grep host          # bug if this prints x86_64-apple-darwin on an arm64 Mac
+> rustup toolchain install stable-aarch64-apple-darwin
+> rustup default stable-aarch64-apple-darwin
+> ```
+>
+> Also check the terminal app isn't set to "Open using Rosetta" (Finder → app → Get Info), or a
+> freshly-installed rustup will select `x86_64` again.
+
 ### Prerequisites
 
 - Rust 1.85+ (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
