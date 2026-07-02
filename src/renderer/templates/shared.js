@@ -442,9 +442,9 @@
         link.append(txt(actionObj.text));
         link.addEventListener('click', function(e) {
           e.preventDefault();
-          if (window.__switchToTab) {
-            window.__switchToTab(actionObj.target_tab, actionObj.sort_by || null);
-          }
+          document.dispatchEvent(new CustomEvent('barad:switch-tab', {
+            detail: { tab: actionObj.target_tab, sortBy: actionObj.sort_by || null }
+          }));
         });
         textEl.append(link);
       } else {
@@ -680,7 +680,9 @@
   }
 
   function focusFileOnTab(tabName, path) {
-    if (window.__switchToTab) window.__switchToTab(tabName);
+    document.dispatchEvent(new CustomEvent('barad:switch-tab', {
+      detail: { tab: tabName, sortBy: null }
+    }));
     var handler = fileFocusHandlers[tabName.toLowerCase()];
     if (handler) handler(path);
     setHashState(tabName, path);
