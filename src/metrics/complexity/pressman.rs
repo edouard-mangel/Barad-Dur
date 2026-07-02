@@ -43,6 +43,26 @@ fn descendants(root: Node<'_>) -> Vec<Node<'_>> {
     out
 }
 
+/// All nodes of a subtree, preorder, without descending into nested
+/// scopes (closures and inner functions) whose parameters shadow the
+/// enclosing function's.
+fn same_scope_descendants(root: Node<'_>) -> Vec<Node<'_>> {
+    let mut out = Vec::new();
+    let mut stack = vec![root];
+    while let Some(n) = stack.pop() {
+        out.push(n);
+        if n != root && matches!(n.kind(), "closure_expression" | "function_item") {
+            continue;
+        }
+        for i in (0..n.child_count()).rev() {
+            if let Some(c) = n.child(i as u32) {
+                stack.push(c);
+            }
+        }
+    }
+    out
+}
+
 fn text<'a>(node: Node<'_>, content: &'a str) -> &'a str {
     &content[node.byte_range()]
 }
@@ -149,7 +169,7 @@ fn rust_control(node: Node<'_>, content: &str, path: &Path) -> Option<CouplingFi
         return None;
     }
     let body = node.child_by_field_name("body")?;
-    let branched = descendants(body).into_iter().any(|n| {
+    let branched = same_scope_descendants(body).into_iter().any(|n| {
         let cond = match n.kind() {
             "if_expression" | "while_expression" => n.child_by_field_name("condition"),
             "match_expression" => n.child_by_field_name("value"),
@@ -292,6 +312,21 @@ mod tests {
     fn pub_fn_without_bool_params_is_not_flagged() {
         let src = "pub fn add(a: u32, b: u32) -> u32 {\n    if a > b { a } else { b }\n}\n";
         assert!(findings_for("src/a.rs", src).is_empty());
+    }
+
+    #[test]
+    fn closure_shadowing_bool_param_is_not_flagged() {
+        let src = "pub fn outer(flag: bool) {\n    let f = |flag: bool| {\n        if flag {\n            do_it();\n        }\n    };\n    f(true);\n}\n";
+        assert!(
+            findings_for("src/a.rs", src).is_empty(),
+            "closure's own bool param must not be attributed to the outer fn"
+        );
+    }
+
+    #[test]
+    fn bool_branched_outside_closure_is_still_flagged() {
+        let src = "pub fn outer(flag: bool) {\n    let f = || do_it();\n    if flag {\n        f();\n    }\n}\n";
+        assert_eq!(findings_for("src/a.rs", src).len(), 1);
     }
 
     #[test]
