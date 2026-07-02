@@ -33,12 +33,22 @@ pub struct ScanResult {
     pub suggest_skip_blame: bool,
 }
 
-/// Detect exclude patterns from a list of file paths.
-pub fn detect_exclude_patterns(file_paths: &[&str]) -> Vec<String> {
-    let mut patterns: Vec<String> = Vec::new();
+/// Detect exclude patterns from a list of file paths, each paired with the number
+/// of files it covers. Counts are computed with the same path-aware predicates
+/// used for detection (extension parsing, directory-substring checks) — never via
+/// a shell-glob matcher, whose `*` would not cross `/` and would miss the common
+/// case of nested files. The emitted globs use `.gitignore` semantics so they
+/// match at any depth once written to `.baraddurignore`.
+pub fn detect_exclude_patterns(file_paths: &[&str]) -> Vec<(String, usize)> {
+    let mut patterns: Vec<(String, usize)> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
+    let mut add = |pattern: String, count: usize| {
+        if count > 0 && seen.insert(pattern.clone()) {
+            patterns.push((pattern, count));
+        }
+    };
 
-    // Count files by translation extension
+    // Translation/resource files, counted by real extension (nesting-agnostic).
     let mut ext_counts: HashMap<String, usize> = HashMap::new();
     for path in file_paths {
         if let Some(ext) = Path::new(path).extension().and_then(|e| e.to_str()) {
@@ -48,50 +58,39 @@ pub fn detect_exclude_patterns(file_paths: &[&str]) -> Vec<String> {
             }
         }
     }
-    for ext in ext_counts.keys() {
-        let pattern = format!("*.{}", ext);
-        if seen.insert(pattern.clone()) {
-            patterns.push(pattern);
-        }
+    for (ext, count) in &ext_counts {
+        add(format!("*.{}", ext), *count);
     }
 
-    // Detect generated code patterns
+    // Generated code (basename contains a marker).
     for gen_pat in GENERATED_PATTERNS {
-        if file_paths.iter().any(|p| p.contains(gen_pat)) {
-            let pattern = format!("*{}*", gen_pat);
-            if seen.insert(pattern.clone()) {
-                patterns.push(pattern);
-            }
-        }
+        let count = file_paths.iter().filter(|p| p.contains(gen_pat)).count();
+        add(format!("*{}*", gen_pat), count);
     }
 
-    // Detect vendor directories
+    // Vendored/third-party directories, at any depth.
     for dir in VENDOR_DIRS {
-        if file_paths
-            .iter()
-            .any(|p| p.starts_with(&format!("{}/", dir)) || p.contains(&format!("/{}/", dir)))
-        {
-            let pattern = format!("{}/**", dir);
-            if seen.insert(pattern.clone()) {
-                patterns.push(pattern);
-            }
-        }
+        let count = dir_file_count(file_paths, dir);
+        add(format!("**/{}/**", dir), count);
     }
 
-    // Detect i18n directories
+    // i18n directories, at any depth.
     for dir in I18N_DIRS {
-        if file_paths
-            .iter()
-            .any(|p| p.contains(&format!("/{}/", dir)) || p.starts_with(&format!("{}/", dir)))
-        {
-            let pattern = format!("**/{}/**", dir);
-            if seen.insert(pattern.clone()) {
-                patterns.push(pattern);
-            }
-        }
+        let count = dir_file_count(file_paths, dir);
+        add(format!("**/{}/**", dir), count);
     }
 
     patterns
+}
+
+/// Number of paths that live under a directory named `dir` at any depth.
+fn dir_file_count(file_paths: &[&str], dir: &str) -> usize {
+    let root = format!("{}/", dir);
+    let nested = format!("/{}/", dir);
+    file_paths
+        .iter()
+        .filter(|p| p.starts_with(&root) || p.contains(&nested))
+        .count()
 }
 
 /// Scan a repository and return smart defaults.
@@ -106,23 +105,8 @@ pub fn scan_repo(repo_path: &Path) -> Result<ScanResult> {
         .collect();
     let file_refs: Vec<&str> = file_paths.iter().map(|s| s.as_str()).collect();
 
-    let raw_patterns = detect_exclude_patterns(&file_refs);
-
-    // Count files matching each pattern
-    let exclude_patterns: Vec<(String, usize)> = raw_patterns
-        .into_iter()
-        .map(|pattern| {
-            let count = file_refs
-                .iter()
-                .filter(|p| glob_match::glob_match(&pattern, p))
-                .count();
-            (pattern, count)
-        })
-        .filter(|(_, count)| *count > 0)
-        .collect();
-
     Ok(ScanResult {
-        exclude_patterns,
+        exclude_patterns: detect_exclude_patterns(&file_refs),
         total_files: files.len(),
         total_commits: collection.commits.len(),
         distinct_authors: collection.authors.len(),
@@ -137,7 +121,8 @@ pub fn generate_toml(scan: &ScanResult) -> String {
 
 /// Generate a `.baraddurignore` body from detected exclude patterns, or `None`
 /// when nothing was detected. Patterns are written verbatim — they are already
-/// valid `.gitignore` globs (`*.resx`, `vendor/**`, `**/i18n/**`, …).
+/// valid `.gitignore` globs (`*.resx`, `**/vendor/**`, `**/i18n/**`, …) that match
+/// at any depth.
 pub fn generate_baraddurignore(scan: &ScanResult) -> Option<String> {
     if scan.exclude_patterns.is_empty() {
         return None;
@@ -408,30 +393,30 @@ mod tests {
     fn detect_translation_extensions() {
         let files = vec!["src/main.rs", "Resources/Strings.resx", "i18n/fr.po"];
         let patterns = detect_exclude_patterns(&files);
-        assert!(patterns.iter().any(|p| p.contains("resx")));
-        assert!(patterns.iter().any(|p| p.contains("po")));
+        assert!(patterns.iter().any(|(p, _)| p.contains("resx")));
+        assert!(patterns.iter().any(|(p, _)| p.contains("po")));
     }
 
     #[test]
     fn detect_i18n_directories() {
         let files = vec!["src/assets/i18n/en.ts", "src/assets/i18n/fr.ts"];
         let patterns = detect_exclude_patterns(&files);
-        assert!(patterns.iter().any(|p| p.contains("i18n")));
+        assert!(patterns.iter().any(|(p, _)| p.contains("i18n")));
     }
 
     #[test]
     fn detect_generated_code() {
         let files = vec!["Models/Foo.generated.cs", "Views/Bar.designer.cs"];
         let patterns = detect_exclude_patterns(&files);
-        assert!(patterns.iter().any(|p| p.contains("generated")));
+        assert!(patterns.iter().any(|(p, _)| p.contains("generated")));
     }
 
     #[test]
     fn detect_vendor_dirs() {
         let files = vec!["vendor/lib/foo.go", "node_modules/pkg/index.js"];
         let patterns = detect_exclude_patterns(&files);
-        assert!(patterns.iter().any(|p| p.contains("vendor")));
-        assert!(patterns.iter().any(|p| p.contains("node_modules")));
+        assert!(patterns.iter().any(|(p, _)| p.contains("vendor")));
+        assert!(patterns.iter().any(|(p, _)| p.contains("node_modules")));
     }
 
     #[test]
@@ -439,6 +424,30 @@ mod tests {
         let files = vec!["src/main.rs", "src/lib.rs", "tests/test.rs"];
         let patterns = detect_exclude_patterns(&files);
         assert!(patterns.is_empty());
+    }
+
+    #[test]
+    fn detect_counts_nested_files() {
+        // Regression: translation/vendor files nested in subdirectories must still
+        // be detected and counted (previously a shell-glob recount dropped them).
+        let files = vec![
+            "src/resources/Strings.resx",
+            "app/locale/fr.resx",
+            "services/api/vendor/pkg/x.go",
+        ];
+        let patterns = detect_exclude_patterns(&files);
+        assert_eq!(
+            patterns
+                .iter()
+                .find(|(p, _)| p == "*.resx")
+                .map(|(_, c)| *c),
+            Some(2),
+            "both nested .resx files should be counted"
+        );
+        assert!(
+            patterns.iter().any(|(p, c)| p == "**/vendor/**" && *c == 1),
+            "nested vendor dir should be detected as **/vendor/**"
+        );
     }
 
     #[test]

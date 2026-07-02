@@ -29,12 +29,24 @@ pub fn resolve_snapshot(
     current_head: &str,
     opts: &CollectOptions<'_>,
 ) -> Result<RepoSnapshot> {
+    // Exclusion inputs are baked into the cached file list, so the cache is only
+    // valid when they match — otherwise a warm cache would silently ignore an
+    // edited `.baraddurignore` or a changed `--exclude` flag.
+    let fingerprint = crate::collector::exclude_fingerprint(
+        collector.repo_path(),
+        opts.cli_exclude_patterns,
+        opts.cli_exclude_extensions,
+        opts.use_default_excludes,
+    );
+
     if opts.no_cache {
-        return collect_and_cache(collector, opts, true);
+        return collect_and_cache(collector, opts, true, fingerprint);
     }
 
     if let Some(cached) = cache::load(collector.repo_path())? {
-        if !cache::is_stale(&cached, current_head, &collector.time_window) {
+        if !cache::is_stale(&cached, current_head, &collector.time_window)
+            && cache::exclude_fingerprint_matches(collector.repo_path(), fingerprint)
+        {
             if opts.verbose {
                 eprintln!("Using cached snapshot.");
             }
@@ -47,13 +59,14 @@ pub fn resolve_snapshot(
         bail!("No cache found. Run without --cache-only first.");
     }
 
-    collect_and_cache(collector, opts, false)
+    collect_and_cache(collector, opts, false, fingerprint)
 }
 
 fn collect_and_cache(
     collector: &Collector,
     opts: &CollectOptions<'_>,
     no_cache: bool,
+    fingerprint: u64,
 ) -> Result<RepoSnapshot> {
     let snapshot = collector.collect_snapshot_verbose(
         opts.show_progress,
@@ -66,6 +79,9 @@ fn collect_and_cache(
     )?;
     if let Err(e) = cache::save(&snapshot, collector.repo_path()) {
         eprintln!("Warning: Failed to save cache: {}", e);
+    }
+    if let Err(e) = cache::save_exclude_fingerprint(collector.repo_path(), fingerprint) {
+        eprintln!("Warning: Failed to save exclude fingerprint: {}", e);
     }
     Ok(snapshot)
 }

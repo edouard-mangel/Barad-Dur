@@ -352,7 +352,7 @@ also run `barad-dur init . --interactive` for a guided wizard.
 [analysis]
 skip_blame = false
 
-[analysis.weights]
+[weights]
 # Must sum to 100. 'deps' is 0 by default (opt-in via --deps).
 health    = 35
 team      = 10

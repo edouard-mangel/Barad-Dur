@@ -96,6 +96,31 @@ pub fn should_include(
     }
 }
 
+/// A stable fingerprint of every exclusion input that affects which files a
+/// snapshot contains: the CLI `--exclude`/`--exclude-ext` values, whether the
+/// built-in defaults apply, and the current `.baraddurignore` contents. Cached
+/// snapshots are keyed on this (alongside HEAD) so changing exclusions forces a
+/// re-collection even when HEAD is unchanged.
+pub fn exclude_fingerprint(
+    repo_root: &Path,
+    cli_patterns: &[String],
+    cli_extensions: &[String],
+    use_defaults: bool,
+) -> u64 {
+    use std::hash::{Hash, Hasher};
+    // DefaultHasher::new() has a fixed seed, so the result is stable across runs.
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    use_defaults.hash(&mut hasher);
+    cli_patterns.hash(&mut hasher);
+    cli_extensions.hash(&mut hasher);
+    // `Option<Vec<u8>>` distinguishes an absent file from an empty one and captures
+    // any edit to its contents.
+    std::fs::read(repo_root.join(IGNORE_FILE_NAME))
+        .ok()
+        .hash(&mut hasher);
+    hasher.finish()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,5 +263,22 @@ mod tests {
         {
             let _ = ignore.decision(Path::new("src/bad.rs"));
         }
+    }
+
+    #[test]
+    fn exclude_fingerprint_reflects_all_inputs() {
+        let dir = TempDir::new().unwrap();
+        let base = exclude_fingerprint(dir.path(), &[], &[], true);
+        // Toggling defaults changes it.
+        assert_ne!(base, exclude_fingerprint(dir.path(), &[], &[], false));
+        // A CLI pattern changes it.
+        let cli = vec!["*.log".to_string()];
+        assert_ne!(base, exclude_fingerprint(dir.path(), &cli, &[], true));
+        // Writing / editing `.baraddurignore` changes it.
+        std::fs::write(dir.path().join(".baraddurignore"), "*.tmp\n").unwrap();
+        let with_file = exclude_fingerprint(dir.path(), &[], &[], true);
+        assert_ne!(base, with_file);
+        std::fs::write(dir.path().join(".baraddurignore"), "*.bak\n").unwrap();
+        assert_ne!(with_file, exclude_fingerprint(dir.path(), &[], &[], true));
     }
 }

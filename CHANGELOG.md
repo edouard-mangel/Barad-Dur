@@ -10,8 +10,11 @@ All notable changes to this project will be documented here.
 
 ### Changed
 - **Breaking**: file exclusions moved out of the TOML `[exclude]` section. Exclusions are now configured via `.baraddurignore` (repo root) and the `--exclude`/`--exclude-ext` CLI flags. Precedence, highest first: CLI flags → `.baraddurignore` → built-in defaults. A leftover `[exclude]` section in `barad-dur.toml` is ignored (with an unknown-section warning); move its `patterns`/`extensions` into `.baraddurignore`.
+- The snapshot cache now invalidates when exclusion inputs change (`--exclude`/`--exclude-ext`, `--no-default-excludes`, or `.baraddurignore` contents) — editing exclusions no longer requires `--no-cache` to take effect.
+- `barad-dur backfill` now applies the same exclusions (built-in defaults + `.baraddurignore`) as `analyze`/`gate`, so historical trend points are comparable to live scores.
 
-## [0.17.3] - 2026-06-08
+### Fixed
+- `barad-dur init` now correctly detects and writes exclude patterns for files in subdirectories (previously a shell-glob recount dropped nested translation/vendor files, so `.baraddurignore` was often not written at all).
 
 ### Internal
 - `CouplingPair` and `AnalysisReport` marked `#[non_exhaustive]` — prevents semver violations when output fields are added in future releases

@@ -136,7 +136,8 @@ pub struct AnalyzeArgs {
     ///
     /// Accepts one or more glob patterns. Files matching any pattern are
     /// excluded from all phases (blame, coupling, hotspots, complexity).
-    /// Can be repeated: --exclude '*.resx' --exclude 'i18n/**'
+    /// Can be repeated: --exclude '*.resx' --exclude '**/i18n/**'
+    /// (use `**/` to match nested directories — a bare `*` does not cross `/`)
     ///
     /// Highest-precedence exclusion layer: a match here cannot be re-included
     /// by a .baraddurignore '!' rule. For persistent, committable exclusions

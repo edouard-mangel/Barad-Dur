@@ -340,13 +340,14 @@ fn gate_fails_with_unreachable_min_score() {
 #[test]
 fn init_writes_config_and_baraddurignore() {
     // A repo with a translation file yields a detected exclude pattern, so `init`
-    // writes both the TOML config and a `.baraddurignore` containing it.
+    // writes both the TOML config and a `.baraddurignore` containing it. The .resx
+    // is nested to guard against the shell-glob recount regression.
     let dir = tempfile::tempdir().unwrap();
     init_repo(
         dir.path(),
         &[
             ("src/main.rs", "fn main() {}\n"),
-            ("Strings.resx", "<x/>\n"),
+            ("src/resources/Strings.resx", "<x/>\n"),
         ],
     );
     barad_dur()
