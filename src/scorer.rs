@@ -45,6 +45,9 @@ pub fn build_history_entry(
             commits: report.total_commits,
             files: report.total_files,
             authors: report.total_authors,
+            content_coupling: report.coupling_finding_counts.map(|c| c.content),
+            common_coupling: report.coupling_finding_counts.map(|c| c.common),
+            control_coupling: report.coupling_finding_counts.map(|c| c.control),
         },
         branch: report.branch.clone(),
         schema_version: 1,
@@ -415,8 +418,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn report_embeds_finding_counts_when_detection_ran() {
+    fn report_with_detection() -> AnalysisReport {
         let mut snapshot = RepoSnapshot::new(
             std::path::PathBuf::from("/tmp"),
             "test".into(),
@@ -428,13 +430,34 @@ mod tests {
             std::path::PathBuf::from("src/a.rs"),
             crate::snapshot::FileComplexity::default(),
         );
-        let report = build_report(
+        build_report(
             &snapshot,
             vec![make_category("Health", 80)],
             None,
             WEIGHTS,
             &crate::config::CouplingThresholds::default(),
+        )
+    }
+
+    fn report_without_detection() -> AnalysisReport {
+        let snapshot = RepoSnapshot::new(
+            std::path::PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
         );
+        build_report(
+            &snapshot,
+            vec![make_category("Health", 80)],
+            None,
+            WEIGHTS,
+            &crate::config::CouplingThresholds::default(),
+        )
+    }
+
+    #[test]
+    fn report_embeds_finding_counts_when_detection_ran() {
+        let report = report_with_detection();
         assert_eq!(
             report.coupling_finding_counts,
             Some(crate::scorer::CouplingFindingCounts {
@@ -447,20 +470,26 @@ mod tests {
 
     #[test]
     fn report_finding_counts_none_for_backfill_style_snapshot() {
-        let snapshot = RepoSnapshot::new(
-            std::path::PathBuf::from("/tmp"),
-            "test".into(),
-            "main".into(),
-            TimeWindow::default(),
-        );
-        let report = build_report(
-            &snapshot,
-            vec![make_category("Health", 80)],
-            None,
-            WEIGHTS,
-            &crate::config::CouplingThresholds::default(),
-        );
+        let report = report_without_detection();
         assert_eq!(report.coupling_finding_counts, None);
+    }
+
+    #[test]
+    fn history_entry_carries_finding_counts() {
+        let report = report_with_detection();
+        let entry = build_history_entry(&report, "abc123", None);
+        assert_eq!(entry.counts.content_coupling, Some(0));
+        assert_eq!(entry.counts.common_coupling, Some(0));
+        assert_eq!(entry.counts.control_coupling, Some(0));
+    }
+
+    #[test]
+    fn history_entry_counts_none_without_detection() {
+        let report = report_without_detection();
+        let entry = build_history_entry(&report, "abc123", Some("backfill".into()));
+        assert_eq!(entry.counts.content_coupling, None);
+        assert_eq!(entry.counts.common_coupling, None);
+        assert_eq!(entry.counts.control_coupling, None);
     }
 
     #[test]

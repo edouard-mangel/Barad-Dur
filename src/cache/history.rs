@@ -130,6 +130,7 @@ mod tests {
                 commits: 10,
                 files: 50,
                 authors: 3,
+                ..Default::default()
             },
             branch: String::new(),
             schema_version: 1,
@@ -230,5 +231,18 @@ mod tests {
             cache_dir.join(BAK_FILE).exists(),
             "archive_and_replace should have created .bak"
         );
+    }
+
+    #[test]
+    fn old_trends_json_without_coupling_counts_still_loads() {
+        // Serialize an entry built from HistoryCounts::default() minus the new
+        // fields by writing a raw JSON string with only commits/files/authors,
+        // deserialize, and assert the Option fields default to None.
+        let raw = r#"[{"timestamp":"2026-01-01T00:00:00Z","head":"abc","overall_score":80,
+        "category_scores":{},"metrics":{},"counts":{"commits":1,"files":2,"authors":3},
+        "branch":"main","schema_version":1}]"#;
+        let entries: Vec<HistoryEntry> = serde_json::from_str(raw).unwrap();
+        assert_eq!(entries[0].counts.content_coupling, None);
+        assert_eq!(entries[0].counts.commits, 1);
     }
 }

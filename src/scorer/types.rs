@@ -181,6 +181,12 @@ pub struct HistoryCounts {
     pub commits: usize,
     pub files: usize,
     pub authors: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_coupling: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub common_coupling: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control_coupling: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
