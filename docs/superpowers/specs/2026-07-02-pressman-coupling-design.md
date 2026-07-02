@@ -122,8 +122,11 @@ renderers pick metrics up generically — no renderer changes.
 `HistoryCounts` (already serde-defaulted on `HistoryEntry`) gains
 `content_coupling`, `common_coupling`, `control_coupling`. Every
 `analyze`/`backfill` run records them; trend deltas and the dashboard history
-view surface them. Backfill makes history retroactive automatically since it
-reuses the same pipeline.
+view surface them. Backfill entries carry **no** Pressman data: ADR-005's historical snapshots
+skip the AST pass (empty `file_metrics`), so their metrics render unscored
+and their counts serialize as absent (`None`) — never as fake zeros or
+perfect scores. Retroactive coupling trends would require historical AST
+collection and are explicitly deferred.
 
 ### M3 — Gate ratchet
 
