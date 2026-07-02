@@ -191,4 +191,22 @@ mod tests {
             .count();
         assert_eq!(count, 1, "Should not duplicate .repository-analysis/ entry");
     }
+
+    #[test]
+    fn snapshot_roundtrips_coupling_findings() {
+        use crate::snapshot::{CouplingFinding, CouplingKind};
+        let dir = TempDir::new().unwrap();
+        let mut snapshot = make_test_snapshot();
+        snapshot.coupling_findings.push(CouplingFinding {
+            path: PathBuf::from("src/lib.rs"),
+            line: Some(42),
+            kind: CouplingKind::Common,
+            evidence: "static mut CACHE: usize = 0;".into(),
+        });
+        save(&snapshot, dir.path()).unwrap();
+        let loaded = load(dir.path()).unwrap().unwrap();
+        assert_eq!(loaded.coupling_findings.len(), 1);
+        assert_eq!(loaded.coupling_findings[0].kind, CouplingKind::Common);
+        assert_eq!(loaded.coupling_findings[0].line, Some(42));
+    }
 }

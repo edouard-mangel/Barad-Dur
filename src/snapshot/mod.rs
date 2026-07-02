@@ -141,6 +141,30 @@ pub struct FileComplexity {
     pub nesting_variance: f64,
 }
 
+/// Pressman coupling taxonomy rung, ordered worst → least severe.
+/// Only the statically detectable rungs are represented (data/stamp omitted).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CouplingKind {
+    /// Reaching into another module's internals (e.g. `#[path]` imports).
+    Content,
+    /// Shared mutable global state (e.g. `static mut`, exported `let`).
+    Common,
+    /// Flag parameter steering a public function's internal control flow.
+    Control,
+}
+
+/// A single evidenced coupling finding produced by the collector's AST pass
+/// (or, for barrel bypass, derived from the import graph at metric time).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CouplingFinding {
+    pub path: PathBuf,
+    /// 1-based line. `None` for graph-derived findings (no line information).
+    pub line: Option<usize>,
+    pub kind: CouplingKind,
+    /// Short human-readable snippet, e.g. `static mut CACHE: usize = 0;`.
+    pub evidence: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimeWindow {
     pub since: Option<DateTime<Utc>>,
@@ -203,6 +227,7 @@ pub struct RepoSnapshot {
     pub file_change_pairs: Vec<(PathBuf, PathBuf, usize)>,
     pub file_metrics: HashMap<PathBuf, FileComplexity>,
     pub import_graph: HashMap<PathBuf, Vec<PathBuf>>,
+    pub coupling_findings: Vec<CouplingFinding>,
     pub commit_interner: CommitInterner,
 }
 
@@ -224,6 +249,7 @@ impl RepoSnapshot {
             file_change_pairs: Vec::new(),
             file_metrics: HashMap::new(),
             import_graph: HashMap::new(),
+            coupling_findings: Vec::new(),
             commit_interner: CommitInterner::default(),
         }
     }

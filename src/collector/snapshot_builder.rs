@@ -251,6 +251,7 @@ impl Collector {
             file_change_pairs: Vec::new(),
             file_metrics,
             import_graph,
+            coupling_findings: Vec::new(),
             commit_interner: collection.interner,
         };
         snapshot.build_indexes();
@@ -327,6 +328,7 @@ impl Collector {
             file_change_pairs: Vec::new(),
             file_metrics: HashMap::new(),
             import_graph: HashMap::new(),
+            coupling_findings: Vec::new(),
             commit_interner: collection.interner,
         };
         snapshot.build_indexes();
