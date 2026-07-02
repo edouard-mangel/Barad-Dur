@@ -1,6 +1,7 @@
 pub mod deps;
 mod exclude;
 pub mod gitcli;
+mod ignore_file;
 mod import_resolver;
 mod libgit;
 mod progress;
@@ -16,6 +17,8 @@ use crate::snapshot::{
 };
 
 pub use exclude::is_excluded;
+pub use ignore_file::exclude_fingerprint;
+pub(crate) use ignore_file::BaradDurIgnore;
 pub use progress::{NoProgress, Progress};
 pub use types::CommitCollection;
 
@@ -143,8 +146,8 @@ impl Collector {
         verbose: bool,
         skip_blame: bool,
         no_cache: bool,
-        exclude_patterns: &[String],
-        exclude_extensions: &[String],
+        cli_exclude_patterns: &[String],
+        cli_exclude_extensions: &[String],
         use_default_excludes: bool,
     ) -> Result<RepoSnapshot> {
         self.collect_snapshot_inner(
@@ -152,8 +155,8 @@ impl Collector {
             verbose,
             skip_blame,
             no_cache,
-            exclude_patterns,
-            exclude_extensions,
+            cli_exclude_patterns,
+            cli_exclude_extensions,
             use_default_excludes,
         )
     }

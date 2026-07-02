@@ -71,7 +71,8 @@ pub struct BackfillArgs {
     about = "Generate a .repository-analysis/barad-dur.toml config file with smart defaults",
     long_about = "Scans the repository to detect translation files, generated code, \
         vendored dependencies, and team patterns, then generates a commented config file \
-        with recommended settings.\n\n\
+        with recommended settings. Detected exclusion patterns are written to a \
+        .baraddurignore file at the repo root (full .gitignore syntax), not to the TOML.\n\n\
         Use --interactive for a guided wizard that walks through each setting."
 )]
 pub struct InitArgs {

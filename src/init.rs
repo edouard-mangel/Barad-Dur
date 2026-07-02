@@ -33,12 +33,22 @@ pub struct ScanResult {
     pub suggest_skip_blame: bool,
 }
 
-/// Detect exclude patterns from a list of file paths.
-pub fn detect_exclude_patterns(file_paths: &[&str]) -> Vec<String> {
-    let mut patterns: Vec<String> = Vec::new();
+/// Detect exclude patterns from a list of file paths, each paired with the number
+/// of files it covers. Counts are computed with the same path-aware predicates
+/// used for detection (extension parsing, directory-substring checks) — never via
+/// a shell-glob matcher, whose `*` would not cross `/` and would miss the common
+/// case of nested files. The emitted globs use `.gitignore` semantics so they
+/// match at any depth once written to `.baraddurignore`.
+pub fn detect_exclude_patterns(file_paths: &[&str]) -> Vec<(String, usize)> {
+    let mut patterns: Vec<(String, usize)> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
+    let mut add = |pattern: String, count: usize| {
+        if count > 0 && seen.insert(pattern.clone()) {
+            patterns.push((pattern, count));
+        }
+    };
 
-    // Count files by translation extension
+    // Translation/resource files, counted by real extension (nesting-agnostic).
     let mut ext_counts: HashMap<String, usize> = HashMap::new();
     for path in file_paths {
         if let Some(ext) = Path::new(path).extension().and_then(|e| e.to_str()) {
@@ -48,50 +58,39 @@ pub fn detect_exclude_patterns(file_paths: &[&str]) -> Vec<String> {
             }
         }
     }
-    for ext in ext_counts.keys() {
-        let pattern = format!("*.{}", ext);
-        if seen.insert(pattern.clone()) {
-            patterns.push(pattern);
-        }
+    for (ext, count) in &ext_counts {
+        add(format!("*.{}", ext), *count);
     }
 
-    // Detect generated code patterns
+    // Generated code (basename contains a marker).
     for gen_pat in GENERATED_PATTERNS {
-        if file_paths.iter().any(|p| p.contains(gen_pat)) {
-            let pattern = format!("*{}*", gen_pat);
-            if seen.insert(pattern.clone()) {
-                patterns.push(pattern);
-            }
-        }
+        let count = file_paths.iter().filter(|p| p.contains(gen_pat)).count();
+        add(format!("*{}*", gen_pat), count);
     }
 
-    // Detect vendor directories
+    // Vendored/third-party directories, at any depth.
     for dir in VENDOR_DIRS {
-        if file_paths
-            .iter()
-            .any(|p| p.starts_with(&format!("{}/", dir)) || p.contains(&format!("/{}/", dir)))
-        {
-            let pattern = format!("{}/**", dir);
-            if seen.insert(pattern.clone()) {
-                patterns.push(pattern);
-            }
-        }
+        let count = dir_file_count(file_paths, dir);
+        add(format!("**/{}/**", dir), count);
     }
 
-    // Detect i18n directories
+    // i18n directories, at any depth.
     for dir in I18N_DIRS {
-        if file_paths
-            .iter()
-            .any(|p| p.contains(&format!("/{}/", dir)) || p.starts_with(&format!("{}/", dir)))
-        {
-            let pattern = format!("**/{}/**", dir);
-            if seen.insert(pattern.clone()) {
-                patterns.push(pattern);
-            }
-        }
+        let count = dir_file_count(file_paths, dir);
+        add(format!("**/{}/**", dir), count);
     }
 
     patterns
+}
+
+/// Number of paths that live under a directory named `dir` at any depth.
+fn dir_file_count(file_paths: &[&str], dir: &str) -> usize {
+    let root = format!("{}/", dir);
+    let nested = format!("/{}/", dir);
+    file_paths
+        .iter()
+        .filter(|p| p.starts_with(&root) || p.contains(&nested))
+        .count()
 }
 
 /// Scan a repository and return smart defaults.
@@ -106,23 +105,8 @@ pub fn scan_repo(repo_path: &Path) -> Result<ScanResult> {
         .collect();
     let file_refs: Vec<&str> = file_paths.iter().map(|s| s.as_str()).collect();
 
-    let raw_patterns = detect_exclude_patterns(&file_refs);
-
-    // Count files matching each pattern
-    let exclude_patterns: Vec<(String, usize)> = raw_patterns
-        .into_iter()
-        .map(|pattern| {
-            let count = file_refs
-                .iter()
-                .filter(|p| glob_match::glob_match(&pattern, p))
-                .count();
-            (pattern, count)
-        })
-        .filter(|(_, count)| *count > 0)
-        .collect();
-
     Ok(ScanResult {
-        exclude_patterns,
+        exclude_patterns: detect_exclude_patterns(&file_refs),
         total_files: files.len(),
         total_commits: collection.commits.len(),
         distinct_authors: collection.authors.len(),
@@ -132,16 +116,31 @@ pub fn scan_repo(repo_path: &Path) -> Result<ScanResult> {
 
 /// Generate the TOML config string from scan results.
 pub fn generate_toml(scan: &ScanResult) -> String {
-    generate_toml_inner(scan, "6months", true, "cli", false)
+    generate_toml_inner(scan, "6months", "cli", false)
 }
 
-fn generate_toml_inner(
-    scan: &ScanResult,
-    since: &str,
-    use_detected_excludes: bool,
-    format: &str,
-    auto_open: bool,
-) -> String {
+/// Generate a `.baraddurignore` body from detected exclude patterns, or `None`
+/// when nothing was detected. Patterns are written verbatim — they are already
+/// valid `.gitignore` globs (`*.resx`, `**/vendor/**`, `**/i18n/**`, …) that match
+/// at any depth.
+pub fn generate_baraddurignore(scan: &ScanResult) -> Option<String> {
+    if scan.exclude_patterns.is_empty() {
+        return None;
+    }
+    let mut out = String::new();
+    out.push_str("# .baraddurignore — generated by `barad-dur init`\n");
+    out.push_str("# Full .gitignore syntax: `#` comments, `!` re-includes, `/` anchors,\n");
+    out.push_str("# trailing `/` for directories. CLI --exclude flags override these lines;\n");
+    out.push_str("# these lines override the built-in defaults.\n");
+    for (pattern, count) in &scan.exclude_patterns {
+        out.push_str(&format!("\n# detected in {} file(s)\n", count));
+        out.push_str(pattern);
+        out.push('\n');
+    }
+    Some(out)
+}
+
+fn generate_toml_inner(scan: &ScanResult, since: &str, format: &str, auto_open: bool) -> String {
     let mut out = String::new();
 
     out.push_str("# .repository-analysis/barad-dur.toml — Barad-dur repository configuration\n");
@@ -166,27 +165,8 @@ fn generate_toml_inner(
     }
     out.push_str("skip_blame = false\n\n");
 
-    // [exclude]
-    out.push_str("# ──────────────────────────────────────────────────\n");
-    out.push_str("# File exclusions\n");
-    out.push_str("# ──────────────────────────────────────────────────\n");
-    out.push_str("[exclude]\n\n");
-    out.push_str("use_defaults = true\n");
-
-    if use_detected_excludes && !scan.exclude_patterns.is_empty() {
-        out.push_str("\n# Detected patterns:\n");
-        for (pattern, count) in &scan.exclude_patterns {
-            out.push_str(&format!("#   {} ({} files)\n", pattern, count));
-        }
-        let patterns: Vec<String> = scan
-            .exclude_patterns
-            .iter()
-            .map(|(p, _)| format!("\"{}\"", p))
-            .collect();
-        out.push_str(&format!("patterns = [{}]\n\n", patterns.join(", ")));
-    } else {
-        out.push_str("patterns = []\n\n");
-    }
+    // File exclusions are configured in `.baraddurignore` (repo root, full
+    // .gitignore syntax) and via --exclude CLI flags — not in this file.
 
     // [weights]
     out.push_str("# ──────────────────────────────────────────────────\n");
@@ -233,11 +213,14 @@ fn generate_toml_inner(
     out
 }
 
-fn prompt(question: &str, default: &str) -> String {
+/// Prompt on stderr and read one answer from `reader`, falling back to `default`
+/// on empty input or I/O error. `reader` is injected so the wizard is testable
+/// with canned input (in production it is the stdin lock).
+fn prompt<R: BufRead>(reader: &mut R, question: &str, default: &str) -> String {
     eprint!("     ? {} [{}]: ", question, default);
     let _ = io::stderr().flush();
     let mut input = String::new();
-    if io::stdin().lock().read_line(&mut input).is_err() {
+    if reader.read_line(&mut input).is_err() {
         return default.to_string(); // gracefully return default on I/O failure
     }
     let trimmed = input.trim();
@@ -248,9 +231,9 @@ fn prompt(question: &str, default: &str) -> String {
     }
 }
 
-fn prompt_yn(question: &str, default_yes: bool) -> bool {
+fn prompt_yn<R: BufRead>(reader: &mut R, question: &str, default_yes: bool) -> bool {
     let hint = if default_yes { "Y/n" } else { "y/N" };
-    let answer = prompt(question, hint);
+    let answer = prompt(reader, question, hint);
     match answer.to_lowercase().as_str() {
         "y" | "yes" => true,
         "n" | "no" => false,
@@ -258,27 +241,29 @@ fn prompt_yn(question: &str, default_yes: bool) -> bool {
     }
 }
 
-fn run_wizard(scan: &ScanResult) -> Result<String> {
+/// Returns the generated TOML and whether to write the detected patterns to a
+/// `.baraddurignore` file.
+fn run_wizard<R: BufRead>(reader: &mut R, scan: &ScanResult) -> Result<(String, bool)> {
     eprintln!("\n  barad-dur config wizard");
     eprintln!("  ───────────────────────\n");
 
-    let mode = prompt("Configuration mode: [S]imple or [A]dvanced", "S");
+    let mode = prompt(reader, "Configuration mode: [S]imple or [A]dvanced", "S");
     let advanced = mode.to_lowercase().starts_with('a');
 
     if advanced {
-        run_advanced_wizard(scan)
+        run_advanced_wizard(reader, scan)
     } else {
-        run_simple_wizard(scan)
+        run_simple_wizard(reader, scan)
     }
 }
 
-fn run_simple_wizard(scan: &ScanResult) -> Result<String> {
+fn run_simple_wizard<R: BufRead>(reader: &mut R, scan: &ScanResult) -> Result<(String, bool)> {
     // Q1: Time window
     eprintln!(
         "     Detected: {} commits, {} files",
         scan.total_commits, scan.total_files
     );
-    let since = prompt("Analysis window", "6months");
+    let since = prompt(reader, "Analysis window", "6months");
 
     // Q2: Exclusions
     let use_detected_excludes = if !scan.exclude_patterns.is_empty() {
@@ -286,30 +271,27 @@ fn run_simple_wizard(scan: &ScanResult) -> Result<String> {
         for (pattern, count) in &scan.exclude_patterns {
             eprintln!("       - {} ({} files)", pattern, count);
         }
-        prompt_yn("Exclude these from analysis?", true)
+        prompt_yn(reader, "Exclude these from analysis?", true)
     } else {
         false
     };
 
     // Q3: Output format
-    let format = prompt("Default output format (cli/html/json)", "cli");
+    let format = prompt(reader, "Default output format (cli/html/json)", "cli");
 
-    Ok(generate_toml_inner(
-        scan,
-        &since,
+    Ok((
+        generate_toml_inner(scan, &since, &format, false),
         use_detected_excludes,
-        &format,
-        false,
     ))
 }
 
-fn run_advanced_wizard(scan: &ScanResult) -> Result<String> {
+fn run_advanced_wizard<R: BufRead>(reader: &mut R, scan: &ScanResult) -> Result<(String, bool)> {
     // Q1: Time window
     eprintln!(
         "     Detected: {} commits, {} files, {} authors",
         scan.total_commits, scan.total_files, scan.distinct_authors
     );
-    let since = prompt("Analysis window", "6months");
+    let since = prompt(reader, "Analysis window", "6months");
 
     // Q2: Exclusions
     let use_detected_excludes = if !scan.exclude_patterns.is_empty() {
@@ -317,32 +299,34 @@ fn run_advanced_wizard(scan: &ScanResult) -> Result<String> {
         for (pattern, count) in &scan.exclude_patterns {
             eprintln!("       - {} ({} files)", pattern, count);
         }
-        prompt_yn("Add these exclusions?", true)
+        prompt_yn(reader, "Add these exclusions?", true)
     } else {
         false
     };
 
     // Q3: Weights
-    let adjust_weights = prompt_yn("Adjust category weights? (default: 30/30/20/20)", false);
+    let adjust_weights = prompt_yn(
+        reader,
+        "Adjust category weights? (default: 30/30/20/20)",
+        false,
+    );
     // For now, just use defaults if they don't want to adjust
     let _ = adjust_weights;
 
     // Q4: Thresholds
     let _ = prompt_yn(
+        reader,
         "Skip detailed threshold configuration? (use defaults)",
         true,
     );
 
     // Q5: Output
-    let format = prompt("Default output format (cli/html/json)", "cli");
-    let auto_open = prompt_yn("Auto-open HTML reports in browser?", false);
+    let format = prompt(reader, "Default output format (cli/html/json)", "cli");
+    let auto_open = prompt_yn(reader, "Auto-open HTML reports in browser?", false);
 
-    Ok(generate_toml_inner(
-        scan,
-        &since,
+    Ok((
+        generate_toml_inner(scan, &since, &format, auto_open),
         use_detected_excludes,
-        &format,
-        auto_open,
     ))
 }
 
@@ -359,18 +343,45 @@ pub fn run_init(target: &Path, force: bool, interactive: bool) -> Result<()> {
     eprintln!("  Scanning repository...");
     let scan = scan_repo(target)?;
 
-    let toml_content = if interactive && io::stdin().is_terminal() {
-        run_wizard(&scan)?
+    let (toml_content, write_ignore) = if interactive && io::stdin().is_terminal() {
+        run_wizard(&mut io::stdin().lock(), &scan)?
     } else {
         if interactive {
             eprintln!("Warning: stdin is not a terminal, falling back to auto-detect mode.");
         }
-        generate_toml(&scan)
+        (generate_toml(&scan), true)
     };
 
     std::fs::create_dir_all(target.join(CACHE_DIR))?;
     std::fs::write(&config_path, &toml_content)?;
     eprintln!("  Config written to {}", config_path.display());
+
+    if write_ignore {
+        if let Some(ignore_content) = generate_baraddurignore(&scan) {
+            write_baraddurignore(target, &ignore_content, &scan)?;
+        }
+    }
+    Ok(())
+}
+
+/// Write the generated `.baraddurignore` at the repo root, without clobbering an
+/// existing one (in that case the detected patterns are printed as a suggestion).
+fn write_baraddurignore(target: &Path, content: &str, scan: &ScanResult) -> Result<()> {
+    let path = target.join(".baraddurignore");
+    if path.exists() {
+        eprintln!("  .baraddurignore already exists — leaving it untouched.");
+        eprintln!("  Detected patterns you may want to add:");
+        for (pattern, _) in &scan.exclude_patterns {
+            eprintln!("    {pattern}");
+        }
+    } else {
+        std::fs::write(&path, content)?;
+        eprintln!(
+            "  Wrote {} ({} pattern(s))",
+            path.display(),
+            scan.exclude_patterns.len()
+        );
+    }
     Ok(())
 }
 
@@ -382,30 +393,30 @@ mod tests {
     fn detect_translation_extensions() {
         let files = vec!["src/main.rs", "Resources/Strings.resx", "i18n/fr.po"];
         let patterns = detect_exclude_patterns(&files);
-        assert!(patterns.iter().any(|p| p.contains("resx")));
-        assert!(patterns.iter().any(|p| p.contains("po")));
+        assert!(patterns.iter().any(|(p, _)| p.contains("resx")));
+        assert!(patterns.iter().any(|(p, _)| p.contains("po")));
     }
 
     #[test]
     fn detect_i18n_directories() {
         let files = vec!["src/assets/i18n/en.ts", "src/assets/i18n/fr.ts"];
         let patterns = detect_exclude_patterns(&files);
-        assert!(patterns.iter().any(|p| p.contains("i18n")));
+        assert!(patterns.iter().any(|(p, _)| p.contains("i18n")));
     }
 
     #[test]
     fn detect_generated_code() {
         let files = vec!["Models/Foo.generated.cs", "Views/Bar.designer.cs"];
         let patterns = detect_exclude_patterns(&files);
-        assert!(patterns.iter().any(|p| p.contains("generated")));
+        assert!(patterns.iter().any(|(p, _)| p.contains("generated")));
     }
 
     #[test]
     fn detect_vendor_dirs() {
         let files = vec!["vendor/lib/foo.go", "node_modules/pkg/index.js"];
         let patterns = detect_exclude_patterns(&files);
-        assert!(patterns.iter().any(|p| p.contains("vendor")));
-        assert!(patterns.iter().any(|p| p.contains("node_modules")));
+        assert!(patterns.iter().any(|(p, _)| p.contains("vendor")));
+        assert!(patterns.iter().any(|(p, _)| p.contains("node_modules")));
     }
 
     #[test]
@@ -413,6 +424,30 @@ mod tests {
         let files = vec!["src/main.rs", "src/lib.rs", "tests/test.rs"];
         let patterns = detect_exclude_patterns(&files);
         assert!(patterns.is_empty());
+    }
+
+    #[test]
+    fn detect_counts_nested_files() {
+        // Regression: translation/vendor files nested in subdirectories must still
+        // be detected and counted (previously a shell-glob recount dropped them).
+        let files = vec![
+            "src/resources/Strings.resx",
+            "app/locale/fr.resx",
+            "services/api/vendor/pkg/x.go",
+        ];
+        let patterns = detect_exclude_patterns(&files);
+        assert_eq!(
+            patterns
+                .iter()
+                .find(|(p, _)| p == "*.resx")
+                .map(|(_, c)| *c),
+            Some(2),
+            "both nested .resx files should be counted"
+        );
+        assert!(
+            patterns.iter().any(|(p, c)| p == "**/vendor/**" && *c == 1),
+            "nested vendor dir should be detected as **/vendor/**"
+        );
     }
 
     #[test]
@@ -428,17 +463,189 @@ mod tests {
     }
 
     #[test]
-    fn generate_toml_with_detected_patterns() {
+    fn generate_toml_omits_exclude_section() {
+        // Exclusions moved to `.baraddurignore`; the TOML must no longer carry them.
+        let scan = ScanResult {
+            exclude_patterns: vec![("*.resx".to_string(), 5)],
+            ..Default::default()
+        };
+        let toml_str = generate_toml(&scan);
+        assert!(!toml_str.contains("[exclude]"));
+        assert!(!toml_str.contains("*.resx"));
+        assert!(toml_str.parse::<toml::Value>().is_ok());
+    }
+
+    #[test]
+    fn generate_baraddurignore_with_detected_patterns() {
         let scan = ScanResult {
             exclude_patterns: vec![("*.resx".to_string(), 5), ("**/i18n/**".to_string(), 3)],
             ..Default::default()
         };
-        let toml_str = generate_toml(&scan);
-        assert!(toml_str.contains("*.resx"));
-        assert!(toml_str.contains("**/i18n/**"));
-        assert!(toml_str.contains("5 files"));
-        // Verify it parses as valid TOML
-        assert!(toml_str.parse::<toml::Value>().is_ok());
+        let ignore = generate_baraddurignore(&scan).expect("patterns detected → Some");
+        assert!(ignore.contains("*.resx"));
+        assert!(ignore.contains("**/i18n/**"));
+        assert!(ignore.contains("5 file(s)"));
+    }
+
+    #[test]
+    fn generate_baraddurignore_none_when_no_patterns() {
+        let scan = ScanResult::default();
+        assert!(generate_baraddurignore(&scan).is_none());
+    }
+
+    #[test]
+    fn prompt_returns_default_on_empty_input() {
+        let mut input = std::io::Cursor::new(&b""[..]);
+        assert_eq!(prompt(&mut input, "Q", "def"), "def");
+    }
+
+    #[test]
+    fn prompt_returns_trimmed_answer() {
+        let mut input = std::io::Cursor::new(&b"  hello  \n"[..]);
+        assert_eq!(prompt(&mut input, "Q", "def"), "hello");
+    }
+
+    #[test]
+    fn prompt_yn_reads_yes_and_no() {
+        assert!(prompt_yn(
+            &mut std::io::Cursor::new(&b"y\n"[..]),
+            "Q",
+            false
+        ));
+        assert!(!prompt_yn(
+            &mut std::io::Cursor::new(&b"n\n"[..]),
+            "Q",
+            true
+        ));
+    }
+
+    #[test]
+    fn prompt_yn_falls_back_to_default_on_empty() {
+        assert!(prompt_yn(&mut std::io::Cursor::new(&b""[..]), "Q", true));
+        assert!(!prompt_yn(&mut std::io::Cursor::new(&b""[..]), "Q", false));
+    }
+
+    #[test]
+    fn simple_wizard_defaults_generate_config_and_enable_ignore() {
+        let scan = ScanResult {
+            exclude_patterns: vec![("*.resx".to_string(), 5)],
+            ..Default::default()
+        };
+        // Empty input → every prompt takes its default.
+        let mut input = std::io::Cursor::new(&b""[..]);
+        let (toml, write_ignore) = run_simple_wizard(&mut input, &scan).unwrap();
+        assert!(toml.contains("[analysis]"));
+        assert!(toml.contains("[weights]"));
+        assert!(write_ignore, "detected patterns default to being excluded");
+    }
+
+    #[test]
+    fn simple_wizard_no_ignore_when_no_patterns_detected() {
+        let scan = ScanResult::default();
+        let mut input = std::io::Cursor::new(&b""[..]);
+        let (toml, write_ignore) = run_simple_wizard(&mut input, &scan).unwrap();
+        assert!(toml.contains("[analysis]"));
+        assert!(!write_ignore);
+    }
+
+    #[test]
+    fn advanced_wizard_defaults_generate_config() {
+        let scan = ScanResult {
+            exclude_patterns: vec![("*.resx".to_string(), 5)],
+            ..Default::default()
+        };
+        let mut input = std::io::Cursor::new(&b""[..]);
+        let (toml, write_ignore) = run_advanced_wizard(&mut input, &scan).unwrap();
+        assert!(toml.contains("[analysis]"));
+        assert!(write_ignore);
+    }
+
+    #[test]
+    fn write_baraddurignore_creates_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let scan = ScanResult {
+            exclude_patterns: vec![("*.resx".to_string(), 1)],
+            ..Default::default()
+        };
+        write_baraddurignore(dir.path(), "*.resx\n", &scan).unwrap();
+        let written = std::fs::read_to_string(dir.path().join(".baraddurignore")).unwrap();
+        assert_eq!(written, "*.resx\n");
+    }
+
+    #[test]
+    fn write_baraddurignore_does_not_clobber_existing() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join(".baraddurignore"), "existing\n").unwrap();
+        let scan = ScanResult {
+            exclude_patterns: vec![("*.resx".to_string(), 1)],
+            ..Default::default()
+        };
+        write_baraddurignore(dir.path(), "*.resx\n", &scan).unwrap();
+        // Existing content is preserved, not overwritten.
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join(".baraddurignore")).unwrap(),
+            "existing\n"
+        );
+    }
+
+    /// A throwaway git repo with one commit, so `scan_repo`/`run_init` work.
+    fn temp_git_repo(files: &[(&str, &str)]) -> tempfile::TempDir {
+        let dir = tempfile::TempDir::new().unwrap();
+        let git = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir.path())
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?} failed");
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "t@e"]);
+        git(&["config", "user.name", "t"]);
+        for (name, contents) in files {
+            let p = dir.path().join(name);
+            if let Some(parent) = p.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::write(p, contents).unwrap();
+        }
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "init"]);
+        dir
+    }
+
+    #[test]
+    fn run_wizard_simple_mode_generates_config() {
+        let scan = ScanResult {
+            exclude_patterns: vec![("*.resx".to_string(), 5)],
+            ..Default::default()
+        };
+        // "S" picks simple mode; the remaining prompts hit EOF and take defaults.
+        let mut input = std::io::Cursor::new(&b"S\n"[..]);
+        let (toml, write_ignore) = run_wizard(&mut input, &scan).unwrap();
+        assert!(toml.contains("[analysis]"));
+        assert!(write_ignore);
+    }
+
+    #[test]
+    fn run_init_writes_config_then_respects_force() {
+        let dir = temp_git_repo(&[("main.rs", "fn main() {}\n")]);
+        let config = dir
+            .path()
+            .join(".repository-analysis")
+            .join("barad-dur.toml");
+
+        // Fresh repo, no --force → succeeds and writes the config.
+        run_init(dir.path(), false, false).unwrap();
+        assert!(config.exists());
+
+        // Config now exists and no --force → must error.
+        assert!(run_init(dir.path(), false, false).is_err());
+
+        // --force overwrites and succeeds.
+        run_init(dir.path(), true, false).unwrap();
     }
 
     #[test]

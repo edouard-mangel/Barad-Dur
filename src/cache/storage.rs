@@ -7,6 +7,7 @@ use crate::snapshot::RepoSnapshot;
 
 pub const CACHE_DIR: &str = ".repository-analysis";
 const CACHE_FILE: &str = "snapshot.bin";
+const FINGERPRINT_FILE: &str = "exclude.fingerprint";
 
 /// Save a snapshot to the cache directory.
 pub fn save(snapshot: &RepoSnapshot, repo_path: &Path) -> Result<()> {
@@ -16,6 +17,24 @@ pub fn save(snapshot: &RepoSnapshot, repo_path: &Path) -> Result<()> {
     fs::write(cache_dir.join(CACHE_FILE), data)?;
     ensure_gitignore(repo_path)?;
     Ok(())
+}
+
+/// Record the exclusion fingerprint that produced the cached snapshot, so a later
+/// run can detect when exclusion inputs changed even though HEAD did not.
+pub fn save_exclude_fingerprint(repo_path: &Path, fingerprint: u64) -> Result<()> {
+    let cache_dir = repo_path.join(CACHE_DIR);
+    fs::create_dir_all(&cache_dir)?;
+    fs::write(cache_dir.join(FINGERPRINT_FILE), fingerprint.to_string())?;
+    Ok(())
+}
+
+/// Whether the recorded exclusion fingerprint equals `fingerprint`. A missing or
+/// unreadable fingerprint counts as a mismatch, forcing a fresh collection.
+pub fn exclude_fingerprint_matches(repo_path: &Path, fingerprint: u64) -> bool {
+    fs::read_to_string(repo_path.join(CACHE_DIR).join(FINGERPRINT_FILE))
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .is_some_and(|stored| stored == fingerprint)
 }
 
 /// Load a snapshot from the cache directory. Returns None if no cache exists.
@@ -82,6 +101,17 @@ mod tests {
 
         let cache_file = dir.path().join(CACHE_DIR).join(CACHE_FILE);
         assert!(cache_file.exists());
+    }
+
+    #[test]
+    fn exclude_fingerprint_roundtrip_and_mismatch() {
+        let dir = TempDir::new().unwrap();
+        // No fingerprint recorded yet → mismatch (forces re-collection).
+        assert!(!exclude_fingerprint_matches(dir.path(), 42));
+        save_exclude_fingerprint(dir.path(), 42).unwrap();
+        assert!(exclude_fingerprint_matches(dir.path(), 42));
+        // A different fingerprint (changed exclusions) → mismatch.
+        assert!(!exclude_fingerprint_matches(dir.path(), 99));
     }
 
     #[test]

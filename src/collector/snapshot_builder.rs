@@ -9,7 +9,7 @@ use std::time::Instant;
 use crate::metrics::complexity;
 use crate::snapshot::{FileComplexity, FileEntry, RepoSnapshot, TimeWindow};
 
-use super::exclude::is_excluded;
+use super::ignore_file::{should_include, BaradDurIgnore};
 use super::import_resolver::{resolve_imports, RawImports};
 use super::progress::{NoProgress, Progress};
 use super::Collector;
@@ -51,8 +51,8 @@ impl Collector {
         verbose: bool,
         skip_blame: bool,
         no_cache: bool,
-        exclude_patterns: &[String],
-        exclude_extensions: &[String],
+        cli_exclude_patterns: &[String],
+        cli_exclude_extensions: &[String],
         use_default_excludes: bool,
     ) -> Result<RepoSnapshot> {
         let make_spinner = |msg: &str| -> Option<ProgressBar> {
@@ -91,26 +91,26 @@ impl Collector {
         ));
         let t = Instant::now();
         let all_files = self.collect_files()?;
-        let has_excludes =
-            !exclude_patterns.is_empty() || !exclude_extensions.is_empty() || use_default_excludes;
-        let (files, excluded_count) = if has_excludes {
-            let before = all_files.len();
-            let filtered: Vec<FileEntry> = all_files
-                .into_iter()
-                .filter(|f| {
-                    !is_excluded(
-                        &f.path,
-                        exclude_patterns,
-                        exclude_extensions,
-                        use_default_excludes,
-                    )
-                })
-                .collect();
-            let after = filtered.len();
-            (filtered, before - after)
-        } else {
-            (all_files, 0)
-        };
+        // Apply every exclusion layer in a single pass. `.baraddurignore` (repo root)
+        // sits between the CLI flags (highest) and the built-in defaults (lowest); its
+        // `!` rules re-include default-excluded files. When nothing excludes a path
+        // `should_include` returns true, so no separate short-circuit is needed. See
+        // `ignore_file::should_include` for the precedence composition.
+        let ignore = BaradDurIgnore::load(self.repo_path())?;
+        let before = all_files.len();
+        let files: Vec<FileEntry> = all_files
+            .into_iter()
+            .filter(|f| {
+                should_include(
+                    &ignore,
+                    &f.path,
+                    cli_exclude_patterns,
+                    cli_exclude_extensions,
+                    use_default_excludes,
+                )
+            })
+            .collect();
+        let excluded_count = before - files.len();
         let files_ms = t.elapsed().as_millis();
         if let Some(s) = sp {
             s.finish_and_clear();
@@ -272,16 +272,30 @@ impl Collector {
 
     /// Collect a snapshot at a specific commit SHA without touching the working tree.
     /// file_metrics is always empty (ADR-005).
-    pub fn collect_snapshot_at(
+    ///
+    /// `ignore` is passed in (not loaded here) so a `backfill` run parses the
+    /// repo's `.baraddurignore` once and reuses it across every historical sample.
+    pub(crate) fn collect_snapshot_at(
         repo_path: &Path,
         sha: &str,
         _skip_blame: bool,
+        ignore: &BaradDurIgnore,
     ) -> Result<RepoSnapshot> {
         let repo = git2::Repository::discover(repo_path)
             .with_context(|| format!("'{}' is not a git repository", repo_path.display()))?;
         let time_window = TimeWindow::full_history();
         let collection = super::libgit::collect_commits_at(&repo, sha, &time_window)?;
-        let files = super::libgit::collect_files_at(&repo, sha)?;
+
+        // Apply the same exclusion policy as `analyze`/`gate` so backfilled history
+        // is comparable to live scores: built-in defaults + `.baraddurignore`.
+        // Backfill has no CLI exclude flags. The *current* `.baraddurignore` is
+        // applied uniformly to every historical snapshot, so the trend reflects one
+        // consistent definition of "relevant files" rather than each commit's own.
+        let all_files = super::libgit::collect_files_at(&repo, sha)?;
+        let files: Vec<FileEntry> = all_files
+            .into_iter()
+            .filter(|f| should_include(ignore, &f.path, &[], &[], true))
+            .collect();
 
         // ADR-005: backfill always skips blame for performance.
         let blame_map: HashMap<_, _> = HashMap::new();
@@ -403,5 +417,72 @@ mod tests {
             .keys()
             .find(|p| p.extension().and_then(|e| e.to_str()) == Some("rs"));
         assert!(rs_file.is_some(), "expected at least one .rs file");
+    }
+
+    /// A throwaway git repo with one commit, for `collect_snapshot_at` (backfill).
+    fn temp_git_repo(files: &[(&str, &str)]) -> (tempfile::TempDir, String) {
+        let dir = tempfile::TempDir::new().unwrap();
+        let git = |args: &[&str]| {
+            assert!(std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir.path())
+                .args(args)
+                .status()
+                .unwrap()
+                .success());
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "t@e"]);
+        git(&["config", "user.name", "t"]);
+        for (name, contents) in files {
+            let p = dir.path().join(name);
+            if let Some(parent) = p.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::write(p, contents).unwrap();
+        }
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "init"]);
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir.path())
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap();
+        let head = String::from_utf8(out.stdout).unwrap().trim().to_string();
+        (dir, head)
+    }
+
+    fn snapshot_paths(snap: &RepoSnapshot) -> Vec<String> {
+        snap.files
+            .iter()
+            .map(|f| f.path.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn collect_snapshot_at_applies_default_exclusions() {
+        // Backfill must drop built-in default exclusions (e.g. Cargo.lock) so its
+        // history is comparable to live analyze/gate scores.
+        let (dir, head) = temp_git_repo(&[("main.rs", "fn main() {}\n"), ("Cargo.lock", "x\n")]);
+        let ignore = BaradDurIgnore::load(dir.path()).unwrap();
+        let snap = Collector::collect_snapshot_at(dir.path(), &head, true, &ignore).unwrap();
+        let paths = snapshot_paths(&snap);
+        assert!(paths.iter().any(|p| p == "main.rs"));
+        assert!(
+            !paths.iter().any(|p| p == "Cargo.lock"),
+            "Cargo.lock should be excluded by default in backfill too"
+        );
+    }
+
+    #[test]
+    fn collect_snapshot_at_honors_baraddurignore() {
+        // A working-tree `.baraddurignore` filters historical snapshots as well.
+        let (dir, head) = temp_git_repo(&[("main.rs", "fn main() {}\n"), ("keep.rs", "//\n")]);
+        std::fs::write(dir.path().join(".baraddurignore"), "keep.rs\n").unwrap();
+        let ignore = BaradDurIgnore::load(dir.path()).unwrap();
+        let snap = Collector::collect_snapshot_at(dir.path(), &head, true, &ignore).unwrap();
+        let paths = snapshot_paths(&snap);
+        assert!(!paths.iter().any(|p| p == "keep.rs"));
     }
 }

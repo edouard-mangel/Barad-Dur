@@ -370,7 +370,7 @@ also run `barad-dur init . --interactive` for a guided wizard.
 [analysis]
 skip_blame = false
 
-[analysis.weights]
+[weights]
 # Must sum to 100. 'deps' is 0 by default (opt-in via --deps).
 health    = 35
 team      = 10
@@ -378,15 +378,68 @@ evolution = 20
 hygiene   = 15
 coupling  = 20
 deps      = 0
-
-[exclude]
-# Glob patterns — same as repeating --exclude on the CLI
-patterns = ["i18n/**", "vendor/**", "*.generated.cs"]
-
-# File extensions — same as repeating --exclude-ext on the CLI
-# Bare extension or compound (e.g. "min.js"). Case-insensitive, no dot needed.
-extensions = ["jar", "min.js", "resx"]
 ```
+
+File exclusions are **not** configured here — they live in `.baraddurignore` and
+CLI flags (see below).
+
+### File exclusion & `.baraddurignore`
+
+Files are excluded from **all** analysis phases through three layers, in
+precedence order (highest first):
+
+| Precedence | Source | Semantics |
+|-----------:|--------|-----------|
+| 1 (highest) | `--exclude` / `--exclude-ext` CLI flags | Force-exclude for this run; a `.baraddurignore` `!` cannot re-include a CLI-excluded file |
+| 2 | **`.baraddurignore`** (repo root) | Full `.gitignore` syntax incl. `!` negation — its `!` rules re-include files the defaults drop |
+| 3 (lowest) | Built-in defaults | Applied unless `--no-default-excludes` |
+
+`.baraddurignore` lives at the repository root (next to `.gitignore`) and uses
+identical syntax — comments (`#`), blank lines, `!` negation, leading-`/`
+anchoring, trailing-`/` directory-only rules, `**`, and last-match-wins ordering:
+
+```gitignore
+# .baraddurignore
+**/snapshots/**        # drop snapshot fixtures everywhere
+/legacy.rs             # anchored: only the root-level legacy.rs
+
+# Re-include a file the built-in defaults would drop (they exclude *.min.js):
+!vendor/app.min.js
+```
+
+A `.baraddurignore` whitelist (`!`) is the only way to analyze a file the built-in
+defaults otherwise remove. `barad-dur init` auto-detects likely-excludable paths
+(translation files, vendored dirs, i18n, generated code) and writes a starter
+`.baraddurignore` for you.
+
+Note: only **git-tracked** files are analyzed to begin with, so `.baraddurignore`
+acts as an extra filter over tracked paths — it never resurrects untracked files.
+
+<details>
+<summary>Built-in default exclusions (disable with <code>--no-default-excludes</code>)</summary>
+
+- **Extensions** (churn/coupling noise): `resx po pot xlf xliff strings arb lproj`
+  (translations) and `md txt rst adoc textile` (docs).
+- **Generated (compound suffix)**: `*.pb.{go,h,cc,swift} *.g.cs *.generated.cs
+  *.d.ts *.min.js *.min.css *_pb2.py`.
+- **Lockfiles**: `pnpm-lock.yaml package-lock.json yarn.lock Cargo.lock
+  Gemfile.lock poetry.lock composer.lock go.sum flake.lock *.lock`.
+- **Config churn**: `appsettings*.json launchSettings.json .env*`.
+- **Tooling dirs**: `.claude/ .cursor/ .idea/ .vscode/`.
+- **ORM migrations / schemas**: `**/Migrations/*.Designer.cs`,
+  `**/Migrations/*ModelSnapshot.cs`, `**/migrations/*.py`, `db/schema.rb`,
+  `prisma/migrations/**`, `alembic/versions/**`.
+- **i18n dirs**: `i18n l10n locales locale`.
+- **Build/vendor dirs**: `node_modules vendor __pycache__ *.egg-info target .next
+  .nuxt out gen generated .gradle .mvn build`.
+- **barad-dûr's own artifacts**: `.baraddurignore`, `.repository-analysis/`.
+
+</details>
+
+> **Note**: changing exclusions — editing `.baraddurignore`, or passing different
+> `--exclude`/`--exclude-ext`/`--no-default-excludes` flags — automatically
+> invalidates the snapshot cache, so the change takes effect on the next run
+> without needing `--no-cache`.
 
 ## CI/CD Integration
 

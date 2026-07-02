@@ -136,7 +136,13 @@ pub struct AnalyzeArgs {
     ///
     /// Accepts one or more glob patterns. Files matching any pattern are
     /// excluded from all phases (blame, coupling, hotspots, complexity).
-    /// Can be repeated: --exclude '*.resx' --exclude 'i18n/**'
+    /// Can be repeated: --exclude '*.resx' --exclude '**/i18n/**'
+    /// (use `**/` to match nested directories — a bare `*` does not cross `/`)
+    ///
+    /// Highest-precedence exclusion layer: a match here cannot be re-included
+    /// by a .baraddurignore '!' rule. For persistent, committable exclusions
+    /// (including re-including files via '!'), use a .baraddurignore file at the
+    /// repo root (full .gitignore syntax).
     #[arg(long, help_heading = "Filtering", action = clap::ArgAction::Append)]
     pub exclude: Vec<String>,
 
@@ -147,10 +153,12 @@ pub struct AnalyzeArgs {
     #[arg(long, help_heading = "Filtering", action = clap::ArgAction::Append)]
     pub exclude_ext: Vec<String>,
 
-    /// Disable built-in exclusion of translation/resource files
+    /// Disable the built-in default exclusions (lowest-precedence layer)
     ///
-    /// By default, files matching common translation patterns are excluded:
-    /// *.resx, *.po, *.pot, *.xlf, *.xliff, *.strings, *.arb, *.lproj
+    /// By default, common noise is excluded: translation/resource files
+    /// (*.resx, *.po, *.xlf, ...), generated code (*.min.js, *.pb.go, *.g.cs),
+    /// lockfiles, and vendor/build dirs (node_modules, target, vendor, ...).
+    /// To re-include just one such file, prefer a '!' rule in .baraddurignore.
     #[arg(long, help_heading = "Filtering", num_args = 0..=1, default_missing_value = "true")]
     pub no_default_excludes: Option<bool>,
 
@@ -166,7 +174,7 @@ pub struct AnalyzeArgs {
     #[arg(long, help_heading = "Cache")]
     pub no_cache: bool,
 
-    /// Only use cached data; fail if no cache exists
+    /// Only use cached data; fail if no usable cache exists (missing or stale)
     #[arg(long, help_heading = "Cache")]
     pub cache_only: bool,
 }
