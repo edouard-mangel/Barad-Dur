@@ -88,6 +88,7 @@ fn rust_findings(root: Node<'_>, content: &str, path: &Path) -> Vec<CouplingFind
         .into_iter()
         .filter_map(|n| match n.kind() {
             "static_item" => rust_common(n, content, path),
+            "attribute_item" => rust_content(n, content, path),
             _ => None,
         })
         .collect()
@@ -112,6 +113,16 @@ fn rust_common(node: Node<'_>, content: &str, path: &Path) -> Option<CouplingFin
     let item_text = text(node, content);
     let interior = INTERIOR_MUTABILITY.iter().any(|p| item_text.contains(p));
     (is_mut || interior).then(|| finding(path, node, CouplingKind::Common, content))
+}
+
+fn rust_content(node: Node<'_>, content: &str, path: &Path) -> Option<CouplingFinding> {
+    let normalized: String = text(node, content)
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    normalized
+        .starts_with("#[path=")
+        .then(|| finding(path, node, CouplingKind::Content, content))
 }
 
 #[cfg(test)]
@@ -174,6 +185,23 @@ mod tests {
     #[test]
     fn rust_plain_immutable_static_is_not_flagged() {
         assert!(findings_for("src/a.rs", "static MAX: usize = 10;\n").is_empty());
+    }
+
+    // ── Rust content coupling ──────────────────────────────────────
+
+    #[test]
+    fn rust_path_attribute_is_content_coupling() {
+        let src = "#[path = \"../other/impl.rs\"]\nmod stolen;\n";
+        let f = findings_for("src/a.rs", src);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].kind, CouplingKind::Content);
+        assert!(f[0].evidence.contains("#[path"));
+    }
+
+    #[test]
+    fn rust_other_attributes_are_not_flagged() {
+        let src = "#[derive(Debug)]\n#[cfg(test)]\nstruct Foo;\n";
+        assert!(findings_for("src/a.rs", src).is_empty());
     }
 
     #[test]
