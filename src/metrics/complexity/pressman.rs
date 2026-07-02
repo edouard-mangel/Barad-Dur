@@ -44,15 +44,25 @@ fn descendants(root: Node<'_>) -> Vec<Node<'_>> {
     out
 }
 
+/// Node kinds that open a nested scope whose parameters shadow the
+/// enclosing function's, per language.
+const RUST_SCOPE_BOUNDARIES: &[&str] = &["closure_expression", "function_item"];
+const JS_SCOPE_BOUNDARIES: &[&str] = &[
+    "arrow_function",
+    "function_expression",
+    "function_declaration",
+    "method_definition",
+];
+
 /// All nodes of a subtree, preorder, without descending into nested
-/// scopes (closures and inner functions) whose parameters shadow the
-/// enclosing function's.
-fn same_scope_descendants(root: Node<'_>) -> Vec<Node<'_>> {
+/// scopes (nodes whose kind is in `boundaries`, e.g. closures and inner
+/// functions) whose parameters shadow the enclosing function's.
+fn same_scope_descendants<'a>(root: Node<'a>, boundaries: &[&str]) -> Vec<Node<'a>> {
     let mut out = Vec::new();
     let mut stack = vec![root];
     while let Some(n) = stack.pop() {
         out.push(n);
-        if n != root && matches!(n.kind(), "closure_expression" | "function_item") {
+        if n != root && boundaries.contains(&n.kind()) {
             continue;
         }
         for i in (0..n.child_count()).rev() {
@@ -170,18 +180,20 @@ fn rust_control(node: Node<'_>, content: &str, path: &Path) -> Option<CouplingFi
         return None;
     }
     let body = node.child_by_field_name("body")?;
-    let branched = same_scope_descendants(body).into_iter().any(|n| {
-        let cond = match n.kind() {
-            "if_expression" | "while_expression" => n.child_by_field_name("condition"),
-            "match_expression" => n.child_by_field_name("value"),
-            _ => None,
-        };
-        cond.is_some_and(|c| {
-            bool_params
-                .iter()
-                .any(|p| contains_word(text(c, content), p))
-        })
-    });
+    let branched = same_scope_descendants(body, RUST_SCOPE_BOUNDARIES)
+        .into_iter()
+        .any(|n| {
+            let cond = match n.kind() {
+                "if_expression" | "while_expression" => n.child_by_field_name("condition"),
+                "match_expression" => n.child_by_field_name("value"),
+                _ => None,
+            };
+            cond.is_some_and(|c| {
+                bool_params
+                    .iter()
+                    .any(|p| contains_word(text(c, content), p))
+            })
+        });
     branched.then(|| finding(path, node, CouplingKind::Control, content))
 }
 
@@ -291,19 +303,21 @@ fn js_control(func: Node<'_>, content: &str, path: &Path) -> Option<CouplingFind
         return None;
     }
     let body = func.child_by_field_name("body")?;
-    let branched = descendants(body).into_iter().any(|n| {
-        let cond = match n.kind() {
-            "if_statement" | "while_statement" | "ternary_expression" => {
-                n.child_by_field_name("condition")
-            }
-            _ => None,
-        };
-        cond.is_some_and(|c| {
-            flag_names
-                .iter()
-                .any(|f| contains_word(text(c, content), f))
-        })
-    });
+    let branched = same_scope_descendants(body, JS_SCOPE_BOUNDARIES)
+        .into_iter()
+        .any(|n| {
+            let cond = match n.kind() {
+                "if_statement" | "while_statement" | "ternary_expression" => {
+                    n.child_by_field_name("condition")
+                }
+                _ => None,
+            };
+            cond.is_some_and(|c| {
+                flag_names
+                    .iter()
+                    .any(|f| contains_word(text(c, content), f))
+            })
+        });
     branched.then(|| finding(path, func, CouplingKind::Control, content))
 }
 
@@ -569,5 +583,20 @@ mod tests {
     fn ts_exported_fn_with_stored_boolean_is_not_flagged() {
         let src = "export function setVisible(visible: boolean) {\n  state.visible = visible;\n}\n";
         assert!(findings_for("src/s.ts", src).is_empty());
+    }
+
+    #[test]
+    fn ts_nested_arrow_shadowing_bool_param_is_not_flagged() {
+        let src = "export function outer(flag: boolean) {\n  const f = (flag: boolean) => {\n    if (flag) {\n      doIt();\n    }\n  };\n  f(true);\n}\n";
+        assert!(
+            findings_for("src/o.ts", src).is_empty(),
+            "nested arrow's own shadowed bool param must not be attributed to outer fn"
+        );
+    }
+
+    #[test]
+    fn ts_bool_branched_outside_nested_fn_is_still_flagged() {
+        let src = "export function outer(flag: boolean) {\n  const f = () => doIt();\n  if (flag) {\n    f();\n  }\n}\n";
+        assert_eq!(findings_for("src/o.ts", src).len(), 1);
     }
 }
