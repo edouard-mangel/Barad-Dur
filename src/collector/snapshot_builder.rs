@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use crate::metrics::complexity;
-use crate::snapshot::{FileComplexity, FileEntry, RepoSnapshot, TimeWindow};
+use crate::snapshot::{CouplingFinding, FileComplexity, FileEntry, RepoSnapshot, TimeWindow};
 
 use super::ignore_file::{should_include, BaradDurIgnore};
 use super::import_resolver::{resolve_imports, RawImports};
@@ -19,9 +19,13 @@ impl Collector {
         &self,
         files: &[FileEntry],
         progress: &dyn Progress,
-    ) -> (HashMap<PathBuf, FileComplexity>, RawImports) {
+    ) -> (
+        HashMap<PathBuf, FileComplexity>,
+        RawImports,
+        Vec<CouplingFinding>,
+    ) {
         let root = self.repo_path();
-        let results: Vec<(PathBuf, FileComplexity, Vec<String>)> = files
+        let results: Vec<(PathBuf, FileComplexity, Vec<String>, Vec<CouplingFinding>)> = files
             .par_iter()
             .filter(|entry| !entry.is_binary)
             .filter_map(|entry| {
@@ -29,19 +33,23 @@ impl Collector {
                 let content = std::fs::read_to_string(&abs_path).ok()?;
                 let metrics = complexity::analyse_file(&entry.path, &content);
                 let imports = complexity::extract_file_imports(&entry.path, &content);
+                let findings = complexity::extract_coupling_findings(&entry.path, &content);
                 progress.inc(1);
-                Some((entry.path.clone(), metrics, imports))
+                Some((entry.path.clone(), metrics, imports, findings))
             })
             .collect();
         let mut file_metrics = HashMap::new();
         let mut raw_imports = HashMap::new();
-        for (path, metrics, imports) in results {
+        let mut coupling_findings = Vec::new();
+        for (path, metrics, imports, findings) in results {
             file_metrics.insert(path.clone(), metrics);
             if !imports.is_empty() {
                 raw_imports.insert(path, imports);
             }
+            coupling_findings.extend(findings);
         }
-        (file_metrics, raw_imports)
+        coupling_findings.sort_by(|a, b| (&a.path, a.line).cmp(&(&b.path, b.line)));
+        (file_metrics, raw_imports, coupling_findings)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -222,7 +230,7 @@ impl Collector {
             Some(pb) => pb,
             None => &NoProgress,
         };
-        let (file_metrics, raw_imports) =
+        let (file_metrics, raw_imports, coupling_findings) =
             self.collect_file_metrics_with_progress(&files, complexity_progress);
         let complexity_ms = t.elapsed().as_millis();
         if let Some(pb) = complexity_bar {
@@ -251,7 +259,7 @@ impl Collector {
             file_change_pairs: Vec::new(),
             file_metrics,
             import_graph,
-            coupling_findings: Vec::new(),
+            coupling_findings,
             commit_interner: collection.interner,
         };
         snapshot.build_indexes();
@@ -403,6 +411,22 @@ mod tests {
             .expect("should collect blame from cache");
 
         assert_eq!(blame_map.len(), blame_map2.len());
+    }
+
+    #[test]
+    fn collect_snapshot_populates_coupling_findings_deterministically() {
+        let Ok(collector) = Collector::open(&test_repo_path(), TimeWindow::default()) else {
+            return;
+        };
+        let files = collector.collect_files().expect("should collect files");
+        // NoProgress is already imported at the top of snapshot_builder.rs
+        // (`use super::progress::{NoProgress, Progress};`) and reaches the
+        // tests module via `use super::*`.
+        let (_, _, findings) = collector.collect_file_metrics_with_progress(&files, &NoProgress);
+        // barad-dur's own code should produce a deterministic, sorted list
+        let mut sorted = findings.clone();
+        sorted.sort_by(|a, b| (&a.path, a.line).cmp(&(&b.path, b.line)));
+        assert_eq!(findings, sorted, "findings must be sorted by (path, line)");
     }
 
     #[test]
