@@ -261,8 +261,50 @@ fn js_singleton(class_node: Node<'_>, content: &str, path: &Path) -> Option<Coup
         })
 }
 
-fn js_control(_func: Node<'_>, _content: &str, _path: &Path) -> Option<CouplingFinding> {
-    None // implemented in Task 6
+/// Exported function whose boolean parameter (TS annotation or JS
+/// `= true/false` default) is branched on in the body → Control.
+fn js_control(func: Node<'_>, content: &str, path: &Path) -> Option<CouplingFinding> {
+    let params = func.child_by_field_name("parameters")?;
+    let flag_names: Vec<&str> = descendants(params)
+        .into_iter()
+        .filter_map(|p| match p.kind() {
+            // TS: required_parameter / optional_parameter with `: boolean`
+            "required_parameter" | "optional_parameter" => {
+                let is_bool = (0..p.child_count())
+                    .filter_map(|i| p.child(i as u32))
+                    .any(|c| c.kind() == "type_annotation" && text(c, content).contains("boolean"));
+                let pat = p.child_by_field_name("pattern")?;
+                (is_bool && pat.kind() == "identifier").then(|| text(pat, content))
+            }
+            // JS: `param = true` / `param = false`
+            "assignment_pattern" => {
+                let right_is_bool = p
+                    .child_by_field_name("right")
+                    .is_some_and(|r| matches!(r.kind(), "true" | "false"));
+                let left = p.child_by_field_name("left")?;
+                (right_is_bool && left.kind() == "identifier").then(|| text(left, content))
+            }
+            _ => None,
+        })
+        .collect();
+    if flag_names.is_empty() {
+        return None;
+    }
+    let body = func.child_by_field_name("body")?;
+    let branched = descendants(body).into_iter().any(|n| {
+        let cond = match n.kind() {
+            "if_statement" | "while_statement" | "ternary_expression" => {
+                n.child_by_field_name("condition")
+            }
+            _ => None,
+        };
+        cond.is_some_and(|c| {
+            flag_names
+                .iter()
+                .any(|f| contains_word(text(c, content), f))
+        })
+    });
+    branched.then(|| finding(path, func, CouplingKind::Control, content))
 }
 
 #[cfg(test)]
@@ -492,5 +534,40 @@ mod tests {
     fn ts_export_let_with_newline_is_common_coupling() {
         let f = findings_for("src/state.ts", "export let\n  counter = 0;\n");
         assert_eq!(f.len(), 1, "wrapped let declaration must be flagged");
+    }
+
+    // ── TS/JS control coupling ─────────────────────────────────────
+
+    #[test]
+    fn ts_exported_fn_with_branched_boolean_is_control_coupling() {
+        let src =
+            "export function render(compact: boolean) {\n  if (compact) {\n    short();\n  }\n}\n";
+        let f = findings_for("src/r.ts", src);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].kind, CouplingKind::Control);
+    }
+
+    #[test]
+    fn ts_exported_fn_with_ternary_boolean_is_control_coupling() {
+        let src = "export function pick(fast: boolean): number {\n  return fast ? 1 : 2;\n}\n";
+        assert_eq!(findings_for("src/p.ts", src).len(), 1);
+    }
+
+    #[test]
+    fn js_exported_fn_with_default_bool_branched_is_control_coupling() {
+        let src = "export function log(verbose = false) {\n  if (verbose) {\n    console.debug('x');\n  }\n}\n";
+        assert_eq!(findings_for("src/l.js", src).len(), 1);
+    }
+
+    #[test]
+    fn ts_non_exported_fn_is_not_flagged() {
+        let src = "function helper(flag: boolean) {\n  if (flag) {\n    a();\n  }\n}\n";
+        assert!(findings_for("src/h.ts", src).is_empty());
+    }
+
+    #[test]
+    fn ts_exported_fn_with_stored_boolean_is_not_flagged() {
+        let src = "export function setVisible(visible: boolean) {\n  state.visible = visible;\n}\n";
+        assert!(findings_for("src/s.ts", src).is_empty());
     }
 }
