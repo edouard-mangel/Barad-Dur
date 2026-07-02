@@ -491,6 +491,10 @@ fn barrel_bypass_findings_are_sorted_deterministically() {
 fn snapshot_with_findings(findings: Vec<CouplingFinding>) -> RepoSnapshot {
     let mut s = crate::metrics::testutil::make_snapshot();
     s.files = vec![crate::metrics::testutil::make_file("src/a.rs")];
+    s.file_metrics.insert(
+        std::path::PathBuf::from("src/a.rs"),
+        crate::snapshot::FileComplexity::default(),
+    );
     s.coupling_findings = findings;
     s
 }
@@ -576,9 +580,30 @@ fn score_pressman_bands_are_exact() {
 }
 
 #[test]
+fn pressman_metrics_unscored_when_detection_did_not_run() {
+    // Backfill-style snapshot (ADR-005): files listed but no AST pass ran,
+    // so file_metrics is empty. Empty findings must NOT read as "clean".
+    let mut snapshot = crate::metrics::testutil::make_snapshot();
+    snapshot.files = vec![crate::metrics::testutil::make_file("src/a.rs")];
+    // file_metrics deliberately left empty
+    let result = compute_coupling(&snapshot, &CouplingThresholds::default());
+    for name in ["Content coupling", "Common coupling", "Control coupling"] {
+        let m = result.metrics.iter().find(|m| m.name == name).unwrap();
+        assert_eq!(
+            m.score, None,
+            "{name} must be unscored when the AST pass didn't run"
+        );
+    }
+}
+
+#[test]
 fn pressman_metrics_unscored_without_detectable_files() {
     let mut snapshot = crate::metrics::testutil::make_snapshot();
     snapshot.files = vec![crate::metrics::testutil::make_file("main.py")];
+    snapshot.file_metrics.insert(
+        std::path::PathBuf::from("main.py"),
+        crate::snapshot::FileComplexity::default(),
+    );
     let result = compute_coupling(&snapshot, &CouplingThresholds::default());
     let m = result
         .metrics
@@ -596,6 +621,10 @@ fn content_metric_includes_barrel_findings_when_enabled() {
         crate::metrics::testutil::make_file("lib/index.ts"),
         crate::metrics::testutil::make_file("lib/impl.ts"),
     ];
+    snapshot.file_metrics.insert(
+        std::path::PathBuf::from("app/main.ts"),
+        crate::snapshot::FileComplexity::default(),
+    );
     snapshot.import_graph.insert(
         PathBuf::from("app/main.ts"),
         vec![PathBuf::from("lib/impl.ts")],

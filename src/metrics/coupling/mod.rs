@@ -255,6 +255,14 @@ const BARREL_NAMES: &[&str] = &["index.ts", "index.tsx", "index.js", "index.jsx"
 const JS_EXTS: &[&str] = &["ts", "tsx", "js", "jsx", "mjs", "cjs"];
 const DETECTABLE_EXTS: &[&str] = &["rs", "ts", "tsx", "js", "jsx", "mjs", "cjs"];
 
+/// True when the collector's AST pass actually ran on this snapshot.
+/// `collect_snapshot_at` (ADR-005, backfill) skips it, leaving
+/// `file_metrics` empty — an empty findings list there means "not
+/// collected", never "clean".
+pub(crate) fn detection_ran(snapshot: &RepoSnapshot) -> bool {
+    !snapshot.file_metrics.is_empty()
+}
+
 fn has_detectable_files(snapshot: &RepoSnapshot) -> bool {
     snapshot.files.iter().any(|f| {
         f.path
@@ -309,6 +317,14 @@ fn pressman_metric(
         CouplingKind::Common => ("Common coupling", "shared mutable global state"),
         CouplingKind::Control => ("Control coupling", "flag parameters steering callee logic"),
     };
+    if !detection_ran(snapshot) {
+        return MetricValue {
+            name: name.to_string(),
+            description: "Coupling detection did not run (no parsed files)".to_string(),
+            raw_value: RawValue::Count(0),
+            score: None,
+        };
+    }
     if !has_detectable_files(snapshot) {
         return MetricValue {
             name: name.to_string(),
