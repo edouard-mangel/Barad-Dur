@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use crate::config::CouplingThresholds;
 use crate::metrics::{score_count_bands, CategoryResult, MetricValue, RawValue};
+use crate::scorer::CouplingFindingCounts;
 use crate::snapshot::{CouplingFinding, CouplingKind, RepoSnapshot};
 
 pub fn compute_coupling(
@@ -261,6 +262,36 @@ const DETECTABLE_EXTS: &[&str] = &["rs", "ts", "tsx", "js", "jsx", "mjs", "cjs"]
 /// collected", never "clean".
 pub(crate) fn detection_ran(snapshot: &RepoSnapshot) -> bool {
     !snapshot.file_metrics.is_empty()
+}
+
+/// Single source of truth for per-kind finding counts. Must equal what the
+/// three Pressman metrics report (Content includes barrel-bypass findings
+/// when the rule is enabled). `None` when detection did not run or no
+/// detectable-language files exist.
+pub(crate) fn pressman_finding_counts(
+    snapshot: &RepoSnapshot,
+    thresholds: &CouplingThresholds,
+) -> Option<CouplingFindingCounts> {
+    if !detection_ran(snapshot) || !has_detectable_files(snapshot) {
+        return None;
+    }
+    let count_kind = |kind: CouplingKind| {
+        snapshot
+            .coupling_findings
+            .iter()
+            .filter(|f| f.kind == kind)
+            .count()
+    };
+    let barrel = if thresholds.content_barrel_rule {
+        barrel_bypass_findings(snapshot, thresholds.component_depth).len()
+    } else {
+        0
+    };
+    Some(CouplingFindingCounts {
+        content: count_kind(CouplingKind::Content) + barrel,
+        common: count_kind(CouplingKind::Common),
+        control: count_kind(CouplingKind::Control),
+    })
 }
 
 fn has_detectable_files(snapshot: &RepoSnapshot) -> bool {

@@ -743,6 +743,46 @@ fn severity_cap_is_derived_from_score_good_min_not_a_bare_literal() {
 }
 
 #[test]
+fn finding_counts_match_metrics_including_barrel() {
+    let mut snapshot = snapshot_with_findings(vec![
+        make_finding(CouplingKind::Common),
+        make_finding(CouplingKind::Control),
+        make_finding(CouplingKind::Control),
+    ]);
+    snapshot.files.extend([
+        crate::metrics::testutil::make_file("app/main.ts"),
+        crate::metrics::testutil::make_file("lib/index.ts"),
+        crate::metrics::testutil::make_file("lib/impl.ts"),
+    ]);
+    snapshot.import_graph.insert(
+        PathBuf::from("app/main.ts"),
+        vec![PathBuf::from("lib/impl.ts")],
+    );
+    let thresholds = CouplingThresholds {
+        component_depth: 1,
+        ..Default::default()
+    };
+    let counts = pressman_finding_counts(&snapshot, &thresholds).expect("detection ran");
+    assert_eq!(counts.content, 1, "barrel bypass counted into content");
+    assert_eq!(counts.common, 1);
+    assert_eq!(counts.control, 2);
+
+    let off = CouplingThresholds {
+        component_depth: 1,
+        content_barrel_rule: false,
+        ..Default::default()
+    };
+    assert_eq!(pressman_finding_counts(&snapshot, &off).unwrap().content, 0);
+}
+
+#[test]
+fn finding_counts_none_when_detection_did_not_run() {
+    let mut snapshot = crate::metrics::testutil::make_snapshot();
+    snapshot.files = vec![crate::metrics::testutil::make_file("src/a.rs")];
+    assert!(pressman_finding_counts(&snapshot, &CouplingThresholds::default()).is_none());
+}
+
+#[test]
 fn severity_cap_does_not_raise_already_low_scores() {
     // If the average is already below 70 the cap must not touch it.
     let findings = vec![

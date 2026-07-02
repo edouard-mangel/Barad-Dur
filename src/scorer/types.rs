@@ -161,7 +161,19 @@ pub struct AnalysisReport {
     pub import_edges: Vec<ImportEdge>,
     /// Import cycles as sorted member-file lists (depth 1 and 2).
     pub import_cycles: Vec<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coupling_finding_counts: Option<CouplingFindingCounts>,
     pub score_thresholds: ScoreThresholds,
+}
+
+/// Per-kind Pressman coupling finding counts for one analysis run.
+/// `None` on the report means detection did not run (e.g. backfill's
+/// ADR-005 snapshot) — distinct from all-zero, which means "clean".
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct CouplingFindingCounts {
+    pub content: usize,
+    pub common: usize,
+    pub control: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
