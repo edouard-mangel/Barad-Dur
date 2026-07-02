@@ -66,7 +66,6 @@ fn finding(path: &Path, node: Node<'_>, kind: CouplingKind, content: &str) -> Co
 
 /// True when `word` appears in `hay` with non-identifier characters (or
 /// string boundaries) on both sides.
-#[expect(dead_code)]
 fn contains_word(hay: &str, word: &str) -> bool {
     hay.match_indices(word).any(|(i, _)| {
         let before_ok = !hay[..i]
@@ -89,6 +88,7 @@ fn rust_findings(root: Node<'_>, content: &str, path: &Path) -> Vec<CouplingFind
         .filter_map(|n| match n.kind() {
             "static_item" => rust_common(n, content, path),
             "attribute_item" => rust_content(n, content, path),
+            "function_item" => rust_control(n, content, path),
             _ => None,
         })
         .collect()
@@ -123,6 +123,45 @@ fn rust_content(node: Node<'_>, content: &str, path: &Path) -> Option<CouplingFi
     normalized
         .starts_with("#[path=")
         .then(|| finding(path, node, CouplingKind::Content, content))
+}
+
+fn rust_control(node: Node<'_>, content: &str, path: &Path) -> Option<CouplingFinding> {
+    let is_pub = (0..node.child_count())
+        .filter_map(|i| node.child(i as u32))
+        .any(|c| c.kind() == "visibility_modifier");
+    if !is_pub {
+        return None;
+    }
+    let params = node.child_by_field_name("parameters")?;
+    let bool_params: Vec<&str> = (0..params.child_count())
+        .filter_map(|i| params.child(i as u32))
+        .filter(|p| p.kind() == "parameter")
+        .filter(|p| {
+            p.child_by_field_name("type")
+                .is_some_and(|t| text(t, content) == "bool")
+        })
+        .filter_map(|p| {
+            p.child_by_field_name("pattern")
+                .map(|pat| text(pat, content))
+        })
+        .collect();
+    if bool_params.is_empty() {
+        return None;
+    }
+    let body = node.child_by_field_name("body")?;
+    let branched = descendants(body).into_iter().any(|n| {
+        let cond = match n.kind() {
+            "if_expression" | "while_expression" => n.child_by_field_name("condition"),
+            "match_expression" => n.child_by_field_name("value"),
+            _ => None,
+        };
+        cond.is_some_and(|c| {
+            bool_params
+                .iter()
+                .any(|p| contains_word(text(c, content), p))
+        })
+    });
+    branched.then(|| finding(path, node, CouplingKind::Control, content))
 }
 
 #[cfg(test)]
@@ -212,5 +251,56 @@ mod tests {
     #[test]
     fn unparseable_extension_returns_empty() {
         assert!(findings_for("notes.txt", "hello\n").is_empty());
+    }
+
+    // ── Rust control coupling ──────────────────────────────────────
+
+    #[test]
+    fn pub_fn_with_branched_bool_is_control_coupling() {
+        let src = "pub fn render(compact: bool) {\n    if compact {\n        short();\n    } else {\n        long();\n    }\n}\n";
+        let f = findings_for("src/a.rs", src);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].kind, CouplingKind::Control);
+        assert!(f[0].evidence.contains("pub fn render"));
+    }
+
+    #[test]
+    fn pub_fn_with_matched_bool_is_control_coupling() {
+        let src = "pub fn go(fast: bool) {\n    match fast {\n        true => sprint(),\n        false => walk(),\n    }\n}\n";
+        assert_eq!(findings_for("src/a.rs", src).len(), 1);
+    }
+
+    #[test]
+    fn private_fn_with_branched_bool_is_not_flagged() {
+        let src = "fn helper(flag: bool) {\n    if flag {\n        a();\n    }\n}\n";
+        assert!(
+            findings_for("src/a.rs", src).is_empty(),
+            "coupling is inter-module; private fns exempt"
+        );
+    }
+
+    #[test]
+    fn pub_fn_with_stored_bool_is_not_flagged() {
+        let src = "pub fn set_visible(visible: bool) {\n    STATE_VISIBLE.store(visible);\n}\n";
+        assert!(
+            findings_for("src/a.rs", src).is_empty(),
+            "bool-as-data is not control coupling"
+        );
+    }
+
+    #[test]
+    fn pub_fn_without_bool_params_is_not_flagged() {
+        let src = "pub fn add(a: u32, b: u32) -> u32 {\n    if a > b { a } else { b }\n}\n";
+        assert!(findings_for("src/a.rs", src).is_empty());
+    }
+
+    #[test]
+    fn similarly_named_variable_does_not_false_positive() {
+        // param `flag` unused in branches; local `flagged` is branched on
+        let src = "pub fn f(flag: bool) {\n    let flagged = compute();\n    if flagged {\n        a(flag);\n    }\n}\n";
+        assert!(
+            findings_for("src/a.rs", src).is_empty(),
+            "word-boundary match must not catch 'flagged'"
+        );
     }
 }
