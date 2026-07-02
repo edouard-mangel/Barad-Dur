@@ -376,3 +376,83 @@ fn compute_coupling_returns_four_metrics() {
     assert_eq!(result.metrics.len(), 4);
     assert_eq!(result.name, "Coupling");
 }
+
+#[test]
+fn barrel_bypass_cross_component_is_detected() {
+    let mut snapshot = crate::metrics::testutil::make_snapshot();
+    snapshot.files = vec![
+        crate::metrics::testutil::make_file("app/main.ts"),
+        crate::metrics::testutil::make_file("lib/index.ts"),
+        crate::metrics::testutil::make_file("lib/impl.ts"),
+    ];
+    // app/main.ts deep-imports lib/impl.ts although lib/index.ts exists
+    snapshot.import_graph.insert(
+        PathBuf::from("app/main.ts"),
+        vec![PathBuf::from("lib/impl.ts")],
+    );
+    let findings = barrel_bypass_findings(&snapshot, 1);
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].kind, crate::snapshot::CouplingKind::Content);
+    assert_eq!(findings[0].path, PathBuf::from("app/main.ts"));
+    assert_eq!(findings[0].line, None);
+    assert!(findings[0].evidence.contains("lib/impl.ts"));
+}
+
+#[test]
+fn barrel_bypass_same_component_is_not_flagged() {
+    let mut snapshot = crate::metrics::testutil::make_snapshot();
+    snapshot.files = vec![
+        crate::metrics::testutil::make_file("lib/a.ts"),
+        crate::metrics::testutil::make_file("lib/sub/index.ts"),
+        crate::metrics::testutil::make_file("lib/sub/impl.ts"),
+    ];
+    snapshot.import_graph.insert(
+        PathBuf::from("lib/a.ts"),
+        vec![PathBuf::from("lib/sub/impl.ts")],
+    );
+    // component_depth 1: both sides are component "lib" → internal structure
+    assert!(barrel_bypass_findings(&snapshot, 1).is_empty());
+}
+
+#[test]
+fn barrel_bypass_without_barrel_is_not_flagged() {
+    let mut snapshot = crate::metrics::testutil::make_snapshot();
+    snapshot.files = vec![
+        crate::metrics::testutil::make_file("app/main.ts"),
+        crate::metrics::testutil::make_file("lib/impl.ts"), // no index.ts in lib/
+    ];
+    snapshot.import_graph.insert(
+        PathBuf::from("app/main.ts"),
+        vec![PathBuf::from("lib/impl.ts")],
+    );
+    assert!(barrel_bypass_findings(&snapshot, 1).is_empty());
+}
+
+#[test]
+fn barrel_import_itself_is_not_flagged() {
+    let mut snapshot = crate::metrics::testutil::make_snapshot();
+    snapshot.files = vec![
+        crate::metrics::testutil::make_file("app/main.ts"),
+        crate::metrics::testutil::make_file("lib/index.ts"),
+    ];
+    snapshot.import_graph.insert(
+        PathBuf::from("app/main.ts"),
+        vec![PathBuf::from("lib/index.ts")], // the sanctioned route
+    );
+    assert!(barrel_bypass_findings(&snapshot, 1).is_empty());
+}
+
+#[test]
+fn barrel_bypass_ignores_rust_files() {
+    let mut snapshot = crate::metrics::testutil::make_snapshot();
+    snapshot.files = vec![
+        crate::metrics::testutil::make_file("app/main.rs"),
+        crate::metrics::testutil::make_file("lib/index.ts"),
+        crate::metrics::testutil::make_file("lib/util.rs"),
+    ];
+    snapshot.import_graph.insert(
+        PathBuf::from("app/main.rs"),
+        vec![PathBuf::from("lib/util.rs")],
+    );
+    assert!(barrel_bypass_findings(&snapshot, 1).is_empty());
+}

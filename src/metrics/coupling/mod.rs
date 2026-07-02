@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use crate::config::CouplingThresholds;
 use crate::metrics::{score_count_bands, CategoryResult, MetricValue, RawValue};
-use crate::snapshot::RepoSnapshot;
+use crate::snapshot::{CouplingFinding, CouplingKind, RepoSnapshot};
 
 pub fn compute_coupling(
     snapshot: &RepoSnapshot,
@@ -239,6 +239,65 @@ fn circular_dependencies(snapshot: &RepoSnapshot) -> MetricValue {
         raw_value: RawValue::List(cycle_list),
         score: Some(score),
     }
+}
+
+const BARREL_NAMES: &[&str] = &["index.ts", "index.tsx", "index.js", "index.jsx"];
+const JS_EXTS: &[&str] = &["ts", "tsx", "js", "jsx", "mjs", "cjs"];
+
+/// Content coupling via barrel bypass: a cross-component relative import
+/// that resolves to a non-index file in a directory that has a barrel.
+/// Line info is unavailable (graph-derived), so `line: None`.
+#[allow(dead_code)] // used by compute_coupling in the next change
+pub(crate) fn barrel_bypass_findings(
+    snapshot: &RepoSnapshot,
+    component_depth: usize,
+) -> Vec<CouplingFinding> {
+    let barrel_dirs: HashSet<PathBuf> = snapshot
+        .files
+        .iter()
+        .filter(|f| {
+            f.path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| BARREL_NAMES.contains(&n))
+        })
+        .filter_map(|f| f.path.parent().map(|p| p.to_owned()))
+        .collect();
+
+    snapshot
+        .import_graph
+        .iter()
+        .flat_map(|(source, targets)| {
+            let barrel_dirs = &barrel_dirs;
+            targets.iter().filter_map(move |target| {
+                let is_js = target
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|e| JS_EXTS.contains(&e));
+                let is_barrel_file = target
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| BARREL_NAMES.contains(&n));
+                let target_dir = target.parent()?;
+                let bypass = is_js
+                    && !is_barrel_file
+                    && barrel_dirs.contains(target_dir)
+                    && source.parent() != Some(target_dir)
+                    && extract_component(source, component_depth)
+                        != extract_component(target, component_depth);
+                bypass.then(|| CouplingFinding {
+                    path: source.clone(),
+                    line: None,
+                    kind: CouplingKind::Content,
+                    evidence: format!(
+                        "imports {} directly — barrel {}/index.* exists",
+                        target.display(),
+                        target_dir.display()
+                    ),
+                })
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]

@@ -137,6 +137,10 @@ pub struct CouplingThresholds {
     pub component_depth: usize,
     #[serde(default = "default_change_coupling_min_ratio")]
     pub change_coupling_min_ratio: f64,
+    /// Enable the TS/JS barrel-bypass content-coupling rule. Teams whose
+    /// culture prefers deep imports can turn it off.
+    #[serde(default = "default_content_barrel_rule")]
+    pub content_barrel_rule: bool,
 }
 
 fn default_component_depth() -> usize {
@@ -145,12 +149,16 @@ fn default_component_depth() -> usize {
 fn default_change_coupling_min_ratio() -> f64 {
     0.30
 }
+fn default_content_barrel_rule() -> bool {
+    true
+}
 
 impl Default for CouplingThresholds {
     fn default() -> Self {
         Self {
             component_depth: default_component_depth(),
             change_coupling_min_ratio: default_change_coupling_min_ratio(),
+            content_barrel_rule: default_content_barrel_rule(),
         }
     }
 }
