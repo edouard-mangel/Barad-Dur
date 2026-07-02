@@ -1272,9 +1272,11 @@ pub(crate) fn score_pressman(kind: CouplingKind, count: usize) -> u32 {
             _ => 25,
         },
         CouplingKind::Common => match count {
+            // Maintainer decision (2026-07-02): harsher than the draft —
+            // one mutable global already stings, four trigger the category cap.
             0 => 100,
-            1..=2 => 75,
-            3..=5 => 50,
+            1 => 60,
+            2..=3 => 40,
             _ => 25,
         },
         CouplingKind::Control => match count {
