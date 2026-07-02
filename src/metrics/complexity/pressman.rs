@@ -24,6 +24,7 @@ pub fn extract_coupling_findings(path: &Path, content: &str) -> Vec<CouplingFind
     };
     match lang {
         Language::Rust => rust_findings(tree.root_node(), content, path),
+        Language::JsTs => js_findings(tree.root_node(), content, path),
         _ => Vec::new(),
     }
 }
@@ -184,6 +185,79 @@ fn rust_control(node: Node<'_>, content: &str, path: &Path) -> Option<CouplingFi
     branched.then(|| finding(path, node, CouplingKind::Control, content))
 }
 
+// ── TS/JS detectors ────────────────────────────────────────────────
+
+fn js_findings(root: Node<'_>, content: &str, path: &Path) -> Vec<CouplingFinding> {
+    descendants(root)
+        .into_iter()
+        .filter_map(|n| match n.kind() {
+            "export_statement" => js_export(n, content, path),
+            "assignment_expression" => js_global_write(n, content, path),
+            "class_declaration" | "class" => js_singleton(n, content, path),
+            _ => None,
+        })
+        .collect()
+}
+
+/// `export let` / `export var` → Common. `export function` → control check.
+fn js_export(node: Node<'_>, content: &str, path: &Path) -> Option<CouplingFinding> {
+    let decl = node.child_by_field_name("declaration")?;
+    match decl.kind() {
+        "lexical_declaration" if text(decl, content).starts_with("let ") => {
+            Some(finding(path, node, CouplingKind::Common, content))
+        }
+        "variable_declaration" => Some(finding(path, node, CouplingKind::Common, content)),
+        "function_declaration" => js_control(decl, content, path),
+        _ => None,
+    }
+}
+
+/// Assignment to `globalThis.x` / `window.x` → Common.
+fn js_global_write(node: Node<'_>, content: &str, path: &Path) -> Option<CouplingFinding> {
+    let left = node.child_by_field_name("left")?;
+    if left.kind() != "member_expression" {
+        return None;
+    }
+    let obj = left.child_by_field_name("object")?;
+    let is_global =
+        obj.kind() == "identifier" && matches!(text(obj, content), "globalThis" | "window");
+    is_global.then(|| finding(path, node, CouplingKind::Common, content))
+}
+
+/// Class with a static `instance` field or static `getInstance()` → Common.
+fn js_singleton(class_node: Node<'_>, content: &str, path: &Path) -> Option<CouplingFinding> {
+    let body = class_node.child_by_field_name("body")?;
+    (0..body.child_count())
+        .filter_map(|i| body.child(i as u32))
+        .find_map(|member| {
+            let is_static = (0..member.child_count())
+                .filter_map(|i| member.child(i as u32))
+                .any(|c| text(c, content) == "static");
+            if !is_static {
+                return None;
+            }
+            // Try to get name from field_name or property_identifier
+            let name = member
+                .child_by_field_name("name")
+                .or_else(|| {
+                    (0..member.child_count())
+                        .filter_map(|i| member.child(i as u32))
+                        .find(|c| matches!(c.kind(), "property_identifier" | "identifier"))
+                })
+                .map(|n| text(n, content))?;
+            let hit = (member.kind() == "method_definition" && name == "getInstance")
+                || (matches!(
+                    member.kind(),
+                    "field_definition" | "public_field_definition"
+                ) && name == "instance");
+            hit.then(|| finding(path, member, CouplingKind::Common, content))
+        })
+}
+
+fn js_control(_func: Node<'_>, _content: &str, _path: &Path) -> Option<CouplingFinding> {
+    None // implemented in Task 6
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -337,5 +411,67 @@ mod tests {
             findings_for("src/a.rs", src).is_empty(),
             "word-boundary match must not catch 'flagged'"
         );
+    }
+
+    // ── TS/JS common coupling ──────────────────────────────────────
+
+    #[test]
+    fn ts_export_let_is_common_coupling() {
+        let f = findings_for("src/state.ts", "export let counter = 0;\n");
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].kind, CouplingKind::Common);
+    }
+
+    #[test]
+    fn js_export_var_is_common_coupling() {
+        assert_eq!(
+            findings_for("src/state.js", "export var mode = 'a';\n").len(),
+            1
+        );
+    }
+
+    #[test]
+    fn ts_export_const_is_not_flagged() {
+        assert!(findings_for("src/config.ts", "export const MAX = 10;\n").is_empty());
+    }
+
+    #[test]
+    fn js_globalthis_write_is_common_coupling() {
+        let f = findings_for("src/boot.js", "globalThis.appState = {};\n");
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].kind, CouplingKind::Common);
+    }
+
+    #[test]
+    fn js_window_write_is_common_coupling() {
+        assert_eq!(
+            findings_for("src/boot.js", "window.cache = new Map();\n").len(),
+            1
+        );
+    }
+
+    #[test]
+    fn js_reading_window_is_not_flagged() {
+        assert!(findings_for("src/read.js", "const w = window.innerWidth;\n").is_empty());
+    }
+
+    #[test]
+    fn ts_singleton_getinstance_is_common_coupling() {
+        let src = "class Db {\n  private static instance: Db;\n  static getInstance(): Db {\n    return Db.instance;\n  }\n}\n";
+        let f = findings_for("src/db.ts", src);
+        assert!(!f.is_empty(), "getInstance singleton must be flagged");
+        assert!(f.iter().all(|x| x.kind == CouplingKind::Common));
+    }
+
+    #[test]
+    fn js_static_instance_field_is_common_coupling() {
+        let src = "class Api {\n  static instance = null;\n}\n";
+        assert_eq!(findings_for("src/api.js", src).len(), 1);
+    }
+
+    #[test]
+    fn ts_plain_class_is_not_flagged() {
+        let src = "class Point {\n  x = 0;\n  static origin() { return new Point(); }\n}\n";
+        assert!(findings_for("src/p.ts", src).is_empty());
     }
 }
