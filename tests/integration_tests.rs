@@ -316,6 +316,71 @@ fn gate_honors_baraddurignore() {
 }
 
 #[test]
+fn gate_passes_with_zero_min_score() {
+    // Any score is >= 0, so the gate must succeed (exit 0).
+    let dir = tempfile::tempdir().unwrap();
+    init_repo(dir.path(), &[("src/main.rs", "fn main() {}\n")]);
+    barad_dur()
+        .args(["gate", dir.path().to_str().unwrap(), "--min-score", "0"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn gate_fails_with_unreachable_min_score() {
+    // A tiny repo cannot score 100, so the gate must fail (exit non-zero).
+    let dir = tempfile::tempdir().unwrap();
+    init_repo(dir.path(), &[("src/main.rs", "fn main() {}\n")]);
+    barad_dur()
+        .args(["gate", dir.path().to_str().unwrap(), "--min-score", "100"])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn init_writes_config_and_baraddurignore() {
+    // A repo with a translation file yields a detected exclude pattern, so `init`
+    // writes both the TOML config and a `.baraddurignore` containing it.
+    let dir = tempfile::tempdir().unwrap();
+    init_repo(
+        dir.path(),
+        &[
+            ("src/main.rs", "fn main() {}\n"),
+            ("Strings.resx", "<x/>\n"),
+        ],
+    );
+    barad_dur()
+        .args(["init", dir.path().to_str().unwrap()])
+        .assert()
+        .success();
+
+    let toml = std::fs::read_to_string(dir.path().join(".repository-analysis/barad-dur.toml"))
+        .expect("config written");
+    assert!(toml.contains("[analysis]"));
+    assert!(!toml.contains("[exclude]"));
+
+    let ignore = std::fs::read_to_string(dir.path().join(".baraddurignore"))
+        .expect(".baraddurignore written");
+    assert!(ignore.contains("*.resx"));
+}
+
+#[test]
+fn init_without_force_fails_when_config_exists() {
+    let dir = tempfile::tempdir().unwrap();
+    init_repo(dir.path(), &[("src/main.rs", "fn main() {}\n")]);
+    let path = dir.path().to_str().unwrap();
+
+    barad_dur().args(["init", path]).assert().success();
+    // Re-running without --force must fail because the config now exists.
+    barad_dur().args(["init", path]).assert().failure();
+    // --force overwrites and succeeds.
+    barad_dur()
+        .args(["init", path, "--force"])
+        .assert()
+        .success();
+}
+
+#[test]
 fn analyze_html_output_to_file() {
     let dir = tempfile::tempdir().unwrap();
     let output_path = dir.path().join("report.html");

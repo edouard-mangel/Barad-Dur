@@ -42,11 +42,6 @@ impl BaradDurIgnore {
         Ok(Self { matcher })
     }
 
-    /// True when there are no globs (absent file, or blank / comments-only).
-    pub fn is_empty(&self) -> bool {
-        self.matcher.is_empty()
-    }
-
     /// Decision for a repo-root-relative path:
     /// - `Some(true)` — an ignore rule matched → drop the file,
     /// - `Some(false)` — a whitelist (`!`) rule matched last → keep it (override),
@@ -116,8 +111,9 @@ mod tests {
     fn absent_file_is_noop() {
         let dir = TempDir::new().unwrap();
         let ignore = BaradDurIgnore::load(dir.path()).unwrap();
-        assert!(ignore.is_empty());
+        // No file → no rule matches any path.
         assert_eq!(ignore.decision(Path::new("src/main.rs")), None);
+        assert_eq!(ignore.decision(Path::new("a/b/c.min.js")), None);
     }
 
     #[test]

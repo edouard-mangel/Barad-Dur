@@ -181,7 +181,13 @@ pub fn load(repo_root: &Path) -> Result<RepoConfig> {
 
     // Two-pass parse: first to toml::Value for unknown-key warnings,
     // then to our typed struct.
-    warn_unknown_keys(&content, &config_path);
+    for key in unknown_top_level_keys(&content) {
+        eprintln!(
+            "Warning: unknown config key '{}' in {}",
+            key,
+            config_path.display()
+        );
+    }
 
     let toml_cfg: TomlConfig = toml::from_str(&content)
         .with_context(|| format!("Failed to parse {}", config_path.display()))?;
@@ -200,21 +206,18 @@ pub fn load(repo_root: &Path) -> Result<RepoConfig> {
     })
 }
 
-fn warn_unknown_keys(content: &str, path: &Path) {
-    let known_sections = ["analysis", "weights", "thresholds", "output", "backfill"];
-    if let Ok(value) = content.parse::<toml::Value>() {
-        if let Some(table) = value.as_table() {
-            for key in table.keys() {
-                if !known_sections.contains(&key.as_str()) {
-                    eprintln!(
-                        "Warning: Unknown config key '{}' in {}",
-                        key,
-                        path.display()
-                    );
-                }
-            }
-        }
-    }
+/// Top-level TOML sections not recognised by the config schema. Pure so it can be
+/// unit-tested; the caller is responsible for reporting the result.
+fn unknown_top_level_keys(content: &str) -> Vec<String> {
+    const KNOWN: &[&str] = &["analysis", "weights", "thresholds", "output", "backfill"];
+    let Ok(toml::Value::Table(table)) = content.parse::<toml::Value>() else {
+        return Vec::new();
+    };
+    table
+        .keys()
+        .filter(|k| !KNOWN.contains(&k.as_str()))
+        .cloned()
+        .collect()
 }
 
 /// Validate the merged config.
@@ -331,6 +334,19 @@ mod tests {
         assert_eq!(cfg.weights.health, 40);
         assert_eq!(cfg.weights.hygiene, 10);
         assert_eq!(cfg.weights.coupling, 20); // missing key defaults to 20
+    }
+
+    #[test]
+    fn unknown_top_level_keys_flags_legacy_exclude() {
+        let unknown = unknown_top_level_keys("[analysis]\n[exclude]\npatterns = []\n");
+        assert_eq!(unknown, vec!["exclude"]);
+    }
+
+    #[test]
+    fn unknown_top_level_keys_empty_for_known_sections() {
+        let unknown =
+            unknown_top_level_keys("[analysis]\n[weights]\n[output]\n[thresholds.health]\n");
+        assert!(unknown.is_empty(), "unexpected unknown keys: {unknown:?}");
     }
 
     #[test]

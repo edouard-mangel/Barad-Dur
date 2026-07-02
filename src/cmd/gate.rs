@@ -280,6 +280,48 @@ mod tests {
         assert!(!check_gate_categories(&report, &args, 60));
     }
 
+    // ── run_gate (end-to-end exit code) ──────────────────────────────
+
+    /// A throwaway git repo with one commit, so `run_gate` can analyze it.
+    fn temp_git_repo() -> tempfile::TempDir {
+        let dir = tempfile::TempDir::new().unwrap();
+        let git = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir.path())
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?} failed");
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "t@e"]);
+        git(&["config", "user.name", "t"]);
+        std::fs::write(dir.path().join("main.rs"), "fn main() {}\n").unwrap();
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "init"]);
+        dir
+    }
+
+    #[test]
+    fn run_gate_returns_zero_when_threshold_met() {
+        let dir = temp_git_repo();
+        let mut args = make_gate_args(0, vec![]);
+        args.target = dir.path().to_string_lossy().into_owned();
+        // Any score >= 0, so the gate passes with exit code 0.
+        assert_eq!(run_gate(args).unwrap(), 0);
+    }
+
+    #[test]
+    fn run_gate_returns_one_when_below_threshold() {
+        let dir = temp_git_repo();
+        let mut args = make_gate_args(100, vec![]);
+        args.target = dir.path().to_string_lossy().into_owned();
+        // A trivial repo cannot score 100, so the gate fails with exit code 1.
+        assert_eq!(run_gate(args).unwrap(), 1);
+    }
+
     // ── check_trend_gate ────────────────────────────────────────────
 
     #[test]

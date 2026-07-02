@@ -91,31 +91,26 @@ impl Collector {
         ));
         let t = Instant::now();
         let all_files = self.collect_files()?;
-        // `.baraddurignore` (repo root) is the highest-precedence exclusion layer:
-        // its rules — including `!` re-includes — win over defaults/TOML/CLI.
+        // Apply every exclusion layer in a single pass. `.baraddurignore` (repo root)
+        // sits between the CLI flags (highest) and the built-in defaults (lowest); its
+        // `!` rules re-include default-excluded files. When nothing excludes a path
+        // `should_include` returns true, so no separate short-circuit is needed. See
+        // `ignore_file::should_include` for the precedence composition.
         let ignore = BaradDurIgnore::load(self.repo_path())?;
-        let has_excludes = !cli_exclude_patterns.is_empty()
-            || !cli_exclude_extensions.is_empty()
-            || use_default_excludes;
-        let (files, excluded_count) = if has_excludes || !ignore.is_empty() {
-            let before = all_files.len();
-            let filtered: Vec<FileEntry> = all_files
-                .into_iter()
-                .filter(|f| {
-                    should_include(
-                        &ignore,
-                        &f.path,
-                        cli_exclude_patterns,
-                        cli_exclude_extensions,
-                        use_default_excludes,
-                    )
-                })
-                .collect();
-            let after = filtered.len();
-            (filtered, before - after)
-        } else {
-            (all_files, 0)
-        };
+        let before = all_files.len();
+        let files: Vec<FileEntry> = all_files
+            .into_iter()
+            .filter(|f| {
+                should_include(
+                    &ignore,
+                    &f.path,
+                    cli_exclude_patterns,
+                    cli_exclude_extensions,
+                    use_default_excludes,
+                )
+            })
+            .collect();
+        let excluded_count = before - files.len();
         let files_ms = t.elapsed().as_millis();
         if let Some(s) = sp {
             s.finish_and_clear();
