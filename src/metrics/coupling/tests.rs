@@ -584,3 +584,61 @@ fn control_findings_are_scored_leniently() {
         "a few flag args must not tank the metric"
     );
 }
+
+#[test]
+fn severity_cap_limits_category_when_content_coupling_found() {
+    // One content finding among otherwise-perfect metrics: flat average
+    // would be ~93 (6×100+50)/7 — the cap must pull it to 70.
+    let snapshot = snapshot_with_findings(vec![make_finding(CouplingKind::Content)]);
+    let result = compute_coupling(&snapshot, &CouplingThresholds::default());
+    assert!(
+        result.score <= 70,
+        "category must not be green with content coupling present, got {}",
+        result.score
+    );
+    let m = result
+        .metrics
+        .iter()
+        .find(|m| m.name == "Content coupling")
+        .unwrap();
+    assert!(
+        m.description.contains("capped"),
+        "cap must be visible in the triggering metric's description"
+    );
+}
+
+#[test]
+fn severity_cap_not_applied_when_clean() {
+    let snapshot = snapshot_with_findings(vec![]);
+    let result = compute_coupling(&snapshot, &CouplingThresholds::default());
+    let m = result
+        .metrics
+        .iter()
+        .find(|m| m.name == "Content coupling")
+        .unwrap();
+    assert!(!m.description.contains("capped"));
+}
+
+#[test]
+fn severity_cap_triggers_on_many_common_findings() {
+    let findings = (0..6).map(|_| make_finding(CouplingKind::Common)).collect();
+    let snapshot = snapshot_with_findings(findings);
+    let result = compute_coupling(&snapshot, &CouplingThresholds::default());
+    assert!(result.score <= 70, "got {}", result.score);
+}
+
+#[test]
+fn severity_cap_does_not_raise_already_low_scores() {
+    // If the average is already below 70 the cap must not touch it.
+    let findings = vec![
+        make_finding(CouplingKind::Content),
+        make_finding(CouplingKind::Content),
+        make_finding(CouplingKind::Content),
+        make_finding(CouplingKind::Content),
+    ];
+    let snapshot = snapshot_with_findings(findings);
+    let result = compute_coupling(&snapshot, &CouplingThresholds::default());
+    let flat_average_would_be = result.metrics.iter().filter_map(|m| m.score).sum::<u32>()
+        / result.metrics.iter().filter(|m| m.score.is_some()).count() as u32;
+    assert!(result.score <= flat_average_would_be.min(70));
+}

@@ -23,12 +23,14 @@ pub fn compute_coupling(
         pressman_metric(snapshot, CouplingKind::Common, Vec::new()),
         pressman_metric(snapshot, CouplingKind::Control, Vec::new()),
     ];
-    CategoryResult {
-        name: "Coupling".to_string(),
-        score: 0,
-        metrics,
-    }
-    .compute_score()
+    apply_severity_cap(
+        CategoryResult {
+            name: "Coupling".to_string(),
+            score: 0,
+            metrics,
+        }
+        .compute_score(),
+    )
 }
 
 /// Extract the first `depth` path components joined by "/".
@@ -392,6 +394,38 @@ pub(crate) fn barrel_bypass_findings(
             })
         })
         .collect()
+}
+
+/// Pressman's scale is ordinal by severity: the worst rung present bounds
+/// how healthy the category can be called. A flat average would hide one
+/// catastrophic finding behind six healthy metrics (see spec, resolved
+/// question 5).
+fn apply_severity_cap(mut cat: CategoryResult) -> CategoryResult {
+    let triggers: Vec<String> = cat
+        .metrics
+        .iter()
+        .filter(|m| {
+            let limit = match m.name.as_str() {
+                "Content coupling" => 50,
+                "Common coupling" => 25,
+                _ => return false,
+            };
+            m.score.is_some_and(|s| s <= limit)
+        })
+        .map(|m| m.name.clone())
+        .collect();
+    if cat.score > 70 && !triggers.is_empty() {
+        cat.score = 70;
+        for m in cat
+            .metrics
+            .iter_mut()
+            .filter(|m| triggers.contains(&m.name))
+        {
+            m.description
+                .push_str(" — category score capped at 70 (severity cap)");
+        }
+    }
+    cat
 }
 
 #[cfg(test)]
