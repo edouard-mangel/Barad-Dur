@@ -203,13 +203,20 @@ fn js_findings(root: Node<'_>, content: &str, path: &Path) -> Vec<CouplingFindin
 fn js_export(node: Node<'_>, content: &str, path: &Path) -> Option<CouplingFinding> {
     let decl = node.child_by_field_name("declaration")?;
     match decl.kind() {
-        "lexical_declaration" if text(decl, content).starts_with("let ") => {
+        "lexical_declaration" if is_let_declaration(decl, content) => {
             Some(finding(path, node, CouplingKind::Common, content))
         }
         "variable_declaration" => Some(finding(path, node, CouplingKind::Common, content)),
         "function_declaration" => js_control(decl, content, path),
         _ => None,
     }
+}
+
+/// True when a `lexical_declaration`'s leading keyword token is `let`
+/// (as opposed to `const`). Inspects the AST token, so destructuring
+/// (`let[a, b]`) and wrapped declarations (`let\n  x`) are handled.
+fn is_let_declaration(decl: Node<'_>, content: &str) -> bool {
+    decl.child(0).is_some_and(|kw| text(kw, content) == "let")
 }
 
 /// Assignment to `globalThis.x` / `window.x` → Common.
@@ -473,5 +480,17 @@ mod tests {
     fn ts_plain_class_is_not_flagged() {
         let src = "class Point {\n  x = 0;\n  static origin() { return new Point(); }\n}\n";
         assert!(findings_for("src/p.ts", src).is_empty());
+    }
+
+    #[test]
+    fn ts_export_let_destructuring_is_common_coupling() {
+        let f = findings_for("src/state.ts", "export let[a, b] = pair();\n");
+        assert_eq!(f.len(), 1, "destructuring let export must be flagged");
+    }
+
+    #[test]
+    fn ts_export_let_with_newline_is_common_coupling() {
+        let f = findings_for("src/state.ts", "export let\n  counter = 0;\n");
+        assert_eq!(f.len(), 1, "wrapped let declaration must be flagged");
     }
 }
