@@ -9,7 +9,7 @@ use std::time::Instant;
 use crate::metrics::complexity;
 use crate::snapshot::{FileComplexity, FileEntry, RepoSnapshot, TimeWindow};
 
-use super::exclude::is_excluded;
+use super::ignore_file::{should_include, BaradDurIgnore};
 use super::import_resolver::{resolve_imports, RawImports};
 use super::progress::{NoProgress, Progress};
 use super::Collector;
@@ -51,8 +51,8 @@ impl Collector {
         verbose: bool,
         skip_blame: bool,
         no_cache: bool,
-        exclude_patterns: &[String],
-        exclude_extensions: &[String],
+        cli_exclude_patterns: &[String],
+        cli_exclude_extensions: &[String],
         use_default_excludes: bool,
     ) -> Result<RepoSnapshot> {
         let make_spinner = |msg: &str| -> Option<ProgressBar> {
@@ -91,17 +91,22 @@ impl Collector {
         ));
         let t = Instant::now();
         let all_files = self.collect_files()?;
-        let has_excludes =
-            !exclude_patterns.is_empty() || !exclude_extensions.is_empty() || use_default_excludes;
-        let (files, excluded_count) = if has_excludes {
+        // `.baraddurignore` (repo root) is the highest-precedence exclusion layer:
+        // its rules — including `!` re-includes — win over defaults/TOML/CLI.
+        let ignore = BaradDurIgnore::load(self.repo_path())?;
+        let has_excludes = !cli_exclude_patterns.is_empty()
+            || !cli_exclude_extensions.is_empty()
+            || use_default_excludes;
+        let (files, excluded_count) = if has_excludes || !ignore.is_empty() {
             let before = all_files.len();
             let filtered: Vec<FileEntry> = all_files
                 .into_iter()
                 .filter(|f| {
-                    !is_excluded(
+                    should_include(
+                        &ignore,
                         &f.path,
-                        exclude_patterns,
-                        exclude_extensions,
+                        cli_exclude_patterns,
+                        cli_exclude_extensions,
                         use_default_excludes,
                     )
                 })

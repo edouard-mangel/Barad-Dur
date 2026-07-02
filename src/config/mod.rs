@@ -96,8 +96,6 @@ struct TomlConfig {
     #[serde(default)]
     analysis: TomlAnalysis,
     #[serde(default)]
-    exclude: TomlExclude,
-    #[serde(default)]
     weights: CategoryWeights,
     #[serde(default)]
     thresholds: Thresholds,
@@ -112,30 +110,6 @@ struct TomlAnalysis {
     since: Option<String>,
     #[serde(default)]
     skip_blame: bool,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct TomlExclude {
-    #[serde(default = "default_true")]
-    use_defaults: bool,
-    #[serde(default)]
-    patterns: Vec<String>,
-    #[serde(default)]
-    extensions: Vec<String>,
-}
-
-fn default_true() -> bool {
-    true
-}
-
-impl Default for TomlExclude {
-    fn default() -> Self {
-        Self {
-            use_defaults: true,
-            patterns: Vec::new(),
-            extensions: Vec::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -170,9 +144,8 @@ impl Default for BackfillConfig {
 pub struct RepoConfig {
     pub since: Option<String>,
     pub skip_blame: bool,
+    /// Whether the built-in default exclusions apply (toggled by `--no-default-excludes`).
     pub exclude_use_defaults: bool,
-    pub exclude_patterns: Vec<String>,
-    pub exclude_extensions: Vec<String>,
     pub weights: CategoryWeights,
     pub thresholds: Thresholds,
     pub output_format: OutputFormat,
@@ -186,8 +159,6 @@ impl Default for RepoConfig {
             since: None,
             skip_blame: false,
             exclude_use_defaults: true,
-            exclude_patterns: Vec::new(),
-            exclude_extensions: Vec::new(),
             weights: CategoryWeights::default(),
             thresholds: Thresholds::default(),
             output_format: OutputFormat::Cli,
@@ -218,9 +189,9 @@ pub fn load(repo_root: &Path) -> Result<RepoConfig> {
     Ok(RepoConfig {
         since: toml_cfg.analysis.since,
         skip_blame: toml_cfg.analysis.skip_blame,
-        exclude_use_defaults: toml_cfg.exclude.use_defaults,
-        exclude_patterns: toml_cfg.exclude.patterns,
-        exclude_extensions: toml_cfg.exclude.extensions,
+        // Exclusions live in `.baraddurignore` / CLI flags now, not TOML. Defaults
+        // are on unless `--no-default-excludes` turns them off (applied in merge).
+        exclude_use_defaults: true,
         weights: toml_cfg.weights,
         thresholds: toml_cfg.thresholds,
         output_format: toml_cfg.output.format,
@@ -230,14 +201,7 @@ pub fn load(repo_root: &Path) -> Result<RepoConfig> {
 }
 
 fn warn_unknown_keys(content: &str, path: &Path) {
-    let known_sections = [
-        "analysis",
-        "exclude",
-        "weights",
-        "thresholds",
-        "output",
-        "backfill",
-    ];
+    let known_sections = ["analysis", "weights", "thresholds", "output", "backfill"];
     if let Ok(value) = content.parse::<toml::Value>() {
         if let Some(table) = value.as_table() {
             for key in table.keys() {
@@ -290,15 +254,6 @@ pub fn merge_bool(toml_val: bool, cli_val: Option<bool>) -> bool {
     cli_val.unwrap_or(toml_val)
 }
 
-/// Merge exclude patterns: append CLI patterns to TOML patterns.
-pub fn merge_exclude_patterns(
-    mut toml_patterns: Vec<String>,
-    cli_patterns: &[String],
-) -> Vec<String> {
-    toml_patterns.extend(cli_patterns.iter().cloned());
-    toml_patterns
-}
-
 /// Full merge: apply CLI overrides on top of loaded config.
 pub fn merge_with_cli(config: RepoConfig, args: &crate::cli::AnalyzeArgs) -> RepoConfig {
     RepoConfig {
@@ -308,8 +263,6 @@ pub fn merge_with_cli(config: RepoConfig, args: &crate::cli::AnalyzeArgs) -> Rep
             config.exclude_use_defaults,
             args.no_default_excludes.map(|v| !v),
         ),
-        exclude_patterns: merge_exclude_patterns(config.exclude_patterns, &args.exclude),
-        exclude_extensions: merge_exclude_patterns(config.exclude_extensions, &args.exclude_ext),
         weights: config.weights,
         thresholds: config.thresholds,
         output_format: if args.json {
@@ -336,7 +289,6 @@ mod tests {
         assert_eq!(cfg.since, None);
         assert!(!cfg.skip_blame);
         assert!(cfg.exclude_use_defaults);
-        assert!(cfg.exclude_patterns.is_empty());
         assert_eq!(cfg.weights.sum(), 100);
         assert_eq!(cfg.output_format, OutputFormat::Cli);
         assert!(!cfg.auto_open);
@@ -382,42 +334,21 @@ mod tests {
     }
 
     #[test]
-    fn load_exclude_patterns() {
+    fn load_ignores_legacy_exclude_section() {
+        // `[exclude]` was removed in favour of `.baraddurignore` + CLI flags. A
+        // leftover section must not break loading — it is ignored (and surfaces an
+        // unknown-section warning via `warn_unknown_keys`).
         let dir = TempDir::new().unwrap();
         let cache_dir = dir.path().join(".repository-analysis");
         fs::create_dir_all(&cache_dir).unwrap();
         fs::write(
             cache_dir.join("barad-dur.toml"),
-            "[exclude]\nuse_defaults = false\npatterns = [\"*.resx\", \"**/i18n/**\"]\n",
+            "[exclude]\nuse_defaults = false\npatterns = [\"*.resx\"]\n",
         )
         .unwrap();
         let cfg = load(dir.path()).unwrap();
-        assert!(!cfg.exclude_use_defaults);
-        assert_eq!(cfg.exclude_patterns, vec!["*.resx", "**/i18n/**"]);
-    }
-
-    #[test]
-    fn load_exclude_extensions_from_toml() {
-        let dir = TempDir::new().unwrap();
-        let cache_dir = dir.path().join(".repository-analysis");
-        fs::create_dir_all(&cache_dir).unwrap();
-        fs::write(
-            cache_dir.join("barad-dur.toml"),
-            "[exclude]\nextensions = [\"jar\", \"min.js\"]\n",
-        )
-        .unwrap();
-        let cfg = load(dir.path()).unwrap();
-        assert_eq!(cfg.exclude_extensions, vec!["jar", "min.js"]);
-    }
-
-    #[test]
-    fn load_exclude_extensions_defaults_to_empty() {
-        let dir = TempDir::new().unwrap();
-        let cache_dir = dir.path().join(".repository-analysis");
-        fs::create_dir_all(&cache_dir).unwrap();
-        fs::write(cache_dir.join("barad-dur.toml"), "[exclude]\n").unwrap();
-        let cfg = load(dir.path()).unwrap();
-        assert!(cfg.exclude_extensions.is_empty());
+        // The removed `use_defaults` key no longer has any effect.
+        assert!(cfg.exclude_use_defaults);
     }
 
     #[test]
@@ -486,38 +417,17 @@ mod tests {
     }
 
     #[test]
-    fn merge_exclude_appends() {
-        let toml_patterns = vec!["*.resx".into()];
-        let cli_patterns = vec!["**/vendor/**".into()];
-        let merged = merge_exclude_patterns(toml_patterns, &cli_patterns);
-        assert_eq!(merged, vec!["*.resx", "**/vendor/**"]);
-    }
-
-    #[test]
-    fn merge_exclude_extensions_appends_cli_to_toml() {
-        let toml_exts = vec!["jar".into()];
-        let cli_exts = vec!["min.js".into()];
-        let merged = merge_exclude_patterns(toml_exts, &cli_exts);
-        assert_eq!(merged, vec!["jar", "min.js"]);
-    }
-
-    #[test]
-    fn merge_with_cli_wires_exclude_ext() {
+    fn merge_with_cli_wires_no_default_excludes() {
         use crate::cli::{Cli, Commands};
         use clap::Parser;
 
-        let cli = Cli::parse_from(["barad-dur", "analyze", ".", "--exclude-ext", "jar"]);
+        let cli = Cli::parse_from(["barad-dur", "analyze", ".", "--no-default-excludes"]);
         let args = match cli.command {
             Commands::Analyze(a) => a,
             _ => panic!("expected Analyze"),
         };
-
-        let toml_cfg = RepoConfig {
-            exclude_extensions: vec!["min.js".into()],
-            ..RepoConfig::default()
-        };
-        let merged = merge_with_cli(toml_cfg, &args);
-        assert_eq!(merged.exclude_extensions, vec!["min.js", "jar"]);
+        let merged = merge_with_cli(RepoConfig::default(), &args);
+        assert!(!merged.exclude_use_defaults);
     }
 
     #[test]

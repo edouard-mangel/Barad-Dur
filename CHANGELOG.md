@@ -4,6 +4,13 @@ All notable changes to this project will be documented here.
 
 ## [Unreleased]
 
+### Added
+- `.baraddurignore` file at the repository root with full `.gitignore` semantics (comments, `!` negation, anchoring, directory-only rules, last-match-wins) via the `ignore` crate. A `!` rule re-includes files the built-in defaults would otherwise drop.
+- `barad-dur init` now writes a starter `.baraddurignore` from auto-detected exclude patterns (translation files, vendored dirs, i18n, generated code).
+
+### Changed
+- **Breaking**: file exclusions moved out of the TOML `[exclude]` section. Exclusions are now configured via `.baraddurignore` (repo root) and the `--exclude`/`--exclude-ext` CLI flags. Precedence, highest first: CLI flags → `.baraddurignore` → built-in defaults. A leftover `[exclude]` section in `barad-dur.toml` is ignored (with an unknown-section warning); move its `patterns`/`extensions` into `.baraddurignore`.
+
 ## [0.17.3] - 2026-06-08
 
 ### Internal

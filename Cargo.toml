@@ -22,6 +22,7 @@ rayon = "1"
 indicatif = "0.17"
 anyhow = "1"
 glob-match = "0.2"
+ignore = "0.4"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 url = "2"
 tempfile = "3"

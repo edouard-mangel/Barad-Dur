@@ -212,6 +212,109 @@ fn analyze_no_verbose_has_no_timing_in_stderr() {
     );
 }
 
+/// Create a throwaway git repo at `dir` with `files` (path, contents) and one
+/// commit, so `barad-dur` has a tracked file tree to analyze.
+fn init_repo(dir: &std::path::Path, files: &[(&str, &str)]) {
+    let git = |args: &[&str]| {
+        let status = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .status()
+            .expect("git should be on PATH");
+        assert!(status.success(), "git {args:?} failed");
+    };
+    git(&["init", "-q"]);
+    git(&["config", "user.email", "test@example.com"]);
+    git(&["config", "user.name", "Test"]);
+    for (name, contents) in files {
+        let path = dir.join(name);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, contents).unwrap();
+    }
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "init"]);
+}
+
+/// Run `analyze --json --no-cache` on `dir` and return the reported `total_files`
+/// (which is the post-exclusion tracked-file count).
+fn analyzed_total_files(dir: &std::path::Path) -> u64 {
+    let output = barad_dur()
+        .args(["analyze", dir.to_str().unwrap(), "--json", "--no-cache"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    json["total_files"]
+        .as_u64()
+        .expect("total_files should be a number")
+}
+
+#[test]
+fn analyze_honors_baraddurignore_negation() {
+    // `bundle.min.js` is dropped by the built-in `min.js` compound default. Both
+    // repos are identical except the ignore file, so the only possible difference
+    // in `total_files` is the negation re-including that one file.
+    let baseline_dir = tempfile::tempdir().unwrap();
+    init_repo(
+        baseline_dir.path(),
+        &[
+            ("main.rs", "fn main() {}\n"),
+            ("bundle.min.js", "console.log(1)\n"),
+            (".baraddurignore", "# nothing re-included\n"),
+        ],
+    );
+    let baseline = analyzed_total_files(baseline_dir.path());
+
+    let negated_dir = tempfile::tempdir().unwrap();
+    init_repo(
+        negated_dir.path(),
+        &[
+            ("main.rs", "fn main() {}\n"),
+            ("bundle.min.js", "console.log(1)\n"),
+            (".baraddurignore", "!bundle.min.js\n"),
+        ],
+    );
+    let with_negation = analyzed_total_files(negated_dir.path());
+
+    assert_eq!(
+        with_negation,
+        baseline + 1,
+        "`!bundle.min.js` should re-include exactly the default-excluded file"
+    );
+}
+
+#[test]
+fn gate_honors_baraddurignore() {
+    // `gate` shares the collection path with `analyze`, so it must build the
+    // `.baraddurignore` matcher too. Excluding `*.py` still leaves `main.rs`, so
+    // the run stays meaningful; we only assert it exits cleanly (pass/fail a
+    // threshold), never panicking.
+    let dir = tempfile::tempdir().unwrap();
+    init_repo(
+        dir.path(),
+        &[
+            ("main.rs", "fn main() {}\n"),
+            ("app.py", "print(1)\n"),
+            (".baraddurignore", "*.py\n"),
+        ],
+    );
+    let output = barad_dur()
+        .args(["gate", dir.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    let code = output.status.code();
+    assert!(
+        code == Some(0) || code == Some(1),
+        "gate should exit 0 or 1, got {code:?}; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 #[test]
 fn analyze_html_output_to_file() {
     let dir = tempfile::tempdir().unwrap();
