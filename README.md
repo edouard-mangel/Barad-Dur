@@ -414,6 +414,7 @@ acts as an extra filter over tracked paths — it never resurrects untracked fil
 - **i18n dirs**: `i18n l10n locales locale`.
 - **Build/vendor dirs**: `node_modules vendor __pycache__ *.egg-info target .next
   .nuxt out gen generated .gradle .mvn build`.
+- **barad-dûr's own artifacts**: `.baraddurignore`, `.repository-analysis/`.
 
 </details>
 

@@ -13,6 +13,7 @@ All notable changes to this project will be documented here.
 - The snapshot cache now invalidates when exclusion inputs change (`--exclude`/`--exclude-ext`, `--no-default-excludes`, or `.baraddurignore` contents) — editing exclusions no longer requires `--no-cache` to take effect.
 - `barad-dur backfill` now applies the same exclusions (built-in defaults + `.baraddurignore`) as `analyze`/`gate`, so historical trend points are comparable to live scores.
 - Built-in defaults now exclude barad-dûr's own artifacts (`.baraddurignore`, `.repository-analysis/`) so the tool no longer measures its own config as source.
+- `--cache-only` now fails when the cache is stale (HEAD, time window, or exclusion inputs changed) instead of silently performing a full re-collection.
 
 ### Fixed
 - `barad-dur init` now correctly detects and writes exclude patterns for files in subdirectories (previously a shell-glob recount dropped nested translation/vendor files, so `.baraddurignore` was often not written at all).

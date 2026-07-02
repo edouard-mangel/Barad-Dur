@@ -52,6 +52,15 @@ pub fn resolve_snapshot(
             }
             return Ok(cached);
         }
+        // Cache exists but is stale (HEAD, time window, or exclusion inputs changed).
+        // `--cache-only` promises not to collect, so fail loudly rather than
+        // silently doing the full collection it exists to avoid.
+        if opts.cache_only {
+            bail!(
+                "Cached snapshot is stale (HEAD, time window, or exclusions changed). \
+                 Re-run without --cache-only to refresh it."
+            );
+        }
         if opts.verbose {
             eprintln!("Cache stale, re-collecting...");
         }

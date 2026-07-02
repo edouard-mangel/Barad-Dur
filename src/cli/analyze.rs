@@ -174,7 +174,7 @@ pub struct AnalyzeArgs {
     #[arg(long, help_heading = "Cache")]
     pub no_cache: bool,
 
-    /// Only use cached data; fail if no cache exists
+    /// Only use cached data; fail if no usable cache exists (missing or stale)
     #[arg(long, help_heading = "Cache")]
     pub cache_only: bool,
 }

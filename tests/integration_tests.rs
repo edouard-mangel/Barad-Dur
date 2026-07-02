@@ -291,6 +291,36 @@ fn changing_exclude_flag_invalidates_warm_cache() {
 }
 
 #[test]
+fn cache_only_fails_when_exclusions_changed() {
+    // `--cache-only` promises not to collect; a stale cache (here: changed
+    // exclusions at the same HEAD) must fail loudly rather than silently
+    // re-collecting.
+    let dir = tempfile::tempdir().unwrap();
+    init_repo(
+        dir.path(),
+        &[("main.rs", "fn main() {}\n"), ("helper.py", "print(1)\n")],
+    );
+    let path = dir.path().to_str().unwrap();
+    // Warm the cache with no exclusions.
+    barad_dur()
+        .args(["analyze", path, "--json"])
+        .assert()
+        .success();
+    // Same HEAD, but a new --exclude makes the cache stale.
+    barad_dur()
+        .args([
+            "analyze",
+            path,
+            "--json",
+            "--cache-only",
+            "--exclude",
+            "*.py",
+        ])
+        .assert()
+        .failure();
+}
+
+#[test]
 fn analyze_honors_baraddurignore_negation() {
     // `bundle.min.js` is dropped by the built-in `min.js` compound default. Both
     // repos are identical except the ignore file, so the only possible difference
