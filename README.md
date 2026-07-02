@@ -417,9 +417,10 @@ acts as an extra filter over tracked paths — it never resurrects untracked fil
 
 </details>
 
-> **Cache caveat**: the snapshot cache is keyed on HEAD, so editing
-> `.baraddurignore` without committing won't take effect on a cached run. Commit
-> the change (bumps HEAD) or pass `--no-cache` to force re-collection.
+> **Note**: changing exclusions — editing `.baraddurignore`, or passing different
+> `--exclude`/`--exclude-ext`/`--no-default-excludes` flags — automatically
+> invalidates the snapshot cache, so the change takes effect on the next run
+> without needing `--no-cache`.
 
 ## CI/CD Integration
 

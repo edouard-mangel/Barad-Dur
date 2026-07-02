@@ -40,7 +40,7 @@ CLI (clap) → Collector (git2 + git CLI) → RepoSnapshot → Metrics → Score
 - `src/cli/` — clap args. Subcommands: `analyze`, `gate`, `backfill`, `init`, `coupling`, `watch`, `contributors`
 - `src/main.rs` — entry point; dispatches to `src/cmd/` (analyze, gate, coupling, watch)
 - `src/collector/` — git snapshot collection: git2 for commits/files, parallel `git blame --porcelain` (rayon), tree-sitter AST complexity (8 languages)
-- `src/snapshot/` — `RepoSnapshot`: shared data model with derived indexes; cached at `.repository-analysis/snapshot.bin` (invalidated when HEAD changes; `--no-cache` to force re-collection)
+- `src/snapshot/` — `RepoSnapshot`: shared data model with derived indexes; cached at `.repository-analysis/snapshot.bin` (invalidated when HEAD, the time window, or the exclusion fingerprint — CLI excludes + `use_defaults` + `.baraddurignore` bytes, in `cache/staleness.rs` + `cache/storage.rs` — changes; `--no-cache` to force re-collection)
 - `src/metrics/` — pure functions `(snapshot) → MetricValue`; modules: health, team, evolution, hygiene, complexity, coupling, deps
 - `src/scorer.rs` + `src/scorer/` — `AnalysisReport` + `build_report()`: weighted category scores, action suggestions, file-level analysis (`HotspotFile`, `CouplingPair`, ownership, ages); `scorer/` holds actions, audit, builders, types
 - `src/renderer/` — CLI / JSON / HTML outputs, all return `Result<String>`; the report's JS/CSS live as real files in `renderer/templates/` (one per tab), embedded via `include_str!` in `renderer/html.rs`; `renderer/escape.rs` owns `<script>`-safe JSON escaping
