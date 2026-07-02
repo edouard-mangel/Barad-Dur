@@ -1,6 +1,7 @@
 mod counters;
 mod fallback;
 mod lang_dispatch;
+mod pressman;
 mod queries;
 mod treesitter;
 
@@ -9,6 +10,7 @@ use std::path::Path;
 use crate::snapshot::FileComplexity;
 
 pub use fallback::{detect_language, Language};
+pub use pressman::extract_coupling_findings;
 
 /// Extract raw import paths from a source file using tree-sitter.
 pub fn extract_file_imports(path: &Path, content: &str) -> Vec<String> {
