@@ -1,6 +1,7 @@
 use super::*;
+use crate::config::CouplingThresholds;
 use crate::metrics::testutil::{make_file, make_snapshot};
-use crate::snapshot::*;
+use crate::snapshot::{CommitId, CouplingFinding, CouplingKind, RepoSnapshot};
 use std::path::PathBuf;
 
 #[test]
@@ -196,8 +197,6 @@ fn circular_deps_many() {
     assert_eq!(result.score, Some(25));
 }
 
-use crate::config::CouplingThresholds;
-
 fn default_thresholds() -> CouplingThresholds {
     CouplingThresholds::default()
 }
@@ -370,10 +369,10 @@ fn change_coupling_depth3_different_component() {
 }
 
 #[test]
-fn compute_coupling_returns_four_metrics() {
+fn compute_coupling_returns_seven_metrics() {
     let snapshot = make_snapshot();
     let result = compute_coupling(&snapshot, &CouplingThresholds::default());
-    assert_eq!(result.metrics.len(), 4);
+    assert_eq!(result.metrics.len(), 7);
     assert_eq!(result.name, "Coupling");
 }
 
@@ -455,4 +454,133 @@ fn barrel_bypass_ignores_rust_files() {
         vec![PathBuf::from("lib/util.rs")],
     );
     assert!(barrel_bypass_findings(&snapshot, 1).is_empty());
+}
+
+// Test helpers for Pressman metrics
+fn snapshot_with_findings(findings: Vec<CouplingFinding>) -> RepoSnapshot {
+    let mut s = crate::metrics::testutil::make_snapshot();
+    s.files = vec![crate::metrics::testutil::make_file("src/a.rs")];
+    s.coupling_findings = findings;
+    s
+}
+
+fn make_finding(kind: CouplingKind) -> CouplingFinding {
+    CouplingFinding {
+        path: PathBuf::from("src/a.rs"),
+        line: Some(1),
+        kind,
+        evidence: "e".into(),
+    }
+}
+
+#[test]
+fn pressman_metrics_appear_in_category() {
+    let snapshot = snapshot_with_findings(vec![]);
+    let result = compute_coupling(&snapshot, &CouplingThresholds::default());
+    for name in ["Content coupling", "Common coupling", "Control coupling"] {
+        assert!(
+            result.metrics.iter().any(|m| m.name == name),
+            "missing metric {name}"
+        );
+    }
+}
+
+#[test]
+fn clean_snapshot_scores_100_on_all_pressman_metrics() {
+    let snapshot = snapshot_with_findings(vec![]);
+    let result = compute_coupling(&snapshot, &CouplingThresholds::default());
+    let m = result
+        .metrics
+        .iter()
+        .find(|m| m.name == "Content coupling")
+        .unwrap();
+    assert_eq!(m.score, Some(100));
+}
+
+#[test]
+fn one_content_finding_scores_at_most_50() {
+    let snapshot = snapshot_with_findings(vec![make_finding(CouplingKind::Content)]);
+    let result = compute_coupling(&snapshot, &CouplingThresholds::default());
+    let m = result
+        .metrics
+        .iter()
+        .find(|m| m.name == "Content coupling")
+        .unwrap();
+    assert!(
+        m.score.unwrap() <= 50,
+        "one content finding must hit the cap trigger"
+    );
+}
+
+#[test]
+fn pressman_metrics_unscored_without_detectable_files() {
+    let mut snapshot = crate::metrics::testutil::make_snapshot();
+    snapshot.files = vec![crate::metrics::testutil::make_file("main.py")];
+    let result = compute_coupling(&snapshot, &CouplingThresholds::default());
+    let m = result
+        .metrics
+        .iter()
+        .find(|m| m.name == "Common coupling")
+        .unwrap();
+    assert_eq!(m.score, None, "no Rust/TS/JS files → unscored dash");
+}
+
+#[test]
+fn content_metric_includes_barrel_findings_when_enabled() {
+    let mut snapshot = snapshot_with_findings(vec![]);
+    snapshot.files = vec![
+        crate::metrics::testutil::make_file("app/main.ts"),
+        crate::metrics::testutil::make_file("lib/index.ts"),
+        crate::metrics::testutil::make_file("lib/impl.ts"),
+    ];
+    snapshot.import_graph.insert(
+        PathBuf::from("app/main.ts"),
+        vec![PathBuf::from("lib/impl.ts")],
+    );
+    let thresholds = CouplingThresholds {
+        component_depth: 1,
+        ..Default::default()
+    };
+    let result = compute_coupling(&snapshot, &thresholds);
+    let m = result
+        .metrics
+        .iter()
+        .find(|m| m.name == "Content coupling")
+        .unwrap();
+    assert!(m.score.unwrap() <= 50);
+
+    let off = CouplingThresholds {
+        component_depth: 1,
+        content_barrel_rule: false,
+        ..Default::default()
+    };
+    let result_off = compute_coupling(&snapshot, &off);
+    let m_off = result_off
+        .metrics
+        .iter()
+        .find(|m| m.name == "Content coupling")
+        .unwrap();
+    assert_eq!(
+        m_off.score,
+        Some(100),
+        "toggle off → barrel findings excluded"
+    );
+}
+
+#[test]
+fn control_findings_are_scored_leniently() {
+    let findings = (0..3)
+        .map(|_| make_finding(CouplingKind::Control))
+        .collect();
+    let snapshot = snapshot_with_findings(findings);
+    let result = compute_coupling(&snapshot, &CouplingThresholds::default());
+    let m = result
+        .metrics
+        .iter()
+        .find(|m| m.name == "Control coupling")
+        .unwrap();
+    assert!(
+        m.score.unwrap() > 70,
+        "a few flag args must not tank the metric"
+    );
 }

@@ -9,11 +9,19 @@ pub fn compute_coupling(
     snapshot: &RepoSnapshot,
     thresholds: &CouplingThresholds,
 ) -> CategoryResult {
+    let barrel = if thresholds.content_barrel_rule {
+        barrel_bypass_findings(snapshot, thresholds.component_depth)
+    } else {
+        Vec::new()
+    };
     let metrics = vec![
         afferent_coupling(snapshot),
         efferent_coupling(snapshot),
         circular_dependencies(snapshot),
         change_coupling_smells(snapshot, thresholds),
+        pressman_metric(snapshot, CouplingKind::Content, barrel),
+        pressman_metric(snapshot, CouplingKind::Common, Vec::new()),
+        pressman_metric(snapshot, CouplingKind::Control, Vec::new()),
     ];
     CategoryResult {
         name: "Coupling".to_string(),
@@ -243,11 +251,97 @@ fn circular_dependencies(snapshot: &RepoSnapshot) -> MetricValue {
 
 const BARREL_NAMES: &[&str] = &["index.ts", "index.tsx", "index.js", "index.jsx"];
 const JS_EXTS: &[&str] = &["ts", "tsx", "js", "jsx", "mjs", "cjs"];
+const DETECTABLE_EXTS: &[&str] = &["rs", "ts", "tsx", "js", "jsx", "mjs", "cjs"];
+
+fn has_detectable_files(snapshot: &RepoSnapshot) -> bool {
+    snapshot.files.iter().any(|f| {
+        f.path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| DETECTABLE_EXTS.contains(&e))
+    })
+}
+
+/// Severity-banded score for a Pressman finding count.
+///
+/// MAINTAINER-AUTHORED BANDS. Invariants the rest of the system relies on:
+/// - count 0 → 100 for every kind
+/// - Content: any count ≥ 1 must score ≤ 50 (triggers the category cap)
+/// - Common: large counts must reach ≤ 25 (triggers the category cap)
+/// - Control is the mildest rung: keep bands lenient
+pub(crate) fn score_pressman(kind: CouplingKind, count: usize) -> u32 {
+    match kind {
+        CouplingKind::Content => match count {
+            0 => 100,
+            1 => 50,
+            2..=3 => 35,
+            _ => 25,
+        },
+        CouplingKind::Common => match count {
+            // Maintainer decision (2026-07-02): harsher than the draft —
+            // one mutable global already stings, four trigger the category cap.
+            0 => 100,
+            1 => 60,
+            2..=3 => 40,
+            _ => 25,
+        },
+        CouplingKind::Control => match count {
+            0 => 100,
+            1..=5 => 85,
+            6..=15 => 70,
+            _ => 50,
+        },
+    }
+}
+
+fn pressman_metric(
+    snapshot: &RepoSnapshot,
+    kind: CouplingKind,
+    extra: Vec<CouplingFinding>,
+) -> MetricValue {
+    let (name, rung) = match kind {
+        CouplingKind::Content => (
+            "Content coupling",
+            "worst rung: another module's internals reached",
+        ),
+        CouplingKind::Common => ("Common coupling", "shared mutable global state"),
+        CouplingKind::Control => ("Control coupling", "flag parameters steering callee logic"),
+    };
+    if !has_detectable_files(snapshot) {
+        return MetricValue {
+            name: name.to_string(),
+            description: "No files in detectable languages (Rust, TS/JS)".to_string(),
+            raw_value: RawValue::Count(0),
+            score: None,
+        };
+    }
+    let findings: Vec<CouplingFinding> = snapshot
+        .coupling_findings
+        .iter()
+        .filter(|f| f.kind == kind)
+        .cloned()
+        .chain(extra)
+        .collect();
+    let count = findings.len();
+    let list: Vec<String> = findings
+        .iter()
+        .take(10)
+        .map(|f| match f.line {
+            Some(l) => format!("{}:{} — {}", f.path.display(), l, f.evidence),
+            None => format!("{} — {}", f.path.display(), f.evidence),
+        })
+        .collect();
+    MetricValue {
+        name: name.to_string(),
+        description: format!("{} finding(s) — {}", count, rung),
+        raw_value: RawValue::List(list),
+        score: Some(score_pressman(kind, count)),
+    }
+}
 
 /// Content coupling via barrel bypass: a cross-component relative import
 /// that resolves to a non-index file in a directory that has a barrel.
 /// Line info is unavailable (graph-derived), so `line: None`.
-#[allow(dead_code)] // used by compute_coupling in the next change
 pub(crate) fn barrel_bypass_findings(
     snapshot: &RepoSnapshot,
     component_depth: usize,
