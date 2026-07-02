@@ -456,6 +456,37 @@ fn barrel_bypass_ignores_rust_files() {
     assert!(barrel_bypass_findings(&snapshot, 1).is_empty());
 }
 
+#[test]
+fn barrel_bypass_findings_are_sorted_deterministically() {
+    // HashMap iteration order is unspecified, so without sorting this test
+    // is flaky rather than reliably red — but the contract (stable,
+    // alphabetically-sorted order) is still the one M3's gate-delta output
+    // relies on, so we assert it directly.
+    let mut snapshot = crate::metrics::testutil::make_snapshot();
+    snapshot.files = vec![
+        crate::metrics::testutil::make_file("c/main.ts"),
+        crate::metrics::testutil::make_file("a/main.ts"),
+        crate::metrics::testutil::make_file("b/main.ts"),
+        crate::metrics::testutil::make_file("lib/index.ts"),
+        crate::metrics::testutil::make_file("lib/impl.ts"),
+    ];
+    for src in ["c/main.ts", "a/main.ts", "b/main.ts"] {
+        snapshot
+            .import_graph
+            .insert(PathBuf::from(src), vec![PathBuf::from("lib/impl.ts")]);
+    }
+    let findings = barrel_bypass_findings(&snapshot, 1);
+    let paths: Vec<PathBuf> = findings.into_iter().map(|f| f.path).collect();
+    assert_eq!(
+        paths,
+        vec![
+            PathBuf::from("a/main.ts"),
+            PathBuf::from("b/main.ts"),
+            PathBuf::from("c/main.ts"),
+        ]
+    );
+}
+
 // Test helpers for Pressman metrics
 fn snapshot_with_findings(findings: Vec<CouplingFinding>) -> RepoSnapshot {
     let mut s = crate::metrics::testutil::make_snapshot();
@@ -625,6 +656,29 @@ fn severity_cap_triggers_on_many_common_findings() {
     let snapshot = snapshot_with_findings(findings);
     let result = compute_coupling(&snapshot, &CouplingThresholds::default());
     assert!(result.score <= 70, "got {}", result.score);
+}
+
+#[test]
+fn severity_cap_is_derived_from_score_good_min_not_a_bare_literal() {
+    // Locks the cap to scorer/types.rs's single source of truth
+    // (SCORE_GOOD_MIN) rather than a magic number duplicated in this
+    // module. Currently SCORE_GOOD_MIN - 1 == 70, the same value the old
+    // hardcoded literal produced, so this does not go red on its own —
+    // it's a contract test that fails the moment the two drift apart.
+    let expected_cap = crate::scorer::SCORE_GOOD_MIN - 1;
+    let snapshot = snapshot_with_findings(vec![make_finding(CouplingKind::Content)]);
+    let result = compute_coupling(&snapshot, &CouplingThresholds::default());
+    assert_eq!(result.score, expected_cap);
+    let m = result
+        .metrics
+        .iter()
+        .find(|m| m.name == "Content coupling")
+        .unwrap();
+    assert!(
+        m.description.contains(&format!("capped at {expected_cap}")),
+        "note must reflect the derived cap value, not a bare literal: {}",
+        m.description
+    );
 }
 
 #[test]

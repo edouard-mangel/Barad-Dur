@@ -360,7 +360,7 @@ pub(crate) fn barrel_bypass_findings(
         .filter_map(|f| f.path.parent().map(|p| p.to_owned()))
         .collect();
 
-    snapshot
+    let mut findings: Vec<CouplingFinding> = snapshot
         .import_graph
         .iter()
         .flat_map(|(source, targets)| {
@@ -393,8 +393,21 @@ pub(crate) fn barrel_bypass_findings(
                 })
             })
         })
-        .collect()
+        .collect();
+    // `snapshot.import_graph` is a HashMap, so iteration order (and thus
+    // finding order) is otherwise unspecified across runs. Sort so the
+    // Content metric's top-10 evidence list — and M3's gate-delta output,
+    // which diffs this list run-to-run — is deterministic.
+    findings.sort_by(|a, b| (&a.path, &a.evidence).cmp(&(&b.path, &b.evidence)));
+    findings
 }
+
+/// Category score ceiling applied when a critical/major Pressman finding is
+/// present. Derived from `SCORE_GOOD_MIN` (scorer/types.rs — the single
+/// source of truth for score-band thresholds; the CLAUDE.md project rule is
+/// that band thresholds are never re-hardcoded) rather than a bare literal,
+/// so the cap tracks the "good" band boundary if it ever moves.
+const SEVERITY_CAP: u32 = crate::scorer::SCORE_GOOD_MIN - 1;
 
 /// Pressman's scale is ordinal by severity: the worst rung present bounds
 /// how healthy the category can be called. A flat average would hide one
@@ -414,15 +427,16 @@ fn apply_severity_cap(mut cat: CategoryResult) -> CategoryResult {
         })
         .map(|m| m.name.clone())
         .collect();
-    if cat.score > 70 && !triggers.is_empty() {
-        cat.score = 70;
+    if cat.score > SEVERITY_CAP && !triggers.is_empty() {
+        cat.score = SEVERITY_CAP;
         for m in cat
             .metrics
             .iter_mut()
             .filter(|m| triggers.contains(&m.name))
         {
-            m.description
-                .push_str(" — category score capped at 70 (severity cap)");
+            m.description.push_str(&format!(
+                " — category score capped at {SEVERITY_CAP} (severity cap)"
+            ));
         }
     }
     cat

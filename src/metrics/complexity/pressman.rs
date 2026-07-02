@@ -125,9 +125,14 @@ fn rust_findings(root: Node<'_>, content: &str, path: &Path) -> Vec<CouplingFind
         .collect()
 }
 
-/// Interior-mutability type markers. Substring match over the whole item
-/// text implements the look-through rule: `LazyLock<Mutex<…>>` matches
-/// `Mutex<`, while `LazyLock<Regex>` matches nothing.
+/// Interior-mutability type markers. Matched against the static item's
+/// `type` field only (not the whole item text, which would also catch the
+/// initializer expression) so the look-through rule stays intentional:
+/// `LazyLock<Mutex<…>>` matches `Mutex<` in its type, while `LazyLock<Regex>`
+/// matches nothing. Matching requires a left word boundary (see
+/// `contains_marker_with_left_boundary`) so `OnceCell<Config>` does not
+/// false-positive on the `Cell<` marker, while `RefCell<` and `UnsafeCell<`
+/// still match at their own start.
 const INTERIOR_MUTABILITY: &[&str] = &[
     "Mutex<",
     "RwLock<",
@@ -137,12 +142,33 @@ const INTERIOR_MUTABILITY: &[&str] = &[
     "Atomic",
 ];
 
+/// True when `marker` occurs in `hay` with a non-identifier character (or
+/// string start) immediately before it. The right side is intentionally
+/// left open (no boundary check after the marker) — the look-through rule
+/// wants `Mutex<` to match regardless of what follows the `<`.
+fn contains_marker_with_left_boundary(hay: &str, marker: &str) -> bool {
+    hay.match_indices(marker).any(|(i, _)| {
+        !hay[..i]
+            .chars()
+            .next_back()
+            .is_some_and(|c| c.is_alphanumeric() || c == '_')
+    })
+}
+
 fn rust_common(node: Node<'_>, content: &str, path: &Path) -> Option<CouplingFinding> {
     let is_mut = (0..node.child_count())
         .filter_map(|i| node.child(i as u32))
         .any(|c| c.kind() == "mutable_specifier");
-    let item_text = text(node, content);
-    let interior = INTERIOR_MUTABILITY.iter().any(|p| item_text.contains(p));
+    // Only `static mut` applies when the type field is missing (malformed
+    // parse), since there is no type text to scan for interior mutability.
+    let interior = node
+        .child_by_field_name("type")
+        .map(|t| text(t, content))
+        .is_some_and(|type_text| {
+            INTERIOR_MUTABILITY
+                .iter()
+                .any(|marker| contains_marker_with_left_boundary(type_text, marker))
+        });
     (is_mut || interior).then(|| finding(path, node, CouplingKind::Common, content))
 }
 
@@ -381,6 +407,25 @@ mod tests {
     #[test]
     fn rust_plain_immutable_static_is_not_flagged() {
         assert!(findings_for("src/a.rs", "static MAX: usize = 10;\n").is_empty());
+    }
+
+    #[test]
+    fn rust_pure_oncecell_is_not_flagged() {
+        let src = "static CONFIG: once_cell::sync::OnceCell<Config> = once_cell::sync::OnceCell::new();\n";
+        assert!(
+            findings_for("src/a.rs", src).is_empty(),
+            "write-once OnceCell must not be flagged (Cell< substring trap)"
+        );
+    }
+
+    #[test]
+    fn rust_oncelock_wrapping_mutex_is_flagged_lookthrough() {
+        let src = "static STATE: std::sync::OnceLock<std::sync::Mutex<u32>> = std::sync::OnceLock::new();\n";
+        assert_eq!(
+            findings_for("src/a.rs", src).len(),
+            1,
+            "OnceLock wrapping Mutex is a mutable global"
+        );
     }
 
     // ── Rust content coupling ──────────────────────────────────────
