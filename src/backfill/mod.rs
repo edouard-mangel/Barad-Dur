@@ -42,6 +42,9 @@ pub fn run(args: &BackfillArgs, repo_path: &Path) -> Result<()> {
     let total = selected_shas.len();
     let mut written = 0usize;
 
+    // Parse `.baraddurignore` once and reuse it for every historical sample.
+    let ignore = crate::collector::BaradDurIgnore::load(repo_path)?;
+
     for (idx, sha) in selected_shas.iter().enumerate() {
         println!("[{}/{}] Analyzing {}...", idx + 1, total, &sha[..8]);
 
@@ -49,7 +52,7 @@ pub fn run(args: &BackfillArgs, repo_path: &Path) -> Result<()> {
             continue;
         }
 
-        let snapshot = Collector::collect_snapshot_at(repo_path, sha, args.no_blame)?;
+        let snapshot = Collector::collect_snapshot_at(repo_path, sha, args.no_blame, &ignore)?;
 
         let categories = vec![
             health::compute_health(&snapshot, &cfg.thresholds.health),

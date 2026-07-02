@@ -254,6 +254,42 @@ fn analyzed_total_files(dir: &std::path::Path) -> u64 {
         .expect("total_files should be a number")
 }
 
+/// Run `analyze --json` (warm cache — no `--no-cache`) with extra args and return
+/// the reported `total_files`.
+fn cached_total_files(dir: &std::path::Path, extra: &[&str]) -> u64 {
+    let mut args = vec!["analyze", dir.to_str().unwrap(), "--json"];
+    args.extend_from_slice(extra);
+    let output = barad_dur()
+        .args(&args)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    json["total_files"].as_u64().unwrap()
+}
+
+#[test]
+fn changing_exclude_flag_invalidates_warm_cache() {
+    // With a warm cache (no --no-cache), changing --exclude must re-collect rather
+    // than return the previously cached, unfiltered file set.
+    let dir = tempfile::tempdir().unwrap();
+    init_repo(
+        dir.path(),
+        &[("main.rs", "fn main() {}\n"), ("helper.py", "print(1)\n")],
+    );
+    // First run warms the cache with no exclusions.
+    let baseline = cached_total_files(dir.path(), &[]);
+    // Second run reuses the warm cache but adds --exclude; helper.py must drop.
+    let excluded = cached_total_files(dir.path(), &["--exclude", "*.py"]);
+    assert_eq!(
+        excluded,
+        baseline - 1,
+        "changing --exclude should invalidate the warm cache"
+    );
+}
+
 #[test]
 fn analyze_honors_baraddurignore_negation() {
     // `bundle.min.js` is dropped by the built-in `min.js` compound default. Both

@@ -50,6 +50,9 @@ const DEFAULT_EXCLUDE_PATTERNS: &[&str] = &[
     ".cursor/**",
     ".idea/**",
     ".vscode/**",
+    // Barad-dur's own artifacts (don't measure our own config/cache)
+    "**/.baraddurignore",
+    ".repository-analysis/**",
     // ORM migrations / generated schemas (auto-generated, inflate churn)
     "**/Migrations/*.Designer.cs",
     "**/Migrations/*ModelSnapshot.cs",
@@ -376,6 +379,20 @@ mod tests {
             &[],
             false
         ));
+    }
+
+    #[test]
+    fn is_excluded_matches_baraddur_own_artifacts() {
+        // Barad-dur should not measure its own config/cache files.
+        assert!(is_excluded(Path::new(".baraddurignore"), &[], &[], true));
+        assert!(is_excluded(
+            Path::new(".repository-analysis/snapshot.bin"),
+            &[],
+            &[],
+            true
+        ));
+        // Respect the defaults toggle.
+        assert!(!is_excluded(Path::new(".baraddurignore"), &[], &[], false));
     }
 
     #[test]

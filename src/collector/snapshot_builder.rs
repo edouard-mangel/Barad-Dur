@@ -272,10 +272,14 @@ impl Collector {
 
     /// Collect a snapshot at a specific commit SHA without touching the working tree.
     /// file_metrics is always empty (ADR-005).
-    pub fn collect_snapshot_at(
+    ///
+    /// `ignore` is passed in (not loaded here) so a `backfill` run parses the
+    /// repo's `.baraddurignore` once and reuses it across every historical sample.
+    pub(crate) fn collect_snapshot_at(
         repo_path: &Path,
         sha: &str,
         _skip_blame: bool,
+        ignore: &BaradDurIgnore,
     ) -> Result<RepoSnapshot> {
         let repo = git2::Repository::discover(repo_path)
             .with_context(|| format!("'{}' is not a git repository", repo_path.display()))?;
@@ -288,10 +292,9 @@ impl Collector {
         // applied uniformly to every historical snapshot, so the trend reflects one
         // consistent definition of "relevant files" rather than each commit's own.
         let all_files = super::libgit::collect_files_at(&repo, sha)?;
-        let ignore = BaradDurIgnore::load(repo_path)?;
         let files: Vec<FileEntry> = all_files
             .into_iter()
-            .filter(|f| should_include(&ignore, &f.path, &[], &[], true))
+            .filter(|f| should_include(ignore, &f.path, &[], &[], true))
             .collect();
 
         // ADR-005: backfill always skips blame for performance.
@@ -462,7 +465,8 @@ mod tests {
         // Backfill must drop built-in default exclusions (e.g. Cargo.lock) so its
         // history is comparable to live analyze/gate scores.
         let (dir, head) = temp_git_repo(&[("main.rs", "fn main() {}\n"), ("Cargo.lock", "x\n")]);
-        let snap = Collector::collect_snapshot_at(dir.path(), &head, true).unwrap();
+        let ignore = BaradDurIgnore::load(dir.path()).unwrap();
+        let snap = Collector::collect_snapshot_at(dir.path(), &head, true, &ignore).unwrap();
         let paths = snapshot_paths(&snap);
         assert!(paths.iter().any(|p| p == "main.rs"));
         assert!(
@@ -476,7 +480,8 @@ mod tests {
         // A working-tree `.baraddurignore` filters historical snapshots as well.
         let (dir, head) = temp_git_repo(&[("main.rs", "fn main() {}\n"), ("keep.rs", "//\n")]);
         std::fs::write(dir.path().join(".baraddurignore"), "keep.rs\n").unwrap();
-        let snap = Collector::collect_snapshot_at(dir.path(), &head, true).unwrap();
+        let ignore = BaradDurIgnore::load(dir.path()).unwrap();
+        let snap = Collector::collect_snapshot_at(dir.path(), &head, true, &ignore).unwrap();
         let paths = snapshot_paths(&snap);
         assert!(!paths.iter().any(|p| p == "keep.rs"));
     }

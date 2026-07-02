@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented here.
 
-## [Unreleased]
+## [0.19.0] - 2026-07-02
 
 ### Added
 - `.baraddurignore` file at the repository root with full `.gitignore` semantics (comments, `!` negation, anchoring, directory-only rules, last-match-wins) via the `ignore` crate. A `!` rule re-includes files the built-in defaults would otherwise drop.
@@ -12,6 +12,7 @@ All notable changes to this project will be documented here.
 - **Breaking**: file exclusions moved out of the TOML `[exclude]` section. Exclusions are now configured via `.baraddurignore` (repo root) and the `--exclude`/`--exclude-ext` CLI flags. Precedence, highest first: CLI flags → `.baraddurignore` → built-in defaults. A leftover `[exclude]` section in `barad-dur.toml` is ignored (with an unknown-section warning); move its `patterns`/`extensions` into `.baraddurignore`.
 - The snapshot cache now invalidates when exclusion inputs change (`--exclude`/`--exclude-ext`, `--no-default-excludes`, or `.baraddurignore` contents) — editing exclusions no longer requires `--no-cache` to take effect.
 - `barad-dur backfill` now applies the same exclusions (built-in defaults + `.baraddurignore`) as `analyze`/`gate`, so historical trend points are comparable to live scores.
+- Built-in defaults now exclude barad-dûr's own artifacts (`.baraddurignore`, `.repository-analysis/`) so the tool no longer measures its own config as source.
 
 ### Fixed
 - `barad-dur init` now correctly detects and writes exclude patterns for files in subdirectories (previously a shell-glob recount dropped nested translation/vendor files, so `.baraddurignore` was often not written at all).

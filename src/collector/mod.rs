@@ -18,6 +18,7 @@ use crate::snapshot::{
 
 pub use exclude::is_excluded;
 pub use ignore_file::exclude_fingerprint;
+pub(crate) use ignore_file::BaradDurIgnore;
 pub use progress::{NoProgress, Progress};
 pub use types::CommitCollection;
 
