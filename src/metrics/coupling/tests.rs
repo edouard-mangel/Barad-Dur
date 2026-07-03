@@ -1,6 +1,7 @@
 use super::*;
 use crate::config::CouplingThresholds;
 use crate::metrics::testutil::{make_file, make_snapshot};
+use crate::metrics::RawValue;
 use crate::snapshot::{CommitId, CouplingFinding, CouplingKind, RepoSnapshot};
 use std::path::PathBuf;
 
@@ -780,6 +781,57 @@ fn finding_counts_none_when_detection_did_not_run() {
     let mut snapshot = crate::metrics::testutil::make_snapshot();
     snapshot.files = vec![crate::metrics::testutil::make_file("src/a.rs")];
     assert!(pressman_finding_counts(&snapshot, &CouplingThresholds::default()).is_none());
+}
+
+#[test]
+fn finding_counts_agree_with_metric_finding_lists() {
+    // Guards the "single count source" contract: pressman_finding_counts
+    // must equal what the three metrics report. Fixture stays under 10
+    // findings per kind so RawValue::List length == the full count.
+    let mut snapshot = snapshot_with_findings(vec![
+        make_finding(CouplingKind::Content),
+        make_finding(CouplingKind::Common),
+        make_finding(CouplingKind::Control),
+        make_finding(CouplingKind::Control),
+    ]);
+    snapshot.files.extend([
+        crate::metrics::testutil::make_file("app/main.ts"),
+        crate::metrics::testutil::make_file("lib/index.ts"),
+        crate::metrics::testutil::make_file("lib/impl.ts"),
+    ]);
+    snapshot.import_graph.insert(
+        PathBuf::from("app/main.ts"),
+        vec![PathBuf::from("lib/impl.ts")],
+    );
+    let thresholds = CouplingThresholds {
+        component_depth: 1,
+        ..Default::default()
+    };
+
+    let counts = pressman_finding_counts(&snapshot, &thresholds).expect("detection ran");
+    let category = compute_coupling(&snapshot, &thresholds);
+    let list_len = |name: &str| -> usize {
+        let m = category.metrics.iter().find(|m| m.name == name).unwrap();
+        match &m.raw_value {
+            RawValue::List(items) => items.len(),
+            other => panic!("{name} raw_value should be a List, got {other:?}"),
+        }
+    };
+    assert_eq!(
+        counts.content,
+        list_len("Content coupling"),
+        "content: counts fn vs metric list"
+    );
+    assert_eq!(
+        counts.common,
+        list_len("Common coupling"),
+        "common: counts fn vs metric list"
+    );
+    assert_eq!(
+        counts.control,
+        list_len("Control coupling"),
+        "control: counts fn vs metric list"
+    );
 }
 
 #[test]
