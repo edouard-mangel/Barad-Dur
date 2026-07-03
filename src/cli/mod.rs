@@ -130,6 +130,27 @@ pub struct GateArgs {
     /// on average over the last 8 runs. Set to 0 to fail on any decline.
     #[arg(long)]
     pub max_decline: Option<f64>,
+
+    /// Fail if HEAD introduces Pressman coupling findings absent at --baseline-ref
+    ///
+    /// Requires --baseline-ref. Recommended CI baseline: the MR merge base
+    /// ($CI_MERGE_REQUEST_DIFF_BASE_SHA on GitLab) so the gate measures what
+    /// this branch adds, immune to the target branch moving.
+    #[arg(long, requires = "baseline_ref")]
+    pub no_new_coupling: bool,
+
+    /// Allow up to N new coupling findings in total (summed across kinds)
+    ///
+    /// Implies the ratchet check; requires --baseline-ref. Useful mid-cleanup.
+    #[arg(long, value_name = "N", requires = "baseline_ref")]
+    pub max_new_coupling: Option<usize>,
+
+    /// Git ref to compare coupling findings against (e.g. the MR merge base)
+    ///
+    /// The ref's tree is analyzed with the same detectors and exclusion rules
+    /// as HEAD. Shallow clones must fetch it first (GIT_DEPTH: 0 on GitLab).
+    #[arg(long, value_name = "REF")]
+    pub baseline_ref: Option<String>,
 }
 
 #[derive(clap::Args, Debug)]
@@ -317,5 +338,28 @@ mod tests {
             Commands::Init(args) => assert!(args.force),
             _ => panic!("expected Init"),
         }
+    }
+
+    #[test]
+    fn gate_ratchet_requires_baseline_ref() {
+        let err = Cli::try_parse_from(["barad-dur", "gate", "--no-new-coupling"]).unwrap_err();
+        assert!(err.to_string().contains("--baseline-ref"));
+        assert!(Cli::try_parse_from([
+            "barad-dur",
+            "gate",
+            "--no-new-coupling",
+            "--baseline-ref",
+            "origin/main"
+        ])
+        .is_ok());
+        assert!(Cli::try_parse_from([
+            "barad-dur",
+            "gate",
+            "--max-new-coupling",
+            "3",
+            "--baseline-ref",
+            "abc123"
+        ])
+        .is_ok());
     }
 }

@@ -207,6 +207,9 @@ mod tests {
             category: categories,
             skip_blame: None,
             max_decline: None,
+            no_new_coupling: false,
+            max_new_coupling: None,
+            baseline_ref: None,
         }
     }
 
