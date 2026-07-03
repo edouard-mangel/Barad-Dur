@@ -731,8 +731,8 @@ fn coupling_instability_table_links_to_graph() {
     }];
     let html = render(&report).unwrap();
     assert!(
-        html.contains("__focusGraphNode"),
-        "instability table rows must drill through to the graph tab via __focusGraphNode"
+        html.contains("registerFileFocus('graph'"),
+        "graph tab must register a file-focus handler for cross-tab drill-through"
     );
 }
 
