@@ -544,6 +544,38 @@ fn one_content_finding_scores_at_most_50() {
 }
 
 #[test]
+fn score_pressman_bands_are_exact() {
+    // Exact band table — kills arm-deletion mutants that bound-style
+    // assertions let through (a deleted arm falls to the neighbor band).
+    use crate::snapshot::CouplingKind::*;
+    let cases = [
+        (Content, 0, 100),
+        (Content, 1, 50),
+        (Content, 2, 35),
+        (Content, 3, 35),
+        (Content, 4, 25),
+        (Common, 0, 100),
+        (Common, 1, 60),
+        (Common, 2, 40),
+        (Common, 3, 40),
+        (Common, 4, 25),
+        (Control, 0, 100),
+        (Control, 1, 85),
+        (Control, 5, 85),
+        (Control, 6, 70),
+        (Control, 15, 70),
+        (Control, 16, 50),
+    ];
+    for (kind, count, expected) in cases {
+        assert_eq!(
+            score_pressman(kind, count),
+            expected,
+            "{kind:?} count {count}"
+        );
+    }
+}
+
+#[test]
 fn pressman_metrics_unscored_without_detectable_files() {
     let mut snapshot = crate::metrics::testutil::make_snapshot();
     snapshot.files = vec![crate::metrics::testutil::make_file("main.py")];

@@ -584,6 +584,24 @@ mod tests {
     }
 
     #[test]
+    fn ts_non_static_instance_field_is_not_flagged() {
+        let src = "class Foo {\n  instance = null;\n}\n";
+        assert!(
+            findings_for("src/f.ts", src).is_empty(),
+            "instance-level field named 'instance' is not the singleton pattern"
+        );
+    }
+
+    #[test]
+    fn ts_non_static_getinstance_method_is_not_flagged() {
+        let src = "class Foo {\n  getInstance() {\n    return this;\n  }\n}\n";
+        assert!(
+            findings_for("src/f.ts", src).is_empty(),
+            "non-static getInstance is not the singleton pattern"
+        );
+    }
+
+    #[test]
     fn ts_export_let_destructuring_is_common_coupling() {
         let f = findings_for("src/state.ts", "export let[a, b] = pair();\n");
         assert_eq!(f.len(), 1, "destructuring let export must be flagged");
