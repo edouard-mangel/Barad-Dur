@@ -5,7 +5,7 @@ use barad_dur::collector::Collector;
 use barad_dur::config::RepoConfig;
 use barad_dur::metrics::{coupling, evolution, health, hygiene, team};
 use barad_dur::scorer;
-use barad_dur::snapshot::TimeWindow;
+use barad_dur::snapshot::{FileEntry, RepoSnapshot, TimeWindow};
 use std::path::PathBuf;
 
 fn test_repo_path() -> PathBuf {
@@ -48,12 +48,24 @@ fn live_analysis_records_finding_counts_in_history_entry() {
 
 #[test]
 fn backfill_style_snapshot_records_no_counts_and_unscored_metrics() {
-    let Ok(collector) = Collector::open(&test_repo_path(), TimeWindow::default()) else {
-        return;
-    };
-    let head = collector.head_commit_hash().expect("head");
-    let snapshot = Collector::collect_snapshot_at(&test_repo_path(), &head, true)
-        .expect("historical snapshot");
+    // `collect_snapshot_at` is crate-private since the v0.19.0 exclusion
+    // work, so build the ADR-005 shape it produces through the public API:
+    // files listed, but `file_metrics` empty because no AST pass ran.
+    // That emptiness is exactly the contract `detection_ran` gates on.
+    let mut snapshot = RepoSnapshot::new(
+        test_repo_path(),
+        "test".into(),
+        "main".into(),
+        TimeWindow::full_history(),
+    );
+    snapshot.files.push(FileEntry {
+        path: PathBuf::from("src/lib.rs"),
+        size_bytes: 100,
+        is_binary: false,
+        depth: 1,
+        blob_oid: String::new(),
+    });
+    let head = "0000000000000000000000000000000000000000".to_string();
 
     // Pressman metrics must be unscored (detection didn't run)…
     let default_cfg = RepoConfig::default();
