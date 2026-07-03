@@ -143,7 +143,7 @@ pub struct FileComplexity {
 
 /// Pressman coupling taxonomy rung, ordered worst → least severe.
 /// Only the statically detectable rungs are represented (data/stamp omitted).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum CouplingKind {
     /// Reaching into another module's internals (e.g. `#[path]` imports).
     Content,

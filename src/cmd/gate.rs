@@ -7,8 +7,8 @@ use crate::collector::Collector;
 use crate::config;
 use crate::metrics::{coupling, evolution, health, hygiene, team};
 use crate::runner::{self, CollectOptions};
-use crate::scorer::{self, AnalysisReport};
-use crate::snapshot::TimeWindow;
+use crate::scorer::{self, AnalysisReport, CouplingFindingCounts};
+use crate::snapshot::{CouplingFinding, TimeWindow};
 use crate::trend::{self, VelocityDirection};
 
 pub fn run_gate(args: GateArgs) -> Result<i32> {
@@ -156,11 +156,56 @@ fn check_gate_categories(report: &AnalysisReport, args: &GateArgs, threshold: u3
     failed
 }
 
+// wired into run_gate in the next change
+#[allow(dead_code)]
+pub(crate) struct RatchetVerdict {
+    pub failed: bool,
+    /// (kind label, baseline count, head count) for every kind that increased.
+    pub increases: Vec<(&'static str, usize, usize)>,
+    /// Findings present at HEAD but not at baseline, identity (path, kind, evidence).
+    pub new_findings: Vec<CouplingFinding>,
+    pub total_new: usize,
+}
+
+// wired into run_gate in the next change
+#[allow(dead_code)]
+pub(crate) fn ratchet_verdict(
+    baseline: &CouplingFindingCounts,
+    head: &CouplingFindingCounts,
+    baseline_findings: &[CouplingFinding],
+    head_findings: &[CouplingFinding],
+    max_new: usize,
+) -> RatchetVerdict {
+    let key = |f: &CouplingFinding| (f.path.clone(), f.kind, f.evidence.clone());
+    let base_keys: std::collections::HashSet<_> = baseline_findings.iter().map(key).collect();
+    let new_findings: Vec<CouplingFinding> = head_findings
+        .iter()
+        .filter(|f| !base_keys.contains(&key(f)))
+        .cloned()
+        .collect();
+    let increases: Vec<(&'static str, usize, usize)> = [
+        ("content", baseline.content, head.content),
+        ("common", baseline.common, head.common),
+        ("control", baseline.control, head.control),
+    ]
+    .into_iter()
+    .filter(|(_, b, h)| h > b)
+    .collect();
+    let total_new = new_findings.len();
+    RatchetVerdict {
+        failed: total_new > max_new,
+        increases,
+        new_findings,
+        total_new,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::metrics::CategoryResult;
     use crate::scorer::AnalysisReport;
+    use crate::snapshot::CouplingKind;
     use crate::trend::{TrendDelta, TrendSummary, TrendVelocity, VelocityDirection};
     use std::collections::HashMap;
 
@@ -369,5 +414,113 @@ mod tests {
         let mut s = summary_with_velocity(VelocityDirection::Stable, 0.1);
         s.branch_mismatch_warning = true;
         assert!(!check_trend_gate(&s, 2.0));
+    }
+
+    // ── ratchet_verdict ────────────────────────────────────────────
+
+    fn finding(path: &str, kind: CouplingKind, evidence: &str) -> CouplingFinding {
+        CouplingFinding {
+            path: path.into(),
+            line: Some(1),
+            kind,
+            evidence: evidence.into(),
+        }
+    }
+
+    #[test]
+    fn ratchet_passes_when_head_equals_baseline() {
+        let f = vec![finding("a.rs", CouplingKind::Common, "static mut X")];
+        let c = CouplingFindingCounts {
+            content: 0,
+            common: 1,
+            control: 0,
+        };
+        let v = ratchet_verdict(&c, &c, &f, &f, 0);
+        assert!(!v.failed);
+        assert_eq!(v.total_new, 0);
+        assert!(v.increases.is_empty());
+    }
+
+    #[test]
+    fn ratchet_fails_on_one_new_finding_and_names_it() {
+        let base = vec![finding("a.rs", CouplingKind::Common, "static mut X")];
+        let head = vec![
+            finding("a.rs", CouplingKind::Common, "static mut X"),
+            finding("b.rs", CouplingKind::Content, "#[path = \"../x.rs\"]"),
+        ];
+        let cb = CouplingFindingCounts {
+            content: 0,
+            common: 1,
+            control: 0,
+        };
+        let ch = CouplingFindingCounts {
+            content: 1,
+            common: 1,
+            control: 0,
+        };
+        let v = ratchet_verdict(&cb, &ch, &base, &head, 0);
+        assert!(v.failed);
+        assert_eq!(v.total_new, 1);
+        assert_eq!(v.new_findings[0].path, std::path::PathBuf::from("b.rs"));
+        assert_eq!(v.increases, vec![("content", 0, 1)]);
+    }
+
+    #[test]
+    fn ratchet_allowance_admits_exactly_n() {
+        let base: Vec<CouplingFinding> = vec![];
+        let head = vec![
+            finding("a.rs", CouplingKind::Control, "pub fn f(flag: bool)"),
+            finding("b.rs", CouplingKind::Control, "pub fn g(flag: bool)"),
+        ];
+        let cb = CouplingFindingCounts {
+            content: 0,
+            common: 0,
+            control: 0,
+        };
+        let ch = CouplingFindingCounts {
+            content: 0,
+            common: 0,
+            control: 2,
+        };
+        assert!(
+            !ratchet_verdict(&cb, &ch, &base, &head, 2).failed,
+            "n == allowance passes"
+        );
+        assert!(
+            ratchet_verdict(&cb, &ch, &base, &head, 1).failed,
+            "n > allowance fails"
+        );
+    }
+
+    #[test]
+    fn ratchet_ignores_line_number_shifts() {
+        let mut moved = finding("a.rs", CouplingKind::Common, "static mut X");
+        moved.line = Some(99);
+        let base = vec![finding("a.rs", CouplingKind::Common, "static mut X")];
+        let c = CouplingFindingCounts {
+            content: 0,
+            common: 1,
+            control: 0,
+        };
+        let v = ratchet_verdict(&c, &c, &base, &[moved], 0);
+        assert!(!v.failed, "same finding at a different line is not new");
+    }
+
+    #[test]
+    fn ratchet_removed_findings_do_not_mask_new_ones() {
+        // one removed + one added elsewhere: counts flat, set diff catches it
+        let base = vec![finding("a.rs", CouplingKind::Common, "static mut X")];
+        let head = vec![finding("b.rs", CouplingKind::Common, "static mut Y")];
+        let c = CouplingFindingCounts {
+            content: 0,
+            common: 1,
+            control: 0,
+        };
+        let v = ratchet_verdict(&c, &c, &base, &head, 0);
+        assert!(
+            v.failed,
+            "moved-plus-renamed global is a new finding even with flat counts"
+        );
+        assert_eq!(v.total_new, 1);
     }
 }
