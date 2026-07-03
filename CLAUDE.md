@@ -80,4 +80,4 @@ Concretely for Rust:
 
 ## Mutation Testing Strategy
 
-Hybrid — per-feature on push (scoped to files changed in last 25h, kill rate ≥ 80%), full-codebase nightly (scheduled CI job).
+Hybrid — per-MR via `cargo mutants --in-diff` (scoped to the MR diff vs `$CI_MERGE_REQUEST_DIFF_BASE_SHA`, kill rate ≥ 80% enforced by the aggregating `mutation-gate` job; the three shard jobs themselves fail only on wall-clock timeout), full-codebase nightly (scheduled CI job).

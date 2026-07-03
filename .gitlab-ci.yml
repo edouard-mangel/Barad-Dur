@@ -205,7 +205,11 @@ semver-check:
 .mutation-shard: &mutation-shard
   stage: analysis
   <<: *rust-tools-base
-  timeout: 2 hours
+  # 4h: a large MR diff can carry ~50 mutants across 3 shards, and the
+  # unmutated baseline alone costs ~30min (integration suites dogfood the
+  # real repo). Two shards of the Pressman-coupling MR timed out at ~118min
+  # under the previous 2h limit with zero surviving mutants.
+  timeout: 4 hours
   script:
     - |
       if [ -n "$CI_MERGE_REQUEST_DIFF_BASE_SHA" ]; then
