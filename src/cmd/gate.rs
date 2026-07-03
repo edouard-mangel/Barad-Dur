@@ -1,5 +1,5 @@
 use anyhow::Result;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::cache;
 use crate::cli::GateArgs;
@@ -68,7 +68,134 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
         false
     };
 
-    Ok(if score_failed || trend_failed { 1 } else { 0 })
+    let ratchet_failed = if args.no_new_coupling || args.max_new_coupling.is_some() {
+        let baseline_ref = args
+            .baseline_ref
+            .as_deref()
+            .expect("clap `requires` guarantees baseline_ref");
+        let max_new = args.max_new_coupling.unwrap_or(0);
+        let sha = resolve_baseline_ref(&local_path, baseline_ref)?;
+        let ignore = crate::collector::BaradDurIgnore::load(&local_path)?;
+        let base_snapshot = Collector::collect_snapshot_at(&local_path, &sha, true, &ignore, true)?;
+        let base_counts =
+            coupling::pressman_finding_counts(&base_snapshot, &cfg.thresholds.coupling).unwrap_or(
+                CouplingFindingCounts {
+                    content: 0,
+                    common: 0,
+                    control: 0,
+                },
+            );
+        let head_counts = report
+            .coupling_finding_counts
+            .unwrap_or(CouplingFindingCounts {
+                content: 0,
+                common: 0,
+                control: 0,
+            });
+        // Barrel-bypass findings only join the set when the toggle is on —
+        // this must mirror `pressman_finding_counts`'s gating exactly, or the
+        // counts (used for the increase summary) and the finding set (used
+        // for the new-finding diff) disagree about what "content coupling"
+        // means.
+        let (base_findings, head_findings): (Vec<CouplingFinding>, Vec<CouplingFinding>) =
+            if cfg.thresholds.coupling.content_barrel_rule {
+                let base_barrel = coupling::barrel_bypass_findings(
+                    &base_snapshot,
+                    cfg.thresholds.coupling.component_depth,
+                );
+                let head_barrel = coupling::barrel_bypass_findings(
+                    &snapshot,
+                    cfg.thresholds.coupling.component_depth,
+                );
+                (
+                    base_snapshot
+                        .coupling_findings
+                        .iter()
+                        .cloned()
+                        .chain(base_barrel)
+                        .collect(),
+                    snapshot
+                        .coupling_findings
+                        .iter()
+                        .cloned()
+                        .chain(head_barrel)
+                        .collect(),
+                )
+            } else {
+                (
+                    base_snapshot.coupling_findings.clone(),
+                    snapshot.coupling_findings.clone(),
+                )
+            };
+        let verdict = ratchet_verdict(
+            &base_counts,
+            &head_counts,
+            &base_findings,
+            &head_findings,
+            max_new,
+        );
+        println!("{}", print_ratchet(&verdict, baseline_ref, max_new));
+        verdict.failed
+    } else {
+        false
+    };
+
+    Ok(gate_exit_code(score_failed, trend_failed, ratchet_failed))
+}
+
+/// Resolve a baseline ref (branch, tag, or SHA) to a full commit SHA, in the
+/// repo at `repo_path`. Kept separate from `Collector` since it only needs a
+/// one-off `revparse` — no snapshot state.
+fn resolve_baseline_ref(repo_path: &Path, r: &str) -> anyhow::Result<String> {
+    let repo = git2::Repository::discover(repo_path)?;
+    let obj = repo.revparse_single(r).map_err(|e| {
+        anyhow::anyhow!(
+            "cannot resolve baseline ref '{r}': {e}. On CI, shallow clones hide history — \
+             set GIT_DEPTH: 0 (GitLab) or fetch the ref first (git fetch origin {r})."
+        )
+    })?;
+    let commit = obj.peel_to_commit()?;
+    Ok(commit.id().to_string())
+}
+
+/// Fold the three independent gate checks into a process exit code.
+fn gate_exit_code(score_failed: bool, trend_failed: bool, ratchet_failed: bool) -> i32 {
+    if score_failed || trend_failed || ratchet_failed {
+        1
+    } else {
+        0
+    }
+}
+
+/// Render a `RatchetVerdict` as the text `run_gate` prints to stdout.
+/// Returns the string (rather than printing directly) so it can be
+/// unit-tested against synthetic verdicts without a real git repo.
+fn print_ratchet(verdict: &RatchetVerdict, baseline_ref: &str, max_new: usize) -> String {
+    if verdict.failed {
+        let mut out = format!(
+            "RATCHET FAIL: {} new coupling finding(s) vs {} (allowed {})",
+            verdict.total_new, baseline_ref, max_new
+        );
+        for (kind, base, head) in &verdict.increases {
+            out.push_str(&format!("\n  {kind}: {base} -> {head}"));
+        }
+        for f in &verdict.new_findings {
+            match f.line {
+                Some(l) => {
+                    out.push_str(&format!("\n  {}:{} — {}", f.path.display(), l, f.evidence))
+                }
+                None => out.push_str(&format!("\n  {} — {}", f.path.display(), f.evidence)),
+            }
+        }
+        out
+    } else if verdict.total_new == 0 {
+        format!("RATCHET PASS: no new coupling findings vs {baseline_ref}")
+    } else {
+        format!(
+            "RATCHET PASS: {} new <= allowed {} vs {}",
+            verdict.total_new, max_new, baseline_ref
+        )
+    }
 }
 
 fn check_trend_gate(summary: &trend::TrendSummary, max_decline: f64) -> bool {
@@ -156,8 +283,6 @@ fn check_gate_categories(report: &AnalysisReport, args: &GateArgs, threshold: u3
     failed
 }
 
-// wired into run_gate in the next change
-#[allow(dead_code)]
 pub(crate) struct RatchetVerdict {
     pub failed: bool,
     /// (kind label, baseline count, head count) for every kind that increased.
@@ -167,8 +292,6 @@ pub(crate) struct RatchetVerdict {
     pub total_new: usize,
 }
 
-// wired into run_gate in the next change
-#[allow(dead_code)]
 pub(crate) fn ratchet_verdict(
     baseline: &CouplingFindingCounts,
     head: &CouplingFindingCounts,
@@ -522,5 +645,100 @@ mod tests {
             "moved-plus-renamed global is a new finding even with flat counts"
         );
         assert_eq!(v.total_new, 1);
+    }
+
+    // ── print_ratchet ────────────────────────────────────────────────
+
+    #[test]
+    fn print_ratchet_fail_lists_increases_and_new_findings() {
+        let verdict = RatchetVerdict {
+            failed: true,
+            increases: vec![("content", 0, 1)],
+            new_findings: vec![finding(
+                "b.rs",
+                CouplingKind::Content,
+                "#[path = \"../x.rs\"]",
+            )],
+            total_new: 1,
+        };
+        let out = print_ratchet(&verdict, "main", 0);
+        assert_eq!(
+            out,
+            "RATCHET FAIL: 1 new coupling finding(s) vs main (allowed 0)\n\
+             \x20\x20content: 0 -> 1\n\
+             \x20\x20b.rs:1 — #[path = \"../x.rs\"]"
+        );
+    }
+
+    #[test]
+    fn print_ratchet_fail_omits_line_when_none() {
+        let mut barrel_finding = finding("b/index.ts", CouplingKind::Content, "barrel bypass");
+        barrel_finding.line = None;
+        let verdict = RatchetVerdict {
+            failed: true,
+            increases: vec![("content", 0, 1)],
+            new_findings: vec![barrel_finding],
+            total_new: 1,
+        };
+        let out = print_ratchet(&verdict, "main", 0);
+        assert!(
+            out.contains("\n  b/index.ts — barrel bypass"),
+            "expected no `:line` when line is None, got: {out}"
+        );
+    }
+
+    #[test]
+    fn print_ratchet_pass_no_new_findings() {
+        let verdict = RatchetVerdict {
+            failed: false,
+            increases: vec![],
+            new_findings: vec![],
+            total_new: 0,
+        };
+        let out = print_ratchet(&verdict, "main", 0);
+        assert_eq!(out, "RATCHET PASS: no new coupling findings vs main");
+    }
+
+    #[test]
+    fn print_ratchet_pass_within_allowance() {
+        let verdict = RatchetVerdict {
+            failed: false,
+            increases: vec![("control", 0, 1)],
+            new_findings: vec![finding(
+                "c.rs",
+                CouplingKind::Control,
+                "pub fn f(flag: bool)",
+            )],
+            total_new: 1,
+        };
+        let out = print_ratchet(&verdict, "main", 2);
+        assert_eq!(out, "RATCHET PASS: 1 new <= allowed 2 vs main");
+    }
+
+    // ── gate_exit_code ───────────────────────────────────────────────
+
+    #[test]
+    fn gate_exit_code_zero_when_all_pass() {
+        assert_eq!(gate_exit_code(false, false, false), 0);
+    }
+
+    #[test]
+    fn gate_exit_code_one_when_score_fails() {
+        assert_eq!(gate_exit_code(true, false, false), 1);
+    }
+
+    #[test]
+    fn gate_exit_code_one_when_trend_fails() {
+        assert_eq!(gate_exit_code(false, true, false), 1);
+    }
+
+    #[test]
+    fn gate_exit_code_one_when_ratchet_fails() {
+        assert_eq!(gate_exit_code(false, false, true), 1);
+    }
+
+    #[test]
+    fn gate_exit_code_one_when_all_fail() {
+        assert_eq!(gate_exit_code(true, true, true), 1);
     }
 }
