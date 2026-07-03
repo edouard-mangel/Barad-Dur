@@ -280,7 +280,9 @@ impl Collector {
     }
 
     /// Collect a snapshot at a specific commit SHA without touching the working tree.
-    /// file_metrics is always empty (ADR-005).
+    /// `file_metrics`/`import_graph`/`coupling_findings` stay empty unless `run_ast`
+    /// is set (ADR-005: backfill's historical sweep skips the AST pass for
+    /// performance; the gate ratchet's one-off baseline collection opts in).
     ///
     /// `ignore` is passed in (not loaded here) so a `backfill` run parses the
     /// repo's `.baraddurignore` once and reuses it across every historical sample.
@@ -289,6 +291,7 @@ impl Collector {
         sha: &str,
         _skip_blame: bool,
         ignore: &BaradDurIgnore,
+        run_ast: bool,
     ) -> Result<RepoSnapshot> {
         let repo = git2::Repository::discover(repo_path)
             .with_context(|| format!("'{}' is not a git repository", repo_path.display()))?;
@@ -320,6 +323,12 @@ impl Collector {
             .and_then(|h| h.shorthand().ok().map(String::from))
             .unwrap_or_else(|| "main".to_string());
 
+        let (file_metrics, import_graph, coupling_findings) = if run_ast {
+            ast_pass_at(&repo, &files)?
+        } else {
+            (HashMap::new(), HashMap::new(), Vec::new())
+        };
+
         let mut snapshot = RepoSnapshot {
             path: repo_path.to_path_buf(),
             name: repo_name,
@@ -334,14 +343,58 @@ impl Collector {
             commits_by_author: HashMap::new(),
             commits_by_file: HashMap::new(),
             file_change_pairs: Vec::new(),
-            file_metrics: HashMap::new(),
-            import_graph: HashMap::new(),
-            coupling_findings: Vec::new(),
+            file_metrics,
+            import_graph,
+            coupling_findings,
             commit_interner: collection.interner,
         };
         snapshot.build_indexes();
         Ok(snapshot)
     }
+}
+
+/// AST pass over blob contents at a historical commit — the object-DB
+/// equivalent of `collect_file_metrics_with_progress` (which reads the
+/// working tree). Used by the gate ratchet's baseline collection; backfill
+/// keeps this off per ADR-005. Runs sequentially (no rayon): baseline trees
+/// are collected once per gate run, not once per commit like backfill's
+/// historical sweep, so the parallelism isn't worth the added complexity here.
+#[allow(clippy::type_complexity)]
+fn ast_pass_at(
+    repo: &git2::Repository,
+    files: &[FileEntry],
+) -> Result<(
+    HashMap<PathBuf, FileComplexity>,
+    HashMap<PathBuf, Vec<PathBuf>>,
+    Vec<CouplingFinding>,
+)> {
+    let mut file_metrics = HashMap::new();
+    let mut raw_imports: RawImports = HashMap::new();
+    let mut coupling_findings = Vec::new();
+    for entry in files.iter().filter(|f| !f.is_binary) {
+        let oid = match git2::Oid::from_str(&entry.blob_oid) {
+            Ok(o) => o,
+            Err(_) => continue,
+        };
+        let Ok(blob) = repo.find_blob(oid) else {
+            continue;
+        };
+        let Ok(content) = std::str::from_utf8(blob.content()) else {
+            continue;
+        };
+        file_metrics.insert(
+            entry.path.clone(),
+            complexity::analyse_file(&entry.path, content),
+        );
+        let imports = complexity::extract_file_imports(&entry.path, content);
+        if !imports.is_empty() {
+            raw_imports.insert(entry.path.clone(), imports);
+        }
+        coupling_findings.extend(complexity::extract_coupling_findings(&entry.path, content));
+    }
+    coupling_findings.sort_by(|a, b| (&a.path, a.line).cmp(&(&b.path, b.line)));
+    let import_graph = resolve_imports(&raw_imports, files);
+    Ok((file_metrics, import_graph, coupling_findings))
 }
 
 #[cfg(test)]
@@ -445,8 +498,9 @@ mod tests {
         assert!(rs_file.is_some(), "expected at least one .rs file");
     }
 
-    /// A throwaway git repo with one commit, for `collect_snapshot_at` (backfill).
-    fn temp_git_repo(files: &[(&str, &str)]) -> (tempfile::TempDir, String) {
+    /// A throwaway git repo with one commit, for `collect_snapshot_at` (backfill
+    /// and the gate ratchet's baseline collection).
+    fn make_single_commit_repo_with(files: &[(&str, &str)]) -> (tempfile::TempDir, String) {
         let dir = tempfile::TempDir::new().unwrap();
         let git = |args: &[&str]| {
             assert!(std::process::Command::new("git")
@@ -490,9 +544,10 @@ mod tests {
     fn collect_snapshot_at_applies_default_exclusions() {
         // Backfill must drop built-in default exclusions (e.g. Cargo.lock) so its
         // history is comparable to live analyze/gate scores.
-        let (dir, head) = temp_git_repo(&[("main.rs", "fn main() {}\n"), ("Cargo.lock", "x\n")]);
+        let (dir, head) =
+            make_single_commit_repo_with(&[("main.rs", "fn main() {}\n"), ("Cargo.lock", "x\n")]);
         let ignore = BaradDurIgnore::load(dir.path()).unwrap();
-        let snap = Collector::collect_snapshot_at(dir.path(), &head, true, &ignore).unwrap();
+        let snap = Collector::collect_snapshot_at(dir.path(), &head, true, &ignore, false).unwrap();
         let paths = snapshot_paths(&snap);
         assert!(paths.iter().any(|p| p == "main.rs"));
         assert!(
@@ -504,11 +559,41 @@ mod tests {
     #[test]
     fn collect_snapshot_at_honors_baraddurignore() {
         // A working-tree `.baraddurignore` filters historical snapshots as well.
-        let (dir, head) = temp_git_repo(&[("main.rs", "fn main() {}\n"), ("keep.rs", "//\n")]);
+        let (dir, head) =
+            make_single_commit_repo_with(&[("main.rs", "fn main() {}\n"), ("keep.rs", "//\n")]);
         std::fs::write(dir.path().join(".baraddurignore"), "keep.rs\n").unwrap();
         let ignore = BaradDurIgnore::load(dir.path()).unwrap();
-        let snap = Collector::collect_snapshot_at(dir.path(), &head, true, &ignore).unwrap();
+        let snap = Collector::collect_snapshot_at(dir.path(), &head, true, &ignore, false).unwrap();
         let paths = snapshot_paths(&snap);
         assert!(!paths.iter().any(|p| p == "keep.rs"));
+    }
+
+    #[test]
+    fn collect_snapshot_at_with_ast_populates_findings() {
+        let (dir, head) = make_single_commit_repo_with(&[(
+            "src/lib.rs",
+            "static mut CACHE: usize = 0;\npub fn f() {}\n",
+        )]);
+        let ignore = BaradDurIgnore::load(dir.path()).unwrap();
+        let snap = Collector::collect_snapshot_at(dir.path(), &head, true, &ignore, true).unwrap();
+        assert!(
+            !snap.file_metrics.is_empty(),
+            "AST pass must populate file_metrics"
+        );
+        assert_eq!(snap.coupling_findings.len(), 1);
+        assert_eq!(
+            snap.coupling_findings[0].kind,
+            crate::snapshot::CouplingKind::Common
+        );
+    }
+
+    #[test]
+    fn collect_snapshot_at_without_ast_stays_empty() {
+        let (dir, head) =
+            make_single_commit_repo_with(&[("src/lib.rs", "static mut CACHE: usize = 0;\n")]);
+        let ignore = BaradDurIgnore::load(dir.path()).unwrap();
+        let snap = Collector::collect_snapshot_at(dir.path(), &head, true, &ignore, false).unwrap();
+        assert!(snap.file_metrics.is_empty(), "ADR-005 contract unchanged");
+        assert!(snap.coupling_findings.is_empty());
     }
 }
