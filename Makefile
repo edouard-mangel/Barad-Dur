@@ -8,13 +8,14 @@
 #   make report TARGET=~/my-repo
 #   make build                release build of CLI
 #   make install              install barad-dur to ~/.cargo/bin
+#   make gate-coupling        fail if HEAD adds new coupling findings vs origin/main
 
 TARGET      ?= .
 OUTPUT      ?= dashboard/report.json
 OUTPUT_HTML ?= report.html
 BROWSER     ?= xdg-open
 
-.PHONY: analyze dashboard report html-report build install setup version-bump
+.PHONY: analyze dashboard report html-report build install setup version-bump gate-coupling
 
 analyze:
 	cargo run --release -- analyze $(TARGET) --json > $(OUTPUT)
@@ -38,6 +39,10 @@ build:
 
 install:
 	cargo install --path .
+
+## Coupling ratchet vs origin/main — fails if HEAD adds new coupling findings
+gate-coupling:
+	cargo run --quiet -- gate . --no-new-coupling --baseline-ref origin/main
 
 setup:
 	git config core.hooksPath hooks

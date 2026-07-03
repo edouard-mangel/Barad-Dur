@@ -286,6 +286,21 @@ barad-dur gate . --max-decline 2.0           # also fail if score drops > 2 pts/
 barad-dur gate . --skip-blame                # faster check; blame metrics get defaults
 ```
 
+#### Coupling ratchet
+
+Fail the build only if HEAD introduces *new* Pressman coupling findings
+(content/common/control) versus a baseline ref — existing coupling debt
+doesn't block the gate, only regressions do.
+
+```bash
+barad-dur gate . --no-new-coupling --baseline-ref origin/main   # zero new findings allowed
+barad-dur gate . --max-new-coupling 3 --baseline-ref origin/main # up to 3 new findings (cleanup mode)
+```
+
+See [`docs/gate-coupling.md`](docs/gate-coupling.md) for the GitLab CI job
+example, the merge-base recommendation, cost notes, and the full
+error-message catalogue.
+
 ### init
 
 Generate a `.repository-analysis/barad-dur.toml` config file with smart defaults.
