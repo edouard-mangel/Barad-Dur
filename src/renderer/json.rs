@@ -123,6 +123,7 @@ mod tests {
             per_file_coupling: vec![],
             import_edges: vec![],
             import_cycles: vec![],
+            coupling_finding_counts: None,
             score_thresholds: Default::default(),
         }
     }

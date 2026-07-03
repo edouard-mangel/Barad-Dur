@@ -39,6 +39,7 @@ fn make_report() -> AnalysisReport {
         per_file_coupling: vec![],
         import_edges: vec![],
         import_cycles: vec![],
+        coupling_finding_counts: None,
         score_thresholds: Default::default(),
     }
 }
@@ -54,6 +55,7 @@ fn make_history_entry(score: u32, source: Option<&str>) -> crate::scorer::Histor
             commits: 10,
             files: 5,
             authors: 2,
+            ..Default::default()
         },
         branch: "main".into(),
         schema_version: 1,
@@ -729,8 +731,8 @@ fn coupling_instability_table_links_to_graph() {
     }];
     let html = render(&report).unwrap();
     assert!(
-        html.contains("__focusGraphNode"),
-        "instability table rows must drill through to the graph tab via __focusGraphNode"
+        html.contains("registerFileFocus('graph'"),
+        "graph tab must register a file-focus handler for cross-tab drill-through"
     );
 }
 

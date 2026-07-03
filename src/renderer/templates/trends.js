@@ -166,6 +166,11 @@
             + entry.counts.commits + ' commits, '
             + entry.counts.files + ' files, '
             + entry.counts.authors + ' authors\n'
+            + (entry.counts.content_coupling != null
+                ? 'coupling findings: ' + entry.counts.content_coupling + ' content, '
+                  + entry.counts.common_coupling + ' common, '
+                  + entry.counts.control_coupling + ' control\n'
+                : '')
             + srcLabel;
           tooltip.textContent = lines;
           tooltip.style.display = 'block';

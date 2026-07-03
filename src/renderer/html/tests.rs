@@ -63,6 +63,7 @@ fn make_report() -> AnalysisReport {
         per_file_coupling: vec![],
         import_edges: vec![],
         import_cycles: vec![],
+        coupling_finding_counts: None,
         score_thresholds: Default::default(),
     }
 }
@@ -607,6 +608,7 @@ fn make_history_entry(score: u32, source: Option<&str>) -> crate::scorer::Histor
             commits: 10,
             files: 5,
             authors: 2,
+            ..Default::default()
         },
         branch: "main".into(),
         schema_version: 1,

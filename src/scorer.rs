@@ -45,6 +45,9 @@ pub fn build_history_entry(
             commits: report.total_commits,
             files: report.total_files,
             authors: report.total_authors,
+            content_coupling: report.coupling_finding_counts.map(|c| c.content),
+            common_coupling: report.coupling_finding_counts.map(|c| c.common),
+            control_coupling: report.coupling_finding_counts.map(|c| c.control),
         },
         branch: report.branch.clone(),
         schema_version: 1,
@@ -57,12 +60,12 @@ pub fn build_report(
     categories: Vec<CategoryResult>,
     remote_meta: Option<RemoteMeta>,
     weights: &[(&str, f64)],
-    component_depth: usize,
+    coupling: &crate::config::CouplingThresholds,
 ) -> AnalysisReport {
     let overall_score = compute_overall_score_with_weights(&categories, weights);
     let top_actions = generate_top_actions(&categories);
     let file_hotspots = build_hotspots(snapshot);
-    let coupling_pairs = build_coupling_pairs(snapshot, component_depth);
+    let coupling_pairs = build_coupling_pairs(snapshot, coupling.component_depth);
     let author_ownership = build_author_ownership(snapshot);
     let file_ages = build_file_ages(snapshot);
     let author_cards = build_author_cards(snapshot);
@@ -71,6 +74,8 @@ pub fn build_report(
     let per_file_coupling = build_per_file_coupling(snapshot);
     let import_edges = build_import_edges(snapshot);
     let import_cycles = build_import_cycles(snapshot);
+    let coupling_finding_counts =
+        crate::metrics::coupling::pressman_finding_counts(snapshot, coupling);
 
     AnalysisReport {
         repo_name: snapshot.name.clone(),
@@ -94,6 +99,7 @@ pub fn build_report(
         per_file_coupling,
         import_edges,
         import_cycles,
+        coupling_finding_counts,
         score_thresholds: ScoreThresholds::default(),
     }
 }
@@ -136,7 +142,13 @@ mod tests {
         );
 
         let categories = vec![make_category("Health", 80)];
-        let report = build_report(&snapshot, categories, None, WEIGHTS, 2);
+        let report = build_report(
+            &snapshot,
+            categories,
+            None,
+            WEIGHTS,
+            &crate::config::CouplingThresholds::default(),
+        );
 
         assert_eq!(report.repo_name, "test-repo");
         assert_eq!(report.branch, "main");
@@ -158,7 +170,13 @@ mod tests {
             TimeWindow::default(),
         );
         let categories = vec![make_category("Health", 80)];
-        let report = build_report(&snapshot, categories, None, WEIGHTS, 2);
+        let report = build_report(
+            &snapshot,
+            categories,
+            None,
+            WEIGHTS,
+            &crate::config::CouplingThresholds::default(),
+        );
         assert!(
             report.audit.is_some(),
             "build_report must always set audit to Some(...)"
@@ -307,7 +325,13 @@ mod tests {
             TimeWindow::default(),
         );
         let categories = vec![make_category("Health", 80)];
-        let report = build_report(&snapshot, categories, None, WEIGHTS, 2);
+        let report = build_report(
+            &snapshot,
+            categories,
+            None,
+            WEIGHTS,
+            &crate::config::CouplingThresholds::default(),
+        );
         let entry = build_history_entry(&report, "abc123", None);
 
         assert_eq!(entry.head, "abc123");
@@ -327,7 +351,13 @@ mod tests {
             TimeWindow::default(),
         );
         let categories = vec![make_category("Health", 80)];
-        let report = build_report(&snapshot, categories, None, WEIGHTS, 2);
+        let report = build_report(
+            &snapshot,
+            categories,
+            None,
+            WEIGHTS,
+            &crate::config::CouplingThresholds::default(),
+        );
         assert!(report.author_cards.is_empty());
     }
 
@@ -353,7 +383,13 @@ mod tests {
             TimeWindow::default(),
         );
         let categories = vec![make_category("Health", 80)];
-        let report = build_report(&snapshot, categories, None, WEIGHTS, 2);
+        let report = build_report(
+            &snapshot,
+            categories,
+            None,
+            WEIGHTS,
+            &crate::config::CouplingThresholds::default(),
+        );
         assert!(
             report.per_file_coupling.is_empty(),
             "per_file_coupling should be empty for an empty snapshot"
@@ -369,11 +405,91 @@ mod tests {
             TimeWindow::default(),
         );
         let categories = vec![make_category("Health", 80)];
-        let report = build_report(&snapshot, categories, None, WEIGHTS, 2);
+        let report = build_report(
+            &snapshot,
+            categories,
+            None,
+            WEIGHTS,
+            &crate::config::CouplingThresholds::default(),
+        );
         assert!(
             report.import_edges.is_empty(),
             "import_edges should be empty for an empty snapshot"
         );
+    }
+
+    fn report_with_detection() -> AnalysisReport {
+        let mut snapshot = RepoSnapshot::new(
+            std::path::PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        snapshot.files = vec![crate::metrics::testutil::make_file("src/a.rs")];
+        snapshot.file_metrics.insert(
+            std::path::PathBuf::from("src/a.rs"),
+            crate::snapshot::FileComplexity::default(),
+        );
+        build_report(
+            &snapshot,
+            vec![make_category("Health", 80)],
+            None,
+            WEIGHTS,
+            &crate::config::CouplingThresholds::default(),
+        )
+    }
+
+    fn report_without_detection() -> AnalysisReport {
+        let snapshot = RepoSnapshot::new(
+            std::path::PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        build_report(
+            &snapshot,
+            vec![make_category("Health", 80)],
+            None,
+            WEIGHTS,
+            &crate::config::CouplingThresholds::default(),
+        )
+    }
+
+    #[test]
+    fn report_embeds_finding_counts_when_detection_ran() {
+        let report = report_with_detection();
+        assert_eq!(
+            report.coupling_finding_counts,
+            Some(crate::scorer::CouplingFindingCounts {
+                content: 0,
+                common: 0,
+                control: 0
+            })
+        );
+    }
+
+    #[test]
+    fn report_finding_counts_none_for_backfill_style_snapshot() {
+        let report = report_without_detection();
+        assert_eq!(report.coupling_finding_counts, None);
+    }
+
+    #[test]
+    fn history_entry_carries_finding_counts() {
+        let report = report_with_detection();
+        let entry = build_history_entry(&report, "abc123", None);
+        assert_eq!(entry.counts.content_coupling, Some(0));
+        assert_eq!(entry.counts.common_coupling, Some(0));
+        assert_eq!(entry.counts.control_coupling, Some(0));
+    }
+
+    #[test]
+    fn history_entry_counts_none_without_detection() {
+        let report = report_without_detection();
+        let entry = build_history_entry(&report, "abc123", Some("backfill".into()));
+        assert_eq!(entry.counts.content_coupling, None);
+        assert_eq!(entry.counts.common_coupling, None);
+        assert_eq!(entry.counts.control_coupling, None);
     }
 
     #[test]

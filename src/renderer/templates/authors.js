@@ -288,8 +288,8 @@
     contentDivs[0].replaceChildren(safeRender(tabNames[0], tabContents[0]));
     contentDivs[0].dataset.rendered = '1';
 
-    // Expose tab-switching for drill-through links
-    window.__switchToTab = function(tabName, sortBy) {
+    // Tab-switching for drill-through links, decoupled via CustomEvent
+    function switchToTab(tabName, sortBy) {
       var idx = tabNames.indexOf(tabName.charAt(0).toUpperCase() + tabName.slice(1));
       if (idx < 0) return;
       var allTabs = tabs.querySelectorAll('.tab');
@@ -302,7 +302,10 @@
         contentDivs[idx].dataset.rendered = '1';
       }
       contentDivs[idx].scrollIntoView({ behavior: 'smooth', block: 'start' });
-    };
+    }
+    document.addEventListener('barad:switch-tab', function(e) {
+      switchToTab(e.detail.tab, e.detail.sortBy || null);
+    });
 
     app.replaceChildren(header, tabs, ...contentDivs);
 
@@ -312,7 +315,7 @@
       if (initial.file) {
         focusFileOnTab(initial.tab, initial.file);
       } else {
-        window.__switchToTab(initial.tab);
+        switchToTab(initial.tab, null);
       }
     }
   }

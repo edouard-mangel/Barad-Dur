@@ -53,7 +53,7 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
         categories,
         None,
         &weight_pairs,
-        cfg.thresholds.coupling.component_depth,
+        &cfg.thresholds.coupling,
     );
 
     let threshold = args.min_score;
@@ -195,6 +195,7 @@ mod tests {
             per_file_coupling: vec![],
             import_edges: vec![],
             import_cycles: vec![],
+            coupling_finding_counts: None,
             score_thresholds: Default::default(),
         }
     }

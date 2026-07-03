@@ -1,6 +1,8 @@
 use super::*;
+use crate::config::CouplingThresholds;
 use crate::metrics::testutil::{make_file, make_snapshot};
-use crate::snapshot::*;
+use crate::metrics::RawValue;
+use crate::snapshot::{CommitId, CouplingFinding, CouplingKind, RepoSnapshot};
 use std::path::PathBuf;
 
 #[test]
@@ -196,8 +198,6 @@ fn circular_deps_many() {
     assert_eq!(result.score, Some(25));
 }
 
-use crate::config::CouplingThresholds;
-
 fn default_thresholds() -> CouplingThresholds {
     CouplingThresholds::default()
 }
@@ -370,9 +370,482 @@ fn change_coupling_depth3_different_component() {
 }
 
 #[test]
-fn compute_coupling_returns_four_metrics() {
+fn compute_coupling_returns_seven_metrics() {
     let snapshot = make_snapshot();
     let result = compute_coupling(&snapshot, &CouplingThresholds::default());
-    assert_eq!(result.metrics.len(), 4);
+    assert_eq!(result.metrics.len(), 7);
     assert_eq!(result.name, "Coupling");
+}
+
+#[test]
+fn barrel_bypass_cross_component_is_detected() {
+    let mut snapshot = crate::metrics::testutil::make_snapshot();
+    snapshot.files = vec![
+        crate::metrics::testutil::make_file("app/main.ts"),
+        crate::metrics::testutil::make_file("lib/index.ts"),
+        crate::metrics::testutil::make_file("lib/impl.ts"),
+    ];
+    // app/main.ts deep-imports lib/impl.ts although lib/index.ts exists
+    snapshot.import_graph.insert(
+        PathBuf::from("app/main.ts"),
+        vec![PathBuf::from("lib/impl.ts")],
+    );
+    let findings = barrel_bypass_findings(&snapshot, 1);
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].kind, crate::snapshot::CouplingKind::Content);
+    assert_eq!(findings[0].path, PathBuf::from("app/main.ts"));
+    assert_eq!(findings[0].line, None);
+    assert!(findings[0].evidence.contains("lib/impl.ts"));
+}
+
+#[test]
+fn barrel_bypass_same_component_is_not_flagged() {
+    let mut snapshot = crate::metrics::testutil::make_snapshot();
+    snapshot.files = vec![
+        crate::metrics::testutil::make_file("lib/a.ts"),
+        crate::metrics::testutil::make_file("lib/sub/index.ts"),
+        crate::metrics::testutil::make_file("lib/sub/impl.ts"),
+    ];
+    snapshot.import_graph.insert(
+        PathBuf::from("lib/a.ts"),
+        vec![PathBuf::from("lib/sub/impl.ts")],
+    );
+    // component_depth 1: both sides are component "lib" → internal structure
+    assert!(barrel_bypass_findings(&snapshot, 1).is_empty());
+}
+
+#[test]
+fn barrel_bypass_without_barrel_is_not_flagged() {
+    let mut snapshot = crate::metrics::testutil::make_snapshot();
+    snapshot.files = vec![
+        crate::metrics::testutil::make_file("app/main.ts"),
+        crate::metrics::testutil::make_file("lib/impl.ts"), // no index.ts in lib/
+    ];
+    snapshot.import_graph.insert(
+        PathBuf::from("app/main.ts"),
+        vec![PathBuf::from("lib/impl.ts")],
+    );
+    assert!(barrel_bypass_findings(&snapshot, 1).is_empty());
+}
+
+#[test]
+fn barrel_import_itself_is_not_flagged() {
+    let mut snapshot = crate::metrics::testutil::make_snapshot();
+    snapshot.files = vec![
+        crate::metrics::testutil::make_file("app/main.ts"),
+        crate::metrics::testutil::make_file("lib/index.ts"),
+    ];
+    snapshot.import_graph.insert(
+        PathBuf::from("app/main.ts"),
+        vec![PathBuf::from("lib/index.ts")], // the sanctioned route
+    );
+    assert!(barrel_bypass_findings(&snapshot, 1).is_empty());
+}
+
+#[test]
+fn barrel_bypass_ignores_rust_files() {
+    let mut snapshot = crate::metrics::testutil::make_snapshot();
+    snapshot.files = vec![
+        crate::metrics::testutil::make_file("app/main.rs"),
+        crate::metrics::testutil::make_file("lib/index.ts"),
+        crate::metrics::testutil::make_file("lib/util.rs"),
+    ];
+    snapshot.import_graph.insert(
+        PathBuf::from("app/main.rs"),
+        vec![PathBuf::from("lib/util.rs")],
+    );
+    assert!(barrel_bypass_findings(&snapshot, 1).is_empty());
+}
+
+#[test]
+fn barrel_bypass_findings_are_sorted_deterministically() {
+    // HashMap iteration order is unspecified, so without sorting this test
+    // is flaky rather than reliably red — but the contract (stable,
+    // alphabetically-sorted order) is still the one M3's gate-delta output
+    // relies on, so we assert it directly.
+    let mut snapshot = crate::metrics::testutil::make_snapshot();
+    snapshot.files = vec![
+        crate::metrics::testutil::make_file("c/main.ts"),
+        crate::metrics::testutil::make_file("a/main.ts"),
+        crate::metrics::testutil::make_file("b/main.ts"),
+        crate::metrics::testutil::make_file("lib/index.ts"),
+        crate::metrics::testutil::make_file("lib/impl.ts"),
+    ];
+    for src in ["c/main.ts", "a/main.ts", "b/main.ts"] {
+        snapshot
+            .import_graph
+            .insert(PathBuf::from(src), vec![PathBuf::from("lib/impl.ts")]);
+    }
+    let findings = barrel_bypass_findings(&snapshot, 1);
+    let paths: Vec<PathBuf> = findings.into_iter().map(|f| f.path).collect();
+    assert_eq!(
+        paths,
+        vec![
+            PathBuf::from("a/main.ts"),
+            PathBuf::from("b/main.ts"),
+            PathBuf::from("c/main.ts"),
+        ]
+    );
+}
+
+// Test helpers for Pressman metrics
+fn snapshot_with_findings(findings: Vec<CouplingFinding>) -> RepoSnapshot {
+    let mut s = crate::metrics::testutil::make_snapshot();
+    s.files = vec![crate::metrics::testutil::make_file("src/a.rs")];
+    s.file_metrics.insert(
+        std::path::PathBuf::from("src/a.rs"),
+        crate::snapshot::FileComplexity::default(),
+    );
+    s.coupling_findings = findings;
+    s
+}
+
+fn make_finding(kind: CouplingKind) -> CouplingFinding {
+    CouplingFinding {
+        path: PathBuf::from("src/a.rs"),
+        line: Some(1),
+        kind,
+        evidence: "e".into(),
+    }
+}
+
+#[test]
+fn pressman_metrics_appear_in_category() {
+    let snapshot = snapshot_with_findings(vec![]);
+    let result = compute_coupling(&snapshot, &CouplingThresholds::default());
+    for name in ["Content coupling", "Common coupling", "Control coupling"] {
+        assert!(
+            result.metrics.iter().any(|m| m.name == name),
+            "missing metric {name}"
+        );
+    }
+}
+
+#[test]
+fn clean_snapshot_scores_100_on_all_pressman_metrics() {
+    let snapshot = snapshot_with_findings(vec![]);
+    let result = compute_coupling(&snapshot, &CouplingThresholds::default());
+    let m = result
+        .metrics
+        .iter()
+        .find(|m| m.name == "Content coupling")
+        .unwrap();
+    assert_eq!(m.score, Some(100));
+}
+
+#[test]
+fn one_content_finding_scores_at_most_50() {
+    let snapshot = snapshot_with_findings(vec![make_finding(CouplingKind::Content)]);
+    let result = compute_coupling(&snapshot, &CouplingThresholds::default());
+    let m = result
+        .metrics
+        .iter()
+        .find(|m| m.name == "Content coupling")
+        .unwrap();
+    assert!(
+        m.score.unwrap() <= 50,
+        "one content finding must hit the cap trigger"
+    );
+}
+
+#[test]
+fn score_pressman_bands_are_exact() {
+    // Exact band table — kills arm-deletion mutants that bound-style
+    // assertions let through (a deleted arm falls to the neighbor band).
+    use crate::snapshot::CouplingKind::*;
+    let cases = [
+        (Content, 0, 100),
+        (Content, 1, 50),
+        (Content, 2, 35),
+        (Content, 3, 35),
+        (Content, 4, 25),
+        (Common, 0, 100),
+        (Common, 1, 60),
+        (Common, 2, 40),
+        (Common, 3, 40),
+        (Common, 4, 25),
+        (Control, 0, 100),
+        (Control, 1, 85),
+        (Control, 5, 85),
+        (Control, 6, 70),
+        (Control, 15, 70),
+        (Control, 16, 50),
+    ];
+    for (kind, count, expected) in cases {
+        assert_eq!(
+            score_pressman(kind, count),
+            expected,
+            "{kind:?} count {count}"
+        );
+    }
+}
+
+#[test]
+fn pressman_metrics_unscored_when_detection_did_not_run() {
+    // Backfill-style snapshot (ADR-005): files listed but no AST pass ran,
+    // so file_metrics is empty. Empty findings must NOT read as "clean".
+    let mut snapshot = crate::metrics::testutil::make_snapshot();
+    snapshot.files = vec![crate::metrics::testutil::make_file("src/a.rs")];
+    // file_metrics deliberately left empty
+    let result = compute_coupling(&snapshot, &CouplingThresholds::default());
+    for name in ["Content coupling", "Common coupling", "Control coupling"] {
+        let m = result.metrics.iter().find(|m| m.name == name).unwrap();
+        assert_eq!(
+            m.score, None,
+            "{name} must be unscored when the AST pass didn't run"
+        );
+    }
+}
+
+#[test]
+fn pressman_metrics_unscored_without_detectable_files() {
+    let mut snapshot = crate::metrics::testutil::make_snapshot();
+    snapshot.files = vec![crate::metrics::testutil::make_file("main.py")];
+    snapshot.file_metrics.insert(
+        std::path::PathBuf::from("main.py"),
+        crate::snapshot::FileComplexity::default(),
+    );
+    let result = compute_coupling(&snapshot, &CouplingThresholds::default());
+    let m = result
+        .metrics
+        .iter()
+        .find(|m| m.name == "Common coupling")
+        .unwrap();
+    assert_eq!(m.score, None, "no Rust/TS/JS files → unscored dash");
+}
+
+#[test]
+fn content_metric_includes_barrel_findings_when_enabled() {
+    let mut snapshot = snapshot_with_findings(vec![]);
+    snapshot.files = vec![
+        crate::metrics::testutil::make_file("app/main.ts"),
+        crate::metrics::testutil::make_file("lib/index.ts"),
+        crate::metrics::testutil::make_file("lib/impl.ts"),
+    ];
+    snapshot.file_metrics.insert(
+        std::path::PathBuf::from("app/main.ts"),
+        crate::snapshot::FileComplexity::default(),
+    );
+    snapshot.import_graph.insert(
+        PathBuf::from("app/main.ts"),
+        vec![PathBuf::from("lib/impl.ts")],
+    );
+    let thresholds = CouplingThresholds {
+        component_depth: 1,
+        ..Default::default()
+    };
+    let result = compute_coupling(&snapshot, &thresholds);
+    let m = result
+        .metrics
+        .iter()
+        .find(|m| m.name == "Content coupling")
+        .unwrap();
+    assert!(m.score.unwrap() <= 50);
+
+    let off = CouplingThresholds {
+        component_depth: 1,
+        content_barrel_rule: false,
+        ..Default::default()
+    };
+    let result_off = compute_coupling(&snapshot, &off);
+    let m_off = result_off
+        .metrics
+        .iter()
+        .find(|m| m.name == "Content coupling")
+        .unwrap();
+    assert_eq!(
+        m_off.score,
+        Some(100),
+        "toggle off → barrel findings excluded"
+    );
+}
+
+#[test]
+fn control_findings_are_scored_leniently() {
+    let findings = (0..3)
+        .map(|_| make_finding(CouplingKind::Control))
+        .collect();
+    let snapshot = snapshot_with_findings(findings);
+    let result = compute_coupling(&snapshot, &CouplingThresholds::default());
+    let m = result
+        .metrics
+        .iter()
+        .find(|m| m.name == "Control coupling")
+        .unwrap();
+    assert!(
+        m.score.unwrap() > 70,
+        "a few flag args must not tank the metric"
+    );
+}
+
+#[test]
+fn severity_cap_limits_category_when_content_coupling_found() {
+    // One content finding among otherwise-perfect metrics: flat average
+    // would be ~93 (6×100+50)/7 — the cap must pull it to 70.
+    let snapshot = snapshot_with_findings(vec![make_finding(CouplingKind::Content)]);
+    let result = compute_coupling(&snapshot, &CouplingThresholds::default());
+    assert!(
+        result.score <= 70,
+        "category must not be green with content coupling present, got {}",
+        result.score
+    );
+    let m = result
+        .metrics
+        .iter()
+        .find(|m| m.name == "Content coupling")
+        .unwrap();
+    assert!(
+        m.description.contains("capped"),
+        "cap must be visible in the triggering metric's description"
+    );
+}
+
+#[test]
+fn severity_cap_not_applied_when_clean() {
+    let snapshot = snapshot_with_findings(vec![]);
+    let result = compute_coupling(&snapshot, &CouplingThresholds::default());
+    let m = result
+        .metrics
+        .iter()
+        .find(|m| m.name == "Content coupling")
+        .unwrap();
+    assert!(!m.description.contains("capped"));
+}
+
+#[test]
+fn severity_cap_triggers_on_many_common_findings() {
+    let findings = (0..6).map(|_| make_finding(CouplingKind::Common)).collect();
+    let snapshot = snapshot_with_findings(findings);
+    let result = compute_coupling(&snapshot, &CouplingThresholds::default());
+    assert!(result.score <= 70, "got {}", result.score);
+}
+
+#[test]
+fn severity_cap_is_derived_from_score_good_min_not_a_bare_literal() {
+    // Locks the cap to scorer/types.rs's single source of truth
+    // (SCORE_GOOD_MIN) rather than a magic number duplicated in this
+    // module. Currently SCORE_GOOD_MIN - 1 == 70, the same value the old
+    // hardcoded literal produced, so this does not go red on its own —
+    // it's a contract test that fails the moment the two drift apart.
+    let expected_cap = crate::scorer::SCORE_GOOD_MIN - 1;
+    let snapshot = snapshot_with_findings(vec![make_finding(CouplingKind::Content)]);
+    let result = compute_coupling(&snapshot, &CouplingThresholds::default());
+    assert_eq!(result.score, expected_cap);
+    let m = result
+        .metrics
+        .iter()
+        .find(|m| m.name == "Content coupling")
+        .unwrap();
+    assert!(
+        m.description.contains(&format!("capped at {expected_cap}")),
+        "note must reflect the derived cap value, not a bare literal: {}",
+        m.description
+    );
+}
+
+#[test]
+fn finding_counts_match_metrics_including_barrel() {
+    let mut snapshot = snapshot_with_findings(vec![
+        make_finding(CouplingKind::Common),
+        make_finding(CouplingKind::Control),
+        make_finding(CouplingKind::Control),
+    ]);
+    snapshot.files.extend([
+        crate::metrics::testutil::make_file("app/main.ts"),
+        crate::metrics::testutil::make_file("lib/index.ts"),
+        crate::metrics::testutil::make_file("lib/impl.ts"),
+    ]);
+    snapshot.import_graph.insert(
+        PathBuf::from("app/main.ts"),
+        vec![PathBuf::from("lib/impl.ts")],
+    );
+    let thresholds = CouplingThresholds {
+        component_depth: 1,
+        ..Default::default()
+    };
+    let counts = pressman_finding_counts(&snapshot, &thresholds).expect("detection ran");
+    assert_eq!(counts.content, 1, "barrel bypass counted into content");
+    assert_eq!(counts.common, 1);
+    assert_eq!(counts.control, 2);
+
+    let off = CouplingThresholds {
+        component_depth: 1,
+        content_barrel_rule: false,
+        ..Default::default()
+    };
+    assert_eq!(pressman_finding_counts(&snapshot, &off).unwrap().content, 0);
+}
+
+#[test]
+fn finding_counts_none_when_detection_did_not_run() {
+    let mut snapshot = crate::metrics::testutil::make_snapshot();
+    snapshot.files = vec![crate::metrics::testutil::make_file("src/a.rs")];
+    assert!(pressman_finding_counts(&snapshot, &CouplingThresholds::default()).is_none());
+}
+
+#[test]
+fn finding_counts_agree_with_metric_finding_lists() {
+    // Guards the "single count source" contract: pressman_finding_counts
+    // must equal what the three metrics report. Fixture stays under 10
+    // findings per kind so RawValue::List length == the full count.
+    let mut snapshot = snapshot_with_findings(vec![
+        make_finding(CouplingKind::Content),
+        make_finding(CouplingKind::Common),
+        make_finding(CouplingKind::Control),
+        make_finding(CouplingKind::Control),
+    ]);
+    snapshot.files.extend([
+        crate::metrics::testutil::make_file("app/main.ts"),
+        crate::metrics::testutil::make_file("lib/index.ts"),
+        crate::metrics::testutil::make_file("lib/impl.ts"),
+    ]);
+    snapshot.import_graph.insert(
+        PathBuf::from("app/main.ts"),
+        vec![PathBuf::from("lib/impl.ts")],
+    );
+    let thresholds = CouplingThresholds {
+        component_depth: 1,
+        ..Default::default()
+    };
+
+    let counts = pressman_finding_counts(&snapshot, &thresholds).expect("detection ran");
+    let category = compute_coupling(&snapshot, &thresholds);
+    let list_len = |name: &str| -> usize {
+        let m = category.metrics.iter().find(|m| m.name == name).unwrap();
+        match &m.raw_value {
+            RawValue::List(items) => items.len(),
+            other => panic!("{name} raw_value should be a List, got {other:?}"),
+        }
+    };
+    assert_eq!(
+        counts.content,
+        list_len("Content coupling"),
+        "content: counts fn vs metric list"
+    );
+    assert_eq!(
+        counts.common,
+        list_len("Common coupling"),
+        "common: counts fn vs metric list"
+    );
+    assert_eq!(
+        counts.control,
+        list_len("Control coupling"),
+        "control: counts fn vs metric list"
+    );
+}
+
+#[test]
+fn severity_cap_does_not_raise_already_low_scores() {
+    // If the average is already below 70 the cap must not touch it.
+    let findings = vec![
+        make_finding(CouplingKind::Content),
+        make_finding(CouplingKind::Content),
+        make_finding(CouplingKind::Content),
+        make_finding(CouplingKind::Content),
+    ];
+    let snapshot = snapshot_with_findings(findings);
+    let result = compute_coupling(&snapshot, &CouplingThresholds::default());
+    let flat_average_would_be = result.metrics.iter().filter_map(|m| m.score).sum::<u32>()
+        / result.metrics.iter().filter(|m| m.score.is_some()).count() as u32;
+    assert!(result.score <= flat_average_would_be.min(70));
 }

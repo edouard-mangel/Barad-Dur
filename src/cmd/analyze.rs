@@ -95,7 +95,7 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<()> {
         categories,
         remote_meta,
         &weight_pairs,
-        cfg.thresholds.coupling.component_depth,
+        &cfg.thresholds.coupling,
     );
     report.dep_ecosystem_reports = dep_reports;
     if args.verbose > 0 {

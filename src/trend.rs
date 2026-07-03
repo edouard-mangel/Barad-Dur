@@ -238,6 +238,7 @@ mod tests {
                 commits: 1,
                 files: 1,
                 authors: 1,
+                ..Default::default()
             },
             branch: branch.to_string(),
             schema_version: 1,
