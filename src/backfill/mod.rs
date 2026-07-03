@@ -53,7 +53,7 @@ pub fn run(args: &BackfillArgs, repo_path: &Path) -> Result<()> {
         }
 
         let snapshot =
-            Collector::collect_snapshot_at(repo_path, sha, args.no_blame, &ignore, false)?;
+            Collector::collect_snapshot_at(repo_path, sha, args.no_blame, &ignore, false, true)?;
 
         let categories = vec![
             health::compute_health(&snapshot, &cfg.thresholds.health),

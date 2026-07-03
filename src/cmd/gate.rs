@@ -76,7 +76,14 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
         let max_new = args.max_new_coupling.unwrap_or(0);
         let sha = resolve_baseline_ref(&local_path, baseline_ref)?;
         let ignore = crate::collector::BaradDurIgnore::load(&local_path)?;
-        let base_snapshot = Collector::collect_snapshot_at(&local_path, &sha, true, &ignore, true)?;
+        let base_snapshot = Collector::collect_snapshot_at(
+            &local_path,
+            &sha,
+            true,
+            &ignore,
+            true,
+            use_default_excludes,
+        )?;
         let base_counts =
             coupling::pressman_finding_counts(&base_snapshot, &cfg.thresholds.coupling).unwrap_or(
                 CouplingFindingCounts {
@@ -299,11 +306,30 @@ pub(crate) fn ratchet_verdict(
     head_findings: &[CouplingFinding],
     max_new: usize,
 ) -> RatchetVerdict {
+    // Multiset diff (not a set diff): two findings with identical (path, kind,
+    // evidence) in one file are two distinct occurrences, not one. A plain
+    // `HashSet` would collapse duplicate-evidence findings into a single key,
+    // silently hiding a second identical finding added at HEAD. Baseline
+    // key-counts are decremented as head findings are matched against them;
+    // once a key's baseline count is exhausted, further occurrences at HEAD
+    // are new.
     let key = |f: &CouplingFinding| (f.path.clone(), f.kind, f.evidence.clone());
-    let base_keys: std::collections::HashSet<_> = baseline_findings.iter().map(key).collect();
+    let mut base_counts: std::collections::HashMap<_, usize> = std::collections::HashMap::new();
+    for f in baseline_findings {
+        *base_counts.entry(key(f)).or_insert(0) += 1;
+    }
     let new_findings: Vec<CouplingFinding> = head_findings
         .iter()
-        .filter(|f| !base_keys.contains(&key(f)))
+        .filter(|f| {
+            let k = key(f);
+            match base_counts.get_mut(&k) {
+                Some(count) if *count > 0 => {
+                    *count -= 1;
+                    false
+                }
+                _ => true,
+            }
+        })
         .cloned()
         .collect();
     let increases: Vec<(&'static str, usize, usize)> = [
@@ -645,6 +671,38 @@ mod tests {
             "moved-plus-renamed global is a new finding even with flat counts"
         );
         assert_eq!(v.total_new, 1);
+    }
+
+    #[test]
+    fn ratchet_catches_duplicate_evidence_findings() {
+        // Two findings with identical (path, kind, evidence) must not collapse:
+        // adding a second identical global write is a new finding.
+        let base = vec![finding(
+            "a.js",
+            CouplingKind::Common,
+            "globalThis.ready = true;",
+        )];
+        let head = vec![
+            finding("a.js", CouplingKind::Common, "globalThis.ready = true;"),
+            finding("a.js", CouplingKind::Common, "globalThis.ready = true;"),
+        ];
+        let cb = CouplingFindingCounts {
+            content: 0,
+            common: 1,
+            control: 0,
+        };
+        let ch = CouplingFindingCounts {
+            content: 0,
+            common: 2,
+            control: 0,
+        };
+        let v = ratchet_verdict(&cb, &ch, &base, &head, 0);
+        assert!(
+            v.failed,
+            "duplicate-evidence second finding must fail the ratchet"
+        );
+        assert_eq!(v.total_new, 1);
+        assert_eq!(v.new_findings.len(), 1);
     }
 
     // ── print_ratchet ────────────────────────────────────────────────

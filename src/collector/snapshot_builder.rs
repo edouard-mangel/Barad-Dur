@@ -286,12 +286,18 @@ impl Collector {
     ///
     /// `ignore` is passed in (not loaded here) so a `backfill` run parses the
     /// repo's `.baraddurignore` once and reuses it across every historical sample.
+    ///
+    /// `use_default_excludes` mirrors the caller's `cfg.exclude_use_defaults` —
+    /// callers must pass the same value they use for their live/HEAD snapshot
+    /// so a baseline snapshot is comparable to it (backfill and the gate
+    /// ratchet's baseline collection both call this).
     pub(crate) fn collect_snapshot_at(
         repo_path: &Path,
         sha: &str,
         _skip_blame: bool,
         ignore: &BaradDurIgnore,
         run_ast: bool,
+        use_default_excludes: bool,
     ) -> Result<RepoSnapshot> {
         let repo = git2::Repository::discover(repo_path)
             .with_context(|| format!("'{}' is not a git repository", repo_path.display()))?;
@@ -299,14 +305,15 @@ impl Collector {
         let collection = super::libgit::collect_commits_at(&repo, sha, &time_window)?;
 
         // Apply the same exclusion policy as `analyze`/`gate` so backfilled history
-        // is comparable to live scores: built-in defaults + `.baraddurignore`.
-        // Backfill has no CLI exclude flags. The *current* `.baraddurignore` is
-        // applied uniformly to every historical snapshot, so the trend reflects one
-        // consistent definition of "relevant files" rather than each commit's own.
+        // is comparable to live scores: `use_default_excludes` (as configured by
+        // the caller) + `.baraddurignore`. Neither backfill nor the gate ratchet's
+        // baseline collection has CLI exclude flags. The *current* `.baraddurignore`
+        // is applied uniformly to every historical snapshot, so the trend reflects
+        // one consistent definition of "relevant files" rather than each commit's own.
         let all_files = super::libgit::collect_files_at(&repo, sha)?;
         let files: Vec<FileEntry> = all_files
             .into_iter()
-            .filter(|f| should_include(ignore, &f.path, &[], &[], true))
+            .filter(|f| should_include(ignore, &f.path, &[], &[], use_default_excludes))
             .collect();
 
         // ADR-005: backfill always skips blame for performance.
@@ -547,12 +554,44 @@ mod tests {
         let (dir, head) =
             make_single_commit_repo_with(&[("main.rs", "fn main() {}\n"), ("Cargo.lock", "x\n")]);
         let ignore = BaradDurIgnore::load(dir.path()).unwrap();
-        let snap = Collector::collect_snapshot_at(dir.path(), &head, true, &ignore, false).unwrap();
+        let snap =
+            Collector::collect_snapshot_at(dir.path(), &head, true, &ignore, false, true).unwrap();
         let paths = snapshot_paths(&snap);
         assert!(paths.iter().any(|p| p == "main.rs"));
         assert!(
             !paths.iter().any(|p| p == "Cargo.lock"),
             "Cargo.lock should be excluded by default in backfill too"
+        );
+    }
+
+    #[test]
+    fn collect_snapshot_at_honors_use_default_excludes_flag() {
+        // Gate's ratchet baseline must respect `cfg.exclude_use_defaults`, just
+        // like the HEAD snapshot does — not hardcode `true`. With the flag off,
+        // a default-excluded lockfile must appear in the snapshot; with it on,
+        // it must not.
+        let (dir, head) = make_single_commit_repo_with(&[
+            ("src/lib.rs", "fn lib() {}\n"),
+            ("package-lock.json", "{}\n"),
+        ]);
+        let ignore = BaradDurIgnore::load(dir.path()).unwrap();
+
+        let snap_without_defaults =
+            Collector::collect_snapshot_at(dir.path(), &head, true, &ignore, false, false).unwrap();
+        let paths_without_defaults = snapshot_paths(&snap_without_defaults);
+        assert!(
+            paths_without_defaults
+                .iter()
+                .any(|p| p == "package-lock.json"),
+            "use_default_excludes=false must keep the lockfile in the snapshot"
+        );
+
+        let snap_with_defaults =
+            Collector::collect_snapshot_at(dir.path(), &head, true, &ignore, false, true).unwrap();
+        let paths_with_defaults = snapshot_paths(&snap_with_defaults);
+        assert!(
+            !paths_with_defaults.iter().any(|p| p == "package-lock.json"),
+            "use_default_excludes=true must drop the lockfile from the snapshot"
         );
     }
 
@@ -563,7 +602,8 @@ mod tests {
             make_single_commit_repo_with(&[("main.rs", "fn main() {}\n"), ("keep.rs", "//\n")]);
         std::fs::write(dir.path().join(".baraddurignore"), "keep.rs\n").unwrap();
         let ignore = BaradDurIgnore::load(dir.path()).unwrap();
-        let snap = Collector::collect_snapshot_at(dir.path(), &head, true, &ignore, false).unwrap();
+        let snap =
+            Collector::collect_snapshot_at(dir.path(), &head, true, &ignore, false, true).unwrap();
         let paths = snapshot_paths(&snap);
         assert!(!paths.iter().any(|p| p == "keep.rs"));
     }
@@ -575,7 +615,8 @@ mod tests {
             "static mut CACHE: usize = 0;\npub fn f() {}\n",
         )]);
         let ignore = BaradDurIgnore::load(dir.path()).unwrap();
-        let snap = Collector::collect_snapshot_at(dir.path(), &head, true, &ignore, true).unwrap();
+        let snap =
+            Collector::collect_snapshot_at(dir.path(), &head, true, &ignore, true, true).unwrap();
         assert!(
             !snap.file_metrics.is_empty(),
             "AST pass must populate file_metrics"
@@ -592,7 +633,8 @@ mod tests {
         let (dir, head) =
             make_single_commit_repo_with(&[("src/lib.rs", "static mut CACHE: usize = 0;\n")]);
         let ignore = BaradDurIgnore::load(dir.path()).unwrap();
-        let snap = Collector::collect_snapshot_at(dir.path(), &head, true, &ignore, false).unwrap();
+        let snap =
+            Collector::collect_snapshot_at(dir.path(), &head, true, &ignore, false, true).unwrap();
         assert!(snap.file_metrics.is_empty(), "ADR-005 contract unchanged");
         assert!(snap.coupling_findings.is_empty());
     }
