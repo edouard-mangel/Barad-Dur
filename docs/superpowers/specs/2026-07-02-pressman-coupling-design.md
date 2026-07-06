@@ -138,9 +138,16 @@ New gate flags:
   across all three kinds (teams mid-cleanup)
 
 **Baseline strategy: explicit ref, always.** The gate collects a second
-snapshot at `<ref>` (via the same `collect_snapshot_at` machinery backfill
-uses; cached by commit hash, so repeat runs are cheap) and diffs per-kind
-counts. History-file baselines were considered and **rejected**:
+snapshot at `<ref>` via the same `collect_snapshot_at` machinery backfill
+uses, but with the AST pass opted back in (`run_ast = true`) — backfill's
+historical sweep skips it per ADR-005, but the ratchet needs coupling
+findings, which only the AST pass produces. This second collection reads
+file blobs straight from git's object database (no working-tree checkout)
+and is **not cached**: there is no per-commit snapshot cache for baseline
+collection, so every gate invocation re-parses the baseline tree from
+scratch. Backfill's own cache-free, blob-reading behavior (ADR-005) is
+unaffected by this — the ratchet only adds the AST pass on top of the same
+uncached machinery. History-file baselines were considered and **rejected**:
 `.repository-analysis/` is gitignored, so fresh CI clones have no history and
 the ratchet would pass vacuously — a gate whose broken state is
 indistinguishable from passing. A hybrid (ref in CI, history locally) was
@@ -276,9 +283,10 @@ changes don't relitigate them blind:
   re-exports are still flagged (accepted, see resolved question 4);
   mitigated by cross-component-only scope and the `content_barrel_rule`
   toggle. Barrel-free projects produce zero findings by construction.
-- **Gate runtime:** `--baseline-ref` collects a second snapshot, roughly
-  doubling gate time on a cold cache; mitigated by commit-hash snapshot
-  caching (the merge base rarely changes during an MR's life).
+- **Gate runtime:** `--baseline-ref` collects a second snapshot, including
+  an uncached blob-based AST pass at the ref, roughly doubling gate time on
+  every run (there is no per-commit cache for baseline collection —
+  accepted cost, not mitigated).
 - **Snapshot format change:** cache version bump forces one-time
   re-collection; acceptable (same cost as a HEAD change).
 
