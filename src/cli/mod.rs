@@ -136,7 +136,7 @@ pub struct GateArgs {
     /// Requires --baseline-ref. Recommended CI baseline: the MR merge base
     /// ($CI_MERGE_REQUEST_DIFF_BASE_SHA on GitLab) so the gate measures what
     /// this branch adds, immune to the target branch moving.
-    #[arg(long, requires = "baseline_ref")]
+    #[arg(long, requires = "baseline_ref", conflicts_with = "max_new_coupling")]
     pub no_new_coupling: bool,
 
     /// Allow up to N new coupling findings in total (summed across kinds)
@@ -361,5 +361,21 @@ mod tests {
             "abc123"
         ])
         .is_ok());
+    }
+
+    #[test]
+    fn gate_ratchet_flags_conflict() {
+        let err = Cli::try_parse_from([
+            "barad-dur",
+            "gate",
+            ".",
+            "--no-new-coupling",
+            "--max-new-coupling",
+            "3",
+            "--baseline-ref",
+            "origin/main",
+        ])
+        .unwrap_err();
+        assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
     }
 }

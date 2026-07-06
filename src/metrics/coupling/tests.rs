@@ -849,3 +849,15 @@ fn severity_cap_does_not_raise_already_low_scores() {
         / result.metrics.iter().filter(|m| m.score.is_some()).count() as u32;
     assert!(result.score <= flat_average_would_be.min(70));
 }
+
+#[test]
+fn cap_triggers_track_the_band_table() {
+    // A single content finding must trigger the cap; common needs the 4+ band.
+    // These assert the *linkage*, not the values — the 16-case band table
+    // test pins the values.
+    assert_eq!(
+        CONTENT_CAP_TRIGGER,
+        score_pressman(CouplingKind::Content, 1)
+    );
+    assert_eq!(COMMON_CAP_TRIGGER, score_pressman(CouplingKind::Common, 4));
+}

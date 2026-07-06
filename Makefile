@@ -42,7 +42,7 @@ install:
 
 ## Coupling ratchet vs origin/main — fails if HEAD adds new coupling findings
 gate-coupling:
-	cargo run --quiet -- gate . --no-new-coupling --baseline-ref origin/main
+	cargo run --quiet -- gate . --min-score 0 --no-new-coupling --baseline-ref origin/main
 
 setup:
 	git config core.hooksPath hooks

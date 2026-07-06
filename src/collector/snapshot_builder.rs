@@ -638,4 +638,39 @@ mod tests {
         assert!(snap.file_metrics.is_empty(), "ADR-005 contract unchanged");
         assert!(snap.coupling_findings.is_empty());
     }
+
+    #[test]
+    fn ast_pass_at_skips_bad_oid_missing_blob_and_non_utf8() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let repo = git2::Repository::init(dir.path()).unwrap();
+        let good = repo.blob(b"static mut CACHE: usize = 0;\n").unwrap();
+        let non_utf8 = repo.blob(&[0xff, 0xfe, 0x9f, 0x00]).unwrap();
+        let entry = |path: &str, oid: String| FileEntry {
+            path: PathBuf::from(path),
+            size_bytes: 1,
+            is_binary: false,
+            depth: 2,
+            blob_oid: oid,
+        };
+        let files = vec![
+            entry("src/good.rs", good.to_string()),
+            entry("src/bad_oid.rs", "not-a-sha".to_string()),
+            // Well-formed oid that exists in no ODB entry:
+            entry(
+                "src/missing.rs",
+                "0123456789abcdef0123456789abcdef01234567".to_string(),
+            ),
+            entry("src/non_utf8.rs", non_utf8.to_string()),
+        ];
+        let (metrics, _imports, findings) = ast_pass_at(&repo, &files).unwrap();
+        assert_eq!(
+            findings.len(),
+            1,
+            "only the parseable blob contributes findings; the rest skip silently"
+        );
+        assert!(metrics.contains_key(Path::new("src/good.rs")));
+        assert!(!metrics.contains_key(Path::new("src/bad_oid.rs")));
+        assert!(!metrics.contains_key(Path::new("src/missing.rs")));
+        assert!(!metrics.contains_key(Path::new("src/non_utf8.rs")));
+    }
 }

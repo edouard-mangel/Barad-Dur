@@ -310,7 +310,7 @@ fn has_detectable_files(snapshot: &RepoSnapshot) -> bool {
 /// - Content: any count ≥ 1 must score ≤ 50 (triggers the category cap)
 /// - Common: large counts must reach ≤ 25 (triggers the category cap)
 /// - Control is the mildest rung: keep bands lenient
-pub(crate) fn score_pressman(kind: CouplingKind, count: usize) -> u32 {
+pub(crate) const fn score_pressman(kind: CouplingKind, count: usize) -> u32 {
     match kind {
         CouplingKind::Content => match count {
             0 => 100,
@@ -456,6 +456,12 @@ pub(crate) fn barrel_bypass_findings(
 /// so the cap tracks the "good" band boundary if it ever moves.
 const SEVERITY_CAP: u32 = crate::scorer::SCORE_GOOD_MIN - 1;
 
+/// Cap triggers derive from the band table itself: Content triggers on any
+/// finding (its count-1 band), Common on its 4+ band. Re-tuning
+/// `score_pressman` moves the cap automatically — no second edit to forget.
+const CONTENT_CAP_TRIGGER: u32 = score_pressman(CouplingKind::Content, 1);
+const COMMON_CAP_TRIGGER: u32 = score_pressman(CouplingKind::Common, 4);
+
 /// Pressman's scale is ordinal by severity: the worst rung present bounds
 /// how healthy the category can be called. A flat average would hide one
 /// catastrophic finding behind six healthy metrics (see spec, resolved
@@ -466,8 +472,8 @@ fn apply_severity_cap(mut cat: CategoryResult) -> CategoryResult {
         .iter()
         .filter(|m| {
             let limit = match m.name.as_str() {
-                "Content coupling" => 50,
-                "Common coupling" => 25,
+                "Content coupling" => CONTENT_CAP_TRIGGER,
+                "Common coupling" => COMMON_CAP_TRIGGER,
                 _ => return false,
             };
             m.score.is_some_and(|s| s <= limit)

@@ -269,3 +269,43 @@ mod band_tests {
         assert_eq!(json, r#"{"good_min":71,"warn_min":41}"#);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn history_counts_omit_absent_coupling_fields() {
+        let counts = HistoryCounts {
+            commits: 1,
+            files: 2,
+            authors: 3,
+            content_coupling: None,
+            common_coupling: None,
+            control_coupling: None,
+        };
+        let json = serde_json::to_value(&counts).unwrap();
+        assert!(
+            json.get("content_coupling").is_none(),
+            "None must serialize as absent, not null"
+        );
+        assert!(json.get("common_coupling").is_none());
+        assert!(json.get("control_coupling").is_none());
+    }
+
+    #[test]
+    fn history_counts_serialize_present_coupling_fields() {
+        let counts = HistoryCounts {
+            commits: 1,
+            files: 2,
+            authors: 3,
+            content_coupling: Some(0),
+            common_coupling: Some(4),
+            control_coupling: Some(7),
+        };
+        let json = serde_json::to_value(&counts).unwrap();
+        assert_eq!(json["content_coupling"], 0);
+        assert_eq!(json["common_coupling"], 4);
+        assert_eq!(json["control_coupling"], 7);
+    }
+}
