@@ -99,41 +99,8 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
                 common: 0,
                 control: 0,
             });
-        // Barrel-bypass findings only join the set when the toggle is on —
-        // this must mirror `pressman_finding_counts`'s gating exactly, or the
-        // counts (used for the increase summary) and the finding set (used
-        // for the new-finding diff) disagree about what "content coupling"
-        // means.
-        let (base_findings, head_findings): (Vec<CouplingFinding>, Vec<CouplingFinding>) =
-            if cfg.thresholds.coupling.content_barrel_rule {
-                let base_barrel = coupling::barrel_bypass_findings(
-                    &base_snapshot,
-                    cfg.thresholds.coupling.component_depth,
-                );
-                let head_barrel = coupling::barrel_bypass_findings(
-                    &snapshot,
-                    cfg.thresholds.coupling.component_depth,
-                );
-                (
-                    base_snapshot
-                        .coupling_findings
-                        .iter()
-                        .cloned()
-                        .chain(base_barrel)
-                        .collect(),
-                    snapshot
-                        .coupling_findings
-                        .iter()
-                        .cloned()
-                        .chain(head_barrel)
-                        .collect(),
-                )
-            } else {
-                (
-                    base_snapshot.coupling_findings.clone(),
-                    snapshot.coupling_findings.clone(),
-                )
-            };
+        let (base_findings, head_findings) =
+            ratchet_finding_sets(&cfg.thresholds.coupling, &base_snapshot, &snapshot);
         let verdict = ratchet_verdict(
             &base_counts,
             &head_counts,
@@ -161,8 +128,35 @@ fn resolve_baseline_ref(repo_path: &Path, r: &str) -> anyhow::Result<String> {
              set GIT_DEPTH: 0 (GitLab) or fetch the ref first (git fetch origin {r})."
         )
     })?;
-    let commit = obj.peel_to_commit()?;
+    let commit = obj
+        .peel_to_commit()
+        .map_err(|e| anyhow::anyhow!("baseline ref '{r}' does not point at a commit: {e}"))?;
     Ok(commit.id().to_string())
+}
+
+/// Assemble the base/head finding sets the ratchet diffs. Barrel-bypass
+/// findings only join when the toggle is on — this must mirror
+/// `pressman_finding_counts`'s gating exactly, or the counts (used for the
+/// increase summary) and the finding set (used for the new-finding diff)
+/// disagree about what "content coupling" means.
+pub(crate) fn ratchet_finding_sets(
+    coupling_cfg: &crate::config::CouplingThresholds,
+    base: &crate::snapshot::RepoSnapshot,
+    head: &crate::snapshot::RepoSnapshot,
+) -> (Vec<CouplingFinding>, Vec<CouplingFinding>) {
+    let with_barrel = |snap: &crate::snapshot::RepoSnapshot| -> Vec<CouplingFinding> {
+        let barrel = if coupling_cfg.content_barrel_rule {
+            coupling::barrel_bypass_findings(snap, coupling_cfg.component_depth)
+        } else {
+            Vec::new()
+        };
+        snap.coupling_findings
+            .iter()
+            .cloned()
+            .chain(barrel)
+            .collect()
+    };
+    (with_barrel(base), with_barrel(head))
 }
 
 /// Fold the three independent gate checks into a process exit code.
@@ -798,5 +792,62 @@ mod tests {
     #[test]
     fn gate_exit_code_one_when_all_fail() {
         assert_eq!(gate_exit_code(true, true, true), 1);
+    }
+
+    // ── ratchet_finding_sets ─────────────────────────────────────────
+
+    fn snapshot_with_barrel_bypass() -> crate::snapshot::RepoSnapshot {
+        use crate::snapshot::{FileEntry, RepoSnapshot, TimeWindow};
+        use std::path::PathBuf;
+        let mut s = RepoSnapshot::new(
+            PathBuf::from("/tmp/x"),
+            "x".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        for p in ["src/a/index.ts", "src/a/impl.ts", "src/b/user.ts"] {
+            s.files.push(FileEntry {
+                path: PathBuf::from(p),
+                size_bytes: 1,
+                is_binary: false,
+                depth: 3,
+                blob_oid: String::new(),
+            });
+        }
+        // Cross-component import that bypasses src/a's barrel.
+        s.import_graph.insert(
+            PathBuf::from("src/b/user.ts"),
+            vec![PathBuf::from("src/a/impl.ts")],
+        );
+        s
+    }
+
+    #[test]
+    fn ratchet_sets_include_barrel_findings_when_toggle_on() {
+        let cfg = crate::config::RepoConfig::default().thresholds.coupling;
+        assert!(cfg.content_barrel_rule, "default toggle must be on");
+        let base = crate::snapshot::RepoSnapshot::new(
+            std::path::PathBuf::from("/tmp/x"),
+            "x".into(),
+            "main".into(),
+            crate::snapshot::TimeWindow::default(),
+        );
+        let head = snapshot_with_barrel_bypass();
+        let (base_set, head_set) = ratchet_finding_sets(&cfg, &base, &head);
+        assert!(base_set.is_empty());
+        assert_eq!(head_set.len(), 1, "barrel bypass must join the head set");
+        assert!(head_set[0].evidence.contains("barrel"));
+    }
+
+    #[test]
+    fn ratchet_sets_exclude_barrel_findings_when_toggle_off() {
+        let mut cfg = crate::config::RepoConfig::default().thresholds.coupling;
+        cfg.content_barrel_rule = false;
+        let head = snapshot_with_barrel_bypass();
+        let (_, head_set) = ratchet_finding_sets(&cfg, &head.clone(), &head);
+        assert!(
+            head_set.is_empty(),
+            "toggle off: barrel findings must not enter the ratchet diff"
+        );
     }
 }

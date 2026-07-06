@@ -9,11 +9,17 @@ pub const CACHE_DIR: &str = ".repository-analysis";
 const CACHE_FILE: &str = "snapshot.bin";
 const FINGERPRINT_FILE: &str = "exclude.fingerprint";
 
+/// Bumped whenever `RepoSnapshot`'s serialized shape changes. Bincode is
+/// positional: a mid-struct field addition can garbage-parse instead of
+/// failing, silently serving stale data. The explicit version makes
+/// invalidation deterministic. History: 1 = post-M1 shape (coupling_findings).
+const CACHE_VERSION: u32 = 1;
+
 /// Save a snapshot to the cache directory.
 pub fn save(snapshot: &RepoSnapshot, repo_path: &Path) -> Result<()> {
     let cache_dir = repo_path.join(CACHE_DIR);
     fs::create_dir_all(&cache_dir)?;
-    let data = bincode::serialize(snapshot)?;
+    let data = bincode::serialize(&(CACHE_VERSION, snapshot))?;
     fs::write(cache_dir.join(CACHE_FILE), data)?;
     ensure_gitignore(repo_path)?;
     Ok(())
@@ -38,17 +44,17 @@ pub fn exclude_fingerprint_matches(repo_path: &Path, fingerprint: u64) -> bool {
 }
 
 /// Load a snapshot from the cache directory. Returns None if no cache exists.
-/// Silently deletes corrupt caches.
+/// Silently deletes corrupt or outdated caches.
 pub fn load(repo_path: &Path) -> Result<Option<RepoSnapshot>> {
     let cache_file = repo_path.join(CACHE_DIR).join(CACHE_FILE);
     if !cache_file.exists() {
         return Ok(None);
     }
     let data = fs::read(&cache_file)?;
-    match bincode::deserialize(&data) {
-        Ok(snapshot) => Ok(Some(snapshot)),
-        Err(_) => {
-            // Corrupt cache — delete and return None
+    match bincode::deserialize::<(u32, RepoSnapshot)>(&data) {
+        Ok((CACHE_VERSION, snapshot)) => Ok(Some(snapshot)),
+        // Wrong version or corrupt — delete and re-collect.
+        Ok(_) | Err(_) => {
             let _ = fs::remove_file(&cache_file);
             Ok(None)
         }
@@ -208,5 +214,33 @@ mod tests {
         assert_eq!(loaded.coupling_findings.len(), 1);
         assert_eq!(loaded.coupling_findings[0].kind, CouplingKind::Common);
         assert_eq!(loaded.coupling_findings[0].line, Some(42));
+        assert_eq!(
+            loaded.coupling_findings[0].evidence,
+            "static mut CACHE: usize = 0;"
+        );
+    }
+
+    #[test]
+    fn load_rejects_mismatched_cache_version() {
+        let dir = TempDir::new().unwrap();
+        let cache_dir = dir.path().join(CACHE_DIR);
+        fs::create_dir_all(&cache_dir).unwrap();
+        let stale = bincode::serialize(&(0u32, make_test_snapshot())).unwrap();
+        fs::write(cache_dir.join(CACHE_FILE), stale).unwrap();
+        assert!(load(dir.path()).unwrap().is_none());
+        assert!(
+            !cache_dir.join(CACHE_FILE).exists(),
+            "stale-version cache must be deleted like a corrupt one"
+        );
+    }
+
+    #[test]
+    fn load_rejects_unversioned_legacy_cache() {
+        let dir = TempDir::new().unwrap();
+        let cache_dir = dir.path().join(CACHE_DIR);
+        fs::create_dir_all(&cache_dir).unwrap();
+        let legacy = bincode::serialize(&make_test_snapshot()).unwrap();
+        fs::write(cache_dir.join(CACHE_FILE), legacy).unwrap();
+        assert!(load(dir.path()).unwrap().is_none());
     }
 }

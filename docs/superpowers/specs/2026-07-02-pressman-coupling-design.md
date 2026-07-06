@@ -120,8 +120,8 @@ renderers pick metrics up generically — no renderer changes.
 ### M2 — Trend counts
 
 `HistoryCounts` (already serde-defaulted on `HistoryEntry`) gains
-`content_coupling`, `common_coupling`, `control_coupling`. Every
-`analyze`/`backfill` run records them; trend deltas and the dashboard history
+`content_coupling`, `common_coupling`, `control_coupling`. Every `analyze`
+run records them; trend deltas and the dashboard history
 view surface them. Backfill entries carry **no** Pressman data: ADR-005's historical snapshots
 skip the AST pass (empty `file_metrics`), so their metrics render unscored
 and their counts serialize as absent (`None`) — never as fake zeros or
@@ -257,6 +257,15 @@ changes don't relitigate them blind:
 6. **M5 is a checkpoint, not a commitment.** Corroboration heuristics get
    designed against real finding data after M1; report language is
    "corroborated", never "confirmed".
+7. **`pub(crate)` counts as public** (recorded 2026-07-06, pre-M4 hygiene).
+   `rust_control` treats any `visibility_modifier` — including `pub(crate)` —
+   as exported. Rationale: control coupling is inter-module, and
+   `pub(crate)` items are exactly the cross-module surface inside a crate.
+   Only truly private (no modifier) functions are exempt.
+8. **Exact `boolean` only for TS flag params** (recorded 2026-07-06).
+   `boolean[]`, unions (`boolean | undefined`), and look-alike named types
+   are data shapes, not flags. Optional params (`flag?: boolean`) still
+   qualify — the annotation itself is exactly `boolean`.
 
 ## Testing strategy (TDD throughout)
 

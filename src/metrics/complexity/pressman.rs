@@ -46,12 +46,17 @@ fn descendants(root: Node<'_>) -> Vec<Node<'_>> {
 
 /// Node kinds that open a nested scope whose parameters shadow the
 /// enclosing function's, per language.
+/// Walls are unconditional: a nested scope that captures the outer flag
+/// without shadowing it is also skipped — a known, accepted false negative
+/// (conservative by design, mirrors the Rust closure rule from M1).
 const RUST_SCOPE_BOUNDARIES: &[&str] = &["closure_expression", "function_item"];
 const JS_SCOPE_BOUNDARIES: &[&str] = &[
     "arrow_function",
     "function_expression",
     "function_declaration",
     "method_definition",
+    "generator_function",
+    "generator_function_declaration",
 ];
 
 /// All nodes of a subtree, preorder, without descending into nested
@@ -96,13 +101,14 @@ fn finding(path: &Path, node: Node<'_>, kind: CouplingKind, content: &str) -> Co
 }
 
 /// True when `word` appears in `hay` with non-identifier characters (or
-/// string boundaries) on both sides.
+/// string boundaries) on both sides — and not preceded by `.`, which would
+/// make it a field/property access (`settings.verbose`), never the parameter.
 fn contains_word(hay: &str, word: &str) -> bool {
     hay.match_indices(word).any(|(i, _)| {
         let before_ok = !hay[..i]
             .chars()
             .next_back()
-            .is_some_and(|c| c.is_alphanumeric() || c == '_');
+            .is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.');
         let after_ok = !hay[i + word.len()..]
             .chars()
             .next()
@@ -120,6 +126,7 @@ fn rust_findings(root: Node<'_>, content: &str, path: &Path) -> Vec<CouplingFind
             "static_item" => rust_common(n, content, path),
             "attribute_item" => rust_content(n, content, path),
             "function_item" => rust_control(n, content, path),
+            "macro_invocation" => rust_lazy_static(n, content, path),
             _ => None,
         })
         .collect()
@@ -172,6 +179,34 @@ fn rust_common(node: Node<'_>, content: &str, path: &Path) -> Option<CouplingFin
     (is_mut || interior).then(|| finding(path, node, CouplingKind::Common, content))
 }
 
+/// `lazy_static! { static ref X: Mutex<…> = …; }` hides its statics from the
+/// `static_item` detector (the macro body is an opaque token tree). Apply the
+/// look-through rule to each `static ref` entry's type text by anchoring at
+/// each `static ref` occurrence, scanning from its declaration colon to the
+/// following `=`, so initializer expressions can't false-positive and array
+/// types won't fracture the entry.
+/// One finding per invocation: the macro block is the reportable unit.
+fn rust_lazy_static(node: Node<'_>, content: &str, path: &Path) -> Option<CouplingFinding> {
+    let is_lazy_static = node
+        .child_by_field_name("macro")
+        .is_some_and(|m| text(m, content).ends_with("lazy_static"));
+    if !is_lazy_static {
+        return None;
+    }
+    let body = text(node, content);
+    let hit = body.match_indices("static ref").any(|(i, _)| {
+        body[i..]
+            .split_once(':')
+            .and_then(|(_, rest)| rest.split_once('=').map(|(ty, _)| ty))
+            .is_some_and(|ty| {
+                INTERIOR_MUTABILITY
+                    .iter()
+                    .any(|m| contains_marker_with_left_boundary(ty, m))
+            })
+    });
+    hit.then(|| finding(path, node, CouplingKind::Common, content))
+}
+
 fn rust_content(node: Node<'_>, content: &str, path: &Path) -> Option<CouplingFinding> {
     let normalized: String = text(node, content)
         .chars()
@@ -212,6 +247,8 @@ fn rust_control(node: Node<'_>, content: &str, path: &Path) -> Option<CouplingFi
             let cond = match n.kind() {
                 "if_expression" | "while_expression" => n.child_by_field_name("condition"),
                 "match_expression" => n.child_by_field_name("value"),
+                // `_ if flag => …` — the guard is the match_pattern's condition field
+                "match_pattern" => n.child_by_field_name("condition"),
                 _ => None,
             };
             cond.is_some_and(|c| {
@@ -230,7 +267,9 @@ fn js_findings(root: Node<'_>, content: &str, path: &Path) -> Vec<CouplingFindin
         .into_iter()
         .filter_map(|n| match n.kind() {
             "export_statement" => js_export(n, content, path),
-            "assignment_expression" => js_global_write(n, content, path),
+            "assignment_expression" | "augmented_assignment_expression" => {
+                js_global_write(n, content, path)
+            }
             "class_declaration" | "class" => js_singleton(n, content, path),
             _ => None,
         })
@@ -238,12 +277,21 @@ fn js_findings(root: Node<'_>, content: &str, path: &Path) -> Vec<CouplingFindin
 }
 
 /// `export let` / `export var` → Common. `export function` → control check.
+/// `export const f = (…) => {…}` → control check on the arrow/function-expression.
 fn js_export(node: Node<'_>, content: &str, path: &Path) -> Option<CouplingFinding> {
     let decl = node.child_by_field_name("declaration")?;
     match decl.kind() {
         "lexical_declaration" if is_let_declaration(decl, content) => {
             Some(finding(path, node, CouplingKind::Common, content))
         }
+        // `export const f = (…) => {…}` — a function export in const
+        // clothing; run the control check on each declarator's function value.
+        "lexical_declaration" => (0..decl.named_child_count())
+            .filter_map(|i| decl.named_child(i as u32))
+            .filter(|d| d.kind() == "variable_declarator")
+            .filter_map(|d| d.child_by_field_name("value"))
+            .filter(|v| matches!(v.kind(), "arrow_function" | "function_expression"))
+            .find_map(|v| js_control(v, content, path)),
         "variable_declaration" => Some(finding(path, node, CouplingKind::Common, content)),
         "function_declaration" => js_control(decl, content, path),
         _ => None,
@@ -257,15 +305,30 @@ fn is_let_declaration(decl: Node<'_>, content: &str) -> bool {
     decl.child(0).is_some_and(|kw| text(kw, content) == "let")
 }
 
-/// Assignment to `globalThis.x` / `window.x` → Common.
+/// Walk `a.b.c` / `a["b"]` chains down to the leftmost object node.
+/// Non-chain targets return None — a plain identifier write is not a
+/// member write (shadowing `window` itself is a different sin).
+fn member_chain_root(node: Node<'_>) -> Option<Node<'_>> {
+    match node.kind() {
+        "member_expression" | "subscript_expression" => {
+            let obj = node.child_by_field_name("object")?;
+            match obj.kind() {
+                "member_expression" | "subscript_expression" => member_chain_root(obj),
+                _ => Some(obj),
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Assignment (plain or augmented) whose target chain is rooted at
+/// `globalThis` / `window` → Common. Covers `window.x = …`,
+/// `window["x"] = …`, `globalThis.a.b = …`, `window.count += 1`.
 fn js_global_write(node: Node<'_>, content: &str, path: &Path) -> Option<CouplingFinding> {
     let left = node.child_by_field_name("left")?;
-    if left.kind() != "member_expression" {
-        return None;
-    }
-    let obj = left.child_by_field_name("object")?;
+    let root = member_chain_root(left)?;
     let is_global =
-        obj.kind() == "identifier" && matches!(text(obj, content), "globalThis" | "window");
+        root.kind() == "identifier" && matches!(text(root, content), "globalThis" | "window");
     is_global.then(|| finding(path, node, CouplingKind::Common, content))
 }
 
@@ -299,6 +362,15 @@ fn js_singleton(class_node: Node<'_>, content: &str, path: &Path) -> Option<Coup
         })
 }
 
+/// True when a `type_annotation`'s type is exactly the predefined `boolean` —
+/// not `boolean[]`, not a union, not a look-alike named type. Unions and
+/// arrays are data shapes, not control flags (maintainer decision, this MR).
+fn annotation_is_exact_boolean(annotation: Node<'_>, content: &str) -> bool {
+    (0..annotation.named_child_count())
+        .filter_map(|i| annotation.named_child(i as u32))
+        .any(|t| t.kind() == "predefined_type" && text(t, content) == "boolean")
+}
+
 /// Exported function whose boolean parameter (TS annotation or JS
 /// `= true/false` default) is branched on in the body → Control.
 fn js_control(func: Node<'_>, content: &str, path: &Path) -> Option<CouplingFinding> {
@@ -310,7 +382,8 @@ fn js_control(func: Node<'_>, content: &str, path: &Path) -> Option<CouplingFind
             "required_parameter" | "optional_parameter" => {
                 let is_bool = (0..p.child_count())
                     .filter_map(|i| p.child(i as u32))
-                    .any(|c| c.kind() == "type_annotation" && text(c, content).contains("boolean"));
+                    .filter(|c| c.kind() == "type_annotation")
+                    .any(|c| annotation_is_exact_boolean(c, content));
                 let pat = p.child_by_field_name("pattern")?;
                 (is_bool && pat.kind() == "identifier").then(|| text(pat, content))
             }
@@ -428,6 +501,71 @@ mod tests {
         );
     }
 
+    #[test]
+    fn lazy_static_mutex_is_common_coupling() {
+        let src = "lazy_static::lazy_static! {\n    static ref REGISTRY: Mutex<Vec<u32>> = Mutex::new(Vec::new());\n}\n";
+        let f = findings_for("src/a.rs", src);
+        assert_eq!(f.len(), 1, "lazy_static wrapping Mutex is a mutable global");
+        assert_eq!(f[0].kind, CouplingKind::Common);
+    }
+
+    #[test]
+    fn lazy_static_pure_value_is_not_flagged() {
+        let src = "lazy_static::lazy_static! {\n    static ref KEYWORDS: Vec<&'static str> = build_keywords();\n}\n";
+        assert!(
+            findings_for("src/a.rs", src).is_empty(),
+            "write-once pure lazy_static is not common coupling"
+        );
+    }
+
+    #[test]
+    fn lazy_static_marker_in_initializer_only_is_not_flagged() {
+        let src = "lazy_static::lazy_static! {\n    static ref N: usize = Cell::new(0).get();\n}\n";
+        assert!(
+            findings_for("src/a.rs", src).is_empty(),
+            "only the type segment (between ':' and '=') is scanned, not the initializer"
+        );
+    }
+
+    #[test]
+    fn other_macros_are_not_flagged() {
+        let src = "thread_local! {\n    static FOO: RefCell<u32> = RefCell::new(0);\n}\n";
+        assert!(
+            findings_for("src/a.rs", src).is_empty(),
+            "thread-locals are per-thread, not shared globals — and only lazy_static is matched"
+        );
+    }
+
+    #[test]
+    fn lazy_static_atomic_prefixed_name_with_plain_type_is_not_flagged() {
+        let src = "lazy_static::lazy_static! {\n    static ref AtomicFlagName: bool = false;\n}\n";
+        assert!(
+            findings_for("src/a.rs", src).is_empty(),
+            "the identifier must not leak into the scanned type segment"
+        );
+    }
+
+    #[test]
+    fn lazy_static_array_of_mutexes_is_common_coupling() {
+        let src =
+            "lazy_static! {\n    static ref LOCKS: [Mutex<i32>; 4] = [Mutex::new(0); 4];\n}\n";
+        assert_eq!(
+            findings_for("src/a.rs", src).len(),
+            1,
+            "a semicolon inside the array type must not fracture the entry"
+        );
+    }
+
+    #[test]
+    fn lazy_static_multi_entry_block_yields_one_finding() {
+        let src = "lazy_static! {\n    static ref NAMES: Vec<String> = Vec::new();\n    static ref STATE: Mutex<u32> = Mutex::new(0);\n}\n";
+        assert_eq!(
+            findings_for("src/a.rs", src).len(),
+            1,
+            "one finding per invocation, matched via the second entry's type"
+        );
+    }
+
     // ── Rust content coupling ──────────────────────────────────────
 
     #[test]
@@ -443,6 +581,25 @@ mod tests {
     fn rust_other_attributes_are_not_flagged() {
         let src = "#[derive(Debug)]\n#[cfg(test)]\nstruct Foo;\n";
         assert!(findings_for("src/a.rs", src).is_empty());
+    }
+
+    #[test]
+    fn rust_compact_path_attribute_is_content_coupling() {
+        let src = "#[path=\"../other/impl.rs\"]\nmod stolen;\n";
+        assert_eq!(
+            findings_for("src/a.rs", src).len(),
+            1,
+            "no-space #[path=…] variant must match (whitespace is normalized)"
+        );
+    }
+
+    #[test]
+    fn rust_path_prefixed_attribute_is_not_flagged() {
+        let src = "#[path2 = \"x\"]\nmod m;\n";
+        assert!(
+            findings_for("src/a.rs", src).is_empty(),
+            "#[path2=…] must not match the #[path= prefix"
+        );
     }
 
     #[test]
@@ -506,6 +663,15 @@ mod tests {
     }
 
     #[test]
+    fn rust_nested_fn_shadowing_bool_param_is_not_flagged() {
+        let src = "pub fn outer(flag: bool) {\n    fn inner(flag: bool) {\n        if flag {\n            do_it();\n        }\n    }\n    inner(true);\n}\n";
+        assert!(
+            findings_for("src/a.rs", src).is_empty(),
+            "nested fn's own bool param must not be attributed to the outer fn"
+        );
+    }
+
+    #[test]
     fn bool_branched_outside_closure_is_still_flagged() {
         let src = "pub fn outer(flag: bool) {\n    let f = || do_it();\n    if flag {\n        f();\n    }\n}\n";
         assert_eq!(findings_for("src/a.rs", src).len(), 1);
@@ -518,6 +684,35 @@ mod tests {
         assert!(
             findings_for("src/a.rs", src).is_empty(),
             "word-boundary match must not catch 'flagged'"
+        );
+    }
+
+    #[test]
+    fn pub_fn_with_mut_bool_param_branched_is_control_coupling() {
+        let src = "pub fn go(mut fast: bool) {\n    if fast {\n        sprint();\n    }\n}\n";
+        assert_eq!(
+            findings_for("src/a.rs", src).len(),
+            1,
+            "mut_pattern params must look through the mut"
+        );
+    }
+
+    #[test]
+    fn pub_fn_with_match_guard_on_bool_is_control_coupling() {
+        let src = "pub fn pick(fast: bool, n: u32) {\n    match n {\n        _ if fast => sprint(),\n        _ => walk(),\n    }\n}\n";
+        assert_eq!(
+            findings_for("src/a.rs", src).len(),
+            1,
+            "guard arms branch on the flag just like if-expressions"
+        );
+    }
+
+    #[test]
+    fn match_guard_on_local_not_param_is_not_flagged() {
+        let src = "pub fn pick(fast: bool, n: u32) {\n    let faster = n > 1;\n    match n {\n        _ if faster => sprint(),\n        _ => walk(),\n    }\n    store(fast);\n}\n";
+        assert!(
+            findings_for("src/a.rs", src).is_empty(),
+            "guard on a local must not be attributed to the param"
         );
     }
 
@@ -564,6 +759,45 @@ mod tests {
     }
 
     #[test]
+    fn js_subscript_global_write_is_common_coupling() {
+        let f = findings_for("src/boot.js", "window[\"cache\"] = new Map();\n");
+        assert_eq!(
+            f.len(),
+            1,
+            "computed-key global writes are still global writes"
+        );
+        assert_eq!(f[0].kind, CouplingKind::Common);
+    }
+
+    #[test]
+    fn js_nested_global_write_is_common_coupling() {
+        assert_eq!(
+            findings_for("src/boot.js", "globalThis.app.state = {};\n").len(),
+            1,
+            "writing through a chain rooted at globalThis mutates global state"
+        );
+    }
+
+    #[test]
+    fn js_augmented_global_write_is_common_coupling() {
+        assert_eq!(
+            findings_for("src/boot.js", "window.count += 1;\n").len(),
+            1,
+            "+= is a write"
+        );
+    }
+
+    #[test]
+    fn js_local_subscript_write_is_not_flagged() {
+        assert!(findings_for("src/a.js", "arr[0] = 1;\n").is_empty());
+    }
+
+    #[test]
+    fn js_reading_global_subscript_is_not_flagged() {
+        assert!(findings_for("src/a.js", "const v = window[\"x\"];\n").is_empty());
+    }
+
+    #[test]
     fn ts_singleton_getinstance_is_common_coupling() {
         let src = "class Db {\n  private static instance: Db;\n  static getInstance(): Db {\n    return Db.instance;\n  }\n}\n";
         let f = findings_for("src/db.ts", src);
@@ -575,6 +809,16 @@ mod tests {
     fn js_static_instance_field_is_common_coupling() {
         let src = "class Api {\n  static instance = null;\n}\n";
         assert_eq!(findings_for("src/api.js", src).len(), 1);
+    }
+
+    #[test]
+    fn js_class_expression_singleton_is_flagged() {
+        let src = "const Db = class {\n  static instance = null;\n};\n";
+        assert_eq!(
+            findings_for("src/db.js", src).len(),
+            1,
+            "the bare `class` node kind arm must work, not just class_declaration"
+        );
     }
 
     #[test]
@@ -661,5 +905,87 @@ mod tests {
     fn ts_bool_branched_outside_nested_fn_is_still_flagged() {
         let src = "export function outer(flag: boolean) {\n  const f = () => doIt();\n  if (flag) {\n    f();\n  }\n}\n";
         assert_eq!(findings_for("src/o.ts", src).len(), 1);
+    }
+
+    #[test]
+    fn property_access_does_not_count_as_flag_use_js() {
+        let src = "export function log(verbose: boolean) {\n  if (settings.verbose) {\n    console.debug('x');\n  }\n}\n";
+        assert!(
+            findings_for("src/l.ts", src).is_empty(),
+            "settings.verbose is a property access, not the parameter"
+        );
+    }
+
+    #[test]
+    fn field_access_does_not_count_as_flag_use_rust() {
+        let src = "pub fn render(compact: bool, s: &Settings) {\n    if s.compact {\n        short();\n    }\n    store(compact);\n}\n";
+        assert!(
+            findings_for("src/a.rs", src).is_empty(),
+            "s.compact is a field access, not the parameter"
+        );
+    }
+
+    #[test]
+    fn ts_boolean_array_param_is_not_a_flag() {
+        let src = "export function f(flags: boolean[]) {\n  if (flags) {\n    a();\n  }\n}\n";
+        assert!(
+            findings_for("src/f.ts", src).is_empty(),
+            "boolean[] is data, not a control flag"
+        );
+    }
+
+    #[test]
+    fn ts_boolean_union_param_is_not_a_flag() {
+        let src =
+            "export function f(flag: boolean | undefined) {\n  if (flag) {\n    a();\n  }\n}\n";
+        assert!(
+            findings_for("src/f.ts", src).is_empty(),
+            "only an exact boolean annotation qualifies (documented decision)"
+        );
+    }
+
+    #[test]
+    fn ts_exported_arrow_with_branched_boolean_is_control_coupling() {
+        let src = "export const render = (compact: boolean) => {\n  if (compact) {\n    short();\n  }\n};\n";
+        let f = findings_for("src/r.ts", src);
+        assert_eq!(
+            f.len(),
+            1,
+            "exported arrow functions are exported functions"
+        );
+        assert_eq!(f[0].kind, CouplingKind::Control);
+    }
+
+    #[test]
+    fn ts_exported_function_expression_is_control_coupling() {
+        let src = "export const render = function (compact: boolean) {\n  if (compact) {\n    short();\n  }\n};\n";
+        assert_eq!(findings_for("src/r.ts", src).len(), 1);
+    }
+
+    #[test]
+    fn ts_exported_const_arrow_without_flags_is_not_flagged() {
+        let src = "export const add = (a: number, b: number) => a + b;\n";
+        assert!(findings_for("src/a.ts", src).is_empty());
+    }
+
+    #[test]
+    fn generator_shadowing_bool_param_is_not_flagged() {
+        let src = "export function outer(flag: boolean) {\n  function* gen(flag: boolean) {\n    if (flag) {\n      yield 1;\n    }\n  }\n  gen(true);\n}\n";
+        assert!(
+            findings_for("src/g.ts", src).is_empty(),
+            "generator's own shadowed param must not be attributed to outer fn"
+        );
+    }
+
+    #[test]
+    fn ts_exported_const_arrow_with_optional_boolean_is_control_coupling() {
+        let src = "export const f = (flag?: boolean) => {\n  if (flag) {\n    a();\n  }\n};\n";
+        let f = findings_for("src/r.ts", src);
+        assert_eq!(
+            f.len(),
+            1,
+            "exported arrow with optional boolean param is control coupling"
+        );
+        assert_eq!(f[0].kind, CouplingKind::Control);
     }
 }

@@ -203,3 +203,14 @@ cross-referencing (M4), history corroboration (M5), and refactoring actions
 against hotspots or co-change history, and there are no auto-generated
 refactoring suggestions tied to ratchet failures — those land in later
 milestones.
+
+## Caveats
+
+- **Renames count as new.** Finding identity is `(path, kind, evidence)`;
+  the ratchet does not follow git renames. Moving a file with existing
+  findings makes them "new at the new path" — pair the move with the fix,
+  or use `--max-new-coupling` for the transition MR.
+- **Counts ignore `--category` filters.** `coupling_finding_counts` (and the
+  history entry counts) derive from the snapshot, not the report's category
+  list — an `analyze --category health` run still records coupling counts.
+  Deliberate: the counts describe the repository, not the report.

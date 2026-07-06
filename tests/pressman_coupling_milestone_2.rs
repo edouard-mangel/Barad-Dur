@@ -16,9 +16,8 @@ fn test_repo_path() -> PathBuf {
 
 #[test]
 fn live_analysis_records_finding_counts_in_history_entry() {
-    let Ok(collector) = Collector::open(&test_repo_path(), TimeWindow::default()) else {
-        return;
-    };
+    let collector = Collector::open(&test_repo_path(), TimeWindow::default())
+        .expect("test repo must open — check BARAD_DUR_TEST_REPO");
     let snapshot = collector.collect_snapshot().expect("snapshot");
     let default_cfg = RepoConfig::default();
     let weight_pairs = default_cfg.weights.as_weight_pairs();
