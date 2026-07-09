@@ -234,11 +234,15 @@
         Bugs: 'Commits touching this file whose message contains fix, bug, broken, crash or regression '
           + '(case-insensitive substring match). A heuristic for how often the file needs fixing — '
           + 'displayed for context, not part of the Score.',
-        LOC: 'Lines of code, excluding blanks and comments.'
+        LOC: 'Lines of code, excluding blanks and comments.',
+        Coupling: 'Pressman coupling findings in this file: Cn = content, Cm = common, Ct = control. '
+          + 'Content and Common findings multiply the Score (configurable hotspot_multiplier, default 1.25).'
       };
 
       var trendTh = el('th');
       trendTh.append(txt('Trend'), tipIcon(COL_TIPS.Trend));
+      var cplTh = el('th');
+      cplTh.append(txt('Coupling'), tipIcon(COL_TIPS.Coupling));
       tr.append(
         th('File', 'path', COL_TIPS.File),
         th('Score', 'hotspot_score', COL_TIPS.Score),
@@ -247,6 +251,7 @@
         trendTh,
         th('Bugs', 'bug_commit_count', COL_TIPS.Bugs),
         th('LOC', 'loc', COL_TIPS.LOC),
+        cplTh,
         el('th', { title: 'Dismiss a file from this list' })
       );
       thead.append(tr);
@@ -289,6 +294,27 @@
         var locCell = el('td');
         locCell.append(txt(String(f.loc)));
 
+        var cplCell = el('td');
+        var cn = f.content_findings || 0;
+        var cm = f.common_findings || 0;
+        var ct = f.control_findings || 0;
+        if (cn + cm + ct > 0) {
+          var labels = [];
+          if (cn) labels.push('Cn ' + cn);
+          if (cm) labels.push('Cm ' + cm);
+          if (ct) labels.push('Ct ' + ct);
+          var badge = el('span', {
+            style: {
+              fontWeight: '600',
+              color: (cn + cm > 0) ? '#f87171' : 'rgba(148,163,184,0.7)'
+            }
+          });
+          badge.append(txt(labels.join(' · ')));
+          cplCell.append(badge);
+        } else {
+          cplCell.append(txt('—'));
+        }
+
         var dismissCell = el('td');
         var dismissBtn = el('button', {
           className: 'hs-dismiss',
@@ -307,7 +333,7 @@
         });
         dismissCell.append(dismissBtn);
 
-        row.append(fileCell, scoreCell, ccCell, churnCell, trendCell, bugsCell, locCell, dismissCell);
+        row.append(fileCell, scoreCell, ccCell, churnCell, trendCell, bugsCell, locCell, cplCell, dismissCell);
         tbody.append(row);
       });
       table.append(tbody);

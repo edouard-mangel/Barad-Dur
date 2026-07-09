@@ -204,7 +204,8 @@ fn generate_toml_inner(scan: &ScanResult, since: &str, format: &str, auto_open: 
     out.push_str("[thresholds.coupling]\n");
     out.push_str("component_depth           = 2\n");
     out.push_str("change_coupling_min_ratio = 0.30\n");
-    out.push_str("content_barrel_rule       = true\n\n");
+    out.push_str("content_barrel_rule       = true\n");
+    out.push_str("hotspot_multiplier        = 1.25\n\n");
 
     // [output]
     out.push_str("# ──────────────────────────────────────────────────\n");

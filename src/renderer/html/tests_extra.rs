@@ -259,6 +259,9 @@ fn html_full_report_with_all_data_renders_ok() {
         public_methods: 10,
         properties: 5,
         hotspot_score: 8.5,
+        content_findings: 0,
+        common_findings: 2,
+        control_findings: 1,
         churn_timeline: vec![],
     }];
     report.author_ownership = vec![FileOwnership {
@@ -304,6 +307,11 @@ fn html_full_report_with_all_data_renders_ok() {
         html.contains("74.3"),
         "pct_of_total value must appear in window.R"
     );
+    assert!(
+        html.contains("\"common_findings\":2"),
+        "per-kind counts must reach the embedded report JSON"
+    );
+    assert!(html.contains("\"control_findings\":1"));
 }
 
 #[test]

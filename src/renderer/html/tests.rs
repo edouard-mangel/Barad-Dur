@@ -243,6 +243,9 @@ fn make_treemap_report() -> AnalysisReport {
             public_methods: 3,
             properties: 1,
             hotspot_score: 72.0,
+            content_findings: 0,
+            common_findings: 0,
+            control_findings: 0,
             churn_timeline: vec![],
         },
         HotspotFile {
@@ -255,6 +258,9 @@ fn make_treemap_report() -> AnalysisReport {
             public_methods: 5,
             properties: 2,
             hotspot_score: 45.0,
+            content_findings: 0,
+            common_findings: 0,
+            control_findings: 0,
             churn_timeline: vec![],
         },
         HotspotFile {
@@ -267,6 +273,9 @@ fn make_treemap_report() -> AnalysisReport {
             public_methods: 2,
             properties: 0,
             hotspot_score: 20.0,
+            content_findings: 0,
+            common_findings: 0,
+            control_findings: 0,
             churn_timeline: vec![],
         },
         HotspotFile {
@@ -279,6 +288,9 @@ fn make_treemap_report() -> AnalysisReport {
             public_methods: 1,
             properties: 0,
             hotspot_score: 10.0,
+            content_findings: 0,
+            common_findings: 0,
+            control_findings: 0,
             churn_timeline: vec![],
         },
     ];

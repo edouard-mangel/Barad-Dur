@@ -68,7 +68,7 @@ This produces per-file metrics: **LOC** (excluding blanks/comments), **cyclomati
 A self-contained single-file HTML report with:
 
 - **Overview** — score gauge, radar chart, expandable category cards, top recommendations
-- **Hotspots** — scatter plot (complexity vs churn, radius = LOC) with axis ticks + sortable, filterable table (score, CC, churn, bug-fix commits, LOC); clicking a row or a bubble highlights its counterpart
+- **Hotspots** — scatter plot (complexity vs churn, radius = LOC) with axis ticks + sortable, filterable table (score, CC, churn, bug-fix commits, LOC, per-kind coupling badge); clicking a row or a bubble highlights its counterpart
 - **Coupling** — temporal coupling pairs ranked by coupling percentage, with auto-exclusion of expected pairs (lock files, test pairs, module indexes) and a per-file instability table (Ca / Ce / I)
 - **Graph** — interactive force-directed import dependency graph: click-to-focus neighbourhoods, circular dependencies as dashed red edges, directory grouping, min-degree filter, SVG export
 - **Ownership** — per-file ownership bars derived from blame, with author legend
@@ -500,7 +500,7 @@ The JSON output includes these top-level fields:
 | `categories` | array | Per-category scores and metrics |
 | `top_actions` | array | Suggested improvements |
 | `remote_meta` | object \| null | Remote repo metadata (populated for URL targets; enriched with GitHub API data when `--token` is provided) |
-| `file_hotspots` | array | Files ranked by hotspot score (churn x complexity x LOC), incl. bug-fix commit counts |
+| `file_hotspots` | array | Files ranked by hotspot score (churn x complexity x LOC), incl. bug-fix commit counts and per-kind coupling finding counts; Content/Common findings multiply the score (`thresholds.coupling.hotspot_multiplier`, default 1.25) |
 | `coupling_pairs` | array | Temporally coupled file pairs with coupling percentage |
 | `per_file_coupling` | array | Per-file afferent/efferent coupling and instability (Ca / Ce / I) |
 | `import_edges` | array | Directed static import graph edges (`from` imports `to`) |
@@ -565,7 +565,7 @@ Test quality is enforced with mutation testing (cargo-mutants): every push to `m
 - **v0.15.0** — File exclusion: `--exclude` (glob), `--exclude-ext` (extension), `--no-default-excludes`; built-in exclusions for translation/resource files (*.resx, *.po, *.xlf, *.strings…)
 - **v0.16.0** — `gate --max-decline` (fail if score drops faster than N pts/run averaged over 8 runs), `coupling --coupling-window` (configurable temporal window)
 - **v0.17.0** — `[exclude] extensions` config key in `barad-dur.toml`, compound extension support (`min.js`), case-insensitive extension matching
-- **Unreleased** — import dependency **Graph tab** (cycles, click-to-focus, directory grouping, min-degree filter, SVG export), raw `import_edges`/`import_cycles` in JSON, `../`-import resolution fix, Hotspots polish (Bugs column, axis ticks, filter, bidirectional row↔dot highlight), cross-tab file navigation with URL-hash deep links, per-feature mutation testing gate in CI
+- **Unreleased** — import dependency **Graph tab** (cycles, click-to-focus, directory grouping, min-degree filter, SVG export), raw `import_edges`/`import_cycles` in JSON, `../`-import resolution fix, Hotspots polish (Bugs column, axis ticks, filter, bidirectional row↔dot highlight), cross-tab file navigation with URL-hash deep links, per-feature mutation testing gate in CI, hotspot–coupling cross-referencing (per-kind finding counts + configurable score multiplier + badge in report and dashboard)
 
 ## Roadmap
 

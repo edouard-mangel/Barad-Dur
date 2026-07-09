@@ -155,6 +155,7 @@ export default function HotspotsView({ files }: Props) {
               <th style={{ textAlign: 'right', padding: '0.4rem 0.5rem', fontWeight: 400, color: 'rgba(148,163,184,0.5)' }}>Bugs</th>
               <th style={{ textAlign: 'right', padding: '0.4rem 0.5rem', fontWeight: 400, color: 'rgba(148,163,184,0.5)' }}>Methods</th>
               <th style={{ textAlign: 'right', padding: '0.4rem 0.5rem', fontWeight: 400, color: 'rgba(148,163,184,0.5)' }}>Props</th>
+              <th style={{ textAlign: 'right', padding: '0.4rem 0.5rem', fontWeight: 400, color: 'rgba(148,163,184,0.5)' }}>Coupling</th>
               <th style={{ width: 28 }} aria-label="Dismiss" />
             </tr>
           </thead>
@@ -164,6 +165,12 @@ export default function HotspotsView({ files }: Props) {
               const color = score > 70 ? '#ef4444' : score > 40 ? '#f59e0b' : '#10b981'
               const dir = f.path.includes('/') ? f.path.substring(0, f.path.lastIndexOf('/') + 1) : ''
               const name = f.path.split('/').pop() ?? f.path
+              const cn = f.content_findings ?? 0
+              const cm = f.common_findings ?? 0
+              const ct = f.control_findings ?? 0
+              const badge = [cn > 0 && `Cn ${cn}`, cm > 0 && `Cm ${cm}`, ct > 0 && `Ct ${ct}`]
+                .filter(Boolean)
+                .join(' · ')
               return (
                 <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
                   <td style={{ padding: '0.4rem 0.5rem', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.path}>
@@ -177,6 +184,7 @@ export default function HotspotsView({ files }: Props) {
                   <td style={{ textAlign: 'right', padding: '0.4rem 0.5rem', color: f.bug_commit_count > 0 ? '#f87171' : 'rgba(148,163,184,0.45)' }}>{f.bug_commit_count > 0 ? f.bug_commit_count : '—'}</td>
                   <td style={{ textAlign: 'right', padding: '0.4rem 0.5rem', color: 'rgba(148,163,184,0.45)' }}>{f.public_methods}</td>
                   <td style={{ textAlign: 'right', padding: '0.4rem 0.5rem', color: 'rgba(148,163,184,0.45)' }}>{f.properties}</td>
+                  <td style={{ textAlign: 'right', padding: '0.4rem 0.5rem', color: cn + cm > 0 ? '#f87171' : 'rgba(148,163,184,0.45)', fontWeight: cn + cm > 0 ? 600 : 400 }}>{badge || '—'}</td>
                   <td style={{ textAlign: 'right', padding: '0.4rem 0.5rem' }}>
                     <button
                       aria-label={`Dismiss ${f.path}`}

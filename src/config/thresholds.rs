@@ -141,6 +141,11 @@ pub struct CouplingThresholds {
     /// culture prefers deep imports can turn it off.
     #[serde(default = "default_content_barrel_rule")]
     pub content_barrel_rule: bool,
+    /// Hotspot-score multiplier applied when a file carries Content or
+    /// Common coupling findings — severity × change frequency = risk.
+    /// Control findings never multiply (least severe rung).
+    #[serde(default = "default_hotspot_multiplier")]
+    pub hotspot_multiplier: f64,
 }
 
 fn default_component_depth() -> usize {
@@ -152,6 +157,9 @@ fn default_change_coupling_min_ratio() -> f64 {
 fn default_content_barrel_rule() -> bool {
     true
 }
+fn default_hotspot_multiplier() -> f64 {
+    1.25
+}
 
 impl Default for CouplingThresholds {
     fn default() -> Self {
@@ -159,6 +167,7 @@ impl Default for CouplingThresholds {
             component_depth: default_component_depth(),
             change_coupling_min_ratio: default_change_coupling_min_ratio(),
             content_barrel_rule: default_content_barrel_rule(),
+            hotspot_multiplier: default_hotspot_multiplier(),
         }
     }
 }
