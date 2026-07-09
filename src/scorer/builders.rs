@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::config::CouplingThresholds;
-use crate::metrics::coupling::{barrel_bypass_findings, extract_component};
+use crate::metrics::coupling::{all_coupling_findings, extract_component};
 use crate::snapshot::{CouplingKind, RepoSnapshot};
 
 use super::actions::score_commit_message;
@@ -63,16 +63,9 @@ pub(super) fn build_hotspots(
         .values()
         .fold((i64::MAX, i64::MIN), |(lo, hi), &t| (lo.min(t), hi.max(t)));
 
-    let barrel = if coupling.content_barrel_rule {
-        barrel_bypass_findings(snapshot, coupling.component_depth)
-    } else {
-        Vec::new()
-    };
-    let finding_counts: HashMap<&Path, (usize, usize, usize)> = snapshot
-        .coupling_findings
-        .iter()
-        .chain(barrel.iter())
-        .fold(HashMap::new(), |mut acc, f| {
+    let all_findings = all_coupling_findings(snapshot, coupling);
+    let finding_counts: HashMap<&Path, (usize, usize, usize)> =
+        all_findings.iter().fold(HashMap::new(), |mut acc, f| {
             let entry = acc.entry(f.path.as_path()).or_default();
             match f.kind {
                 CouplingKind::Content => entry.0 += 1,

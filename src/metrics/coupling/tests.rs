@@ -1039,3 +1039,38 @@ fn corroborated_finding_is_annotated_in_evidence_and_description() {
         other => panic!("expected List, got {other:?}"),
     }
 }
+
+#[test]
+fn all_coupling_findings_equals_findings_plus_gated_barrel() {
+    // Barrel-on: a cross-component import bypassing a barrel yields a Content
+    // finding via gated_barrel_findings; all_coupling_findings must include it
+    // on top of the raw AST findings.
+    let mut snapshot = make_snapshot();
+    snapshot.files = vec![
+        make_file("a/index.ts"),
+        make_file("a/impl.ts"),
+        make_file("b/main.ts"),
+    ];
+    snapshot.file_metrics.insert(
+        std::path::PathBuf::from("b/main.ts"),
+        crate::snapshot::FileComplexity::default(),
+    );
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("b/main.ts"), vec![PathBuf::from("a/impl.ts")]);
+    let th = default_thresholds();
+
+    let gated = gated_barrel_findings(&snapshot, &th);
+    let all = all_coupling_findings(&snapshot, &th);
+    assert_eq!(all.len(), snapshot.coupling_findings.len() + gated.len());
+    // Turning the rule off drops the barrel findings from both.
+    let off = CouplingThresholds {
+        content_barrel_rule: false,
+        ..default_thresholds()
+    };
+    assert!(gated_barrel_findings(&snapshot, &off).is_empty());
+    assert_eq!(
+        all_coupling_findings(&snapshot, &off).len(),
+        snapshot.coupling_findings.len()
+    );
+}
