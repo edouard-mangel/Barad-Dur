@@ -861,3 +861,181 @@ fn cap_triggers_track_the_band_table() {
     );
     assert_eq!(COMMON_CAP_TRIGGER, score_pressman(CouplingKind::Common, 4));
 }
+
+#[test]
+fn qualifying_smell_pairs_matches_change_coupling_count() {
+    // Same fixture the scoring-band test uses: 4 cross-boundary smells.
+    let snapshot = make_cross_boundary_snapshot(4);
+    let via_helper = qualifying_smell_pairs(&snapshot, &default_thresholds()).count();
+    // change_coupling_smells(4) scores 50 == the ">5? no, 3..=5" band for 4 smells.
+    assert_eq!(
+        via_helper, 4,
+        "helper must yield exactly the qualifying pairs"
+    );
+    assert_eq!(
+        change_coupling_smells(&snapshot, &default_thresholds()).score,
+        Some(50),
+        "refactored smell metric must keep its score"
+    );
+}
+
+#[test]
+fn corroboration_degree_counts_distinct_partners() {
+    let mut snapshot = make_snapshot();
+    // src/a.rs co-changes cross-boundary with tests/b.rs and tests/c.rs.
+    for partner in ["tests/b.rs", "tests/c.rs"] {
+        snapshot
+            .file_change_pairs
+            .push((PathBuf::from("src/a.rs"), PathBuf::from(partner), 5));
+        snapshot
+            .commits_by_file
+            .insert(PathBuf::from(partner), (0u32..10).map(CommitId).collect());
+    }
+    snapshot.commits_by_file.insert(
+        PathBuf::from("src/a.rs"),
+        (0u32..10).map(CommitId).collect(),
+    );
+
+    let deg = corroboration_degree(&snapshot, &default_thresholds());
+    assert_eq!(deg.get(&PathBuf::from("src/a.rs")), Some(&2));
+    assert_eq!(deg.get(&PathBuf::from("tests/b.rs")), Some(&1));
+    assert_eq!(deg.get(&PathBuf::from("tests/c.rs")), Some(&1));
+}
+
+#[test]
+fn corroboration_degree_excludes_below_threshold_and_same_component() {
+    let mut snapshot = make_snapshot();
+    // Below ratio (2/10 < 0.30): excluded.
+    snapshot
+        .file_change_pairs
+        .push((PathBuf::from("src/a.rs"), PathBuf::from("tests/b.rs"), 2));
+    // Same component (both src/*, depth 2 differs -> actually different;
+    // use src/x/ to force same depth-2 component "src/x").
+    snapshot
+        .file_change_pairs
+        .push((PathBuf::from("src/x/a.rs"), PathBuf::from("src/x/b.rs"), 9));
+    for f in ["src/a.rs", "tests/b.rs", "src/x/a.rs", "src/x/b.rs"] {
+        snapshot
+            .commits_by_file
+            .insert(PathBuf::from(f), (0u32..10).map(CommitId).collect());
+    }
+    let deg = corroboration_degree(&snapshot, &default_thresholds());
+    assert!(deg.is_empty(), "no pair qualifies: {deg:?}");
+}
+
+/// `snapshot_with_findings`, plus a qualifying cross-boundary co-change pair
+/// for each given finding-file path so those findings corroborate.
+fn snapshot_with_corroborated(findings: Vec<CouplingFinding>) -> RepoSnapshot {
+    let mut s = snapshot_with_findings(findings.clone());
+    for (i, f) in findings.iter().enumerate() {
+        let partner = PathBuf::from(format!("tests/partner{i}.rs"));
+        s.file_change_pairs
+            .push((f.path.clone(), partner.clone(), 5));
+        s.commits_by_file
+            .insert(f.path.clone(), (0u32..10).map(CommitId).collect());
+        s.commits_by_file
+            .insert(partner, (0u32..10).map(CommitId).collect());
+    }
+    s
+}
+
+#[test]
+fn corroborated_common_finding_scores_one_band_worse() {
+    // 1 dormant Common finding -> count 1 -> 60.
+    let dormant = snapshot_with_findings(vec![make_finding(CouplingKind::Common)]);
+    let d = compute_coupling(&dormant, &CouplingThresholds::default());
+    let d_common = d
+        .metrics
+        .iter()
+        .find(|m| m.name == "Common coupling")
+        .unwrap();
+    assert_eq!(d_common.score, Some(60));
+
+    // 1 corroborated Common finding -> effective 2 (weight 2.0) -> 40.
+    let corr = snapshot_with_corroborated(vec![make_finding(CouplingKind::Common)]);
+    let c = compute_coupling(&corr, &CouplingThresholds::default());
+    let c_common = c
+        .metrics
+        .iter()
+        .find(|m| m.name == "Common coupling")
+        .unwrap();
+    assert_eq!(c_common.score, Some(40));
+}
+
+#[test]
+fn weight_one_reproduces_dormant_scores() {
+    let corr = snapshot_with_corroborated(vec![make_finding(CouplingKind::Common)]);
+    let thresholds = CouplingThresholds {
+        corroboration_weight: 1.0,
+        ..CouplingThresholds::default()
+    };
+    let c = compute_coupling(&corr, &thresholds);
+    let common = c
+        .metrics
+        .iter()
+        .find(|m| m.name == "Common coupling")
+        .unwrap();
+    assert_eq!(
+        common.score,
+        Some(60),
+        "weight 1.0 must equal the dormant score"
+    );
+}
+
+#[test]
+fn corroboration_can_trip_the_severity_cap() {
+    // 2 corroborated Common findings on distinct files -> effective 4 -> 25,
+    // which is <= the Common cap trigger (25) -> category capped.
+    let corr = snapshot_with_corroborated(vec![
+        CouplingFinding {
+            path: PathBuf::from("src/a.rs"),
+            line: Some(1),
+            kind: CouplingKind::Common,
+            evidence: "static mut A".into(),
+        },
+        CouplingFinding {
+            path: PathBuf::from("src/b.rs"),
+            line: Some(1),
+            kind: CouplingKind::Common,
+            evidence: "static mut B".into(),
+        },
+    ]);
+    let c = compute_coupling(&corr, &CouplingThresholds::default());
+    let common = c
+        .metrics
+        .iter()
+        .find(|m| m.name == "Common coupling")
+        .unwrap();
+    assert_eq!(common.score, Some(25));
+    assert!(
+        c.score < crate::scorer::SCORE_GOOD_MIN,
+        "category must be capped"
+    );
+}
+
+#[test]
+fn corroborated_finding_is_annotated_in_evidence_and_description() {
+    let corr = snapshot_with_corroborated(vec![make_finding(CouplingKind::Common)]);
+    let c = compute_coupling(&corr, &CouplingThresholds::default());
+    let common = c
+        .metrics
+        .iter()
+        .find(|m| m.name == "Common coupling")
+        .unwrap();
+    assert!(
+        common
+            .description
+            .contains("1 corroborated by change history"),
+        "description: {}",
+        common.description
+    );
+    match &common.raw_value {
+        RawValue::List(items) => assert!(
+            items
+                .iter()
+                .any(|s| s.contains("corroborated (co-changes with 1 file(s))")),
+            "evidence: {items:?}"
+        ),
+        other => panic!("expected List, got {other:?}"),
+    }
+}
