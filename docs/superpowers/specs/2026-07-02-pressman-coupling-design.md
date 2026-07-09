@@ -186,19 +186,21 @@ when Content/Common findings are present (weight configurable in
 hotspot rows show a coupling badge. Rationale: severity × change frequency =
 actual risk; a `static mut` in a high-churn file outranks a dormant one.
 
-### M5 — History-corroborated findings ⚠ design checkpoint
+### M5 — History-corroborated findings ✅ shipped
 
-**Status: concept approved, detailed design deferred.** After M1 ships,
-this milestone's design is revisited against *real* finding data from
-barad-dur and other repos — the corroboration heuristic (co-change
-threshold, bulk-commit exclusion, whether corroboration affects scores)
-should not be designed blind.
+**Status: resolved and shipped.** The checkpoint was revisited against real
+finding data (barad-dur: 0 content/0 common/6 control) on 2026-07-09; the
+detailed design lives in `2026-07-09-pressman-coupling-m5-design.md`.
+Decisions: corroboration covers all three kinds; the criterion reuses the
+change-coupling smell rule; corroborated findings weigh `corroboration_weight`
+(default 2.0) toward the severity band; report language is "corroborated".
 
-Concept: join each Common/Content finding's file against
-`file_change_pairs`; a file with findings **and** high co-change degree gets
-`corroborated: true` and a report note, e.g. "global state in `x.rs` is
-**corroborated by change history**: co-changes with N files". Dormant
-findings stay flagged but uncorroborated.
+Original concept (superseded in detail by the shipped design, which covers
+all three kinds): join each finding's file against `file_change_pairs`; a file
+with findings **and** high co-change degree gets `corroborated: true` and a
+report note, e.g. "global state in `x.rs` is **corroborated by change
+history**: co-changes with N files". Dormant findings stay flagged but
+uncorroborated.
 
 Language rule (fixed now, regardless of the later design): the report says
 **"corroborated"**, never "confirmed" — co-change correlation has
@@ -210,8 +212,8 @@ version bumps), and overclaiming is how analysis tools lose user trust.
 `scorer/actions.rs` emits per-finding suggestions with kind-specific advice
 text ("replace this global with injected state", "split this flag-argument
 function", "import via the module's public barrel"). Priority order:
-**rung-only** — content > common > control. (Corroboration-aware ordering is
-added later only if/when M5 ships; M6 does not depend on M5.)
+**rung-only** — content > common > control. (Corroboration-aware ordering can
+be added later, now that M5 has shipped; M6 does not depend on M5.)
 
 ### Milestone order
 
@@ -257,6 +259,9 @@ changes don't relitigate them blind:
 6. **M5 is a checkpoint, not a commitment.** Corroboration heuristics get
    designed against real finding data after M1; report language is
    "corroborated", never "confirmed".
+   Resolved 2026-07-09 (see 2026-07-09-pressman-coupling-m5-design.md): all
+   three kinds, smell-rule criterion, weighted-count score nudge (default 2.0×),
+   "corroborated" never "confirmed".
 7. **`pub(crate)` counts as public** (recorded 2026-07-06, pre-M4 hygiene).
    `rust_control` treats any `visibility_modifier` — including `pub(crate)` —
    as exported. Rationale: control coupling is inter-module, and
