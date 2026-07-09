@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
-use crate::metrics::coupling::extract_component;
-use crate::snapshot::RepoSnapshot;
+use crate::config::CouplingThresholds;
+use crate::metrics::coupling::{barrel_bypass_findings, extract_component};
+use crate::snapshot::{CouplingKind, RepoSnapshot};
 
 use super::actions::score_commit_message;
 use super::types::{
@@ -37,7 +39,10 @@ fn churn_timeline(
         })
 }
 
-pub(super) fn build_hotspots(snapshot: &RepoSnapshot) -> Vec<HotspotFile> {
+pub(super) fn build_hotspots(
+    snapshot: &RepoSnapshot,
+    coupling: &CouplingThresholds,
+) -> Vec<HotspotFile> {
     // Pre-classify bug-fix commits by ID to avoid O(files × commits) message scanning.
     let bug_commit_ids: HashSet<crate::snapshot::CommitId> = snapshot
         .commits
@@ -58,6 +63,25 @@ pub(super) fn build_hotspots(snapshot: &RepoSnapshot) -> Vec<HotspotFile> {
         .values()
         .fold((i64::MAX, i64::MIN), |(lo, hi), &t| (lo.min(t), hi.max(t)));
 
+    let barrel = if coupling.content_barrel_rule {
+        barrel_bypass_findings(snapshot, coupling.component_depth)
+    } else {
+        Vec::new()
+    };
+    let finding_counts: HashMap<&Path, (usize, usize, usize)> = snapshot
+        .coupling_findings
+        .iter()
+        .chain(barrel.iter())
+        .fold(HashMap::new(), |mut acc, f| {
+            let entry = acc.entry(f.path.as_path()).or_default();
+            match f.kind {
+                CouplingKind::Content => entry.0 += 1,
+                CouplingKind::Common => entry.1 += 1,
+                CouplingKind::Control => entry.2 += 1,
+            }
+            acc
+        });
+
     let mut files: Vec<HotspotFile> = snapshot
         .files
         .iter()
@@ -73,6 +97,10 @@ pub(super) fn build_hotspots(snapshot: &RepoSnapshot) -> Vec<HotspotFile> {
                 .get(&f.path)
                 .cloned()
                 .unwrap_or_default();
+            let (content_findings, common_findings, control_findings) = finding_counts
+                .get(f.path.as_path())
+                .copied()
+                .unwrap_or((0, 0, 0));
             HotspotFile {
                 path: f.path.to_string_lossy().to_string(),
                 churn_count: churn,
@@ -83,6 +111,9 @@ pub(super) fn build_hotspots(snapshot: &RepoSnapshot) -> Vec<HotspotFile> {
                 public_methods: metrics.public_methods,
                 properties: metrics.properties,
                 hotspot_score: 0.0,
+                content_findings,
+                common_findings,
+                control_findings,
                 churn_timeline: churn_timeline(commit_ids, &ts_by_id, min_ts, max_ts),
             }
         })
@@ -110,7 +141,14 @@ pub(super) fn build_hotspots(snapshot: &RepoSnapshot) -> Vec<HotspotFile> {
         let churn_norm = f.churn_count as f64 / max_churn as f64;
         let cc_norm = f.cyclomatic_complexity as f64 / max_cc as f64;
         let loc_norm = f.loc as f64 / max_loc as f64;
-        f.hotspot_score = (churn_norm * 0.5 + cc_norm * 0.3 + loc_norm * 0.2) * 100.0;
+        let base = (churn_norm * 0.5 + cc_norm * 0.3 + loc_norm * 0.2) * 100.0;
+        // Content/Common findings multiply risk (severity × change
+        // frequency); capped because every consumer assumes 0–100.
+        f.hotspot_score = if f.content_findings + f.common_findings > 0 {
+            (base * coupling.hotspot_multiplier).min(100.0)
+        } else {
+            base
+        };
     }
 
     files.sort_by(|a, b| b.hotspot_score.partial_cmp(&a.hotspot_score).unwrap());
@@ -820,7 +858,7 @@ mod tests {
             .commits_by_file
             .insert(PathBuf::from("src/lib.rs"), vec![CommitId(0), CommitId(1)]);
 
-        let hotspots = build_hotspots(&snapshot);
+        let hotspots = build_hotspots(&snapshot, &crate::config::CouplingThresholds::default());
         let timeline = &hotspots[0].churn_timeline;
         assert_eq!(timeline.len(), 12);
         assert_eq!(timeline[0], 1, "oldest commit lands in the first bucket");
@@ -842,7 +880,7 @@ mod tests {
             .commits_by_file
             .insert(PathBuf::from("src/lib.rs"), vec![CommitId(0)]);
 
-        let hotspots = build_hotspots(&snapshot);
+        let hotspots = build_hotspots(&snapshot, &crate::config::CouplingThresholds::default());
         let timeline = &hotspots[0].churn_timeline;
         assert_eq!(timeline.len(), 12);
         assert_eq!(
@@ -863,7 +901,7 @@ mod tests {
         snapshot.files = vec![make_file_entry("src/lib.rs")];
         snapshot.commits = vec![make_commit(0, "feat: touches nothing tracked")];
 
-        let hotspots = build_hotspots(&snapshot);
+        let hotspots = build_hotspots(&snapshot, &crate::config::CouplingThresholds::default());
         let timeline = &hotspots[0].churn_timeline;
         assert_eq!(timeline.len(), 12);
         assert!(timeline.iter().all(|&v| v == 0));
@@ -887,7 +925,7 @@ mod tests {
             .commits_by_file
             .insert(path, vec![CommitId(0), CommitId(1)]);
 
-        let hotspots = build_hotspots(&snapshot);
+        let hotspots = build_hotspots(&snapshot, &crate::config::CouplingThresholds::default());
         assert_eq!(hotspots.len(), 1);
         assert_eq!(hotspots[0].bug_commit_count, 0);
     }
@@ -912,7 +950,7 @@ mod tests {
             snapshot.commits = vec![make_commit(0, keyword)];
             snapshot.commits_by_file.insert(path, vec![CommitId(0)]);
 
-            let hotspots = build_hotspots(&snapshot);
+            let hotspots = build_hotspots(&snapshot, &crate::config::CouplingThresholds::default());
             assert_eq!(
                 hotspots[0].bug_commit_count, 1,
                 "keyword '{}' should be detected",
@@ -934,7 +972,7 @@ mod tests {
         snapshot.commits = vec![make_commit(0, "FIX: uppercase message")];
         snapshot.commits_by_file.insert(path, vec![CommitId(0)]);
 
-        let hotspots = build_hotspots(&snapshot);
+        let hotspots = build_hotspots(&snapshot, &crate::config::CouplingThresholds::default());
         assert_eq!(hotspots[0].bug_commit_count, 1);
     }
 
@@ -958,7 +996,7 @@ mod tests {
             .commits_by_file
             .insert(PathBuf::from("src/b.rs"), vec![CommitId(1)]);
 
-        let hotspots = build_hotspots(&snapshot);
+        let hotspots = build_hotspots(&snapshot, &crate::config::CouplingThresholds::default());
         let a = hotspots.iter().find(|f| f.path == "src/a.rs").unwrap();
         let b = hotspots.iter().find(|f| f.path == "src/b.rs").unwrap();
         assert_eq!(a.bug_commit_count, 1, "a.rs should have 1 bug commit");
@@ -977,7 +1015,7 @@ mod tests {
         snapshot.commits = vec![make_commit(0, "fix: something")];
         // commits_by_file intentionally left empty — file not linked to any commit
 
-        let hotspots = build_hotspots(&snapshot);
+        let hotspots = build_hotspots(&snapshot, &crate::config::CouplingThresholds::default());
         assert_eq!(hotspots[0].bug_commit_count, 0);
     }
 
@@ -1087,5 +1125,167 @@ mod tests {
         let snapshot = make_test_snapshot_with_blame(vec![("Alice", "alice@x.com")], vec![]);
         let ownership = build_author_ownership(&snapshot);
         assert!(ownership.is_empty());
+    }
+
+    #[test]
+    fn hotspot_rows_carry_per_kind_finding_counts() {
+        use crate::snapshot::{CouplingFinding, CouplingKind};
+        let mut snapshot = crate::metrics::testutil::make_snapshot();
+        snapshot.files = vec![
+            crate::metrics::testutil::make_file("src/dirty.rs"),
+            crate::metrics::testutil::make_file("src/clean.rs"),
+        ];
+        snapshot.coupling_findings = vec![
+            CouplingFinding {
+                path: "src/dirty.rs".into(),
+                line: Some(1),
+                kind: CouplingKind::Common,
+                evidence: "static mut CACHE: usize = 0;".into(),
+            },
+            CouplingFinding {
+                path: "src/dirty.rs".into(),
+                line: Some(9),
+                kind: CouplingKind::Control,
+                evidence: "pub fn go(fast: bool)".into(),
+            },
+        ];
+        let cfg = crate::config::CouplingThresholds::default();
+        let hotspots = build_hotspots(&snapshot, &cfg);
+        let dirty = hotspots.iter().find(|h| h.path == "src/dirty.rs").unwrap();
+        assert_eq!(
+            (
+                dirty.content_findings,
+                dirty.common_findings,
+                dirty.control_findings
+            ),
+            (0, 1, 1)
+        );
+        let clean = hotspots.iter().find(|h| h.path == "src/clean.rs").unwrap();
+        assert_eq!(
+            (
+                clean.content_findings,
+                clean.common_findings,
+                clean.control_findings
+            ),
+            (0, 0, 0)
+        );
+    }
+
+    #[test]
+    fn hotspot_content_counts_include_barrel_findings_only_when_toggle_on() {
+        // Cross-component import bypassing src/a's barrel — the same shape
+        // the gate's ratchet_finding_sets tests use.
+        let mut snapshot = crate::metrics::testutil::make_snapshot();
+        snapshot.files = vec![
+            crate::metrics::testutil::make_file("src/a/index.ts"),
+            crate::metrics::testutil::make_file("src/a/impl.ts"),
+            crate::metrics::testutil::make_file("src/b/user.ts"),
+        ];
+        snapshot
+            .import_graph
+            .insert("src/b/user.ts".into(), vec!["src/a/impl.ts".into()]);
+        let cfg = crate::config::CouplingThresholds::default();
+        assert!(cfg.content_barrel_rule, "default toggle must be on");
+        let on = build_hotspots(&snapshot, &cfg);
+        let user_on = on.iter().find(|h| h.path == "src/b/user.ts").unwrap();
+        assert_eq!(
+            user_on.content_findings, 1,
+            "barrel bypass joins the importing file's content count"
+        );
+
+        let cfg_off = crate::config::CouplingThresholds {
+            content_barrel_rule: false,
+            ..crate::config::CouplingThresholds::default()
+        };
+        let off = build_hotspots(&snapshot, &cfg_off);
+        let user_off = off.iter().find(|h| h.path == "src/b/user.ts").unwrap();
+        assert_eq!(
+            user_off.content_findings, 0,
+            "toggle off must mirror pressman_finding_counts' gating"
+        );
+    }
+
+    /// Two files identical in churn/CC/LOC; one carries a Common finding.
+    /// Base score for both: cc_norm=1, loc_norm=1, churn=0 →
+    /// (0.3 + 0.2) × 100 = 50. Flagged file: 50 × 1.25 = 62.5.
+    fn twin_snapshot(kind: crate::snapshot::CouplingKind) -> crate::snapshot::RepoSnapshot {
+        use crate::snapshot::{CouplingFinding, FileComplexity};
+        let mut snapshot = crate::metrics::testutil::make_snapshot();
+        snapshot.files = vec![
+            crate::metrics::testutil::make_file("src/flagged.rs"),
+            crate::metrics::testutil::make_file("src/plain.rs"),
+        ];
+        for p in ["src/flagged.rs", "src/plain.rs"] {
+            snapshot.file_metrics.insert(
+                p.into(),
+                FileComplexity {
+                    loc: 100,
+                    cyclomatic_complexity: 10,
+                    ..Default::default()
+                },
+            );
+        }
+        snapshot.coupling_findings = vec![CouplingFinding {
+            path: "src/flagged.rs".into(),
+            line: Some(1),
+            kind,
+            evidence: "evidence".into(),
+        }];
+        snapshot
+    }
+
+    #[test]
+    fn common_finding_multiplies_hotspot_score() {
+        let snapshot = twin_snapshot(crate::snapshot::CouplingKind::Common);
+        let cfg = crate::config::CouplingThresholds::default();
+        let hotspots = build_hotspots(&snapshot, &cfg);
+        let flagged = hotspots
+            .iter()
+            .find(|h| h.path == "src/flagged.rs")
+            .unwrap();
+        let plain = hotspots.iter().find(|h| h.path == "src/plain.rs").unwrap();
+        assert!((plain.hotspot_score - 50.0).abs() < 1e-9);
+        assert!(
+            (flagged.hotspot_score - 62.5).abs() < 1e-9,
+            "50 × default 1.25 = 62.5, got {}",
+            flagged.hotspot_score
+        );
+    }
+
+    #[test]
+    fn control_finding_does_not_multiply_hotspot_score() {
+        let snapshot = twin_snapshot(crate::snapshot::CouplingKind::Control);
+        let cfg = crate::config::CouplingThresholds::default();
+        let hotspots = build_hotspots(&snapshot, &cfg);
+        let flagged = hotspots
+            .iter()
+            .find(|h| h.path == "src/flagged.rs")
+            .unwrap();
+        assert!(
+            (flagged.hotspot_score - 50.0).abs() < 1e-9,
+            "control is the least severe rung — no multiplier (spec)"
+        );
+    }
+
+    #[test]
+    fn multiplied_hotspot_score_caps_at_100() {
+        // Base score here is 50 (cc_norm=1, loc_norm=1, churn=0); a large
+        // multiplier would push it to 500 — the cap must clamp to 100
+        // because every consumer assumes the 0–100 domain.
+        let snapshot = twin_snapshot(crate::snapshot::CouplingKind::Common);
+        let cfg = crate::config::CouplingThresholds {
+            hotspot_multiplier: 10.0,
+            ..crate::config::CouplingThresholds::default()
+        };
+        let hotspots = build_hotspots(&snapshot, &cfg);
+        let flagged = hotspots
+            .iter()
+            .find(|h| h.path == "src/flagged.rs")
+            .unwrap();
+        assert!(
+            (flagged.hotspot_score - 100.0).abs() < 1e-9,
+            "consumers assume 0–100; got {}",
+            flagged.hotspot_score
+        );
     }
 }

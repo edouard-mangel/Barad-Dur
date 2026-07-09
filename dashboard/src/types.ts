@@ -32,6 +32,11 @@ export interface HotspotFile {
   public_methods: number
   properties: number
   hotspot_score: number
+  // Per-kind Pressman coupling finding counts. Optional: reports generated
+  // before M4 don't carry them.
+  content_findings?: number
+  common_findings?: number
+  control_findings?: number
 }
 
 export interface CouplingPair {

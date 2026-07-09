@@ -244,6 +244,13 @@ pub fn validate(config: &RepoConfig) -> Result<()> {
             ratio
         );
     }
+    let multiplier = config.thresholds.coupling.hotspot_multiplier;
+    if multiplier < 1.0 {
+        bail!(
+            "thresholds.coupling.hotspot_multiplier must be >= 1.0, got {}",
+            multiplier
+        );
+    }
     Ok(())
 }
 
@@ -495,5 +502,46 @@ mod tests {
         cfg.thresholds.coupling.change_coupling_min_ratio = 1.5;
         let err = validate(&cfg).unwrap_err();
         assert!(err.to_string().contains("change_coupling_min_ratio"));
+    }
+
+    #[test]
+    fn load_hotspot_multiplier_default() {
+        let dir = TempDir::new().unwrap();
+        let cfg = load(dir.path()).unwrap();
+        assert!((cfg.thresholds.coupling.hotspot_multiplier - 1.25).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn load_hotspot_multiplier_from_toml() {
+        let dir = TempDir::new().unwrap();
+        let cache_dir = dir.path().join(".repository-analysis");
+        fs::create_dir_all(&cache_dir).unwrap();
+        fs::write(
+            cache_dir.join("barad-dur.toml"),
+            "[thresholds.coupling]\nhotspot_multiplier = 1.5\n",
+        )
+        .unwrap();
+        let cfg = load(dir.path()).unwrap();
+        assert!((cfg.thresholds.coupling.hotspot_multiplier - 1.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn validate_hotspot_multiplier_below_one_errors() {
+        let mut cfg = RepoConfig::default();
+        cfg.thresholds.coupling.hotspot_multiplier = 0.9;
+        assert!(
+            validate(&cfg).is_err(),
+            "a discount multiplier is a config mistake"
+        );
+    }
+
+    #[test]
+    fn validate_hotspot_multiplier_of_exactly_one_is_valid() {
+        let mut cfg = RepoConfig::default();
+        cfg.thresholds.coupling.hotspot_multiplier = 1.0;
+        assert!(
+            validate(&cfg).is_ok(),
+            "hotspot_multiplier = 1.0 is the lower bound and must be accepted"
+        );
     }
 }

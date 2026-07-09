@@ -16,6 +16,12 @@ pub struct HotspotFile {
     pub public_methods: u32,
     pub properties: u32,
     pub hotspot_score: f64,
+    /// Pressman coupling findings in this file, per kind. Content includes
+    /// barrel-bypass findings when `content_barrel_rule` is on — the same
+    /// gating as `pressman_finding_counts`, so the two views never disagree.
+    pub content_findings: usize,
+    pub common_findings: usize,
+    pub control_findings: usize,
     /// Commits touching the file per 1/12 of the analysis window (oldest first).
     pub churn_timeline: Vec<u32>,
 }

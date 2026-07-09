@@ -64,7 +64,7 @@ pub fn build_report(
 ) -> AnalysisReport {
     let overall_score = compute_overall_score_with_weights(&categories, weights);
     let top_actions = generate_top_actions(&categories);
-    let file_hotspots = build_hotspots(snapshot);
+    let file_hotspots = build_hotspots(snapshot, coupling);
     let coupling_pairs = build_coupling_pairs(snapshot, coupling.component_depth);
     let author_ownership = build_author_ownership(snapshot);
     let file_ages = build_file_ages(snapshot);
@@ -215,7 +215,7 @@ mod tests {
         snapshot
             .commits_by_file
             .insert("cold.rs".into(), vec![CommitId(0)]);
-        let hotspots = build_hotspots(&snapshot);
+        let hotspots = build_hotspots(&snapshot, &crate::config::CouplingThresholds::default());
         assert_eq!(hotspots[0].path, "hot.rs");
         assert!(hotspots[0].hotspot_score > hotspots[1].hotspot_score);
     }

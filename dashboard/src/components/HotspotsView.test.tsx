@@ -61,3 +61,17 @@ describe('HotspotsView dismiss', () => {
     expect(screen.queryByTitle('high-churn.ts')).not.toBeNull() // unaffected
   })
 })
+
+describe('HotspotsView coupling badge', () => {
+  it('shows per-kind counts when findings are present', () => {
+    const flagged: HotspotFile = { ...file('src/glob.ts', 80), common_findings: 2, control_findings: 1 }
+    render(<HotspotsView files={[flagged]} />)
+    expect(screen.queryByText('Cm 2 · Ct 1')).not.toBeNull()
+  })
+
+  it('renders an em dash for files without findings (and for pre-M4 reports)', () => {
+    render(<HotspotsView files={[file('src/clean.ts', 70)]} />)
+    // one em dash from Bugs (0 bugs) + one from Coupling
+    expect(screen.getAllByText('—').length).toBe(2)
+  })
+})
