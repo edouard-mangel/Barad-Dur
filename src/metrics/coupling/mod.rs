@@ -193,6 +193,25 @@ fn qualifying_smell_pairs<'a>(
         })
 }
 
+/// Files that participate in a qualifying cross-boundary co-change, mapped
+/// to their count of *distinct* qualifying partners. Presence of a finding's
+/// path in this map is what marks the finding "corroborated" (M5).
+///
+/// Not yet called from production code — wired into findings in Task 3
+/// (M5 plan). `allow(dead_code)` is temporary until that lands.
+#[allow(dead_code)]
+fn corroboration_degree(
+    snapshot: &RepoSnapshot,
+    thresholds: &CouplingThresholds,
+) -> HashMap<PathBuf, usize> {
+    let mut partners: HashMap<PathBuf, HashSet<PathBuf>> = HashMap::new();
+    for (a, b) in qualifying_smell_pairs(snapshot, thresholds) {
+        partners.entry(a.clone()).or_default().insert(b.clone());
+        partners.entry(b.clone()).or_default().insert(a.clone());
+    }
+    partners.into_iter().map(|(k, v)| (k, v.len())).collect()
+}
+
 /// Change coupling smells: cross-boundary file pairs that co-change at or above
 /// the configured ratio threshold.
 ///

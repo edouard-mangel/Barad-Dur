@@ -878,3 +878,47 @@ fn qualifying_smell_pairs_matches_change_coupling_count() {
         "refactored smell metric must keep its score"
     );
 }
+
+#[test]
+fn corroboration_degree_counts_distinct_partners() {
+    let mut snapshot = make_snapshot();
+    // src/a.rs co-changes cross-boundary with tests/b.rs and tests/c.rs.
+    for partner in ["tests/b.rs", "tests/c.rs"] {
+        snapshot
+            .file_change_pairs
+            .push((PathBuf::from("src/a.rs"), PathBuf::from(partner), 5));
+        snapshot
+            .commits_by_file
+            .insert(PathBuf::from(partner), (0u32..10).map(CommitId).collect());
+    }
+    snapshot.commits_by_file.insert(
+        PathBuf::from("src/a.rs"),
+        (0u32..10).map(CommitId).collect(),
+    );
+
+    let deg = corroboration_degree(&snapshot, &default_thresholds());
+    assert_eq!(deg.get(&PathBuf::from("src/a.rs")), Some(&2));
+    assert_eq!(deg.get(&PathBuf::from("tests/b.rs")), Some(&1));
+    assert_eq!(deg.get(&PathBuf::from("tests/c.rs")), Some(&1));
+}
+
+#[test]
+fn corroboration_degree_excludes_below_threshold_and_same_component() {
+    let mut snapshot = make_snapshot();
+    // Below ratio (2/10 < 0.30): excluded.
+    snapshot
+        .file_change_pairs
+        .push((PathBuf::from("src/a.rs"), PathBuf::from("tests/b.rs"), 2));
+    // Same component (both src/*, depth 2 differs -> actually different;
+    // use src/x/ to force same depth-2 component "src/x").
+    snapshot
+        .file_change_pairs
+        .push((PathBuf::from("src/x/a.rs"), PathBuf::from("src/x/b.rs"), 9));
+    for f in ["src/a.rs", "tests/b.rs", "src/x/a.rs", "src/x/b.rs"] {
+        snapshot
+            .commits_by_file
+            .insert(PathBuf::from(f), (0u32..10).map(CommitId).collect());
+    }
+    let deg = corroboration_degree(&snapshot, &default_thresholds());
+    assert!(deg.is_empty(), "no pair qualifies: {deg:?}");
+}
