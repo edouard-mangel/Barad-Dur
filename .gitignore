@@ -31,5 +31,6 @@ docs/presentation/slidev/barad-dur.pdf
 mutants.out/
 mutants.out.old/
 .worktrees/
-.nwave/
+.nwave/*
+!.nwave/local-config.json
 cosign.key
