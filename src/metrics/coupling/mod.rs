@@ -194,7 +194,7 @@ fn qualifying_smell_pairs<'a>(
 /// Files that participate in a qualifying cross-boundary co-change, mapped
 /// to their count of *distinct* qualifying partners. Presence of a finding's
 /// path in this map is what marks the finding "corroborated" (M5).
-fn corroboration_degree(
+pub(crate) fn corroboration_degree(
     snapshot: &RepoSnapshot,
     thresholds: &CouplingThresholds,
 ) -> HashMap<PathBuf, usize> {

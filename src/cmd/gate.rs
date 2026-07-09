@@ -363,6 +363,7 @@ mod tests {
             overall_score: overall,
             categories: cats,
             top_actions: vec![],
+            coupling_actions: vec![],
             remote_meta: None,
             file_hotspots: vec![],
             coupling_pairs: vec![],

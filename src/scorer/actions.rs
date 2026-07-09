@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::path::Path;
+
 use crate::metrics::CategoryResult;
 
 use super::types::ActionItem;
@@ -61,6 +64,87 @@ pub(super) fn generate_top_actions(categories: &[CategoryResult]) -> Vec<ActionI
                 ),
                 target_tab: target_tab.map(String::from),
                 sort_by: sort_by.map(String::from),
+            }
+        })
+        .collect()
+}
+
+const CONTENT_ADVICE: &str =
+    "Reaches into another module's internals — import through the module's public interface instead.";
+const COMMON_ADVICE: &str =
+    "Shared mutable global state — replace it with explicitly passed or injected state.";
+const CONTROL_ADVICE: &str =
+    "A flag parameter steers this function's control flow — split it into two intent-revealing functions.";
+
+/// Per-file coupling refactoring suggestions, ranked worst-rung-first
+/// (Content≻Common≻Control), corroborated-before-dormant within a rung, then
+/// higher finding-count first, capped at 10. A file's action speaks to its
+/// most severe rung. Empty when detection did not run.
+pub(super) fn generate_coupling_actions(
+    snapshot: &crate::snapshot::RepoSnapshot,
+    thresholds: &crate::config::CouplingThresholds,
+) -> Vec<ActionItem> {
+    use crate::metrics::coupling::{all_coupling_findings, corroboration_degree, detection_ran};
+    use crate::snapshot::CouplingKind;
+
+    if !detection_ran(snapshot) {
+        return Vec::new();
+    }
+    let findings = all_coupling_findings(snapshot, thresholds);
+    if findings.is_empty() {
+        return Vec::new();
+    }
+    let corr = corroboration_degree(snapshot, thresholds);
+
+    // severity index: lower = worse. Group by file, tracking worst rung + count.
+    let mut by_file: HashMap<&Path, (u8, usize)> = HashMap::new();
+    for f in &findings {
+        let sev = match f.kind {
+            CouplingKind::Content => 0u8,
+            CouplingKind::Common => 1,
+            CouplingKind::Control => 2,
+        };
+        let entry = by_file.entry(f.path.as_path()).or_insert((sev, 0));
+        entry.0 = entry.0.min(sev);
+        entry.1 += 1;
+    }
+
+    let mut rows: Vec<(&Path, u8, bool, usize)> = by_file
+        .into_iter()
+        .map(|(path, (sev, count))| (path, sev, corr.contains_key(path), count))
+        .collect();
+    // worst rung asc → corroborated first → count desc → path asc.
+    rows.sort_by(|a, b| {
+        a.1.cmp(&b.1)
+            .then(b.2.cmp(&a.2))
+            .then(b.3.cmp(&a.3))
+            .then(a.0.cmp(b.0))
+    });
+
+    rows.into_iter()
+        .take(10)
+        .map(|(path, sev, corroborated, count)| {
+            let (kind_label, advice) = match sev {
+                0 => ("content", CONTENT_ADVICE),
+                1 => ("common", COMMON_ADVICE),
+                _ => ("control", CONTROL_ADVICE),
+            };
+            let corr_note = if corroborated {
+                ", corroborated by change history"
+            } else {
+                ""
+            };
+            ActionItem {
+                text: format!(
+                    "[Coupling] {} — {} finding(s) (worst: {}){} — {}",
+                    path.display(),
+                    count,
+                    kind_label,
+                    corr_note,
+                    advice
+                ),
+                target_tab: Some("coupling".to_string()),
+                sort_by: None,
             }
         })
         .collect()
@@ -289,5 +373,146 @@ mod tests {
         assert!(score_commit_message("fix: typo") > 40.0);
         assert!(score_commit_message("wip") < 20.0);
         assert!(score_commit_message("") < 15.0);
+    }
+
+    use crate::config::CouplingThresholds;
+    use crate::snapshot::{CouplingFinding, CouplingKind, RepoSnapshot};
+    use std::path::PathBuf;
+
+    fn snap_with(findings: Vec<CouplingFinding>) -> RepoSnapshot {
+        let mut s = crate::metrics::testutil::make_snapshot();
+        s.files = vec![crate::metrics::testutil::make_file("src/a.rs")];
+        s.file_metrics.insert(
+            PathBuf::from("src/a.rs"),
+            crate::snapshot::FileComplexity::default(),
+        );
+        s.coupling_findings = findings;
+        s
+    }
+    fn finding(path: &str, kind: CouplingKind) -> CouplingFinding {
+        CouplingFinding {
+            path: PathBuf::from(path),
+            line: Some(1),
+            kind,
+            evidence: "e".into(),
+        }
+    }
+
+    #[test]
+    fn coupling_actions_empty_when_no_findings() {
+        let s = snap_with(vec![]);
+        assert!(generate_coupling_actions(&s, &CouplingThresholds::default()).is_empty());
+    }
+
+    #[test]
+    fn coupling_actions_order_content_common_control() {
+        let s = snap_with(vec![
+            finding("src/ctrl.rs", CouplingKind::Control),
+            finding("src/glob.rs", CouplingKind::Common),
+            finding("src/int.rs", CouplingKind::Content),
+        ]);
+        let acts = generate_coupling_actions(&s, &CouplingThresholds::default());
+        let files: Vec<&str> = acts.iter().map(|a| a.text.as_str()).collect();
+        assert!(files[0].contains("src/int.rs") && files[0].contains("worst: content"));
+        assert!(files[1].contains("src/glob.rs") && files[1].contains("worst: common"));
+        assert!(files[2].contains("src/ctrl.rs") && files[2].contains("worst: control"));
+        assert_eq!(acts[0].target_tab.as_deref(), Some("coupling"));
+        assert!(acts[0].sort_by.is_none());
+    }
+
+    #[test]
+    fn coupling_actions_worst_rung_wins_for_mixed_file() {
+        // Two mixed files with findings inserted in OPPOSITE severity orders.
+        // Both must resolve to their most-severe kind (common) regardless of
+        // insertion order — `src/mix2.rs` (Common then Control) is the case a
+        // dropped `.min()` / last-write-wins would get wrong.
+        let s = snap_with(vec![
+            finding("src/mix1.rs", CouplingKind::Control),
+            finding("src/mix1.rs", CouplingKind::Common),
+            finding("src/mix2.rs", CouplingKind::Common),
+            finding("src/mix2.rs", CouplingKind::Control),
+        ]);
+        let acts = generate_coupling_actions(&s, &CouplingThresholds::default());
+        assert_eq!(acts.len(), 2);
+        for a in &acts {
+            assert!(a.text.contains("worst: common"), "{}", a.text);
+            assert!(a.text.contains("2 finding(s)"), "{}", a.text);
+        }
+    }
+
+    #[test]
+    fn coupling_actions_corroborated_first_within_rung() {
+        // Two Common files, one corroborated (co-changes cross-boundary).
+        let mut s = snap_with(vec![
+            finding("src/dormant.rs", CouplingKind::Common),
+            finding("src/live.rs", CouplingKind::Common),
+        ]);
+        s.files
+            .push(crate::metrics::testutil::make_file("src/live.rs"));
+        s.files
+            .push(crate::metrics::testutil::make_file("src/dormant.rs"));
+        s.file_change_pairs
+            .push((PathBuf::from("src/live.rs"), PathBuf::from("tests/x.rs"), 5));
+        for f in ["src/live.rs", "tests/x.rs"] {
+            s.commits_by_file.insert(
+                PathBuf::from(f),
+                (0u32..10).map(crate::snapshot::CommitId).collect(),
+            );
+        }
+        let acts = generate_coupling_actions(&s, &CouplingThresholds::default());
+        assert!(acts[0].text.contains("src/live.rs"));
+        assert!(acts[0].text.contains("corroborated by change history"));
+        assert!(acts[1].text.contains("src/dormant.rs"));
+        assert!(!acts[1].text.contains("corroborated"));
+    }
+
+    #[test]
+    fn coupling_actions_capped_at_ten_keeps_path_sorted_prefix() {
+        // 15 same-rung, same-count, dormant Control findings on distinct files.
+        // The only tiebreak is path asc, so the surviving 10 must be the
+        // lexicographically smallest 10 paths — catches a cap-before-sort bug.
+        let paths: Vec<String> = (0..15).map(|i| format!("src/f{i:02}.rs")).collect();
+        let findings = paths
+            .iter()
+            .map(|p| finding(p, CouplingKind::Control))
+            .collect();
+        let s = snap_with(findings);
+        let acts = generate_coupling_actions(&s, &CouplingThresholds::default());
+        assert_eq!(acts.len(), 10);
+        let mut expected = paths.clone();
+        expected.sort();
+        for (act, want) in acts.iter().zip(expected.iter().take(10)) {
+            assert!(
+                act.text.contains(want.as_str()),
+                "expected {want} in {}",
+                act.text
+            );
+        }
+    }
+
+    #[test]
+    fn coupling_actions_empty_when_detection_did_not_run() {
+        // Findings present but no file_metrics (AST pass didn't run — ADR-005
+        // backfill). Must return empty, never fabricated actions.
+        let mut s = snap_with(vec![finding("src/a.rs", CouplingKind::Common)]);
+        s.file_metrics.clear();
+        assert!(generate_coupling_actions(&s, &CouplingThresholds::default()).is_empty());
+    }
+
+    #[test]
+    fn coupling_actions_advice_is_kind_specific() {
+        for (kind, needle) in [
+            (CouplingKind::Content, "public interface"),
+            (CouplingKind::Common, "injected state"),
+            (CouplingKind::Control, "intent-revealing"),
+        ] {
+            let s = snap_with(vec![finding("src/a.rs", kind)]);
+            let acts = generate_coupling_actions(&s, &CouplingThresholds::default());
+            assert!(
+                acts[0].text.contains(needle),
+                "kind {kind:?}: {}",
+                acts[0].text
+            );
+        }
     }
 }

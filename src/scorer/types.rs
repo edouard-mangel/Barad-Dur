@@ -154,6 +154,9 @@ pub struct AnalysisReport {
     pub overall_score: u32,
     pub categories: Vec<CategoryResult>,
     pub top_actions: Vec<ActionItem>,
+    /// Per-file coupling refactoring suggestions (Pressman M6), ranked by
+    /// severity rung then corroboration. Surfaced in the Coupling tab.
+    pub coupling_actions: Vec<ActionItem>,
     pub remote_meta: Option<RemoteMeta>,
     pub file_hotspots: Vec<HotspotFile>,
     pub coupling_pairs: Vec<CouplingPair>,
