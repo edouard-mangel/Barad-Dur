@@ -314,5 +314,12 @@ changes don't relitigate them blind:
 - Call-site flag-argument detection (`render(true)` — Fowler's smell,
   complements the definition-side control rule).
 - Corroboration-weighted scoring (corroborated findings weigh more than
-  dormant ones in the metric score itself) — depends on M5's checkpoint
-  outcome.
+  dormant ones in the metric score itself) — **shipped in M5**
+  (`corroboration_weight`, default 2.0).
+- **Inheritance coupling detector** — a new rung detecting class inheritance
+  (`class B extends A` in TS/JS; trait/impl relationships where relevant).
+  Not one of the original Pressman six, but a widely-recognized OO coupling
+  form. Today inheritance surfaces only indirectly as an import edge in the
+  afferent/efferent *quantity* metrics, never as a severity-ranked finding.
+  Adding it means a new `CouplingKind`, detector queries, banding, and (once
+  it lands) participation in M6 refactoring actions.
