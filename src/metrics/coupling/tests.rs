@@ -861,3 +861,20 @@ fn cap_triggers_track_the_band_table() {
     );
     assert_eq!(COMMON_CAP_TRIGGER, score_pressman(CouplingKind::Common, 4));
 }
+
+#[test]
+fn qualifying_smell_pairs_matches_change_coupling_count() {
+    // Same fixture the scoring-band test uses: 4 cross-boundary smells.
+    let snapshot = make_cross_boundary_snapshot(4);
+    let via_helper = qualifying_smell_pairs(&snapshot, &default_thresholds()).count();
+    // change_coupling_smells(4) scores 50 == the ">5? no, 3..=5" band for 4 smells.
+    assert_eq!(
+        via_helper, 4,
+        "helper must yield exactly the qualifying pairs"
+    );
+    assert_eq!(
+        change_coupling_smells(&snapshot, &default_thresholds()).score,
+        Some(50),
+        "refactored smell metric must keep its score"
+    );
+}

@@ -164,29 +164,41 @@ fn efferent_coupling(snapshot: &RepoSnapshot) -> MetricValue {
     }
 }
 
-/// Change coupling smells: cross-boundary file pairs that co-change at or above
-/// the configured ratio threshold.
-///
-/// Scored on smell count: 0 → 100, 1–2 → 75, 3–5 → 50, >5 → 25
-fn change_coupling_smells(snapshot: &RepoSnapshot, thresholds: &CouplingThresholds) -> MetricValue {
-    let smell_count = snapshot
+/// Cross-boundary co-change pairs that qualify as change-coupling smells:
+/// different components, both files have commit history, and their
+/// co-change ratio meets the configured threshold. Single source of truth
+/// for "a meaningful co-change" — consumed by both the smell metric and
+/// corroboration (M5).
+fn qualifying_smell_pairs<'a>(
+    snapshot: &'a RepoSnapshot,
+    thresholds: &'a CouplingThresholds,
+) -> impl Iterator<Item = (&'a PathBuf, &'a PathBuf)> + 'a {
+    snapshot
         .file_change_pairs
         .iter()
-        .filter(|(path_a, path_b, co_changes)| {
+        .filter_map(move |(path_a, path_b, co_changes)| {
             let comp_a = extract_component(path_a, thresholds.component_depth);
             let comp_b = extract_component(path_b, thresholds.component_depth);
             if comp_a == comp_b {
-                return false;
+                return None;
             }
             let commits_a = snapshot.commits_by_file.get(path_a).map_or(0, |v| v.len());
             let commits_b = snapshot.commits_by_file.get(path_b).map_or(0, |v| v.len());
             let min_commits = commits_a.min(commits_b);
             if min_commits == 0 {
-                return false;
+                return None;
             }
-            (*co_changes as f64 / min_commits as f64) >= thresholds.change_coupling_min_ratio
+            ((*co_changes as f64 / min_commits as f64) >= thresholds.change_coupling_min_ratio)
+                .then_some((path_a, path_b))
         })
-        .count();
+}
+
+/// Change coupling smells: cross-boundary file pairs that co-change at or above
+/// the configured ratio threshold.
+///
+/// Scored on smell count: 0 → 100, 1–2 → 75, 3–5 → 50, >5 → 25
+fn change_coupling_smells(snapshot: &RepoSnapshot, thresholds: &CouplingThresholds) -> MetricValue {
+    let smell_count = qualifying_smell_pairs(snapshot, thresholds).count();
 
     let score = score_count_bands(smell_count);
 
