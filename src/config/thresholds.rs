@@ -149,7 +149,8 @@ pub struct CouplingThresholds {
     /// How much a corroborated finding (its file co-changes cross-boundary)
     /// weighs versus a dormant one when scoring a Pressman metric. 1.0 = no
     /// nudge (reproduces pre-M5 scores); 2.0 = a corroborated finding counts
-    /// double toward the severity band.
+    /// double toward the severity band. Values < 1.0 (and NaN) are rejected
+    /// by `validate()` — corroboration may only raise severity, never lower it.
     #[serde(default = "default_corroboration_weight")]
     pub corroboration_weight: f64,
 }

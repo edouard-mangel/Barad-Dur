@@ -251,6 +251,13 @@ pub fn validate(config: &RepoConfig) -> Result<()> {
             multiplier
         );
     }
+    let corroboration_weight = config.thresholds.coupling.corroboration_weight;
+    if corroboration_weight.is_nan() || corroboration_weight < 1.0 {
+        bail!(
+            "thresholds.coupling.corroboration_weight must be >= 1.0, got {}",
+            corroboration_weight
+        );
+    }
     Ok(())
 }
 
@@ -542,6 +549,36 @@ mod tests {
         assert!(
             validate(&cfg).is_ok(),
             "hotspot_multiplier = 1.0 is the lower bound and must be accepted"
+        );
+    }
+
+    #[test]
+    fn validate_corroboration_weight_below_one_errors() {
+        let mut cfg = RepoConfig::default();
+        cfg.thresholds.coupling.corroboration_weight = 0.9;
+        assert!(
+            validate(&cfg).is_err(),
+            "a sub-1.0 corroboration weight would un-trip the severity cap"
+        );
+    }
+
+    #[test]
+    fn validate_corroboration_weight_of_exactly_one_is_valid() {
+        let mut cfg = RepoConfig::default();
+        cfg.thresholds.coupling.corroboration_weight = 1.0;
+        assert!(
+            validate(&cfg).is_ok(),
+            "corroboration_weight = 1.0 is the lower bound and must be accepted"
+        );
+    }
+
+    #[test]
+    fn validate_corroboration_weight_nan_errors() {
+        let mut cfg = RepoConfig::default();
+        cfg.thresholds.coupling.corroboration_weight = f64::NAN;
+        assert!(
+            validate(&cfg).is_err(),
+            "NaN must be rejected explicitly since NaN < 1.0 is false"
         );
     }
 }
