@@ -922,3 +922,120 @@ fn corroboration_degree_excludes_below_threshold_and_same_component() {
     let deg = corroboration_degree(&snapshot, &default_thresholds());
     assert!(deg.is_empty(), "no pair qualifies: {deg:?}");
 }
+
+/// `snapshot_with_findings`, plus a qualifying cross-boundary co-change pair
+/// for each given finding-file path so those findings corroborate.
+fn snapshot_with_corroborated(findings: Vec<CouplingFinding>) -> RepoSnapshot {
+    let mut s = snapshot_with_findings(findings.clone());
+    for (i, f) in findings.iter().enumerate() {
+        let partner = PathBuf::from(format!("tests/partner{i}.rs"));
+        s.file_change_pairs
+            .push((f.path.clone(), partner.clone(), 5));
+        s.commits_by_file
+            .insert(f.path.clone(), (0u32..10).map(CommitId).collect());
+        s.commits_by_file
+            .insert(partner, (0u32..10).map(CommitId).collect());
+    }
+    s
+}
+
+#[test]
+fn corroborated_common_finding_scores_one_band_worse() {
+    // 1 dormant Common finding -> count 1 -> 60.
+    let dormant = snapshot_with_findings(vec![make_finding(CouplingKind::Common)]);
+    let d = compute_coupling(&dormant, &CouplingThresholds::default());
+    let d_common = d
+        .metrics
+        .iter()
+        .find(|m| m.name == "Common coupling")
+        .unwrap();
+    assert_eq!(d_common.score, Some(60));
+
+    // 1 corroborated Common finding -> effective 2 (weight 2.0) -> 40.
+    let corr = snapshot_with_corroborated(vec![make_finding(CouplingKind::Common)]);
+    let c = compute_coupling(&corr, &CouplingThresholds::default());
+    let c_common = c
+        .metrics
+        .iter()
+        .find(|m| m.name == "Common coupling")
+        .unwrap();
+    assert_eq!(c_common.score, Some(40));
+}
+
+#[test]
+fn weight_one_reproduces_dormant_scores() {
+    let corr = snapshot_with_corroborated(vec![make_finding(CouplingKind::Common)]);
+    let thresholds = CouplingThresholds {
+        corroboration_weight: 1.0,
+        ..CouplingThresholds::default()
+    };
+    let c = compute_coupling(&corr, &thresholds);
+    let common = c
+        .metrics
+        .iter()
+        .find(|m| m.name == "Common coupling")
+        .unwrap();
+    assert_eq!(
+        common.score,
+        Some(60),
+        "weight 1.0 must equal the dormant score"
+    );
+}
+
+#[test]
+fn corroboration_can_trip_the_severity_cap() {
+    // 2 corroborated Common findings on distinct files -> effective 4 -> 25,
+    // which is <= the Common cap trigger (25) -> category capped.
+    let corr = snapshot_with_corroborated(vec![
+        CouplingFinding {
+            path: PathBuf::from("src/a.rs"),
+            line: Some(1),
+            kind: CouplingKind::Common,
+            evidence: "static mut A".into(),
+        },
+        CouplingFinding {
+            path: PathBuf::from("src/b.rs"),
+            line: Some(1),
+            kind: CouplingKind::Common,
+            evidence: "static mut B".into(),
+        },
+    ]);
+    let c = compute_coupling(&corr, &CouplingThresholds::default());
+    let common = c
+        .metrics
+        .iter()
+        .find(|m| m.name == "Common coupling")
+        .unwrap();
+    assert_eq!(common.score, Some(25));
+    assert!(
+        c.score < crate::scorer::SCORE_GOOD_MIN,
+        "category must be capped"
+    );
+}
+
+#[test]
+fn corroborated_finding_is_annotated_in_evidence_and_description() {
+    let corr = snapshot_with_corroborated(vec![make_finding(CouplingKind::Common)]);
+    let c = compute_coupling(&corr, &CouplingThresholds::default());
+    let common = c
+        .metrics
+        .iter()
+        .find(|m| m.name == "Common coupling")
+        .unwrap();
+    assert!(
+        common
+            .description
+            .contains("1 corroborated by change history"),
+        "description: {}",
+        common.description
+    );
+    match &common.raw_value {
+        RawValue::List(items) => assert!(
+            items
+                .iter()
+                .any(|s| s.contains("corroborated (co-changes with 1 file(s))")),
+            "evidence: {items:?}"
+        ),
+        other => panic!("expected List, got {other:?}"),
+    }
+}

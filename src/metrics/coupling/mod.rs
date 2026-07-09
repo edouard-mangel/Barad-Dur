@@ -15,14 +15,16 @@ pub fn compute_coupling(
     } else {
         Vec::new()
     };
+    let corr = corroboration_degree(snapshot, thresholds);
+    let weight = thresholds.corroboration_weight;
     let metrics = vec![
         afferent_coupling(snapshot),
         efferent_coupling(snapshot),
         circular_dependencies(snapshot),
         change_coupling_smells(snapshot, thresholds),
-        pressman_metric(snapshot, CouplingKind::Content, barrel),
-        pressman_metric(snapshot, CouplingKind::Common, Vec::new()),
-        pressman_metric(snapshot, CouplingKind::Control, Vec::new()),
+        pressman_metric(snapshot, CouplingKind::Content, barrel, &corr, weight),
+        pressman_metric(snapshot, CouplingKind::Common, Vec::new(), &corr, weight),
+        pressman_metric(snapshot, CouplingKind::Control, Vec::new(), &corr, weight),
     ];
     apply_severity_cap(
         CategoryResult {
@@ -196,10 +198,6 @@ fn qualifying_smell_pairs<'a>(
 /// Files that participate in a qualifying cross-boundary co-change, mapped
 /// to their count of *distinct* qualifying partners. Presence of a finding's
 /// path in this map is what marks the finding "corroborated" (M5).
-///
-/// Not yet called from production code — wired into findings in Task 3
-/// (M5 plan). `allow(dead_code)` is temporary until that lands.
-#[allow(dead_code)]
 fn corroboration_degree(
     snapshot: &RepoSnapshot,
     thresholds: &CouplingThresholds,
@@ -370,6 +368,8 @@ fn pressman_metric(
     snapshot: &RepoSnapshot,
     kind: CouplingKind,
     extra: Vec<CouplingFinding>,
+    corr: &HashMap<PathBuf, usize>,
+    weight: f64,
 ) -> MetricValue {
     let (name, rung) = match kind {
         CouplingKind::Content => (
@@ -403,19 +403,44 @@ fn pressman_metric(
         .chain(extra)
         .collect();
     let count = findings.len();
+
+    // Weighted effective count: corroborated findings (their file co-changes
+    // cross-boundary) weigh `weight`, dormant ones weigh 1. Only the *scored*
+    // count is weighted — the displayed count stays truthful. weight == 1.0
+    // reproduces pre-M5 scores exactly.
+    let corroborated_count = findings
+        .iter()
+        .filter(|f| corr.contains_key(&f.path))
+        .count();
+    let dormant_count = count - corroborated_count;
+    let effective = (dormant_count as f64 + corroborated_count as f64 * weight).round() as usize;
+
     let list: Vec<String> = findings
         .iter()
         .take(10)
-        .map(|f| match f.line {
-            Some(l) => format!("{}:{} — {}", f.path.display(), l, f.evidence),
-            None => format!("{} — {}", f.path.display(), f.evidence),
+        .map(|f| {
+            let base = match f.line {
+                Some(l) => format!("{}:{} — {}", f.path.display(), l, f.evidence),
+                None => format!("{} — {}", f.path.display(), f.evidence),
+            };
+            match corr.get(&f.path) {
+                Some(n) => format!("{base} — corroborated (co-changes with {n} file(s))"),
+                None => base,
+            }
         })
         .collect();
+
+    let corr_note = if corroborated_count > 0 {
+        format!(" ({corroborated_count} corroborated by change history)")
+    } else {
+        String::new()
+    };
+
     MetricValue {
         name: name.to_string(),
-        description: format!("{} finding(s) — {}", count, rung),
+        description: format!("{count} finding(s){corr_note} — {rung}"),
         raw_value: RawValue::List(list),
-        score: Some(score_pressman(kind, count)),
+        score: Some(score_pressman(kind, effective)),
     }
 }
 

@@ -146,6 +146,12 @@ pub struct CouplingThresholds {
     /// Control findings never multiply (least severe rung).
     #[serde(default = "default_hotspot_multiplier")]
     pub hotspot_multiplier: f64,
+    /// How much a corroborated finding (its file co-changes cross-boundary)
+    /// weighs versus a dormant one when scoring a Pressman metric. 1.0 = no
+    /// nudge (reproduces pre-M5 scores); 2.0 = a corroborated finding counts
+    /// double toward the severity band.
+    #[serde(default = "default_corroboration_weight")]
+    pub corroboration_weight: f64,
 }
 
 fn default_component_depth() -> usize {
@@ -160,6 +166,9 @@ fn default_content_barrel_rule() -> bool {
 fn default_hotspot_multiplier() -> f64 {
     1.25
 }
+fn default_corroboration_weight() -> f64 {
+    2.0
+}
 
 impl Default for CouplingThresholds {
     fn default() -> Self {
@@ -168,6 +177,7 @@ impl Default for CouplingThresholds {
             change_coupling_min_ratio: default_change_coupling_min_ratio(),
             content_barrel_rule: default_content_barrel_rule(),
             hotspot_multiplier: default_hotspot_multiplier(),
+            corroboration_weight: default_corroboration_weight(),
         }
     }
 }
