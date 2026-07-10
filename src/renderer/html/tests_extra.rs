@@ -559,6 +559,29 @@ fn coupling_tab_renders_instability_panel_when_data_present() {
 }
 
 #[test]
+fn coupling_tab_renders_coupling_actions_panel_when_present() {
+    use crate::scorer::ActionItem;
+    let mut report = make_report();
+    report.coupling_actions = vec![ActionItem {
+        text: "[Coupling] src/globals.rs — 1 finding(s) (worst: common) — injected state advice"
+            .to_string(),
+        target_tab: Some("coupling".to_string()),
+        sort_by: None,
+    }];
+    let html = render(&report).unwrap();
+    // Heading literal baked into the JS source once the panel is implemented.
+    assert!(
+        html.contains("Coupling Actions"),
+        "coupling tab must render a 'Coupling Actions' heading"
+    );
+    // The action text must be serialised into window.R.
+    assert!(
+        html.contains("[Coupling] src/globals.rs"),
+        "window.R must carry the coupling_actions text"
+    );
+}
+
+#[test]
 fn coupling_tab_shows_no_data_message_when_per_file_coupling_empty() {
     // make_report() already has per_file_coupling: vec![]
     let html = render(&make_report()).unwrap();
