@@ -67,6 +67,12 @@ export interface ScoreThresholds {
   warn_min: number
 }
 
+export interface ActionItem {
+  text: string
+  target_tab?: string
+  sort_by?: string
+}
+
 export interface AnalysisReport {
   repo_name: string
   branch: string
@@ -77,6 +83,7 @@ export interface AnalysisReport {
   overall_score: number
   categories: CategoryResult[]
   top_actions: string[]
+  coupling_actions?: ActionItem[]
   remote_meta: RemoteMeta | null
   file_hotspots: HotspotFile[]
   coupling_pairs: CouplingPair[]

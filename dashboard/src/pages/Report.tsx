@@ -213,7 +213,7 @@ export default function Report() {
       )}
 
       {activeTab === 'hotspots'  && <HotspotsView  files={report.file_hotspots} />}
-      {activeTab === 'coupling'  && <CouplingView  pairs={report.coupling_pairs} />}
+      {activeTab === 'coupling'  && <CouplingView  pairs={report.coupling_pairs} actions={report.coupling_actions} />}
       {activeTab === 'ownership' && <OwnershipView ownership={report.author_ownership} />}
       {activeTab === 'age'       && <AgeView       ages={report.file_ages} />}
 
