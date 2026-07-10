@@ -1,26 +1,37 @@
-import type { CouplingPair } from '../types'
+import type { ActionItem, CouplingPair } from '../types'
 
 interface Props {
   pairs: CouplingPair[]
+  actions?: ActionItem[]
 }
 
-export default function CouplingView({ pairs }: Props) {
+export default function CouplingView({ pairs, actions }: Props) {
   const sorted = [...pairs].sort((a, b) => b.coupling_pct - a.coupling_pct)
 
-  if (sorted.length === 0) {
-    return (
-      <p style={{ fontFamily: 'JetBrains Mono', fontSize: '0.8rem', color: 'rgba(148,163,184,0.4)' }}>
-        No coupling pairs detected (threshold: 3 co-changes).
-      </p>
-    )
-  }
-
   return (
-    <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, padding: '1rem 1.25rem', backgroundColor: 'rgba(255,255,255,0.02)', overflowX: 'auto' }}>
-      <p style={{ fontFamily: 'Syne', fontSize: '0.7rem', color: 'rgba(148,163,184,0.4)', letterSpacing: '0.1em', textTransform: 'uppercase', margin: '0 0 0.75rem' }}>
-        Temporal coupling — files that change together
-      </p>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'JetBrains Mono', fontSize: '0.72rem' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      {actions && actions.length > 0 && (
+        <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, padding: '1rem 1.25rem', backgroundColor: 'rgba(255,255,255,0.02)' }}>
+          <p style={{ fontFamily: 'Syne', fontSize: '0.7rem', color: 'rgba(148,163,184,0.4)', letterSpacing: '0.1em', textTransform: 'uppercase', margin: '0 0 0.75rem' }}>
+            Coupling Actions
+          </p>
+          <ol style={{ margin: 0, paddingLeft: '1.25rem', fontFamily: 'JetBrains Mono', fontSize: '0.72rem', color: 'rgba(226,232,240,0.8)', lineHeight: 1.6 }}>
+            {actions.map((a, i) => (
+              <li key={i} style={{ marginBottom: '0.3rem' }}>{a.text}</li>
+            ))}
+          </ol>
+        </div>
+      )}
+      {sorted.length === 0 ? (
+        <p style={{ fontFamily: 'JetBrains Mono', fontSize: '0.8rem', color: 'rgba(148,163,184,0.4)' }}>
+          No coupling pairs detected (threshold: 3 co-changes).
+        </p>
+      ) : (
+        <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, padding: '1rem 1.25rem', backgroundColor: 'rgba(255,255,255,0.02)', overflowX: 'auto' }}>
+          <p style={{ fontFamily: 'Syne', fontSize: '0.7rem', color: 'rgba(148,163,184,0.4)', letterSpacing: '0.1em', textTransform: 'uppercase', margin: '0 0 0.75rem' }}>
+            Temporal coupling — files that change together
+          </p>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'JetBrains Mono', fontSize: '0.72rem' }}>
         <thead>
           <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', color: 'rgba(148,163,184,0.5)', fontSize: '0.65rem', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
             <th style={{ textAlign: 'left', padding: '0.4rem 0.5rem', fontWeight: 400 }}>File A</th>
@@ -81,8 +92,10 @@ export default function CouplingView({ pairs }: Props) {
               </tr>
             )
           })}
-        </tbody>
-      </table>
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

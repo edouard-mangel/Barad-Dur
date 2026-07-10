@@ -299,6 +299,17 @@ fn render_actions_and_footer(report: &AnalysisReport) -> String {
         }
     }
 
+    if !report.coupling_actions.is_empty() {
+        out.push_str(&format!(
+            "\n{}\n",
+            "───────────────────────────────────────────────────".dimmed()
+        ));
+        out.push_str(&format!("  {}\n", "Coupling Actions:".bold()));
+        for (i, action) in report.coupling_actions.iter().enumerate() {
+            out.push_str(&format!("  {}. {}\n", i + 1, action.text));
+        }
+    }
+
     out.push_str(&format!(
         "{}\n\n",
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━".bold()
@@ -339,6 +350,7 @@ mod tests {
                 target_tab: Some("ownership".into()),
                 sort_by: None,
             }],
+            coupling_actions: vec![],
             remote_meta: None,
             file_hotspots: vec![],
             coupling_pairs: vec![],
@@ -388,6 +400,19 @@ mod tests {
             branch_mismatch_warning: false,
             history: vec![],
         }
+    }
+
+    #[test]
+    fn cli_renders_coupling_actions_section() {
+        let mut report = make_report();
+        report.coupling_actions = vec![ActionItem {
+            text: "[Coupling] src/a.rs — 1 finding(s) (worst: common) — Shared mutable global state: replace it with explicitly passed or injected state.".to_string(),
+            target_tab: Some("coupling".to_string()),
+            sort_by: None,
+        }];
+        let out = render_actions_and_footer(&report);
+        assert!(out.contains("Coupling Actions"));
+        assert!(out.contains("[Coupling] src/a.rs"));
     }
 
     #[test]

@@ -268,5 +268,28 @@
     }
 
     container.append(instabilityCard);
+
+    // ---- Coupling Actions panel ----
+    var couplingActions = R.coupling_actions;
+    if (couplingActions && couplingActions.length > 0) {
+      var actionsCard = el('div', { className: 'view-card' });
+      var actHeader = el('div', { className: 'tab-info-title' });
+      actHeader.append(txt('Coupling Actions'));
+      actionsCard.append(actHeader);
+
+      var actDesc = el('div', { style: { fontSize: '13px', color: 'var(--text-muted)', margin: '6px 0 12px' } });
+      actDesc.append(txt('Prioritised per-file refactoring suggestions, worst coupling rung first.'));
+      actionsCard.append(actDesc);
+
+      var actList = el('ol', { className: 'coupling-actions-list' });
+      couplingActions.forEach(function(a) {
+        var li = el('li');
+        li.append(txt(a.text));
+        actList.append(li);
+      });
+      actionsCard.append(actList);
+      container.append(actionsCard);
+    }
+
     return container;
   }

@@ -144,19 +144,11 @@ pub(crate) fn ratchet_finding_sets(
     base: &crate::snapshot::RepoSnapshot,
     head: &crate::snapshot::RepoSnapshot,
 ) -> (Vec<CouplingFinding>, Vec<CouplingFinding>) {
-    let with_barrel = |snap: &crate::snapshot::RepoSnapshot| -> Vec<CouplingFinding> {
-        let barrel = if coupling_cfg.content_barrel_rule {
-            coupling::barrel_bypass_findings(snap, coupling_cfg.component_depth)
-        } else {
-            Vec::new()
-        };
-        snap.coupling_findings
-            .iter()
-            .cloned()
-            .chain(barrel)
-            .collect()
-    };
-    (with_barrel(base), with_barrel(head))
+    use crate::metrics::coupling::all_coupling_findings;
+    (
+        all_coupling_findings(base, coupling_cfg),
+        all_coupling_findings(head, coupling_cfg),
+    )
 }
 
 /// Fold the three independent gate checks into a process exit code.
@@ -371,6 +363,7 @@ mod tests {
             overall_score: overall,
             categories: cats,
             top_actions: vec![],
+            coupling_actions: vec![],
             remote_meta: None,
             file_hotspots: vec![],
             coupling_pairs: vec![],

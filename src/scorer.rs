@@ -6,7 +6,7 @@ mod types;
 pub use actions::compute_overall_score_with_weights;
 pub use types::*;
 
-use actions::generate_top_actions;
+use actions::{generate_coupling_actions, generate_top_actions};
 use builders::{
     build_author_cards, build_author_ownership, build_coupling_pairs, build_file_ages,
     build_hotspots, build_import_cycles, build_import_edges, build_per_file_coupling,
@@ -64,6 +64,7 @@ pub fn build_report(
 ) -> AnalysisReport {
     let overall_score = compute_overall_score_with_weights(&categories, weights);
     let top_actions = generate_top_actions(&categories);
+    let coupling_actions = generate_coupling_actions(snapshot, coupling);
     let file_hotspots = build_hotspots(snapshot, coupling);
     let coupling_pairs = build_coupling_pairs(snapshot, coupling.component_depth);
     let author_ownership = build_author_ownership(snapshot);
@@ -87,6 +88,7 @@ pub fn build_report(
         overall_score,
         categories,
         top_actions,
+        coupling_actions,
         remote_meta,
         file_hotspots,
         coupling_pairs,

@@ -10,11 +10,7 @@ pub fn compute_coupling(
     snapshot: &RepoSnapshot,
     thresholds: &CouplingThresholds,
 ) -> CategoryResult {
-    let barrel = if thresholds.content_barrel_rule {
-        barrel_bypass_findings(snapshot, thresholds.component_depth)
-    } else {
-        Vec::new()
-    };
+    let barrel = gated_barrel_findings(snapshot, thresholds);
     let corr = corroboration_degree(snapshot, thresholds);
     let weight = thresholds.corroboration_weight;
     let metrics = vec![
@@ -198,7 +194,7 @@ fn qualifying_smell_pairs<'a>(
 /// Files that participate in a qualifying cross-boundary co-change, mapped
 /// to their count of *distinct* qualifying partners. Presence of a finding's
 /// path in this map is what marks the finding "corroborated" (M5).
-fn corroboration_degree(
+pub(crate) fn corroboration_degree(
     snapshot: &RepoSnapshot,
     thresholds: &CouplingThresholds,
 ) -> HashMap<PathBuf, usize> {
@@ -304,20 +300,10 @@ pub(crate) fn pressman_finding_counts(
     if !detection_ran(snapshot) || !has_detectable_files(snapshot) {
         return None;
     }
-    let count_kind = |kind: CouplingKind| {
-        snapshot
-            .coupling_findings
-            .iter()
-            .filter(|f| f.kind == kind)
-            .count()
-    };
-    let barrel = if thresholds.content_barrel_rule {
-        barrel_bypass_findings(snapshot, thresholds.component_depth).len()
-    } else {
-        0
-    };
+    let findings = all_coupling_findings(snapshot, thresholds);
+    let count_kind = |kind: CouplingKind| findings.iter().filter(|f| f.kind == kind).count();
     Some(CouplingFindingCounts {
-        content: count_kind(CouplingKind::Content) + barrel,
+        content: count_kind(CouplingKind::Content),
         common: count_kind(CouplingKind::Common),
         control: count_kind(CouplingKind::Control),
     })
@@ -442,6 +428,36 @@ fn pressman_metric(
         raw_value: RawValue::List(list),
         score: Some(score_pressman(kind, effective)),
     }
+}
+
+/// The config-gated barrel-bypass content findings: `barrel_bypass_findings`
+/// when `content_barrel_rule` is on, empty otherwise. Single definition of
+/// the barrel-gating that four call sites previously duplicated.
+pub(crate) fn gated_barrel_findings(
+    snapshot: &RepoSnapshot,
+    thresholds: &CouplingThresholds,
+) -> Vec<CouplingFinding> {
+    if thresholds.content_barrel_rule {
+        barrel_bypass_findings(snapshot, thresholds.component_depth)
+    } else {
+        Vec::new()
+    }
+}
+
+/// Every coupling finding for a snapshot: the AST findings in
+/// `snapshot.coupling_findings` plus the gated barrel-bypass content findings.
+/// The complete set the metric, counts, hotspots, gate ratchet, and M6
+/// actions all consume, so none can disagree about what was found.
+pub(crate) fn all_coupling_findings(
+    snapshot: &RepoSnapshot,
+    thresholds: &CouplingThresholds,
+) -> Vec<CouplingFinding> {
+    snapshot
+        .coupling_findings
+        .iter()
+        .cloned()
+        .chain(gated_barrel_findings(snapshot, thresholds))
+        .collect()
 }
 
 /// Content coupling via barrel bypass: a cross-component relative import

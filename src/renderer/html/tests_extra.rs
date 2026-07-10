@@ -27,6 +27,7 @@ fn make_report() -> AnalysisReport {
             target_tab: Some("hotspots".into()),
             sort_by: None,
         }],
+        coupling_actions: vec![],
         remote_meta: None,
         file_hotspots: vec![],
         coupling_pairs: vec![],
@@ -554,6 +555,29 @@ fn coupling_tab_renders_instability_panel_when_data_present() {
     assert!(
         html.contains("0.8"),
         "window.R must contain the instability value 0.8 for the test entry"
+    );
+}
+
+#[test]
+fn coupling_tab_renders_coupling_actions_panel_when_present() {
+    use crate::scorer::ActionItem;
+    let mut report = make_report();
+    report.coupling_actions = vec![ActionItem {
+        text: "[Coupling] src/globals.rs — 1 finding(s) (worst: common) — injected state advice"
+            .to_string(),
+        target_tab: Some("coupling".to_string()),
+        sort_by: None,
+    }];
+    let html = render(&report).unwrap();
+    // Heading literal baked into the JS source once the panel is implemented.
+    assert!(
+        html.contains("Coupling Actions"),
+        "coupling tab must render a 'Coupling Actions' heading"
+    );
+    // The action text must be serialised into window.R.
+    assert!(
+        html.contains("[Coupling] src/globals.rs"),
+        "window.R must carry the coupling_actions text"
     );
 }
 

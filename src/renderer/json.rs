@@ -111,6 +111,7 @@ mod tests {
                 target_tab: Some("ownership".into()),
                 sort_by: None,
             }],
+            coupling_actions: vec![],
             remote_meta: None,
             file_hotspots: vec![],
             coupling_pairs: vec![],
