@@ -1,5 +1,6 @@
 mod counters;
 mod fallback;
+mod inheritance;
 mod lang_dispatch;
 mod pressman;
 mod queries;
@@ -10,6 +11,7 @@ use std::path::Path;
 use crate::snapshot::FileComplexity;
 
 pub use fallback::{detect_language, Language};
+pub use inheritance::{extract_class_records, RawBaseRef, RawClassRecord};
 pub use pressman::extract_coupling_findings;
 
 /// Extract raw import paths from a source file using tree-sitter.

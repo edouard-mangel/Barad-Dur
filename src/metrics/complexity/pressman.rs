@@ -30,7 +30,7 @@ pub fn extract_coupling_findings(path: &Path, content: &str) -> Vec<CouplingFind
 }
 
 /// All nodes of a subtree, preorder.
-fn descendants(root: Node<'_>) -> Vec<Node<'_>> {
+pub(super) fn descendants(root: Node<'_>) -> Vec<Node<'_>> {
     let mut out = Vec::new();
     let mut stack = vec![root];
     while let Some(n) = stack.pop() {
