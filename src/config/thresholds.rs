@@ -153,6 +153,12 @@ pub struct CouplingThresholds {
     /// by `validate()` — corroboration may only raise severity, never lower it.
     #[serde(default = "default_corroboration_weight")]
     pub corroboration_weight: f64,
+    /// Minimum project-local inheritance depth (DIT) for a class to be
+    /// flagged as inheritance coupling. 0 disables the rule; 1 is rejected
+    /// by `validate()` (it would flag every cross-file `extends` — ordinary
+    /// OO, not the deep-chain hazard this rung targets). Default 2.
+    #[serde(default = "default_inheritance_min_depth")]
+    pub inheritance_min_depth: usize,
 }
 
 fn default_component_depth() -> usize {
@@ -170,6 +176,9 @@ fn default_hotspot_multiplier() -> f64 {
 fn default_corroboration_weight() -> f64 {
     2.0
 }
+fn default_inheritance_min_depth() -> usize {
+    2
+}
 
 impl Default for CouplingThresholds {
     fn default() -> Self {
@@ -179,6 +188,7 @@ impl Default for CouplingThresholds {
             content_barrel_rule: default_content_barrel_rule(),
             hotspot_multiplier: default_hotspot_multiplier(),
             corroboration_weight: default_corroboration_weight(),
+            inheritance_min_depth: default_inheritance_min_depth(),
         }
     }
 }
