@@ -370,10 +370,10 @@ fn change_coupling_depth3_different_component() {
 }
 
 #[test]
-fn compute_coupling_returns_seven_metrics() {
+fn compute_coupling_returns_eight_metrics() {
     let snapshot = make_snapshot();
     let result = compute_coupling(&snapshot, &CouplingThresholds::default());
-    assert_eq!(result.metrics.len(), 7);
+    assert_eq!(result.metrics.len(), 8);
     assert_eq!(result.name, "Coupling");
 }
 
@@ -1104,4 +1104,88 @@ fn all_coupling_findings_equals_findings_plus_gated_barrel() {
         all_coupling_findings(&snapshot, &off).len(),
         snapshot.coupling_findings.len()
     );
+}
+
+#[test]
+fn all_coupling_findings_and_counts_include_inheritance() {
+    use crate::snapshot::{BaseRef, ClassRecord};
+    let mut snapshot = crate::metrics::testutil::make_snapshot();
+    snapshot.files = vec![
+        crate::metrics::testutil::make_file("src/a.ts"),
+        crate::metrics::testutil::make_file("src/b.ts"),
+        crate::metrics::testutil::make_file("src/c.ts"),
+    ];
+    snapshot
+        .file_metrics
+        .insert("src/c.ts".into(), Default::default());
+    snapshot.class_records = vec![
+        ClassRecord {
+            path: "src/b.ts".into(),
+            line: 2,
+            class_name: "B".into(),
+            base: BaseRef::Resolved {
+                path: "src/a.ts".into(),
+                name: "A".into(),
+            },
+        },
+        ClassRecord {
+            path: "src/c.ts".into(),
+            line: 2,
+            class_name: "C".into(),
+            base: BaseRef::Resolved {
+                path: "src/b.ts".into(),
+                name: "B".into(),
+            },
+        },
+    ];
+    let cfg = CouplingThresholds::default();
+    let inh = all_coupling_findings(&snapshot, &cfg)
+        .into_iter()
+        .filter(|f| f.kind == CouplingKind::Inheritance)
+        .count();
+    assert_eq!(inh, 1);
+    let counts = pressman_finding_counts(&snapshot, &cfg).unwrap();
+    assert_eq!(counts.inheritance, 1);
+}
+
+#[test]
+fn inheritance_metric_row_uses_bands() {
+    use crate::snapshot::{BaseRef, ClassRecord};
+    let mut snapshot = crate::metrics::testutil::make_snapshot();
+    snapshot.files = vec![
+        crate::metrics::testutil::make_file("src/a.ts"),
+        crate::metrics::testutil::make_file("src/b.ts"),
+        crate::metrics::testutil::make_file("src/c.ts"),
+    ];
+    snapshot
+        .file_metrics
+        .insert("src/c.ts".into(), Default::default());
+    snapshot.class_records = vec![
+        ClassRecord {
+            path: "src/b.ts".into(),
+            line: 2,
+            class_name: "B".into(),
+            base: BaseRef::Resolved {
+                path: "src/a.ts".into(),
+                name: "A".into(),
+            },
+        },
+        ClassRecord {
+            path: "src/c.ts".into(),
+            line: 2,
+            class_name: "C".into(),
+            base: BaseRef::Resolved {
+                path: "src/b.ts".into(),
+                name: "B".into(),
+            },
+        },
+    ];
+    let metrics = compute_coupling(&snapshot, &CouplingThresholds::default());
+    let m = metrics
+        .metrics
+        .iter()
+        .find(|m| m.name == "Inheritance coupling")
+        .expect("metric row");
+    assert_eq!(m.score, Some(70), "1 finding → 70 band");
+    assert!(m.description.contains("1 finding(s)"));
 }
