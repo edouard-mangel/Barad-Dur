@@ -297,11 +297,13 @@
         var cplCell = el('td');
         var cn = f.content_findings || 0;
         var cm = f.common_findings || 0;
+        var ih = f.inheritance_findings || 0;
         var ct = f.control_findings || 0;
-        if (cn + cm + ct > 0) {
+        if (cn + cm + ih + ct > 0) {
           var labels = [];
           if (cn) labels.push('Cn ' + cn);
           if (cm) labels.push('Cm ' + cm);
+          if (ih) labels.push('Ih ' + ih);
           if (ct) labels.push('Ct ' + ct);
           var badge = el('span', {
             style: {

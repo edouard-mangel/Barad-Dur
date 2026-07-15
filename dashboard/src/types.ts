@@ -37,6 +37,7 @@ export interface HotspotFile {
   content_findings?: number
   common_findings?: number
   control_findings?: number
+  inheritance_findings?: number
 }
 
 export interface CouplingPair {
