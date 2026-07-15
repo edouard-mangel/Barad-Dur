@@ -75,9 +75,11 @@ const COMMON_ADVICE: &str =
     "Shared mutable global state — replace it with explicitly passed or injected state.";
 const CONTROL_ADVICE: &str =
     "A flag parameter steers this function's control flow — split it into two intent-revealing functions.";
+const INHERITANCE_ADVICE: &str =
+    "Deep inheritance chain — favor composition over inheritance, or flatten the hierarchy.";
 
 /// Per-file coupling refactoring suggestions, ranked worst-rung-first
-/// (Content≻Common≻Control), corroborated-before-dormant within a rung, then
+/// (Content≻Common≻Inheritance≻Control), corroborated-before-dormant within a rung, then
 /// higher finding-count first, capped at 10. A file's action speaks to its
 /// most severe rung. Empty when detection did not run.
 pub(super) fn generate_coupling_actions(
@@ -102,7 +104,8 @@ pub(super) fn generate_coupling_actions(
         let sev = match f.kind {
             CouplingKind::Content => 0u8,
             CouplingKind::Common => 1,
-            CouplingKind::Control => 2,
+            CouplingKind::Inheritance => 2,
+            CouplingKind::Control => 3,
         };
         let entry = by_file.entry(f.path.as_path()).or_insert((sev, 0));
         entry.0 = entry.0.min(sev);
@@ -127,6 +130,7 @@ pub(super) fn generate_coupling_actions(
             let (kind_label, advice) = match sev {
                 0 => ("content", CONTENT_ADVICE),
                 1 => ("common", COMMON_ADVICE),
+                2 => ("inheritance", INHERITANCE_ADVICE),
                 _ => ("control", CONTROL_ADVICE),
             };
             let corr_note = if corroborated {
@@ -504,6 +508,7 @@ mod tests {
         for (kind, needle) in [
             (CouplingKind::Content, "public interface"),
             (CouplingKind::Common, "injected state"),
+            (CouplingKind::Inheritance, "composition"),
             (CouplingKind::Control, "intent-revealing"),
         ] {
             let s = snap_with(vec![finding("src/a.rs", kind)]);
@@ -514,5 +519,19 @@ mod tests {
                 acts[0].text
             );
         }
+    }
+
+    #[test]
+    fn inheritance_ranks_between_common_and_control() {
+        let s = snap_with(vec![
+            finding("src/ctrl.rs", CouplingKind::Control),
+            finding("src/deep.ts", CouplingKind::Inheritance),
+            finding("src/glob.rs", CouplingKind::Common),
+        ]);
+        let actions = generate_coupling_actions(&s, &crate::config::CouplingThresholds::default());
+        let texts: Vec<&str> = actions.iter().map(|a| a.text.as_str()).collect();
+        assert!(texts[0].contains("src/glob.rs") && texts[0].contains("worst: common"));
+        assert!(texts[1].contains("src/deep.ts") && texts[1].contains("worst: inheritance"));
+        assert!(texts[2].contains("src/ctrl.rs") && texts[2].contains("worst: control"));
     }
 }

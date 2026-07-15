@@ -258,6 +258,9 @@ pub fn validate(config: &RepoConfig) -> Result<()> {
             corroboration_weight
         );
     }
+    if config.thresholds.coupling.inheritance_min_depth == 1 {
+        bail!("thresholds.coupling.inheritance_min_depth must be 0 (disabled) or >= 2, got 1");
+    }
     Ok(())
 }
 
@@ -580,5 +583,24 @@ mod tests {
             validate(&cfg).is_err(),
             "NaN must be rejected explicitly since NaN < 1.0 is false"
         );
+    }
+
+    #[test]
+    fn inheritance_min_depth_of_one_is_rejected() {
+        let mut cfg = RepoConfig::default();
+        cfg.thresholds.coupling.inheritance_min_depth = 1;
+        assert!(
+            validate(&cfg).is_err(),
+            "1 would flag every cross-file extends"
+        );
+    }
+
+    #[test]
+    fn inheritance_min_depth_zero_and_two_are_accepted() {
+        let mut cfg = RepoConfig::default();
+        cfg.thresholds.coupling.inheritance_min_depth = 0;
+        assert!(validate(&cfg).is_ok(), "0 disables the rule");
+        cfg.thresholds.coupling.inheritance_min_depth = 2;
+        assert!(validate(&cfg).is_ok());
     }
 }

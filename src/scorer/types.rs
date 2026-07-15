@@ -22,6 +22,7 @@ pub struct HotspotFile {
     pub content_findings: usize,
     pub common_findings: usize,
     pub control_findings: usize,
+    pub inheritance_findings: usize,
     /// Commits touching the file per 1/12 of the analysis window (oldest first).
     pub churn_timeline: Vec<u32>,
 }
@@ -182,6 +183,7 @@ pub struct AnalysisReport {
 pub struct CouplingFindingCounts {
     pub content: usize,
     pub common: usize,
+    pub inheritance: usize,
     pub control: usize,
 }
 
@@ -196,6 +198,8 @@ pub struct HistoryCounts {
     pub common_coupling: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub control_coupling: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inheritance_coupling: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -292,6 +296,7 @@ mod tests {
             content_coupling: None,
             common_coupling: None,
             control_coupling: None,
+            inheritance_coupling: None,
         };
         let json = serde_json::to_value(&counts).unwrap();
         assert!(
@@ -300,6 +305,7 @@ mod tests {
         );
         assert!(json.get("common_coupling").is_none());
         assert!(json.get("control_coupling").is_none());
+        assert!(json.get("inheritance_coupling").is_none());
     }
 
     #[test]
@@ -311,10 +317,12 @@ mod tests {
             content_coupling: Some(0),
             common_coupling: Some(4),
             control_coupling: Some(7),
+            inheritance_coupling: Some(2),
         };
         let json = serde_json::to_value(&counts).unwrap();
         assert_eq!(json["content_coupling"], 0);
         assert_eq!(json["common_coupling"], 4);
         assert_eq!(json["control_coupling"], 7);
+        assert_eq!(json["inheritance_coupling"], 2);
     }
 }

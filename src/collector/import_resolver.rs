@@ -29,6 +29,17 @@ pub fn resolve_imports(
         .collect()
 }
 
+/// Resolve one raw import specifier from `source` against the repo's known
+/// files. Crate-visible for class-record base resolution (M7), which must
+/// use the exact same candidate rules as the import graph.
+pub(crate) fn resolve_specifier(
+    raw: &str,
+    source: &Path,
+    known: &HashSet<&PathBuf>,
+) -> Option<PathBuf> {
+    resolve_single_import(raw, source, known)
+}
+
 fn resolve_single_import(raw: &str, source: &Path, known: &HashSet<&PathBuf>) -> Option<PathBuf> {
     let ext = source.extension().and_then(|e| e.to_str()).unwrap_or("");
     let candidates = match ext {

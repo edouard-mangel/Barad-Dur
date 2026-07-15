@@ -6,15 +6,18 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use crate::metrics::complexity;
-use crate::snapshot::{CouplingFinding, FileComplexity, FileEntry, RepoSnapshot, TimeWindow};
+use crate::metrics::complexity::{self, RawBaseRef, RawClassRecord};
+use crate::snapshot::{
+    BaseRef, ClassRecord, CouplingFinding, FileComplexity, FileEntry, RepoSnapshot, TimeWindow,
+};
 
 use super::ignore_file::{should_include, BaradDurIgnore};
-use super::import_resolver::{resolve_imports, RawImports};
+use super::import_resolver::{resolve_imports, resolve_specifier, RawImports};
 use super::progress::{NoProgress, Progress};
 use super::Collector;
 
 impl Collector {
+    #[allow(clippy::type_complexity)]
     pub(super) fn collect_file_metrics_with_progress(
         &self,
         files: &[FileEntry],
@@ -23,9 +26,17 @@ impl Collector {
         HashMap<PathBuf, FileComplexity>,
         RawImports,
         Vec<CouplingFinding>,
+        HashMap<PathBuf, Vec<RawClassRecord>>,
     ) {
         let root = self.repo_path();
-        let results: Vec<(PathBuf, FileComplexity, Vec<String>, Vec<CouplingFinding>)> = files
+        #[allow(clippy::type_complexity)]
+        let results: Vec<(
+            PathBuf,
+            FileComplexity,
+            Vec<String>,
+            Vec<CouplingFinding>,
+            Vec<RawClassRecord>,
+        )> = files
             .par_iter()
             .filter(|entry| !entry.is_binary)
             .filter_map(|entry| {
@@ -34,22 +45,27 @@ impl Collector {
                 let metrics = complexity::analyse_file(&entry.path, &content);
                 let imports = complexity::extract_file_imports(&entry.path, &content);
                 let findings = complexity::extract_coupling_findings(&entry.path, &content);
+                let classes = complexity::extract_class_records(&entry.path, &content);
                 progress.inc(1);
-                Some((entry.path.clone(), metrics, imports, findings))
+                Some((entry.path.clone(), metrics, imports, findings, classes))
             })
             .collect();
         let mut file_metrics = HashMap::new();
         let mut raw_imports = HashMap::new();
         let mut coupling_findings = Vec::new();
-        for (path, metrics, imports, findings) in results {
+        let mut raw_classes = HashMap::new();
+        for (path, metrics, imports, findings, classes) in results {
             file_metrics.insert(path.clone(), metrics);
             if !imports.is_empty() {
-                raw_imports.insert(path, imports);
+                raw_imports.insert(path.clone(), imports);
+            }
+            if !classes.is_empty() {
+                raw_classes.insert(path, classes);
             }
             coupling_findings.extend(findings);
         }
         coupling_findings.sort_by(|a, b| (&a.path, a.line).cmp(&(&b.path, b.line)));
-        (file_metrics, raw_imports, coupling_findings)
+        (file_metrics, raw_imports, coupling_findings, raw_classes)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -230,7 +246,7 @@ impl Collector {
             Some(pb) => pb,
             None => &NoProgress,
         };
-        let (file_metrics, raw_imports, coupling_findings) =
+        let (file_metrics, raw_imports, coupling_findings, raw_classes) =
             self.collect_file_metrics_with_progress(&files, complexity_progress);
         let complexity_ms = t.elapsed().as_millis();
         if let Some(pb) = complexity_bar {
@@ -243,6 +259,7 @@ impl Collector {
         let head = self.head_commit_hash()?;
 
         let import_graph = resolve_imports(&raw_imports, &files);
+        let class_records = resolve_class_records(raw_classes, &files);
         let mut snapshot = RepoSnapshot {
             path: self.repo_path().to_path_buf(),
             name: self.repo_name(),
@@ -260,6 +277,7 @@ impl Collector {
             file_metrics,
             import_graph,
             coupling_findings,
+            class_records,
             commit_interner: collection.interner,
         };
         snapshot.build_indexes();
@@ -330,10 +348,10 @@ impl Collector {
             .and_then(|h| h.shorthand().ok().map(String::from))
             .unwrap_or_else(|| "main".to_string());
 
-        let (file_metrics, import_graph, coupling_findings) = if run_ast {
+        let (file_metrics, import_graph, coupling_findings, class_records) = if run_ast {
             ast_pass_at(&repo, &files)?
         } else {
-            (HashMap::new(), HashMap::new(), Vec::new())
+            (HashMap::new(), HashMap::new(), Vec::new(), Vec::new())
         };
 
         let mut snapshot = RepoSnapshot {
@@ -353,6 +371,7 @@ impl Collector {
             file_metrics,
             import_graph,
             coupling_findings,
+            class_records,
             commit_interner: collection.interner,
         };
         snapshot.build_indexes();
@@ -374,10 +393,12 @@ fn ast_pass_at(
     HashMap<PathBuf, FileComplexity>,
     HashMap<PathBuf, Vec<PathBuf>>,
     Vec<CouplingFinding>,
+    Vec<ClassRecord>,
 )> {
     let mut file_metrics = HashMap::new();
     let mut raw_imports: RawImports = HashMap::new();
     let mut coupling_findings = Vec::new();
+    let mut raw_classes: HashMap<PathBuf, Vec<RawClassRecord>> = HashMap::new();
     for entry in files.iter().filter(|f| !f.is_binary) {
         let oid = match git2::Oid::from_str(&entry.blob_oid) {
             Ok(o) => o,
@@ -398,10 +419,51 @@ fn ast_pass_at(
             raw_imports.insert(entry.path.clone(), imports);
         }
         coupling_findings.extend(complexity::extract_coupling_findings(&entry.path, content));
+        let classes = complexity::extract_class_records(&entry.path, content);
+        if !classes.is_empty() {
+            raw_classes.insert(entry.path.clone(), classes);
+        }
     }
     coupling_findings.sort_by(|a, b| (&a.path, a.line).cmp(&(&b.path, b.line)));
     let import_graph = resolve_imports(&raw_imports, files);
-    Ok((file_metrics, import_graph, coupling_findings))
+    let class_records = resolve_class_records(raw_classes, files);
+    Ok((file_metrics, import_graph, coupling_findings, class_records))
+}
+
+/// Resolve raw class records' import specifiers against the repo's file
+/// set, producing the snapshot's `class_records` (sorted by path, line).
+fn resolve_class_records(
+    raw: HashMap<PathBuf, Vec<RawClassRecord>>,
+    files: &[FileEntry],
+) -> Vec<ClassRecord> {
+    let known: std::collections::HashSet<&PathBuf> = files.iter().map(|f| &f.path).collect();
+    let mut records: Vec<ClassRecord> = raw
+        .into_iter()
+        .flat_map(|(path, recs)| {
+            recs.into_iter()
+                .map(|r| {
+                    let base = match r.base {
+                        RawBaseRef::SameFile(name) => BaseRef::SameFile(name),
+                        RawBaseRef::Unresolvable => BaseRef::Unresolvable,
+                        RawBaseRef::Specifier { specifier, name } => {
+                            match resolve_specifier(&specifier, &path, &known) {
+                                Some(target) => BaseRef::Resolved { path: target, name },
+                                None => BaseRef::Unresolvable,
+                            }
+                        }
+                    };
+                    ClassRecord {
+                        path: path.clone(),
+                        line: r.line,
+                        class_name: r.class_name,
+                        base,
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    records.sort_by(|a, b| (&a.path, a.line).cmp(&(&b.path, b.line)));
+    records
 }
 
 #[cfg(test)]
@@ -482,7 +544,7 @@ mod tests {
         // NoProgress is already imported at the top of snapshot_builder.rs
         // (`use super::progress::{NoProgress, Progress};`) and reaches the
         // tests module via `use super::*`.
-        let (_, _, findings) = collector.collect_file_metrics_with_progress(&files, &NoProgress);
+        let (_, _, findings, _) = collector.collect_file_metrics_with_progress(&files, &NoProgress);
         // barad-dur's own code should produce a deterministic, sorted list
         let mut sorted = findings.clone();
         sorted.sort_by(|a, b| (&a.path, a.line).cmp(&(&b.path, b.line)));
@@ -662,7 +724,7 @@ mod tests {
             ),
             entry("src/non_utf8.rs", non_utf8.to_string()),
         ];
-        let (metrics, _imports, findings) = ast_pass_at(&repo, &files).unwrap();
+        let (metrics, _imports, findings, _classes) = ast_pass_at(&repo, &files).unwrap();
         assert_eq!(
             findings.len(),
             1,
@@ -672,5 +734,53 @@ mod tests {
         assert!(!metrics.contains_key(Path::new("src/bad_oid.rs")));
         assert!(!metrics.contains_key(Path::new("src/missing.rs")));
         assert!(!metrics.contains_key(Path::new("src/non_utf8.rs")));
+    }
+
+    #[test]
+    fn resolve_class_records_resolves_specifiers_and_sorts() {
+        use crate::metrics::complexity::{RawBaseRef, RawClassRecord};
+        use crate::snapshot::BaseRef;
+        let files = vec![
+            crate::metrics::testutil::make_file("src/a.ts"),
+            crate::metrics::testutil::make_file("src/b.ts"),
+        ];
+        let mut raw = HashMap::new();
+        raw.insert(
+            PathBuf::from("src/b.ts"),
+            vec![
+                RawClassRecord {
+                    line: 9,
+                    class_name: "X".into(),
+                    base: RawBaseRef::Specifier {
+                        specifier: "react".into(),
+                        name: "Component".into(),
+                    },
+                },
+                RawClassRecord {
+                    line: 2,
+                    class_name: "B".into(),
+                    base: RawBaseRef::Specifier {
+                        specifier: "./a".into(),
+                        name: "A".into(),
+                    },
+                },
+            ],
+        );
+        let records = resolve_class_records(raw, &files);
+        assert_eq!(records.len(), 2);
+        // sorted by (path, line): B (line 2) before X (line 9)
+        assert_eq!(records[0].class_name, "B");
+        assert_eq!(
+            records[0].base,
+            BaseRef::Resolved {
+                path: "src/a.ts".into(),
+                name: "A".into()
+            }
+        );
+        assert_eq!(
+            records[1].base,
+            BaseRef::Unresolvable,
+            "external package must not resolve"
+        );
     }
 }

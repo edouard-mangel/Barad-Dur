@@ -12,8 +12,9 @@ const FINGERPRINT_FILE: &str = "exclude.fingerprint";
 /// Bumped whenever `RepoSnapshot`'s serialized shape changes. Bincode is
 /// positional: a mid-struct field addition can garbage-parse instead of
 /// failing, silently serving stale data. The explicit version makes
-/// invalidation deterministic. History: 1 = post-M1 shape (coupling_findings).
-const CACHE_VERSION: u32 = 1;
+/// invalidation deterministic. History: 1 = post-M1 shape (coupling_findings);
+/// 2 = M7 (class_records).
+const CACHE_VERSION: u32 = 2;
 
 /// Save a snapshot to the cache directory.
 pub fn save(snapshot: &RepoSnapshot, repo_path: &Path) -> Result<()> {

@@ -74,4 +74,12 @@ describe('HotspotsView coupling badge', () => {
     // one em dash from Bugs (0 bugs) + one from Coupling
     expect(screen.getAllByText('—').length).toBe(2)
   })
+
+  it('shows the inheritance badge; reports without the field render unchanged', () => {
+    const deep: HotspotFile = { ...file('src/deep.ts', 80), inheritance_findings: 2 }
+    const old: HotspotFile = file('src/old.ts', 70) // pre-M7 report shape
+    render(<HotspotsView files={[deep, old]} />)
+    expect(screen.queryByText('Ih 2')).not.toBeNull()
+    expect(screen.queryByTitle('src/old.ts')).not.toBeNull()
+  })
 })

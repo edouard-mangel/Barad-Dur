@@ -64,13 +64,14 @@ pub(super) fn build_hotspots(
         .fold((i64::MAX, i64::MIN), |(lo, hi), &t| (lo.min(t), hi.max(t)));
 
     let all_findings = all_coupling_findings(snapshot, coupling);
-    let finding_counts: HashMap<&Path, (usize, usize, usize)> =
+    let finding_counts: HashMap<&Path, (usize, usize, usize, usize)> =
         all_findings.iter().fold(HashMap::new(), |mut acc, f| {
             let entry = acc.entry(f.path.as_path()).or_default();
             match f.kind {
                 CouplingKind::Content => entry.0 += 1,
                 CouplingKind::Common => entry.1 += 1,
-                CouplingKind::Control => entry.2 += 1,
+                CouplingKind::Inheritance => entry.2 += 1,
+                CouplingKind::Control => entry.3 += 1,
             }
             acc
         });
@@ -90,10 +91,11 @@ pub(super) fn build_hotspots(
                 .get(&f.path)
                 .cloned()
                 .unwrap_or_default();
-            let (content_findings, common_findings, control_findings) = finding_counts
-                .get(f.path.as_path())
-                .copied()
-                .unwrap_or((0, 0, 0));
+            let (content_findings, common_findings, inheritance_findings, control_findings) =
+                finding_counts
+                    .get(f.path.as_path())
+                    .copied()
+                    .unwrap_or((0, 0, 0, 0));
             HotspotFile {
                 path: f.path.to_string_lossy().to_string(),
                 churn_count: churn,
@@ -107,6 +109,7 @@ pub(super) fn build_hotspots(
                 content_findings,
                 common_findings,
                 control_findings,
+                inheritance_findings,
                 churn_timeline: churn_timeline(commit_ids, &ts_by_id, min_ts, max_ts),
             }
         })
@@ -1162,6 +1165,31 @@ mod tests {
             ),
             (0, 0, 0)
         );
+    }
+
+    #[test]
+    fn hotspot_rows_carry_inheritance_counts_without_score_boost() {
+        use crate::snapshot::{CouplingFinding, CouplingKind};
+        let mut snapshot = crate::metrics::testutil::make_snapshot();
+        snapshot.files = vec![
+            crate::metrics::testutil::make_file("src/deep.ts"),
+            crate::metrics::testutil::make_file("src/clean.ts"),
+        ];
+        snapshot.coupling_findings = vec![CouplingFinding {
+            path: "src/deep.ts".into(),
+            line: Some(2),
+            kind: CouplingKind::Inheritance,
+            evidence: "class C extends B → A (depth 2)".into(),
+        }];
+        let cfg = crate::config::CouplingThresholds::default();
+        let hotspots = build_hotspots(&snapshot, &cfg);
+        let deep = hotspots.iter().find(|h| h.path == "src/deep.ts").unwrap();
+        let clean = hotspots.iter().find(|h| h.path == "src/clean.ts").unwrap();
+        assert_eq!(deep.inheritance_findings, 1);
+        assert_eq!(clean.inheritance_findings, 0);
+        // Ladder: only Content/Common multiply hotspot risk. Identical
+        // churn/complexity ⇒ identical score despite the inheritance finding.
+        assert_eq!(deep.hotspot_score, clean.hotspot_score);
     }
 
     #[test]

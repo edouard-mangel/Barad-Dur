@@ -167,8 +167,9 @@ export default function HotspotsView({ files }: Props) {
               const name = f.path.split('/').pop() ?? f.path
               const cn = f.content_findings ?? 0
               const cm = f.common_findings ?? 0
+              const ih = f.inheritance_findings ?? 0
               const ct = f.control_findings ?? 0
-              const badge = [cn > 0 && `Cn ${cn}`, cm > 0 && `Cm ${cm}`, ct > 0 && `Ct ${ct}`]
+              const badge = [cn > 0 && `Cn ${cn}`, cm > 0 && `Cm ${cm}`, ih > 0 && `Ih ${ih}`, ct > 0 && `Ct ${ct}`]
                 .filter(Boolean)
                 .join(' · ')
               return (

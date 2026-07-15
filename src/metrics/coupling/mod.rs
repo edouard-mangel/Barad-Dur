@@ -1,3 +1,6 @@
+mod inheritance;
+pub(crate) use inheritance::inheritance_findings;
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -11,6 +14,7 @@ pub fn compute_coupling(
     thresholds: &CouplingThresholds,
 ) -> CategoryResult {
     let barrel = gated_barrel_findings(snapshot, thresholds);
+    let inh = inheritance_findings(snapshot, thresholds.inheritance_min_depth);
     let corr = corroboration_degree(snapshot, thresholds);
     let weight = thresholds.corroboration_weight;
     let metrics = vec![
@@ -20,6 +24,7 @@ pub fn compute_coupling(
         change_coupling_smells(snapshot, thresholds),
         pressman_metric(snapshot, CouplingKind::Content, barrel, &corr, weight),
         pressman_metric(snapshot, CouplingKind::Common, Vec::new(), &corr, weight),
+        pressman_metric(snapshot, CouplingKind::Inheritance, inh, &corr, weight),
         pressman_metric(snapshot, CouplingKind::Control, Vec::new(), &corr, weight),
     ];
     apply_severity_cap(
@@ -305,6 +310,7 @@ pub(crate) fn pressman_finding_counts(
     Some(CouplingFindingCounts {
         content: count_kind(CouplingKind::Content),
         common: count_kind(CouplingKind::Common),
+        inheritance: count_kind(CouplingKind::Inheritance),
         control: count_kind(CouplingKind::Control),
     })
 }
@@ -341,6 +347,14 @@ pub(crate) const fn score_pressman(kind: CouplingKind, count: usize) -> u32 {
             2..=3 => 40,
             _ => 25,
         },
+        CouplingKind::Inheritance => match count {
+            // Maintainer decision (2026-07-15): between Common's harshness and
+            // Control's leniency; the floor never triggers the ≤25 category cap.
+            0 => 100,
+            1..=2 => 70,
+            3..=6 => 55,
+            _ => 40,
+        },
         CouplingKind::Control => match count {
             0 => 100,
             1..=5 => 85,
@@ -363,6 +377,7 @@ fn pressman_metric(
             "worst rung: another module's internals reached",
         ),
         CouplingKind::Common => ("Common coupling", "shared mutable global state"),
+        CouplingKind::Inheritance => ("Inheritance coupling", "deep class inheritance chains"),
         CouplingKind::Control => ("Control coupling", "flag parameters steering callee logic"),
     };
     if !detection_ran(snapshot) {
@@ -445,9 +460,10 @@ pub(crate) fn gated_barrel_findings(
 }
 
 /// Every coupling finding for a snapshot: the AST findings in
-/// `snapshot.coupling_findings` plus the gated barrel-bypass content findings.
-/// The complete set the metric, counts, hotspots, gate ratchet, and M6
-/// actions all consume, so none can disagree about what was found.
+/// `snapshot.coupling_findings` plus the gated barrel-bypass content findings
+/// plus the metric-time inheritance-depth findings. The complete set the
+/// metric, counts, hotspots, gate ratchet, and M6 actions all consume, so
+/// none can disagree about what was found.
 pub(crate) fn all_coupling_findings(
     snapshot: &RepoSnapshot,
     thresholds: &CouplingThresholds,
@@ -457,6 +473,10 @@ pub(crate) fn all_coupling_findings(
         .iter()
         .cloned()
         .chain(gated_barrel_findings(snapshot, thresholds))
+        .chain(inheritance_findings(
+            snapshot,
+            thresholds.inheritance_min_depth,
+        ))
         .collect()
 }
 

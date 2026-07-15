@@ -149,6 +149,8 @@ pub enum CouplingKind {
     Content,
     /// Shared mutable global state (e.g. `static mut`, exported `let`).
     Common,
+    /// Deep class-inheritance chain (project-local DIT ≥ threshold), TS/JS.
+    Inheritance,
     /// Flag parameter steering a public function's internal control flow.
     Control,
 }
@@ -163,6 +165,31 @@ pub struct CouplingFinding {
     pub kind: CouplingKind,
     /// Short human-readable snippet, e.g. `static mut CACHE: usize = 0;`.
     pub evidence: String,
+}
+
+/// A `class … extends …` site in a TS/JS file, with its base resolved as
+/// far as static analysis allows. Produced by the collector; inheritance
+/// depth (DIT) is computed at metric time so the threshold knob stays live
+/// without re-collection.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClassRecord {
+    pub path: PathBuf,
+    /// 1-based declaration line.
+    pub line: usize,
+    pub class_name: String,
+    pub base: BaseRef,
+}
+
+/// The extends-target of a class record.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum BaseRef {
+    /// Base class assumed declared in the same file.
+    SameFile(String),
+    /// Base imported from a resolved project-local file.
+    Resolved { path: PathBuf, name: String },
+    /// External package, non-identifier extends expression, or unresolved
+    /// specifier — terminates depth counting.
+    Unresolvable,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -228,6 +255,7 @@ pub struct RepoSnapshot {
     pub file_metrics: HashMap<PathBuf, FileComplexity>,
     pub import_graph: HashMap<PathBuf, Vec<PathBuf>>,
     pub coupling_findings: Vec<CouplingFinding>,
+    pub class_records: Vec<ClassRecord>,
     pub commit_interner: CommitInterner,
 }
 
@@ -250,6 +278,7 @@ impl RepoSnapshot {
             file_metrics: HashMap::new(),
             import_graph: HashMap::new(),
             coupling_findings: Vec::new(),
+            class_records: Vec::new(),
             commit_interner: CommitInterner::default(),
         }
     }
