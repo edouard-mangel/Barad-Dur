@@ -29,7 +29,7 @@ fn fixture_repo() -> tempfile::TempDir {
     std::fs::write(dir.path().join("src/a.ts"), "export class A {}\n").unwrap();
     std::fs::write(
         dir.path().join("src/b.ts"),
-        "import { A } from './a';\nexport class B extends A {}\n",
+        "import { A } from './a';\nexport abstract class B extends A {}\n",
     )
     .unwrap();
     std::fs::write(
@@ -91,7 +91,7 @@ fn inheritance_finding_surfaces_end_to_end() {
     let list = metric["raw_value"]["List"]
         .as_array()
         .expect("List raw_value");
-    let entry = list[0].as_str().unwrap();
+    let entry = list[0].as_str().expect("evidence entry is a string");
     assert!(
         entry.contains("src/c.ts:2") && entry.contains("class C extends B → A (depth 2)"),
         "evidence with line: {entry}"

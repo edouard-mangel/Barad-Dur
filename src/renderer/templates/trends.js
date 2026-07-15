@@ -169,6 +169,9 @@
             + (entry.counts.content_coupling != null
                 ? 'coupling findings: ' + entry.counts.content_coupling + ' content, '
                   + entry.counts.common_coupling + ' common, '
+                  + (entry.counts.inheritance_coupling != null
+                      ? entry.counts.inheritance_coupling + ' inheritance, '
+                      : '')
                   + entry.counts.control_coupling + ' control\n'
                 : '')
             + srcLabel;

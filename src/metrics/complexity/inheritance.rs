@@ -53,7 +53,12 @@ pub fn extract_class_records(path: &Path, content: &str) -> Vec<RawClassRecord> 
     let imports = import_bindings(root, content);
     descendants(root)
         .into_iter()
-        .filter(|n| matches!(n.kind(), "class_declaration" | "class"))
+        .filter(|n| {
+            matches!(
+                n.kind(),
+                "class_declaration" | "class" | "abstract_class_declaration"
+            )
+        })
         .filter_map(|class_node| class_record(class_node, content, &imports))
         .collect()
 }
@@ -77,6 +82,9 @@ fn class_record(
     } else {
         RawBaseRef::Unresolvable
     };
+    // Multiple anonymous class expressions in one file collapse onto the
+    // same (path, "default") key — depth lookup keeps the last record seen,
+    // a known bounded limitation; disambiguate by line if it ever matters.
     let class_name = class_node
         .child_by_field_name("name")
         .map(|n| text(n, content).to_string())
@@ -259,6 +267,14 @@ mod tests {
     fn ts_type_arguments_on_base_still_resolve_the_identifier() {
         let src = "class A<T> {}\nclass B extends A<number> {}\n";
         let r = records("src/b.ts", src);
+        assert_eq!(r[0].base, RawBaseRef::SameFile("A".into()));
+    }
+
+    #[test]
+    fn abstract_class_with_extends_is_captured() {
+        let r = records("src/b.ts", "abstract class B extends A {}\n");
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].class_name, "B");
         assert_eq!(r[0].base, RawBaseRef::SameFile("A".into()));
     }
 }

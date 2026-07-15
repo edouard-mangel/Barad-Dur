@@ -70,7 +70,8 @@ Same pipeline split as M1: facts in the **collector**, judgment **pure** in
 `metrics/coupling`.
 
 ```
-Collector (existing tree-sitter TS/JS pass, zero extra parses)
+Collector (same per-file, rayon-parallel pass as the other extractors;
+extraction performs its own tree-sitter parse, like its siblings)
     → per-class records (name, extends-target)
     → snapshot_builder: resolve import specifiers → PathBuf
         → RepoSnapshot.class_records: Vec<ClassRecord>   [CACHE_VERSION 1 → 2]
@@ -103,11 +104,15 @@ pub enum BaseRef {
 pub enum CouplingKind { Content, Common, Inheritance, Control } // worst → least
 ```
 
-- Extraction: the TS/JS tree-sitter query captures `class_declaration` /
-  `class` expression nodes with a heritage clause. An identifier base that
-  matches an import binding becomes a specifier; specifier → `PathBuf`
-  resolution happens in `snapshot_builder`, reusing the import-resolver logic
-  that builds `import_graph`. Classes without `extends` produce no record.
+- Extraction (`extract_class_records`) parses each TS/JS file with its own
+  tree-sitter parse — a fourth parse per file, consistent with the other
+  extractors in the collector's per-file, rayon-parallel pass, not a reuse of
+  an existing parse tree. It walks `class_declaration` / `class` /
+  `abstract_class_declaration` nodes with a heritage clause. An identifier
+  base that matches an import binding becomes a specifier; specifier →
+  `PathBuf` resolution happens in `snapshot_builder`, reusing the
+  import-resolver logic that builds `import_graph`. Classes without `extends`
+  produce no record.
 - `CACHE_VERSION` bumps 1 → 2: appending a snapshot field can decode from an
   old cache as structurally valid but silently empty — the explicit bump
   forces re-collection.
@@ -168,6 +173,11 @@ HTML and dashboard render it verbatim, and metric rows flow automatically.
   siblings.
 - **JSON:** additive only — new count field, new variant name; no renderer
   reads `coupling_finding_counts` (gate + JSON consumers only).
+- **Trend tooltip** (`renderer/templates/trends.js`): the hover tooltip's
+  `coupling findings: … content, … common, … control` line now also shows
+  `… inheritance`, guarded independently of the existing `content_coupling`
+  null check since pre-M7 history entries carry `content_coupling` but not
+  `inheritance_coupling`.
 
 ## Testing strategy
 
@@ -225,3 +235,7 @@ HTML and dashboard render it verbatim, and metric rows flow automatically.
 - Barrel/re-export–aware base resolution (removes the known under-count).
 - Method-level override density (distinguishing deep-but-passive hierarchies
   from deep-and-overriding ones).
+- Shared-parse refactor: `extract_class_records` currently re-parses each
+  TS/JS file rather than reusing the tree already built by the sibling
+  tree-sitter extractors in the same collector pass — folding it into a
+  shared parse would cut the per-file parse count.
