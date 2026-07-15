@@ -47,6 +47,7 @@ pub fn build_history_entry(
             authors: report.total_authors,
             content_coupling: report.coupling_finding_counts.map(|c| c.content),
             common_coupling: report.coupling_finding_counts.map(|c| c.common),
+            inheritance_coupling: report.coupling_finding_counts.map(|c| c.inheritance),
             control_coupling: report.coupling_finding_counts.map(|c| c.control),
         },
         branch: report.branch.clone(),
@@ -465,6 +466,7 @@ mod tests {
             Some(crate::scorer::CouplingFindingCounts {
                 content: 0,
                 common: 0,
+                inheritance: 0,
                 control: 0
             })
         );
@@ -482,6 +484,7 @@ mod tests {
         let entry = build_history_entry(&report, "abc123", None);
         assert_eq!(entry.counts.content_coupling, Some(0));
         assert_eq!(entry.counts.common_coupling, Some(0));
+        assert_eq!(entry.counts.inheritance_coupling, Some(0));
         assert_eq!(entry.counts.control_coupling, Some(0));
     }
 
@@ -491,7 +494,18 @@ mod tests {
         let entry = build_history_entry(&report, "abc123", Some("backfill".into()));
         assert_eq!(entry.counts.content_coupling, None);
         assert_eq!(entry.counts.common_coupling, None);
+        assert_eq!(entry.counts.inheritance_coupling, None);
         assert_eq!(entry.counts.control_coupling, None);
+    }
+
+    #[test]
+    fn history_counts_old_json_reads_inheritance_as_none() {
+        let json = r#"{"commits":1,"files":2,"authors":1,"content_coupling":0,"common_coupling":0,"control_coupling":0}"#;
+        let counts: crate::scorer::HistoryCounts = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            counts.inheritance_coupling, None,
+            "pre-M7 entry: not measured, never Some(0)"
+        );
     }
 
     #[test]

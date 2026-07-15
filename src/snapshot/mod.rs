@@ -149,6 +149,8 @@ pub enum CouplingKind {
     Content,
     /// Shared mutable global state (e.g. `static mut`, exported `let`).
     Common,
+    /// Deep class-inheritance chain (project-local DIT ≥ threshold), TS/JS.
+    Inheritance,
     /// Flag parameter steering a public function's internal control flow.
     Control,
 }

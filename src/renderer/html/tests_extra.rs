@@ -263,6 +263,7 @@ fn html_full_report_with_all_data_renders_ok() {
         content_findings: 0,
         common_findings: 2,
         control_findings: 1,
+        inheritance_findings: 0,
         churn_timeline: vec![],
     }];
     report.author_ownership = vec![FileOwnership {

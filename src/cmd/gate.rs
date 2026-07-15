@@ -89,6 +89,7 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
                 CouplingFindingCounts {
                     content: 0,
                     common: 0,
+                    inheritance: 0,
                     control: 0,
                 },
             );
@@ -97,6 +98,7 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
             .unwrap_or(CouplingFindingCounts {
                 content: 0,
                 common: 0,
+                inheritance: 0,
                 control: 0,
             });
         let (base_findings, head_findings) =
@@ -321,6 +323,7 @@ pub(crate) fn ratchet_verdict(
     let increases: Vec<(&'static str, usize, usize)> = [
         ("content", baseline.content, head.content),
         ("common", baseline.common, head.common),
+        ("inheritance", baseline.inheritance, head.inheritance),
         ("control", baseline.control, head.control),
     ]
     .into_iter()
@@ -569,6 +572,7 @@ mod tests {
         let c = CouplingFindingCounts {
             content: 0,
             common: 1,
+            inheritance: 0,
             control: 0,
         };
         let v = ratchet_verdict(&c, &c, &f, &f, 0);
@@ -587,11 +591,13 @@ mod tests {
         let cb = CouplingFindingCounts {
             content: 0,
             common: 1,
+            inheritance: 0,
             control: 0,
         };
         let ch = CouplingFindingCounts {
             content: 1,
             common: 1,
+            inheritance: 0,
             control: 0,
         };
         let v = ratchet_verdict(&cb, &ch, &base, &head, 0);
@@ -611,11 +617,13 @@ mod tests {
         let cb = CouplingFindingCounts {
             content: 0,
             common: 0,
+            inheritance: 0,
             control: 0,
         };
         let ch = CouplingFindingCounts {
             content: 0,
             common: 0,
+            inheritance: 0,
             control: 2,
         };
         assert!(
@@ -636,6 +644,7 @@ mod tests {
         let c = CouplingFindingCounts {
             content: 0,
             common: 1,
+            inheritance: 0,
             control: 0,
         };
         let v = ratchet_verdict(&c, &c, &base, &[moved], 0);
@@ -650,6 +659,7 @@ mod tests {
         let c = CouplingFindingCounts {
             content: 0,
             common: 1,
+            inheritance: 0,
             control: 0,
         };
         let v = ratchet_verdict(&c, &c, &base, &head, 0);
@@ -676,11 +686,13 @@ mod tests {
         let cb = CouplingFindingCounts {
             content: 0,
             common: 1,
+            inheritance: 0,
             control: 0,
         };
         let ch = CouplingFindingCounts {
             content: 0,
             common: 2,
+            inheritance: 0,
             control: 0,
         };
         let v = ratchet_verdict(&cb, &ch, &base, &head, 0);
@@ -690,6 +702,24 @@ mod tests {
         );
         assert_eq!(v.total_new, 1);
         assert_eq!(v.new_findings.len(), 1);
+    }
+
+    #[test]
+    fn ratchet_reports_inheritance_increase() {
+        let baseline = CouplingFindingCounts {
+            content: 0,
+            common: 0,
+            inheritance: 1,
+            control: 0,
+        };
+        let head = CouplingFindingCounts {
+            content: 0,
+            common: 0,
+            inheritance: 3,
+            control: 0,
+        };
+        let verdict = ratchet_verdict(&baseline, &head, &[], &[], 0);
+        assert!(verdict.increases.contains(&("inheritance", 1, 3)));
     }
 
     // ── print_ratchet ────────────────────────────────────────────────

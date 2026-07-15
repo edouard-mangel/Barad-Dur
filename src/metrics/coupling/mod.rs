@@ -305,6 +305,7 @@ pub(crate) fn pressman_finding_counts(
     Some(CouplingFindingCounts {
         content: count_kind(CouplingKind::Content),
         common: count_kind(CouplingKind::Common),
+        inheritance: count_kind(CouplingKind::Inheritance),
         control: count_kind(CouplingKind::Control),
     })
 }
@@ -341,6 +342,14 @@ pub(crate) const fn score_pressman(kind: CouplingKind, count: usize) -> u32 {
             2..=3 => 40,
             _ => 25,
         },
+        CouplingKind::Inheritance => match count {
+            // Maintainer decision (2026-07-15): between Common's harshness and
+            // Control's leniency; the floor never triggers the ≤25 category cap.
+            0 => 100,
+            1..=2 => 70,
+            3..=6 => 55,
+            _ => 40,
+        },
         CouplingKind::Control => match count {
             0 => 100,
             1..=5 => 85,
@@ -363,6 +372,7 @@ fn pressman_metric(
             "worst rung: another module's internals reached",
         ),
         CouplingKind::Common => ("Common coupling", "shared mutable global state"),
+        CouplingKind::Inheritance => ("Inheritance coupling", "deep class inheritance chains"),
         CouplingKind::Control => ("Control coupling", "flag parameters steering callee logic"),
     };
     if !detection_ran(snapshot) {

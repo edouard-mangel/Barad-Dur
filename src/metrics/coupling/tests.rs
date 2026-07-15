@@ -570,6 +570,12 @@ fn score_pressman_bands_are_exact() {
         (Control, 6, 70),
         (Control, 15, 70),
         (Control, 16, 50),
+        (Inheritance, 0, 100),
+        (Inheritance, 1, 70),
+        (Inheritance, 2, 70),
+        (Inheritance, 3, 55),
+        (Inheritance, 6, 55),
+        (Inheritance, 7, 40),
     ];
     for (kind, count, expected) in cases {
         assert_eq!(
@@ -781,6 +787,31 @@ fn finding_counts_none_when_detection_did_not_run() {
     let mut snapshot = crate::metrics::testutil::make_snapshot();
     snapshot.files = vec![crate::metrics::testutil::make_file("src/a.rs")];
     assert!(pressman_finding_counts(&snapshot, &CouplingThresholds::default()).is_none());
+}
+
+#[test]
+fn finding_counts_include_inheritance_kind() {
+    let mut snapshot = crate::metrics::testutil::make_snapshot();
+    snapshot.files = vec![crate::metrics::testutil::make_file("src/c.ts")];
+    snapshot
+        .file_metrics
+        .insert("src/c.ts".into(), Default::default());
+    snapshot.coupling_findings = vec![CouplingFinding {
+        path: "src/c.ts".into(),
+        line: Some(2),
+        kind: CouplingKind::Inheritance,
+        evidence: "class C extends B → A (depth 2)".into(),
+    }];
+    let counts = pressman_finding_counts(&snapshot, &CouplingThresholds::default()).unwrap();
+    assert_eq!(
+        (
+            counts.content,
+            counts.common,
+            counts.inheritance,
+            counts.control
+        ),
+        (0, 0, 1, 0)
+    );
 }
 
 #[test]
