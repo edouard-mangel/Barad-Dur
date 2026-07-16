@@ -83,7 +83,9 @@ export interface AnalysisReport {
   total_files: number
   overall_score: number
   categories: CategoryResult[]
-  top_actions: string[]
+  // ActionItem since the scorer started serializing structured actions;
+  // bare strings in reports generated before that.
+  top_actions: (ActionItem | string)[]
   coupling_actions?: ActionItem[]
   remote_meta: RemoteMeta | null
   file_hotspots: HotspotFile[]

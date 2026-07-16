@@ -1,6 +1,13 @@
+import type { ActionItem } from '../types'
+
 interface Props {
-  actions: string[]
+  // ActionItem for current reports; bare strings for reports generated
+  // before the scorer serialized structured actions.
+  actions: (ActionItem | string)[]
 }
+
+const actionText = (action: ActionItem | string): string =>
+  typeof action === 'string' ? action : action.text
 
 // Parse format: "[Category] Metric (score: N) — recommendation"
 function parseAction(action: string): { category: string; metric: string; score: number | null; recommendation: string } {
@@ -54,7 +61,7 @@ export default function TopActions({ actions }: Props) {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
         {actions.map((action, i) => {
-          const { category, metric, score, recommendation } = parseAction(action)
+          const { category, metric, score, recommendation } = parseAction(actionText(action))
           const bc = borderColor(score)
 
           return (
