@@ -23,12 +23,24 @@ pub fn extract_imports(content: &str, lang: Language, ext: &str) -> Vec<String> 
         Some(t) => t,
         None => return Vec::new(),
     };
+    imports_from_tree(&tree, content, lang, ext, &grammar)
+}
+
+/// Tree-level core of [`extract_imports`], for callers that already hold a
+/// parsed tree (shared-parse path).
+pub(super) fn imports_from_tree(
+    tree: &tree_sitter::Tree,
+    content: &str,
+    lang: Language,
+    ext: &str,
+    grammar: &tree_sitter::Language,
+) -> Vec<String> {
     let query_src = import_query(lang, ext);
     let query_src = match query_src {
         Some(q) => q,
         None => return Vec::new(),
     };
-    let (query, matches) = collect_matches(&tree, content.as_bytes(), query_src, &grammar);
+    let (query, matches) = collect_matches(tree, content.as_bytes(), query_src, grammar);
     let query = match query {
         Some(q) => q,
         None => return Vec::new(),
@@ -54,17 +66,28 @@ pub fn extract_imports(content: &str, lang: Language, ext: &str) -> Vec<String> 
 pub fn analyse(content: &str, lang: Language, ext: &str) -> Option<FileComplexity> {
     let grammar = grammar_for(lang, ext)?;
     let tree = parse(content, &grammar)?;
+    Some(analyse_tree(&tree, content, lang, ext, &grammar))
+}
 
+/// Tree-level core of [`analyse`], for callers that already hold a parsed
+/// tree (shared-parse path).
+pub(super) fn analyse_tree(
+    tree: &tree_sitter::Tree,
+    content: &str,
+    lang: Language,
+    ext: &str,
+    grammar: &tree_sitter::Language,
+) -> FileComplexity {
     let total_lines = content.lines().count();
-    let loc = count_loc(content, &tree, &grammar, lang, ext);
-    let cyclomatic_complexity = count_complexity(&tree, content.as_bytes(), &grammar, lang, ext);
-    let public_methods = count_public_methods(&tree, content.as_bytes(), &grammar, lang, ext);
-    let properties = count_properties(&tree, content.as_bytes(), &grammar, lang, ext);
-    let functions = extract_functions(&tree, content.as_bytes(), content, &grammar, lang, ext);
+    let loc = count_loc(content, tree, grammar, lang, ext);
+    let cyclomatic_complexity = count_complexity(tree, content.as_bytes(), grammar, lang, ext);
+    let public_methods = count_public_methods(tree, content.as_bytes(), grammar, lang, ext);
+    let properties = count_properties(tree, content.as_bytes(), grammar, lang, ext);
+    let functions = extract_functions(tree, content.as_bytes(), content, grammar, lang, ext);
     let (max_nesting_depth, nesting_variance) =
-        compute_nesting_biomarkers(&tree, content.as_bytes(), &grammar, lang, ext, total_lines);
+        compute_nesting_biomarkers(tree, content.as_bytes(), grammar, lang, ext, total_lines);
 
-    Some(FileComplexity {
+    FileComplexity {
         total_lines,
         loc,
         cyclomatic_complexity,
@@ -74,7 +97,7 @@ pub fn analyse(content: &str, lang: Language, ext: &str) -> Option<FileComplexit
         max_nesting_depth,
         nesting_variance,
         ..Default::default()
-    })
+    }
 }
 
 pub(super) fn parse(content: &str, grammar: &tree_sitter::Language) -> Option<tree_sitter::Tree> {

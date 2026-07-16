@@ -42,12 +42,15 @@ impl Collector {
             .filter_map(|entry| {
                 let abs_path = root.join(&entry.path);
                 let content = std::fs::read_to_string(&abs_path).ok()?;
-                let metrics = complexity::analyse_file(&entry.path, &content);
-                let imports = complexity::extract_file_imports(&entry.path, &content);
-                let findings = complexity::extract_coupling_findings(&entry.path, &content);
-                let classes = complexity::extract_class_records(&entry.path, &content);
+                let analysis = complexity::analyse_source(&entry.path, &content);
                 progress.inc(1);
-                Some((entry.path.clone(), metrics, imports, findings, classes))
+                Some((
+                    entry.path.clone(),
+                    analysis.metrics,
+                    analysis.imports,
+                    analysis.coupling_findings,
+                    analysis.class_records,
+                ))
             })
             .collect();
         let mut file_metrics = HashMap::new();
@@ -410,18 +413,14 @@ fn ast_pass_at(
         let Ok(content) = std::str::from_utf8(blob.content()) else {
             continue;
         };
-        file_metrics.insert(
-            entry.path.clone(),
-            complexity::analyse_file(&entry.path, content),
-        );
-        let imports = complexity::extract_file_imports(&entry.path, content);
-        if !imports.is_empty() {
-            raw_imports.insert(entry.path.clone(), imports);
+        let analysis = complexity::analyse_source(&entry.path, content);
+        file_metrics.insert(entry.path.clone(), analysis.metrics);
+        if !analysis.imports.is_empty() {
+            raw_imports.insert(entry.path.clone(), analysis.imports);
         }
-        coupling_findings.extend(complexity::extract_coupling_findings(&entry.path, content));
-        let classes = complexity::extract_class_records(&entry.path, content);
-        if !classes.is_empty() {
-            raw_classes.insert(entry.path.clone(), classes);
+        coupling_findings.extend(analysis.coupling_findings);
+        if !analysis.class_records.is_empty() {
+            raw_classes.insert(entry.path.clone(), analysis.class_records);
         }
     }
     coupling_findings.sort_by(|a, b| (&a.path, a.line).cmp(&(&b.path, b.line)));

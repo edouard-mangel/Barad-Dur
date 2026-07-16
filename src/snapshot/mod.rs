@@ -120,7 +120,7 @@ pub fn compress_blame(lines: Vec<BlameLine>) -> Vec<BlameLine> {
     compressed
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FunctionMetrics {
     pub name: String,
     pub loc: usize,
@@ -129,7 +129,7 @@ pub struct FunctionMetrics {
 }
 
 #[non_exhaustive]
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct FileComplexity {
     pub total_lines: usize,
     pub loc: usize,

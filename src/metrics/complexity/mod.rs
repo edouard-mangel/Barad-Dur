@@ -8,11 +8,48 @@ mod treesitter;
 
 use std::path::Path;
 
-use crate::snapshot::FileComplexity;
+use crate::snapshot::{CouplingFinding, FileComplexity};
 
 pub use fallback::{detect_language, Language};
 pub use inheritance::{extract_class_records, RawBaseRef, RawClassRecord};
 pub use pressman::extract_coupling_findings;
+
+/// Everything the collector extracts from one source file, produced from a
+/// single tree-sitter parse (the individual `extract_*`/`analyse_file`
+/// functions each re-parse and exist for callers that need only one facet).
+#[derive(Debug)]
+pub struct SourceAnalysis {
+    pub metrics: FileComplexity,
+    pub imports: Vec<String>,
+    pub coupling_findings: Vec<CouplingFinding>,
+    pub class_records: Vec<RawClassRecord>,
+}
+
+/// Analyse one file for complexity metrics, imports, coupling findings, and
+/// class records, parsing its AST exactly once.
+pub fn analyse_source(path: &Path, content: &str) -> SourceAnalysis {
+    let lang = detect_language(&path.to_string_lossy());
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let parsed = lang_dispatch::grammar_for(lang, ext)
+        .and_then(|grammar| treesitter::parse(content, &grammar).map(|tree| (tree, grammar)));
+    match parsed {
+        Some((tree, grammar)) => SourceAnalysis {
+            metrics: treesitter::analyse_tree(&tree, content, lang, ext, &grammar),
+            imports: treesitter::imports_from_tree(&tree, content, lang, ext, &grammar),
+            coupling_findings: pressman::findings_from_tree(tree.root_node(), content, path, lang),
+            class_records: match lang {
+                Language::JsTs => inheritance::class_records_from_tree(tree.root_node(), content),
+                _ => Vec::new(),
+            },
+        },
+        None => SourceAnalysis {
+            metrics: fallback::analyse_content(content, lang),
+            imports: Vec::new(),
+            coupling_findings: Vec::new(),
+            class_records: Vec::new(),
+        },
+    }
+}
 
 /// Extract raw import paths from a source file using tree-sitter.
 pub fn extract_file_imports(path: &Path, content: &str) -> Vec<String> {
@@ -43,6 +80,42 @@ pub fn analyse_content(content: &str, lang: Language) -> FileComplexity {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn analyse_source_matches_the_four_individual_extractions() {
+        let content = "import { Base } from './base';\n\
+                       export class Derived extends Base {}\n\
+                       export function run(flag: boolean) {\n\
+                         if (flag) {\n\
+                           return 1;\n\
+                         }\n\
+                         return 2;\n\
+                       }\n";
+        let path = Path::new("src/derived.ts");
+
+        let combined = analyse_source(path, content);
+
+        assert_eq!(combined.metrics, analyse_file(path, content));
+        assert_eq!(combined.imports, extract_file_imports(path, content));
+        assert_eq!(
+            combined.coupling_findings,
+            extract_coupling_findings(path, content)
+        );
+        assert_eq!(combined.class_records, extract_class_records(path, content));
+        // The sample must actually exercise every channel.
+        assert!(!combined.imports.is_empty());
+        assert!(!combined.coupling_findings.is_empty());
+        assert!(!combined.class_records.is_empty());
+    }
+
+    #[test]
+    fn analyse_source_unsupported_language_falls_back() {
+        let combined = analyse_source(Path::new("data.xyz"), "some content\nmore\n");
+        assert_eq!(combined.metrics.total_lines, 2);
+        assert!(combined.imports.is_empty());
+        assert!(combined.coupling_findings.is_empty());
+        assert!(combined.class_records.is_empty());
+    }
 
     #[test]
     fn analyse_file_uses_treesitter_for_rust() {
