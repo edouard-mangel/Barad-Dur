@@ -6,9 +6,10 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use crate::metrics::complexity::{self, RawBaseRef, RawClassRecord};
+use crate::metrics::complexity::{self, RawBaseRef, RawClassRecord, RawReExport, RawReExportKind};
 use crate::snapshot::{
-    BaseRef, ClassRecord, CouplingFinding, FileComplexity, FileEntry, RepoSnapshot, TimeWindow,
+    BaseRef, ClassRecord, CouplingFinding, FileComplexity, FileEntry, ReExportKind, ReExportRecord,
+    RepoSnapshot, TimeWindow,
 };
 
 use super::ignore_file::{should_include, BaradDurIgnore};
@@ -27,16 +28,10 @@ impl Collector {
         RawImports,
         Vec<CouplingFinding>,
         HashMap<PathBuf, Vec<RawClassRecord>>,
+        HashMap<PathBuf, Vec<RawReExport>>,
     ) {
         let root = self.repo_path();
-        #[allow(clippy::type_complexity)]
-        let results: Vec<(
-            PathBuf,
-            FileComplexity,
-            Vec<String>,
-            Vec<CouplingFinding>,
-            Vec<RawClassRecord>,
-        )> = files
+        let results: Vec<(PathBuf, complexity::SourceAnalysis)> = files
             .par_iter()
             .filter(|entry| !entry.is_binary)
             .filter_map(|entry| {
@@ -44,31 +39,35 @@ impl Collector {
                 let content = std::fs::read_to_string(&abs_path).ok()?;
                 let analysis = complexity::analyse_source(&entry.path, &content);
                 progress.inc(1);
-                Some((
-                    entry.path.clone(),
-                    analysis.metrics,
-                    analysis.imports,
-                    analysis.coupling_findings,
-                    analysis.class_records,
-                ))
+                Some((entry.path.clone(), analysis))
             })
             .collect();
         let mut file_metrics = HashMap::new();
         let mut raw_imports = HashMap::new();
         let mut coupling_findings = Vec::new();
         let mut raw_classes = HashMap::new();
-        for (path, metrics, imports, findings, classes) in results {
-            file_metrics.insert(path.clone(), metrics);
-            if !imports.is_empty() {
-                raw_imports.insert(path.clone(), imports);
+        let mut raw_reexports = HashMap::new();
+        for (path, analysis) in results {
+            file_metrics.insert(path.clone(), analysis.metrics);
+            if !analysis.imports.is_empty() {
+                raw_imports.insert(path.clone(), analysis.imports);
             }
-            if !classes.is_empty() {
-                raw_classes.insert(path, classes);
+            if !analysis.class_records.is_empty() {
+                raw_classes.insert(path.clone(), analysis.class_records);
             }
-            coupling_findings.extend(findings);
+            if !analysis.reexports.is_empty() {
+                raw_reexports.insert(path, analysis.reexports);
+            }
+            coupling_findings.extend(analysis.coupling_findings);
         }
         coupling_findings.sort_by(|a, b| (&a.path, a.line).cmp(&(&b.path, b.line)));
-        (file_metrics, raw_imports, coupling_findings, raw_classes)
+        (
+            file_metrics,
+            raw_imports,
+            coupling_findings,
+            raw_classes,
+            raw_reexports,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -249,7 +248,7 @@ impl Collector {
             Some(pb) => pb,
             None => &NoProgress,
         };
-        let (file_metrics, raw_imports, coupling_findings, raw_classes) =
+        let (file_metrics, raw_imports, coupling_findings, raw_classes, raw_reexports) =
             self.collect_file_metrics_with_progress(&files, complexity_progress);
         let complexity_ms = t.elapsed().as_millis();
         if let Some(pb) = complexity_bar {
@@ -263,6 +262,7 @@ impl Collector {
 
         let import_graph = resolve_imports(&raw_imports, &files);
         let class_records = resolve_class_records(raw_classes, &files);
+        let reexports = resolve_reexports(raw_reexports, &files);
         let mut snapshot = RepoSnapshot {
             path: self.repo_path().to_path_buf(),
             name: self.repo_name(),
@@ -281,6 +281,7 @@ impl Collector {
             import_graph,
             coupling_findings,
             class_records,
+            reexports,
             commit_interner: collection.interner,
         };
         snapshot.build_indexes();
@@ -351,10 +352,16 @@ impl Collector {
             .and_then(|h| h.shorthand().ok().map(String::from))
             .unwrap_or_else(|| "main".to_string());
 
-        let (file_metrics, import_graph, coupling_findings, class_records) = if run_ast {
+        let (file_metrics, import_graph, coupling_findings, class_records, reexports) = if run_ast {
             ast_pass_at(&repo, &files)?
         } else {
-            (HashMap::new(), HashMap::new(), Vec::new(), Vec::new())
+            (
+                HashMap::new(),
+                HashMap::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
         };
 
         let mut snapshot = RepoSnapshot {
@@ -375,6 +382,7 @@ impl Collector {
             import_graph,
             coupling_findings,
             class_records,
+            reexports,
             commit_interner: collection.interner,
         };
         snapshot.build_indexes();
@@ -397,11 +405,13 @@ fn ast_pass_at(
     HashMap<PathBuf, Vec<PathBuf>>,
     Vec<CouplingFinding>,
     Vec<ClassRecord>,
+    Vec<ReExportRecord>,
 )> {
     let mut file_metrics = HashMap::new();
     let mut raw_imports: RawImports = HashMap::new();
     let mut coupling_findings = Vec::new();
     let mut raw_classes: HashMap<PathBuf, Vec<RawClassRecord>> = HashMap::new();
+    let mut raw_reexports: HashMap<PathBuf, Vec<RawReExport>> = HashMap::new();
     for entry in files.iter().filter(|f| !f.is_binary) {
         let oid = match git2::Oid::from_str(&entry.blob_oid) {
             Ok(o) => o,
@@ -422,11 +432,55 @@ fn ast_pass_at(
         if !analysis.class_records.is_empty() {
             raw_classes.insert(entry.path.clone(), analysis.class_records);
         }
+        if !analysis.reexports.is_empty() {
+            raw_reexports.insert(entry.path.clone(), analysis.reexports);
+        }
     }
     coupling_findings.sort_by(|a, b| (&a.path, a.line).cmp(&(&b.path, b.line)));
     let import_graph = resolve_imports(&raw_imports, files);
     let class_records = resolve_class_records(raw_classes, files);
-    Ok((file_metrics, import_graph, coupling_findings, class_records))
+    let reexports = resolve_reexports(raw_reexports, files);
+    Ok((
+        file_metrics,
+        import_graph,
+        coupling_findings,
+        class_records,
+        reexports,
+    ))
+}
+
+/// Resolve raw re-export specifiers against the repo's file set, producing
+/// the snapshot's `reexports` (sorted by path). Unresolvable specifiers
+/// (external packages) are dropped — they can't lead to a project-local
+/// class record.
+fn resolve_reexports(
+    raw: HashMap<PathBuf, Vec<RawReExport>>,
+    files: &[FileEntry],
+) -> Vec<ReExportRecord> {
+    let known: std::collections::HashSet<&PathBuf> = files.iter().map(|f| &f.path).collect();
+    let mut records: Vec<ReExportRecord> = raw
+        .into_iter()
+        .flat_map(|(path, rexs)| {
+            rexs.into_iter()
+                .filter_map(|r| {
+                    let target = resolve_specifier(&r.specifier, &path, &known)?;
+                    let kind = match r.kind {
+                        RawReExportKind::Named { exported, source } => {
+                            ReExportKind::Named { exported, source }
+                        }
+                        RawReExportKind::Star => ReExportKind::Star,
+                    };
+                    Some(ReExportRecord {
+                        path: path.clone(),
+                        target,
+                        kind,
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    records.sort_by(|a, b| (&a.path, &a.target).cmp(&(&b.path, &b.target)));
+    records
 }
 
 /// Resolve raw class records' import specifiers against the repo's file
@@ -543,7 +597,8 @@ mod tests {
         // NoProgress is already imported at the top of snapshot_builder.rs
         // (`use super::progress::{NoProgress, Progress};`) and reaches the
         // tests module via `use super::*`.
-        let (_, _, findings, _) = collector.collect_file_metrics_with_progress(&files, &NoProgress);
+        let (_, _, findings, _, _) =
+            collector.collect_file_metrics_with_progress(&files, &NoProgress);
         // barad-dur's own code should produce a deterministic, sorted list
         let mut sorted = findings.clone();
         sorted.sort_by(|a, b| (&a.path, a.line).cmp(&(&b.path, b.line)));
@@ -723,7 +778,8 @@ mod tests {
             ),
             entry("src/non_utf8.rs", non_utf8.to_string()),
         ];
-        let (metrics, _imports, findings, _classes) = ast_pass_at(&repo, &files).unwrap();
+        let (metrics, _imports, findings, _classes, _reexports) =
+            ast_pass_at(&repo, &files).unwrap();
         assert_eq!(
             findings.len(),
             1,

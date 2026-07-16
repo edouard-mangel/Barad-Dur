@@ -192,6 +192,28 @@ pub enum BaseRef {
     Unresolvable,
 }
 
+/// A TS/JS re-export edge: `path` forwards symbols from `target`
+/// (`export … from './x'`, or a bare `export { A }` of an import).
+/// Lets metric-time class lookup follow bases resolved to barrel files
+/// through to the file that actually declares the class.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReExportRecord {
+    /// The re-exporting (barrel) file.
+    pub path: PathBuf,
+    /// Resolved project-local file the export forwards to.
+    pub target: PathBuf,
+    pub kind: ReExportKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ReExportKind {
+    /// `export { source as exported } from …` — `exported` is the name
+    /// importers see, `source` the name in the target file.
+    Named { exported: String, source: String },
+    /// `export * from …`.
+    Star,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimeWindow {
     pub since: Option<DateTime<Utc>>,
@@ -256,6 +278,7 @@ pub struct RepoSnapshot {
     pub import_graph: HashMap<PathBuf, Vec<PathBuf>>,
     pub coupling_findings: Vec<CouplingFinding>,
     pub class_records: Vec<ClassRecord>,
+    pub reexports: Vec<ReExportRecord>,
     pub commit_interner: CommitInterner,
 }
 
@@ -279,6 +302,7 @@ impl RepoSnapshot {
             import_graph: HashMap::new(),
             coupling_findings: Vec::new(),
             class_records: Vec::new(),
+            reexports: Vec::new(),
             commit_interner: CommitInterner::default(),
         }
     }

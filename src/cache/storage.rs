@@ -13,8 +13,9 @@ const FINGERPRINT_FILE: &str = "exclude.fingerprint";
 /// positional: a mid-struct field addition can garbage-parse instead of
 /// failing, silently serving stale data. The explicit version makes
 /// invalidation deterministic. History: 1 = post-M1 shape (coupling_findings);
-/// 2 = M7 (class_records); 3 = bincode 2 wire format (varint).
-const CACHE_VERSION: u32 = 3;
+/// 2 = M7 (class_records); 3 = bincode 2 wire format (varint);
+/// 4 = barrel re-exports (reexports field).
+const CACHE_VERSION: u32 = 4;
 
 /// Wire format for all cache files. Bincode 2's standard config (varint
 /// lengths) — not compatible with the bincode 1 fixint files of versions ≤ 2.

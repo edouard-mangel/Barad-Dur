@@ -5,9 +5,13 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::snapshot::{BaseRef, ClassRecord, CouplingFinding, CouplingKind, RepoSnapshot};
+use crate::snapshot::{
+    BaseRef, ClassRecord, CouplingFinding, CouplingKind, ReExportKind, ReExportRecord, RepoSnapshot,
+};
 
 type Key<'a> = (&'a PathBuf, &'a str);
+type ByKey<'a> = HashMap<Key<'a>, &'a ClassRecord>;
+type RxIndex<'a> = HashMap<&'a PathBuf, Vec<&'a ReExportRecord>>;
 
 /// Every class whose project-local inheritance depth reaches `min_depth`,
 /// as an Inheritance finding. `min_depth == 0` disables the rule.
@@ -18,26 +22,62 @@ pub(crate) fn inheritance_findings(
     if min_depth == 0 {
         return Vec::new();
     }
-    let by_key: HashMap<Key<'_>, &ClassRecord> = snapshot
+    let by_key: ByKey<'_> = snapshot
         .class_records
         .iter()
         .map(|r| ((&r.path, r.class_name.as_str()), r))
         .collect();
+    let rx: RxIndex<'_> = snapshot.reexports.iter().fold(HashMap::new(), |mut m, r| {
+        m.entry(&r.path).or_default().push(r);
+        m
+    });
     let mut memo: HashMap<Key<'_>, usize> = HashMap::new();
     snapshot
         .class_records
         .iter()
         .filter_map(|r| {
             let key = (&r.path, r.class_name.as_str());
-            let depth = depth_of(key, &by_key, &mut memo, &mut Vec::new());
+            let depth = depth_of(key, &by_key, &rx, &mut memo, &mut Vec::new());
             (depth >= min_depth).then(|| CouplingFinding {
                 path: r.path.clone(),
                 line: Some(r.line),
                 kind: CouplingKind::Inheritance,
-                evidence: evidence(r, depth, &by_key),
+                evidence: evidence(r, depth, &by_key, &rx),
             })
         })
         .collect()
+}
+
+/// Follow barrel re-exports until `key` names an actual class record:
+/// a named re-export matching the looked-up name hops to (target, source);
+/// a star re-export hops to (target, same name). Returns `None` when no
+/// chain of hops lands on a record (cycles cut via `visited`).
+fn resolve_key<'a>(
+    key: Key<'a>,
+    by_key: &ByKey<'a>,
+    rx: &RxIndex<'a>,
+    visited: &mut Vec<Key<'a>>,
+) -> Option<Key<'a>> {
+    if by_key.contains_key(&key) {
+        return Some(key);
+    }
+    if visited.contains(&key) {
+        return None;
+    }
+    visited.push(key);
+    let recs = rx.get(key.0)?;
+    recs.iter()
+        .find_map(|r| match &r.kind {
+            ReExportKind::Named { exported, source } if exported.as_str() == key.1 => {
+                resolve_key((&r.target, source.as_str()), by_key, rx, visited)
+            }
+            _ => None,
+        })
+        .or_else(|| {
+            recs.iter()
+                .filter(|r| matches!(r.kind, ReExportKind::Star))
+                .find_map(|r| resolve_key((&r.target, key.1), by_key, rx, visited))
+        })
 }
 
 fn parent_key<'a>(rec: &'a ClassRecord) -> Option<Key<'a>> {
@@ -54,7 +94,8 @@ fn parent_key<'a>(rec: &'a ClassRecord) -> Option<Key<'a>> {
 /// in-progress class. Memoized — diamonds cost each ancestor once.
 fn depth_of<'a>(
     key: Key<'a>,
-    by_key: &HashMap<Key<'a>, &'a ClassRecord>,
+    by_key: &ByKey<'a>,
+    rx: &RxIndex<'a>,
     memo: &mut HashMap<Key<'a>, usize>,
     in_progress: &mut Vec<Key<'a>>,
 ) -> usize {
@@ -64,12 +105,16 @@ fn depth_of<'a>(
     let Some(rec) = by_key.get(&key) else {
         return 0; // no record: a class without `extends` — chain root
     };
-    let d = match parent_key(rec) {
+    let d = match parent_key(rec).map(|pk| {
+        // A base resolved to a barrel file has no record there — follow
+        // the barrel's re-exports to the declaring file.
+        resolve_key(pk, by_key, rx, &mut Vec::new()).unwrap_or(pk)
+    }) {
         None => 0, // unresolvable base: the ancestor cannot be named
         Some(pk) if in_progress.contains(&pk) => 0, // cycle: cut before the edge
         Some(pk) if by_key.contains_key(&pk) => {
             in_progress.push(key);
-            let parent_depth = depth_of(pk, by_key, memo, in_progress);
+            let parent_depth = depth_of(pk, by_key, rx, memo, in_progress);
             in_progress.pop();
             parent_depth + 1
         }
@@ -80,11 +125,17 @@ fn depth_of<'a>(
 }
 
 /// `class C extends B → A (depth 2)` — the named ancestor chain, cycle-safe.
-fn evidence(rec: &ClassRecord, depth: usize, by_key: &HashMap<Key<'_>, &ClassRecord>) -> String {
+fn evidence<'a>(
+    rec: &'a ClassRecord,
+    depth: usize,
+    by_key: &ByKey<'a>,
+    rx: &RxIndex<'a>,
+) -> String {
     let mut names: Vec<String> = Vec::new();
     let mut seen: Vec<Key<'_>> = vec![(&rec.path, rec.class_name.as_str())];
     let mut cur = parent_key(rec);
     while let Some(k) = cur {
+        let k = resolve_key(k, by_key, rx, &mut Vec::new()).unwrap_or(k);
         if seen.contains(&k) {
             break;
         }
@@ -200,6 +251,125 @@ mod tests {
     #[test]
     fn min_depth_zero_disables() {
         assert!(inheritance_findings(&snap(chain_abc()), 0).is_empty());
+    }
+
+    // ── Barrel re-export resolution ────────────────────────────────
+
+    use crate::snapshot::{ReExportKind, ReExportRecord};
+
+    fn snap_with_reexports(
+        records: Vec<ClassRecord>,
+        reexports: Vec<ReExportRecord>,
+    ) -> RepoSnapshot {
+        let mut s = snap(records);
+        s.reexports = reexports;
+        s
+    }
+
+    fn named_rx(path: &str, target: &str, exported: &str, source: &str) -> ReExportRecord {
+        ReExportRecord {
+            path: path.into(),
+            target: target.into(),
+            kind: ReExportKind::Named {
+                exported: exported.into(),
+                source: source.into(),
+            },
+        }
+    }
+
+    fn star_rx(path: &str, target: &str) -> ReExportRecord {
+        ReExportRecord {
+            path: path.into(),
+            target: target.into(),
+            kind: ReExportKind::Star,
+        }
+    }
+
+    #[test]
+    fn named_barrel_reexport_is_followed() {
+        // C extends B, imported through the barrel: index.ts re-exports B
+        // from src/b.ts, where B extends A — real depth 2.
+        let s = snap_with_reexports(
+            vec![
+                record("src/b.ts", 2, "B", resolved("src/a.ts", "A")),
+                record("src/c.ts", 2, "C", resolved("src/index.ts", "B")),
+            ],
+            vec![named_rx("src/index.ts", "src/b.ts", "B", "B")],
+        );
+        let f = inheritance_findings(&s, 2);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].path, PathBuf::from("src/c.ts"));
+        assert_eq!(f[0].evidence, "class C extends B → A (depth 2)");
+    }
+
+    #[test]
+    fn aliased_barrel_reexport_maps_exported_to_source_name() {
+        // index.ts: export { B as Base } from './b' — C extends Base.
+        let s = snap_with_reexports(
+            vec![
+                record("src/b.ts", 2, "B", resolved("src/a.ts", "A")),
+                record("src/c.ts", 2, "C", resolved("src/index.ts", "Base")),
+            ],
+            vec![named_rx("src/index.ts", "src/b.ts", "Base", "B")],
+        );
+        assert_eq!(inheritance_findings(&s, 2).len(), 1);
+    }
+
+    #[test]
+    fn star_barrel_reexport_is_followed() {
+        let s = snap_with_reexports(
+            vec![
+                record("src/b.ts", 2, "B", resolved("src/a.ts", "A")),
+                record("src/c.ts", 2, "C", resolved("src/index.ts", "B")),
+            ],
+            vec![star_rx("src/index.ts", "src/b.ts")],
+        );
+        assert_eq!(inheritance_findings(&s, 2).len(), 1);
+    }
+
+    #[test]
+    fn barrel_of_barrels_is_followed_transitively() {
+        // c.ts imports through src/index.ts, which star-re-exports
+        // src/models/index.ts, which named-re-exports B from src/b.ts.
+        let s = snap_with_reexports(
+            vec![
+                record("src/b.ts", 2, "B", resolved("src/a.ts", "A")),
+                record("src/c.ts", 2, "C", resolved("src/index.ts", "B")),
+            ],
+            vec![
+                star_rx("src/index.ts", "src/models/index.ts"),
+                named_rx("src/models/index.ts", "src/b.ts", "B", "B"),
+            ],
+        );
+        assert_eq!(inheritance_findings(&s, 2).len(), 1);
+    }
+
+    #[test]
+    fn cyclic_barrels_terminate_without_hang() {
+        // Two barrels star-re-exporting each other; the name never lands
+        // on a class record. Chain stays at depth 1 — no finding, no hang.
+        let s = snap_with_reexports(
+            vec![record("src/c.ts", 2, "C", resolved("src/index.ts", "B"))],
+            vec![
+                star_rx("src/index.ts", "src/other.ts"),
+                star_rx("src/other.ts", "src/index.ts"),
+            ],
+        );
+        assert!(inheritance_findings(&s, 2).is_empty());
+    }
+
+    #[test]
+    fn unmatched_barrel_name_still_counts_one_ancestor() {
+        // The barrel doesn't re-export "B": behave exactly like a named
+        // base without a record (depth 1), not like an error.
+        let s = snap_with_reexports(
+            vec![
+                record("src/b.ts", 2, "B", resolved("src/a.ts", "A")),
+                record("src/c.ts", 2, "C", resolved("src/index.ts", "B")),
+            ],
+            vec![named_rx("src/index.ts", "src/other.ts", "X", "X")],
+        );
+        assert!(inheritance_findings(&s, 2).is_empty());
     }
 
     #[test]
