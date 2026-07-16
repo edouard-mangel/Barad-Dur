@@ -247,8 +247,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let cache_dir = dir.path().join(CACHE_DIR);
         fs::create_dir_all(&cache_dir).unwrap();
-        let legacy =
-            bincode::serde::encode_to_vec(make_test_snapshot(), wire_config()).unwrap();
+        let legacy = bincode::serde::encode_to_vec(make_test_snapshot(), wire_config()).unwrap();
         fs::write(cache_dir.join(CACHE_FILE), legacy).unwrap();
         assert!(load(dir.path()).unwrap().is_none());
     }
