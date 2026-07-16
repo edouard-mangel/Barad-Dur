@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::snapshot::BlameLine;
 
-use super::storage::CACHE_DIR;
+use super::storage::{wire_config, CACHE_DIR};
 
 const BLAME_CACHE_FILE: &str = "blame_cache.bin";
 
@@ -31,8 +31,8 @@ pub fn load(repo_path: &Path) -> Result<BlameCache> {
         return Ok(BlameCache::default());
     }
     let data = std::fs::read(&cache_file)?;
-    match bincode::deserialize(&data) {
-        Ok(cache) => Ok(cache),
+    match bincode::serde::decode_from_slice::<BlameCache, _>(&data, wire_config()) {
+        Ok((cache, _)) => Ok(cache),
         Err(_) => {
             let _ = std::fs::remove_file(&cache_file);
             Ok(BlameCache::default())
@@ -43,7 +43,7 @@ pub fn load(repo_path: &Path) -> Result<BlameCache> {
 pub fn save(cache: &BlameCache, repo_path: &Path) -> Result<()> {
     let cache_dir = repo_path.join(CACHE_DIR);
     std::fs::create_dir_all(&cache_dir)?;
-    let data = bincode::serialize(cache)?;
+    let data = bincode::serde::encode_to_vec(cache, wire_config())?;
     std::fs::write(cache_dir.join(BLAME_CACHE_FILE), data)?;
     Ok(())
 }

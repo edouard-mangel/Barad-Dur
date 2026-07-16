@@ -300,8 +300,10 @@ fn repo_snapshot_serialization_roundtrip() {
         "main".to_string(),
         TimeWindow::default(),
     );
-    let encoded = bincode::serialize(&snapshot).expect("Failed to serialize");
-    let decoded: RepoSnapshot = bincode::deserialize(&encoded).expect("Failed to deserialize");
+    let config = bincode::config::standard();
+    let encoded = bincode::serde::encode_to_vec(&snapshot, config).expect("Failed to serialize");
+    let (decoded, _): (RepoSnapshot, _) =
+        bincode::serde::decode_from_slice(&encoded, config).expect("Failed to deserialize");
     assert_eq!(decoded.name, snapshot.name);
     assert_eq!(decoded.default_branch, snapshot.default_branch);
     assert_eq!(decoded.path, snapshot.path);
