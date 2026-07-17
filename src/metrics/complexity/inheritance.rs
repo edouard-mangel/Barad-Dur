@@ -49,7 +49,12 @@ pub fn extract_class_records(path: &Path, content: &str) -> Vec<RawClassRecord> 
     let Some(tree) = parse(content, &grammar) else {
         return Vec::new();
     };
-    let root = tree.root_node();
+    class_records_from_tree(tree.root_node(), content)
+}
+
+/// Tree-level core of [`extract_class_records`], for callers that already
+/// hold a parsed TS/JS tree (shared-parse path).
+pub(super) fn class_records_from_tree(root: Node<'_>, content: &str) -> Vec<RawClassRecord> {
     let imports = import_bindings(root, content);
     descendants(root)
         .into_iter()

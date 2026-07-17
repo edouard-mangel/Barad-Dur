@@ -22,9 +22,20 @@ pub fn extract_coupling_findings(path: &Path, content: &str) -> Vec<CouplingFind
     let Some(tree) = parse(content, &grammar) else {
         return Vec::new();
     };
+    findings_from_tree(tree.root_node(), content, path, lang)
+}
+
+/// Tree-level core of [`extract_coupling_findings`], for callers that
+/// already hold a parsed tree (shared-parse path).
+pub(super) fn findings_from_tree(
+    root: Node<'_>,
+    content: &str,
+    path: &Path,
+    lang: Language,
+) -> Vec<CouplingFinding> {
     match lang {
-        Language::Rust => rust_findings(tree.root_node(), content, path),
-        Language::JsTs => js_findings(tree.root_node(), content, path),
+        Language::Rust => rust_findings(root, content, path),
+        Language::JsTs => js_findings(root, content, path),
         _ => Vec::new(),
     }
 }
