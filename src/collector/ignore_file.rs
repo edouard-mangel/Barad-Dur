@@ -3,7 +3,8 @@
 //! It is the middle of three exclusion layers, in precedence order (highest first):
 //! 1. CLI `--exclude` / `--exclude-ext` — force-exclude;
 //! 2. `.baraddurignore` — its `!` rules re-include, overriding the defaults;
-//! 3. built-in defaults ([`super::exclude::is_excluded`], toggled by `--no-default-excludes`).
+//! 3. built-in defaults ([`super::exclude::is_excluded_by_defaults`], toggled by
+//!    `--no-default-excludes`).
 //!
 //! A whitelist rule such as `!vendor/app.min.js` re-includes a file the built-in
 //! defaults would drop — but a CLI `--exclude` still wins over it.
@@ -14,7 +15,7 @@ use anyhow::{Context, Result};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use ignore::Match;
 
-use super::exclude::is_excluded;
+use super::exclude::{is_excluded_by_cli, is_excluded_by_defaults};
 
 /// Name of the ignore file, looked up at the repository root.
 const IGNORE_FILE_NAME: &str = ".baraddurignore";
@@ -85,14 +86,14 @@ pub fn should_include(
     use_defaults: bool,
 ) -> bool {
     // Highest precedence: a CLI flag force-excludes, beating any `.baraddurignore`
-    // whitelist. (`use_defaults = false` here — defaults are the lowest layer.)
-    if is_excluded(path, cli_patterns, cli_extensions, false) {
+    // whitelist.
+    if is_excluded_by_cli(path, cli_patterns, cli_extensions) {
         return false;
     }
     match ignore.decision(path) {
         Some(false) => true, // whitelist (`!`) → keep, overriding the defaults below
         Some(true) => false, // ignore rule → drop
-        None => !is_excluded(path, &[], &[], use_defaults), // defaults only
+        None => !(use_defaults && is_excluded_by_defaults(path)), // defaults only
     }
 }
 

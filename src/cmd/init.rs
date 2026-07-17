@@ -6,5 +6,11 @@ use crate::init;
 
 pub fn run_init(args: InitArgs) -> Result<()> {
     let target = PathBuf::from(&args.target);
-    init::run_init(&target, args.force, args.interactive)
+    init::run_init(
+        &target,
+        init::InitOptions {
+            force: args.force,
+            interactive: args.interactive,
+        },
+    )
 }

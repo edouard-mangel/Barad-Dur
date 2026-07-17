@@ -9,8 +9,18 @@ use crate::coupling::types::CouplingReport;
 /// - `pairs`: array of coupling pair objects
 /// - `blast_radius`: array of hub dependency objects
 ///
-/// When `pretty` is true, the output is indented for human readability.
-pub fn render_coupling_json(report: &CouplingReport, pretty: bool) -> String {
+/// Compact (single-line) form; see [`render_coupling_json_pretty`] for the
+/// indented human-readable one.
+pub fn render_coupling_json(report: &CouplingReport) -> String {
+    serde_json::to_string(&coupling_value(report)).unwrap_or_default()
+}
+
+/// [`render_coupling_json`], indented for human readability.
+pub fn render_coupling_json_pretty(report: &CouplingReport) -> String {
+    serde_json::to_string_pretty(&coupling_value(report)).unwrap_or_default()
+}
+
+fn coupling_value(report: &CouplingReport) -> serde_json::Value {
     let pairs_json: Vec<serde_json::Value> = report
         .pairs
         .iter()
@@ -26,7 +36,7 @@ pub fn render_coupling_json(report: &CouplingReport, pretty: bool) -> String {
         })
         .collect();
 
-    let output = serde_json::json!({
+    serde_json::json!({
         "coupling": {
             "schema_version": 1,
             "repos_scanned": report.summary.total_repos,
@@ -34,13 +44,7 @@ pub fn render_coupling_json(report: &CouplingReport, pretty: bool) -> String {
             "pairs": pairs_json,
             "blast_radius": report.blast_radius,
         }
-    });
-
-    if pretty {
-        serde_json::to_string_pretty(&output).unwrap_or_default()
-    } else {
-        serde_json::to_string(&output).unwrap_or_default()
-    }
+    })
 }
 
 #[cfg(test)]
@@ -108,7 +112,7 @@ mod tests {
     #[test]
     fn json_output_has_coupling_envelope() {
         let report = make_test_report();
-        let json = render_coupling_json(&report, false);
+        let json = render_coupling_json(&report);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert!(parsed.get("coupling").is_some());
     }
@@ -116,7 +120,7 @@ mod tests {
     #[test]
     fn json_output_has_schema_version_1() {
         let report = make_test_report();
-        let json = render_coupling_json(&report, false);
+        let json = render_coupling_json(&report);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed["coupling"]["schema_version"], 1);
     }
@@ -124,7 +128,7 @@ mod tests {
     #[test]
     fn json_output_has_repos_scanned_count() {
         let report = make_test_report();
-        let json = render_coupling_json(&report, false);
+        let json = render_coupling_json(&report);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed["coupling"]["repos_scanned"], 2);
     }
@@ -132,7 +136,7 @@ mod tests {
     #[test]
     fn json_output_has_pairs_array() {
         let report = make_test_report();
-        let json = render_coupling_json(&report, false);
+        let json = render_coupling_json(&report);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         let pairs = parsed["coupling"]["pairs"].as_array().unwrap();
         assert_eq!(pairs.len(), 1);
@@ -142,7 +146,7 @@ mod tests {
     #[test]
     fn json_output_has_blast_radius_array() {
         let report = make_test_report();
-        let json = render_coupling_json(&report, false);
+        let json = render_coupling_json(&report);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         let blast = parsed["coupling"]["blast_radius"].as_array().unwrap();
         assert_eq!(blast.len(), 1);
@@ -152,8 +156,8 @@ mod tests {
     #[test]
     fn pretty_flag_produces_indented_output() {
         let report = make_test_report();
-        let compact = render_coupling_json(&report, false);
-        let pretty = render_coupling_json(&report, true);
+        let compact = render_coupling_json(&report);
+        let pretty = render_coupling_json_pretty(&report);
         assert!(pretty.len() > compact.len());
         assert!(pretty.contains('\n'));
         assert!(pretty.contains("  "));

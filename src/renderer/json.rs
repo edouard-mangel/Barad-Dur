@@ -4,30 +4,30 @@ use serde_json::{json, Value};
 use crate::scorer::AnalysisReport;
 use crate::trend::TrendSummary;
 
-/// Render the analysis report as JSON.
+/// Render the analysis report as compact (single-line) JSON; see
+/// [`render_pretty`] for the indented form.
 ///
 /// When `trend` is `Some(summary)`, injects a top-level "trend" object into the
 /// JSON output. When `None`, the output is structurally identical to pre-trend
 /// runs (no "trend" key).
-pub fn render(
-    report: &AnalysisReport,
-    pretty: bool,
-    trend: Option<&TrendSummary>,
-) -> Result<String> {
-    let mut value: Value = serde_json::to_value(report)?;
+pub fn render(report: &AnalysisReport, trend: Option<&TrendSummary>) -> Result<String> {
+    Ok(serde_json::to_string(&report_value(report, trend)?)?)
+}
 
+/// [`render`], indented for human readability.
+pub fn render_pretty(report: &AnalysisReport, trend: Option<&TrendSummary>) -> Result<String> {
+    Ok(serde_json::to_string_pretty(&report_value(report, trend)?)?)
+}
+
+fn report_value(report: &AnalysisReport, trend: Option<&TrendSummary>) -> Result<Value> {
+    let mut value: Value = serde_json::to_value(report)?;
     if let Some(summary) = trend {
         let trend_object = build_trend_object(summary);
         if let Value::Object(ref mut map) = value {
             map.insert("trend".to_string(), trend_object);
         }
     }
-
-    if pretty {
-        Ok(serde_json::to_string_pretty(&value)?)
-    } else {
-        Ok(serde_json::to_string(&value)?)
-    }
+    Ok(value)
 }
 
 fn build_trend_object(summary: &TrendSummary) -> Value {
@@ -138,7 +138,7 @@ mod tests {
             raw_value: RawValue::Text("N/A".into()),
             score: None,
         });
-        let output = render(&report, false, None).unwrap();
+        let output = render(&report, None).unwrap();
         assert!(
             output.contains(r#""score":null"#),
             "insufficient-data metrics must serialize score as null, not a number"
@@ -148,7 +148,7 @@ mod tests {
     #[test]
     fn json_output_is_valid() {
         let report = make_report();
-        let output = render(&report, false, None).unwrap();
+        let output = render(&report, None).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
         assert!(parsed.is_object());
     }
@@ -156,7 +156,7 @@ mod tests {
     #[test]
     fn json_contains_expected_fields() {
         let report = make_report();
-        let output = render(&report, false, None).unwrap();
+        let output = render(&report, None).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
         assert!(parsed["overall_score"].is_number());
         assert!(parsed["categories"].is_array());
@@ -167,7 +167,7 @@ mod tests {
     #[test]
     fn pretty_mode_is_indented() {
         let report = make_report();
-        let output = render(&report, true, None).unwrap();
+        let output = render_pretty(&report, None).unwrap();
         assert!(output.contains('\n'));
         assert!(output.contains("  ")); // indentation
     }
@@ -175,7 +175,7 @@ mod tests {
     #[test]
     fn compact_mode_is_single_line() {
         let report = make_report();
-        let output = render(&report, false, None).unwrap();
+        let output = render(&report, None).unwrap();
         // Compact JSON should not have newlines (except possibly within string values)
         assert!(!output.starts_with("{\n"));
     }
@@ -183,7 +183,7 @@ mod tests {
     #[test]
     fn json_render_without_trend_data_has_no_trend_key() {
         let report = make_report();
-        let output = render(&report, false, None).unwrap();
+        let output = render(&report, None).unwrap();
         assert!(
             !output.contains("\"trend\""),
             "JSON output should not contain 'trend' key when trend_data is None"
@@ -209,7 +209,7 @@ mod tests {
             history: vec![],
         };
 
-        let output = render(&report, false, Some(&summary)).unwrap();
+        let output = render(&report, Some(&summary)).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
 
         let trend = parsed
@@ -243,7 +243,7 @@ mod tests {
             instability: 0.625,
         }];
 
-        let output = render(&report, false, None).unwrap();
+        let output = render(&report, None).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
 
         let arr = parsed["per_file_coupling"]
@@ -275,7 +275,7 @@ mod tests {
             to: "src/lib.rs".into(),
         }];
 
-        let output = render(&report, false, None).unwrap();
+        let output = render(&report, None).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
 
         let arr = parsed["import_edges"]
@@ -291,7 +291,7 @@ mod tests {
         let mut report = make_report();
         report.import_cycles = vec![vec!["src/a.rs".into(), "src/b.rs".into()]];
 
-        let output = render(&report, false, None).unwrap();
+        let output = render(&report, None).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
 
         let arr = parsed["import_cycles"]
@@ -306,7 +306,7 @@ mod tests {
     fn json_output_per_file_coupling_empty_when_no_data() {
         let report = make_report(); // per_file_coupling is already vec![]
 
-        let output = render(&report, false, None).unwrap();
+        let output = render(&report, None).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
 
         let arr = parsed["per_file_coupling"]
@@ -356,7 +356,7 @@ mod tests {
             history: vec![entry],
         };
 
-        let output = render(&report, false, Some(&summary)).unwrap();
+        let output = render(&report, Some(&summary)).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
 
         let trend = parsed.get("trend").expect("trend key must be present");

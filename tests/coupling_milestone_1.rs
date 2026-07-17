@@ -8,7 +8,7 @@ use barad_dur::coupling::team::analyze_team_coupling;
 use barad_dur::coupling::team::TeamCouplingPair;
 use barad_dur::coupling::temporal::{analyze_temporal_coupling, TemporalCouplingPair};
 use barad_dur::coupling::{CouplingReport, CouplingReportSummary, RepoInfo};
-use barad_dur::renderer::coupling_json::render_coupling_json;
+use barad_dur::renderer::coupling_json::{render_coupling_json, render_coupling_json_pretty};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -461,7 +461,7 @@ fn combined_scoring_and_json_output() {
     };
 
     // WHEN the report is rendered as JSON
-    let json_output = render_coupling_json(&report, false);
+    let json_output = render_coupling_json(&report);
 
     // THEN output is valid JSON with expected schema
     let parsed: serde_json::Value =
@@ -488,7 +488,7 @@ fn combined_scoring_and_json_output() {
     assert_eq!(blast[0]["dependency_name"], "serde");
 
     // GIVEN --json --pretty flags
-    let pretty_output = render_coupling_json(&report, true);
+    let pretty_output = render_coupling_json_pretty(&report);
     // THEN the JSON output is pretty-printed (contains newlines and indentation)
     assert!(
         pretty_output.contains('\n'),
