@@ -13,14 +13,20 @@ const FINGERPRINT_FILE: &str = "exclude.fingerprint";
 /// positional: a mid-struct field addition can garbage-parse instead of
 /// failing, silently serving stale data. The explicit version makes
 /// invalidation deterministic. History: 1 = post-M1 shape (coupling_findings);
-/// 2 = M7 (class_records).
-const CACHE_VERSION: u32 = 2;
+/// 2 = M7 (class_records); 3 = bincode 2 wire format (varint).
+const CACHE_VERSION: u32 = 3;
+
+/// Wire format for all cache files. Bincode 2's standard config (varint
+/// lengths) — not compatible with the bincode 1 fixint files of versions ≤ 2.
+pub(super) fn wire_config() -> bincode::config::Configuration {
+    bincode::config::standard()
+}
 
 /// Save a snapshot to the cache directory.
 pub fn save(snapshot: &RepoSnapshot, repo_path: &Path) -> Result<()> {
     let cache_dir = repo_path.join(CACHE_DIR);
     fs::create_dir_all(&cache_dir)?;
-    let data = bincode::serialize(&(CACHE_VERSION, snapshot))?;
+    let data = bincode::serde::encode_to_vec((CACHE_VERSION, snapshot), wire_config())?;
     fs::write(cache_dir.join(CACHE_FILE), data)?;
     ensure_gitignore(repo_path)?;
     Ok(())
@@ -52,8 +58,8 @@ pub fn load(repo_path: &Path) -> Result<Option<RepoSnapshot>> {
         return Ok(None);
     }
     let data = fs::read(&cache_file)?;
-    match bincode::deserialize::<(u32, RepoSnapshot)>(&data) {
-        Ok((CACHE_VERSION, snapshot)) => Ok(Some(snapshot)),
+    match bincode::serde::decode_from_slice::<(u32, RepoSnapshot), _>(&data, wire_config()) {
+        Ok(((CACHE_VERSION, snapshot), _)) => Ok(Some(snapshot)),
         // Wrong version or corrupt — delete and re-collect.
         Ok(_) | Err(_) => {
             let _ = fs::remove_file(&cache_file);
@@ -226,7 +232,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let cache_dir = dir.path().join(CACHE_DIR);
         fs::create_dir_all(&cache_dir).unwrap();
-        let stale = bincode::serialize(&(0u32, make_test_snapshot())).unwrap();
+        let stale =
+            bincode::serde::encode_to_vec(&(0u32, make_test_snapshot()), wire_config()).unwrap();
         fs::write(cache_dir.join(CACHE_FILE), stale).unwrap();
         assert!(load(dir.path()).unwrap().is_none());
         assert!(
@@ -240,7 +247,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let cache_dir = dir.path().join(CACHE_DIR);
         fs::create_dir_all(&cache_dir).unwrap();
-        let legacy = bincode::serialize(&make_test_snapshot()).unwrap();
+        let legacy = bincode::serde::encode_to_vec(make_test_snapshot(), wire_config()).unwrap();
         fs::write(cache_dir.join(CACHE_FILE), legacy).unwrap();
         assert!(load(dir.path()).unwrap().is_none());
     }
