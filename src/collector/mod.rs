@@ -16,7 +16,7 @@ use crate::snapshot::{
     Author, AuthorId, BlameLine, FileComplexity, FileEntry, RepoSnapshot, TimeWindow,
 };
 
-pub use exclude::is_excluded;
+pub use exclude::{is_excluded_by_cli, is_excluded_by_defaults};
 pub use ignore_file::exclude_fingerprint;
 pub(crate) use ignore_file::BaradDurIgnore;
 pub use progress::{NoProgress, Progress};

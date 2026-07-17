@@ -233,7 +233,13 @@ pub fn render_and_write(
         None
     };
     let output = match cfg.output_format {
-        config::OutputFormat::Json => renderer::json::render(report, args.pretty, json_trend)?,
+        config::OutputFormat::Json => {
+            if args.pretty {
+                renderer::json::render_pretty(report, json_trend)?
+            } else {
+                renderer::json::render(report, json_trend)?
+            }
+        }
         config::OutputFormat::Html => renderer::html::render(report)?,
         config::OutputFormat::Cli => {
             renderer::cli::render(report, args.verbose, Some(trend_summary))

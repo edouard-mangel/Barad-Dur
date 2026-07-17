@@ -14,7 +14,7 @@ use crate::coupling::types::CouplingPair;
 use crate::coupling::RepoInfo;
 use crate::renderer;
 use crate::renderer::coupling_cli::render_coupling_table;
-use crate::renderer::coupling_json::render_coupling_json;
+use crate::renderer::coupling_json::{render_coupling_json, render_coupling_json_pretty};
 use crate::runner;
 use indicatif::{ProgressBar, ProgressStyle};
 
@@ -148,7 +148,11 @@ fn render_coupling_output(
                 runner::open_in_browser(&path)?;
             }
         } else {
-            let output = render_coupling_json(&report, args.pretty);
+            let output = if args.pretty {
+                render_coupling_json_pretty(&report)
+            } else {
+                render_coupling_json(&report)
+            };
             if let Some(path) = &args.output {
                 std::fs::write(path, &output)?;
                 eprintln!("Report written to {}", path.display());

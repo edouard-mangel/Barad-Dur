@@ -83,62 +83,57 @@ const DEFAULT_EXCLUDE_PATTERNS: &[&str] = &[
     "**/*_pb2.py",
 ];
 
-/// Returns true if the file should be excluded based on the given glob patterns,
-/// user-specified extensions, and (optionally) the built-in default extension list.
-pub fn is_excluded(
-    path: &Path,
-    patterns: &[String],
-    extensions: &[String],
-    use_defaults: bool,
-) -> bool {
+/// True when the built-in default exclusions match `path` — by known
+/// extension, compound extension (e.g. `min.js`, `_pb2.py`), or path glob.
+pub fn is_excluded_by_defaults(path: &Path) -> bool {
     let path_str = path.to_string_lossy();
     let path_lower = path_str.to_lowercase();
 
-    // Check built-in defaults (by extension and path pattern)
-    if use_defaults {
-        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            let ext_lower = ext.to_lowercase();
-            if DEFAULT_EXCLUDE_EXTENSIONS.iter().any(|&e| e == ext_lower) {
-                return true;
-            }
-        }
-        if DEFAULT_EXCLUDE_COMPOUND_EXTENSIONS
+    let by_extension = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|ext| ext.to_lowercase())
+        .is_some_and(|ext| DEFAULT_EXCLUDE_EXTENSIONS.iter().any(|&e| e == ext));
+
+    by_extension
+        || DEFAULT_EXCLUDE_COMPOUND_EXTENSIONS
             .iter()
             .any(|&e| path_lower.ends_with(&format!(".{}", e)))
-        {
-            return true;
-        }
-        if DEFAULT_EXCLUDE_PATTERNS
+        || DEFAULT_EXCLUDE_PATTERNS
             .iter()
             .any(|p| glob_match::glob_match(p, &path_str))
-        {
-            return true;
-        }
-    }
+}
 
-    // Check user-specified extensions (simple and compound, e.g. "jar", "min.js")
-    if !extensions.is_empty() {
-        for ext in extensions {
-            let ext_lower = ext.trim_start_matches('.').to_lowercase();
-            if path_lower.ends_with(&format!(".{}", ext_lower)) {
-                return true;
-            }
-        }
-    }
+/// True when the user-specified CLI layers match `path`: `--exclude` glob
+/// patterns, or `--exclude-ext` extensions (simple and compound, e.g.
+/// "jar", "min.js").
+pub fn is_excluded_by_cli(path: &Path, patterns: &[String], extensions: &[String]) -> bool {
+    let path_str = path.to_string_lossy();
+    let path_lower = path_str.to_lowercase();
 
-    // Check user-provided glob patterns
-    for pattern in patterns {
-        if glob_match::glob_match(pattern, &path_str) {
-            return true;
-        }
-    }
-
-    false
+    extensions.iter().any(|ext| {
+        let ext_lower = ext.trim_start_matches('.').to_lowercase();
+        path_lower.ends_with(&format!(".{}", ext_lower))
+    }) || patterns
+        .iter()
+        .any(|pattern| glob_match::glob_match(pattern, &path_str))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The pre-split composition — kept so every historical pin below keeps
+    /// asserting the same combined behavior the production layers compose.
+    fn is_excluded(
+        path: &Path,
+        patterns: &[String],
+        extensions: &[String],
+        use_defaults: bool,
+    ) -> bool {
+        (use_defaults && is_excluded_by_defaults(path))
+            || is_excluded_by_cli(path, patterns, extensions)
+    }
 
     #[test]
     fn is_excluded_matches_default_extensions() {

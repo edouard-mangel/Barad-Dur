@@ -336,8 +336,18 @@ fn run_advanced_wizard<R: BufRead>(reader: &mut R, scan: &ScanResult) -> Result<
     ))
 }
 
+/// Options for the init command — named fields instead of positional flags.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct InitOptions {
+    /// Overwrite an existing config instead of refusing.
+    pub force: bool,
+    /// Run the wizard when stdin is a terminal.
+    pub interactive: bool,
+}
+
 /// Run the init command.
-pub fn run_init(target: &Path, force: bool, interactive: bool) -> Result<()> {
+pub fn run_init(target: &Path, opts: InitOptions) -> Result<()> {
+    let InitOptions { force, interactive } = opts;
     let config_path = target.join(CACHE_DIR).join(CONFIG_FILE);
     if config_path.exists() && !force {
         bail!(
@@ -644,14 +654,21 @@ mod tests {
             .join("barad-dur.toml");
 
         // Fresh repo, no --force → succeeds and writes the config.
-        run_init(dir.path(), false, false).unwrap();
+        run_init(dir.path(), InitOptions::default()).unwrap();
         assert!(config.exists());
 
         // Config now exists and no --force → must error.
-        assert!(run_init(dir.path(), false, false).is_err());
+        assert!(run_init(dir.path(), InitOptions::default()).is_err());
 
         // --force overwrites and succeeds.
-        run_init(dir.path(), true, false).unwrap();
+        run_init(
+            dir.path(),
+            InitOptions {
+                force: true,
+                interactive: false,
+            },
+        )
+        .unwrap();
     }
 
     #[test]
