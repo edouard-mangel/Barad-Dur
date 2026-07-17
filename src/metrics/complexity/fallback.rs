@@ -43,7 +43,13 @@ pub fn analyse_content(content: &str, lang: Language) -> FileComplexity {
         })
         .count();
 
-    let cyclomatic_complexity = count_complexity(content);
+    // Keyword counting is meaningless in prose/config (a LICENSE or YAML
+    // file matches `if`/`case`/`||` by accident and ranks as a complex
+    // hotspot) — an unknown language gets line counts only.
+    let cyclomatic_complexity = match lang {
+        Language::Generic => 0,
+        _ => count_complexity(content),
+    };
     let public_methods = count_public_methods(content, lang);
     let properties = count_properties(content, lang);
 
@@ -304,6 +310,20 @@ mod tests {
         let result = analyse_content(content, Language::Rust);
         assert_eq!(result.total_lines, 5);
         assert_eq!(result.loc, 2); // fn main(){} and let x = 1;
+    }
+
+    #[test]
+    fn generic_content_has_zero_complexity() {
+        // Prose and config files hit every keyword pattern by accident —
+        // a LICENSE ranked as a complex hotspot. Unknown language ⇒ line
+        // counts only.
+        let content = "You may copy, modify || distribute this work if and\n\
+                       only if you match each case of the conditions while\n\
+                       the license terms hold && remain in effect.\n";
+        let result = analyse_content(content, Language::Generic);
+        assert_eq!(result.cyclomatic_complexity, 0);
+        assert_eq!(result.total_lines, 3);
+        assert!(result.loc > 0);
     }
 
     #[test]
