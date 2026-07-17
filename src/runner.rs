@@ -6,7 +6,7 @@ use std::path::Path;
 
 use crate::cache;
 use crate::cli::AnalyzeArgs;
-use crate::collector::Collector;
+use crate::collector::{Collector, SnapshotOptions};
 use crate::config::RepoConfig;
 use crate::snapshot::{RepoSnapshot, TimeWindow};
 
@@ -77,15 +77,15 @@ fn collect_and_cache(
     no_cache: bool,
     fingerprint: u64,
 ) -> Result<RepoSnapshot> {
-    let snapshot = collector.collect_snapshot_verbose(
-        opts.show_progress,
-        opts.verbose,
-        opts.skip_blame,
+    let snapshot = collector.collect_snapshot_with_options(&SnapshotOptions {
+        show_progress: opts.show_progress,
+        verbose: opts.verbose,
+        skip_blame: opts.skip_blame,
         no_cache,
-        opts.cli_exclude_patterns,
-        opts.cli_exclude_extensions,
-        opts.use_default_excludes,
-    )?;
+        exclude_patterns: opts.cli_exclude_patterns,
+        exclude_extensions: opts.cli_exclude_extensions,
+        use_default_excludes: opts.use_default_excludes,
+    })?;
     if let Err(e) = cache::save(&snapshot, collector.repo_path()) {
         eprintln!("Warning: Failed to save cache: {}", e);
     }
