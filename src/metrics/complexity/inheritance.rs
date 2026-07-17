@@ -35,6 +35,120 @@ pub enum RawBaseRef {
     Unresolvable,
 }
 
+/// A re-export site as extraction sees it, before specifier resolution.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RawReExport {
+    pub specifier: String,
+    pub kind: RawReExportKind,
+}
+
+/// Mirrors `snapshot::ReExportKind`, pre-resolution.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RawReExportKind {
+    /// `export { source as exported } from …` (alias unwrapped), or a bare
+    /// `export { A }` of an import binding.
+    Named { exported: String, source: String },
+    /// `export * from …`.
+    Star,
+}
+
+/// Extract re-export edges from one TS/JS file (barrel files). Other
+/// languages yield none — inheritance resolution is TS/JS-only by design.
+pub fn extract_reexports(path: &Path, content: &str) -> Vec<RawReExport> {
+    let lang = detect_language(&path.to_string_lossy());
+    if !matches!(lang, Language::JsTs) {
+        return Vec::new();
+    }
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let Some(grammar) = grammar_for(lang, ext) else {
+        return Vec::new();
+    };
+    let Some(tree) = parse(content, &grammar) else {
+        return Vec::new();
+    };
+    reexports_from_tree(tree.root_node(), content)
+}
+
+/// Tree-level core of [`extract_reexports`], for callers that already hold
+/// a parsed TS/JS tree (shared-parse path).
+pub(super) fn reexports_from_tree(root: Node<'_>, content: &str) -> Vec<RawReExport> {
+    let imports = import_bindings(root, content);
+    descendants(root)
+        .into_iter()
+        .filter(|n| n.kind() == "export_statement")
+        .flat_map(|stmt| statement_reexports(stmt, content, &imports))
+        .collect()
+}
+
+fn statement_reexports(
+    stmt: Node<'_>,
+    content: &str,
+    imports: &HashMap<String, (String, String)>,
+) -> Vec<RawReExport> {
+    let source = stmt.child_by_field_name("source").map(|s| {
+        text(s, content)
+            .trim_matches(|c| c == '"' || c == '\'')
+            .to_string()
+    });
+    match source {
+        // `export * from './x'` — a direct `*` child; `export * as ns` wraps
+        // the star in a namespace_export and is deliberately skipped (its
+        // symbols are only reachable through the namespace).
+        Some(specifier)
+            if (0..stmt.child_count())
+                .filter_map(|i| stmt.child(i as u32))
+                .any(|c| c.kind() == "*") =>
+        {
+            vec![RawReExport {
+                specifier,
+                kind: RawReExportKind::Star,
+            }]
+        }
+        // `export { A, B as C } from './x'`.
+        Some(specifier) => export_specifiers(stmt, content)
+            .map(|(name, exported)| RawReExport {
+                specifier: specifier.clone(),
+                kind: RawReExportKind::Named {
+                    exported,
+                    source: name,
+                },
+            })
+            .collect(),
+        // Bare `export { A }` — a re-export only when A is import-bound.
+        None => export_specifiers(stmt, content)
+            .filter_map(|(local, exported)| {
+                let (specifier, original) = imports.get(&local)?;
+                Some(RawReExport {
+                    specifier: specifier.clone(),
+                    kind: RawReExportKind::Named {
+                        exported,
+                        source: original.clone(),
+                    },
+                })
+            })
+            .collect(),
+    }
+}
+
+/// Each `export_specifier` of a statement as (name, exported-as) — the
+/// alias when present, otherwise the name itself.
+fn export_specifiers<'a>(
+    stmt: Node<'a>,
+    content: &'a str,
+) -> impl Iterator<Item = (String, String)> + 'a {
+    descendants(stmt)
+        .into_iter()
+        .filter(|n| n.kind() == "export_specifier")
+        .filter_map(move |n| {
+            let name = text(n.child_by_field_name("name")?, content).to_string();
+            let exported = n
+                .child_by_field_name("alias")
+                .map(|a| text(a, content).to_string())
+                .unwrap_or_else(|| name.clone());
+            Some((name, exported))
+        })
+}
+
 /// Extract class records from one TS/JS file. Other languages (including
 /// Rust) yield no records — the rung is TS/JS-only by design.
 pub fn extract_class_records(path: &Path, content: &str) -> Vec<RawClassRecord> {
@@ -225,6 +339,83 @@ mod tests {
                 name: "A".into()
             }
         );
+    }
+
+    // ── Re-export extraction ───────────────────────────────────────
+
+    fn reexports(name: &str, src: &str) -> Vec<RawReExport> {
+        extract_reexports(Path::new(name), src)
+    }
+
+    #[test]
+    fn named_reexport_from_source() {
+        let r = reexports("src/index.ts", "export { A } from './a';\n");
+        assert_eq!(
+            r,
+            vec![RawReExport {
+                specifier: "./a".into(),
+                kind: RawReExportKind::Named {
+                    exported: "A".into(),
+                    source: "A".into()
+                },
+            }]
+        );
+    }
+
+    #[test]
+    fn aliased_reexport_records_both_names() {
+        let r = reexports("src/index.ts", "export { A as Base } from './a';\n");
+        assert_eq!(
+            r[0].kind,
+            RawReExportKind::Named {
+                exported: "Base".into(),
+                source: "A".into()
+            }
+        );
+    }
+
+    #[test]
+    fn star_reexport() {
+        let r = reexports("src/index.ts", "export * from './a';\n");
+        assert_eq!(
+            r,
+            vec![RawReExport {
+                specifier: "./a".into(),
+                kind: RawReExportKind::Star,
+            }]
+        );
+    }
+
+    #[test]
+    fn bare_export_of_import_binding_is_a_reexport() {
+        let src = "import { A } from './a';\nexport { A };\n";
+        let r = reexports("src/index.ts", src);
+        assert_eq!(
+            r,
+            vec![RawReExport {
+                specifier: "./a".into(),
+                kind: RawReExportKind::Named {
+                    exported: "A".into(),
+                    source: "A".into()
+                },
+            }]
+        );
+    }
+
+    #[test]
+    fn namespace_reexport_is_skipped() {
+        assert!(reexports("src/index.ts", "export * as ns from './a';\n").is_empty());
+    }
+
+    #[test]
+    fn plain_exports_are_not_reexports() {
+        let src = "export class A {}\nexport const x = 1;\nexport function f() {}\n";
+        assert!(reexports("src/index.ts", src).is_empty());
+    }
+
+    #[test]
+    fn non_jsts_yields_no_reexports() {
+        assert!(reexports("src/lib.rs", "pub use crate::a::A;\n").is_empty());
     }
 
     #[test]

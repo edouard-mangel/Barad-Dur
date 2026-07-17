@@ -11,7 +11,10 @@ use std::path::Path;
 use crate::snapshot::{CouplingFinding, FileComplexity};
 
 pub use fallback::{detect_language, Language};
-pub use inheritance::{extract_class_records, RawBaseRef, RawClassRecord};
+pub use inheritance::{
+    extract_class_records, extract_reexports, RawBaseRef, RawClassRecord, RawReExport,
+    RawReExportKind,
+};
 pub use pressman::extract_coupling_findings;
 
 /// Everything the collector extracts from one source file, produced from a
@@ -23,6 +26,7 @@ pub struct SourceAnalysis {
     pub imports: Vec<String>,
     pub coupling_findings: Vec<CouplingFinding>,
     pub class_records: Vec<RawClassRecord>,
+    pub reexports: Vec<RawReExport>,
 }
 
 /// Analyse one file for complexity metrics, imports, coupling findings, and
@@ -41,12 +45,17 @@ pub fn analyse_source(path: &Path, content: &str) -> SourceAnalysis {
                 Language::JsTs => inheritance::class_records_from_tree(tree.root_node(), content),
                 _ => Vec::new(),
             },
+            reexports: match lang {
+                Language::JsTs => inheritance::reexports_from_tree(tree.root_node(), content),
+                _ => Vec::new(),
+            },
         },
         None => SourceAnalysis {
             metrics: fallback::analyse_content(content, lang),
             imports: Vec::new(),
             coupling_findings: Vec::new(),
             class_records: Vec::new(),
+            reexports: Vec::new(),
         },
     }
 }
