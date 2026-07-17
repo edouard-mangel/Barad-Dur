@@ -22,6 +22,37 @@ pub(crate) use ignore_file::BaradDurIgnore;
 pub use progress::{NoProgress, Progress};
 pub use types::CommitCollection;
 
+/// Options steering a full snapshot collection. One value instead of a
+/// procession of boolean flags (which this tool's own gate reports as
+/// control coupling).
+#[derive(Debug, Clone, Copy)]
+pub struct SnapshotOptions<'a> {
+    pub show_progress: bool,
+    pub verbose: bool,
+    pub skip_blame: bool,
+    pub no_cache: bool,
+    /// CLI `--exclude` globs — highest-precedence force-exclude layer.
+    pub exclude_patterns: &'a [String],
+    /// CLI `--exclude-ext` extensions — highest-precedence force-exclude layer.
+    pub exclude_extensions: &'a [String],
+    /// Whether the built-in default exclusions apply (lowest layer).
+    pub use_default_excludes: bool,
+}
+
+impl Default for SnapshotOptions<'_> {
+    fn default() -> Self {
+        SnapshotOptions {
+            show_progress: false,
+            verbose: false,
+            skip_blame: false,
+            no_cache: false,
+            exclude_patterns: &[],
+            exclude_extensions: &[],
+            use_default_excludes: true,
+        }
+    }
+}
+
 pub struct Collector {
     repo: git2::Repository,
     pub time_window: TimeWindow,
@@ -135,30 +166,18 @@ impl Collector {
 
     /// Build a complete RepoSnapshot, optionally showing progress indicators.
     pub fn collect_snapshot_with_progress(&self, show_progress: bool) -> Result<RepoSnapshot> {
-        self.collect_snapshot_inner(show_progress, false, false, false, &[], &[], true)
+        self.collect_snapshot_inner(&SnapshotOptions {
+            show_progress,
+            ..SnapshotOptions::default()
+        })
     }
 
     /// Build a complete RepoSnapshot with full control over display and phases.
-    #[allow(clippy::too_many_arguments)]
-    pub fn collect_snapshot_verbose(
+    pub fn collect_snapshot_with_options(
         &self,
-        show_progress: bool,
-        verbose: bool,
-        skip_blame: bool,
-        no_cache: bool,
-        cli_exclude_patterns: &[String],
-        cli_exclude_extensions: &[String],
-        use_default_excludes: bool,
+        opts: &SnapshotOptions<'_>,
     ) -> Result<RepoSnapshot> {
-        self.collect_snapshot_inner(
-            show_progress,
-            verbose,
-            skip_blame,
-            no_cache,
-            cli_exclude_patterns,
-            cli_exclude_extensions,
-            use_default_excludes,
-        )
+        self.collect_snapshot_inner(opts)
     }
 
     pub fn repo_path(&self) -> &Path {

@@ -15,7 +15,17 @@ use crate::snapshot::{
 use super::ignore_file::{should_include, BaradDurIgnore};
 use super::import_resolver::{resolve_imports, resolve_specifier, RawImports};
 use super::progress::{NoProgress, Progress};
-use super::Collector;
+use super::{Collector, SnapshotOptions};
+
+/// Everything the AST pass produces for a baseline snapshot; `Default`
+/// gives the empty parts of an AST-less collection (ADR-005 backfill).
+type AstParts = (
+    HashMap<PathBuf, FileComplexity>,
+    HashMap<PathBuf, Vec<PathBuf>>,
+    Vec<CouplingFinding>,
+    Vec<ClassRecord>,
+    Vec<ReExportRecord>,
+);
 
 impl Collector {
     #[allow(clippy::type_complexity)]
@@ -70,17 +80,19 @@ impl Collector {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn collect_snapshot_inner(
         &self,
-        show_progress: bool,
-        verbose: bool,
-        skip_blame: bool,
-        no_cache: bool,
-        cli_exclude_patterns: &[String],
-        cli_exclude_extensions: &[String],
-        use_default_excludes: bool,
+        opts: &SnapshotOptions<'_>,
     ) -> Result<RepoSnapshot> {
+        let &SnapshotOptions {
+            show_progress,
+            verbose,
+            skip_blame,
+            no_cache,
+            exclude_patterns: cli_exclude_patterns,
+            exclude_extensions: cli_exclude_extensions,
+            use_default_excludes,
+        } = opts;
         let make_spinner = |msg: &str| -> Option<ProgressBar> {
             if !show_progress {
                 return None;
@@ -301,25 +313,46 @@ impl Collector {
         Ok(snapshot)
     }
 
-    /// Collect a snapshot at a specific commit SHA without touching the working tree.
-    /// `file_metrics`/`import_graph`/`coupling_findings` stay empty unless `run_ast`
-    /// is set (ADR-005: backfill's historical sweep skips the AST pass for
-    /// performance; the gate ratchet's one-off baseline collection opts in).
+    /// Collect a snapshot at a specific commit SHA without touching the
+    /// working tree or running the AST pass —
+    /// `file_metrics`/`import_graph`/`coupling_findings` stay empty
+    /// (ADR-005: backfill's historical sweep skips the AST pass for
+    /// performance; blame is always skipped too).
     ///
     /// `ignore` is passed in (not loaded here) so a `backfill` run parses the
     /// repo's `.baraddurignore` once and reuses it across every historical sample.
     ///
     /// `use_default_excludes` mirrors the caller's `cfg.exclude_use_defaults` —
     /// callers must pass the same value they use for their live/HEAD snapshot
-    /// so a baseline snapshot is comparable to it (backfill and the gate
-    /// ratchet's baseline collection both call this).
+    /// so a baseline snapshot is comparable to it.
     pub(crate) fn collect_snapshot_at(
         repo_path: &Path,
         sha: &str,
-        _skip_blame: bool,
         ignore: &BaradDurIgnore,
-        run_ast: bool,
         use_default_excludes: bool,
+    ) -> Result<RepoSnapshot> {
+        Self::collect_snapshot_at_inner(repo_path, sha, ignore, use_default_excludes, |_, _| {
+            Ok(AstParts::default())
+        })
+    }
+
+    /// [`collect_snapshot_at`], plus the AST pass over blob contents — the
+    /// gate ratchet's baseline needs coupling findings to ratchet against.
+    pub(crate) fn collect_snapshot_at_with_ast(
+        repo_path: &Path,
+        sha: &str,
+        ignore: &BaradDurIgnore,
+        use_default_excludes: bool,
+    ) -> Result<RepoSnapshot> {
+        Self::collect_snapshot_at_inner(repo_path, sha, ignore, use_default_excludes, ast_pass_at)
+    }
+
+    fn collect_snapshot_at_inner(
+        repo_path: &Path,
+        sha: &str,
+        ignore: &BaradDurIgnore,
+        use_default_excludes: bool,
+        ast_pass: impl FnOnce(&git2::Repository, &[FileEntry]) -> Result<AstParts>,
     ) -> Result<RepoSnapshot> {
         let repo = git2::Repository::discover(repo_path)
             .with_context(|| format!("'{}' is not a git repository", repo_path.display()))?;
@@ -352,17 +385,8 @@ impl Collector {
             .and_then(|h| h.shorthand().ok().map(String::from))
             .unwrap_or_else(|| "main".to_string());
 
-        let (file_metrics, import_graph, coupling_findings, class_records, reexports) = if run_ast {
-            ast_pass_at(&repo, &files)?
-        } else {
-            (
-                HashMap::new(),
-                HashMap::new(),
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-            )
-        };
+        let (file_metrics, import_graph, coupling_findings, class_records, reexports) =
+            ast_pass(&repo, &files)?;
 
         let mut snapshot = RepoSnapshot {
             path: repo_path.to_path_buf(),
@@ -396,17 +420,7 @@ impl Collector {
 /// keeps this off per ADR-005. Runs sequentially (no rayon): baseline trees
 /// are collected once per gate run, not once per commit like backfill's
 /// historical sweep, so the parallelism isn't worth the added complexity here.
-#[allow(clippy::type_complexity)]
-fn ast_pass_at(
-    repo: &git2::Repository,
-    files: &[FileEntry],
-) -> Result<(
-    HashMap<PathBuf, FileComplexity>,
-    HashMap<PathBuf, Vec<PathBuf>>,
-    Vec<CouplingFinding>,
-    Vec<ClassRecord>,
-    Vec<ReExportRecord>,
-)> {
+fn ast_pass_at(repo: &git2::Repository, files: &[FileEntry]) -> Result<AstParts> {
     let mut file_metrics = HashMap::new();
     let mut raw_imports: RawImports = HashMap::new();
     let mut coupling_findings = Vec::new();
@@ -670,8 +684,7 @@ mod tests {
         let (dir, head) =
             make_single_commit_repo_with(&[("main.rs", "fn main() {}\n"), ("Cargo.lock", "x\n")]);
         let ignore = BaradDurIgnore::load(dir.path()).unwrap();
-        let snap =
-            Collector::collect_snapshot_at(dir.path(), &head, true, &ignore, false, true).unwrap();
+        let snap = Collector::collect_snapshot_at(dir.path(), &head, &ignore, true).unwrap();
         let paths = snapshot_paths(&snap);
         assert!(paths.iter().any(|p| p == "main.rs"));
         assert!(
@@ -693,7 +706,7 @@ mod tests {
         let ignore = BaradDurIgnore::load(dir.path()).unwrap();
 
         let snap_without_defaults =
-            Collector::collect_snapshot_at(dir.path(), &head, true, &ignore, false, false).unwrap();
+            Collector::collect_snapshot_at(dir.path(), &head, &ignore, false).unwrap();
         let paths_without_defaults = snapshot_paths(&snap_without_defaults);
         assert!(
             paths_without_defaults
@@ -703,7 +716,7 @@ mod tests {
         );
 
         let snap_with_defaults =
-            Collector::collect_snapshot_at(dir.path(), &head, true, &ignore, false, true).unwrap();
+            Collector::collect_snapshot_at(dir.path(), &head, &ignore, true).unwrap();
         let paths_with_defaults = snapshot_paths(&snap_with_defaults);
         assert!(
             !paths_with_defaults.iter().any(|p| p == "package-lock.json"),
@@ -718,8 +731,7 @@ mod tests {
             make_single_commit_repo_with(&[("main.rs", "fn main() {}\n"), ("keep.rs", "//\n")]);
         std::fs::write(dir.path().join(".baraddurignore"), "keep.rs\n").unwrap();
         let ignore = BaradDurIgnore::load(dir.path()).unwrap();
-        let snap =
-            Collector::collect_snapshot_at(dir.path(), &head, true, &ignore, false, true).unwrap();
+        let snap = Collector::collect_snapshot_at(dir.path(), &head, &ignore, true).unwrap();
         let paths = snapshot_paths(&snap);
         assert!(!paths.iter().any(|p| p == "keep.rs"));
     }
@@ -732,7 +744,7 @@ mod tests {
         )]);
         let ignore = BaradDurIgnore::load(dir.path()).unwrap();
         let snap =
-            Collector::collect_snapshot_at(dir.path(), &head, true, &ignore, true, true).unwrap();
+            Collector::collect_snapshot_at_with_ast(dir.path(), &head, &ignore, true).unwrap();
         assert!(
             !snap.file_metrics.is_empty(),
             "AST pass must populate file_metrics"
@@ -749,8 +761,7 @@ mod tests {
         let (dir, head) =
             make_single_commit_repo_with(&[("src/lib.rs", "static mut CACHE: usize = 0;\n")]);
         let ignore = BaradDurIgnore::load(dir.path()).unwrap();
-        let snap =
-            Collector::collect_snapshot_at(dir.path(), &head, true, &ignore, false, true).unwrap();
+        let snap = Collector::collect_snapshot_at(dir.path(), &head, &ignore, true).unwrap();
         assert!(snap.file_metrics.is_empty(), "ADR-005 contract unchanged");
         assert!(snap.coupling_findings.is_empty());
     }

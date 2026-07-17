@@ -76,12 +76,10 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
         let max_new = args.max_new_coupling.unwrap_or(0);
         let sha = resolve_baseline_ref(&local_path, baseline_ref)?;
         let ignore = crate::collector::BaradDurIgnore::load(&local_path)?;
-        let base_snapshot = Collector::collect_snapshot_at(
+        let base_snapshot = Collector::collect_snapshot_at_with_ast(
             &local_path,
             &sha,
-            true,
             &ignore,
-            true,
             use_default_excludes,
         )?;
         let base_counts =

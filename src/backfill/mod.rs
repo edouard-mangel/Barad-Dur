@@ -12,7 +12,9 @@ use crate::metrics::{evolution, health, hygiene, team};
 use crate::scorer;
 use crate::snapshot::TimeWindow;
 
-pub fn run(args: &BackfillArgs, repo_path: &Path) -> Result<()> {
+// `args` currently carries only `--no-blame`, which was always a no-op here:
+// ADR-005 baseline collection skips blame unconditionally.
+pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
     let cfg = config::load(repo_path)?;
     let sample_count = cfg.backfill.sample_count as usize;
 
@@ -52,8 +54,7 @@ pub fn run(args: &BackfillArgs, repo_path: &Path) -> Result<()> {
             continue;
         }
 
-        let snapshot =
-            Collector::collect_snapshot_at(repo_path, sha, args.no_blame, &ignore, false, true)?;
+        let snapshot = Collector::collect_snapshot_at(repo_path, sha, &ignore, true)?;
 
         let categories = vec![
             health::compute_health(&snapshot, &cfg.thresholds.health),
