@@ -617,7 +617,11 @@ docker:
 
 trivy-scan:
   stage: docker
-  image: aquasec/trivy:latest
+  # Pinned (was :latest) after an image update made `trivy` the container
+  # entrypoint, swallowing GitLab's shell wrapper ("unknown command sh").
+  image:
+    name: aquasec/trivy:0.72.0
+    entrypoint: [""]
   needs:
     - docker
   variables:
