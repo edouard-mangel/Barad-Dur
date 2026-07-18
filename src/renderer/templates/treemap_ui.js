@@ -1,6 +1,294 @@
 
   /* ---- Treemap tab UI ---- */
 
+  /* The recursive renderers and panel builders below are pure DOM
+     producers: they read from `env` (lookup maps + color fn) and never
+     touch the tab's navigation state, which stays inside buildTreemapTab. */
+
+  function tmCollectChildren(node) {
+    var items = [];
+    Object.keys(node.children).forEach(function(k) {
+      var child = node.children[k];
+      if (child.totalLoc > 0) {
+        items.push({ size: child.totalLoc, data: { type: 'dir', node: child, name: k } });
+      }
+    });
+    node.files.forEach(function(f) {
+      if (f.loc > 0) {
+        items.push({ size: f.loc, data: { type: 'file', file: f } });
+      }
+    });
+    return items;
+  }
+
+  function tmFileColor(env, path) {
+    var fData = env.fileMap[path];
+    return fData ? env.colorForFile(fData) : '#334155';
+  }
+
+  function tmRenderTreeNode(env, svgNode, node, x, y, w, h, depth) {
+    if (w < 1 || h < 1) return;
+    var pad = 2;
+    var headerH = depth > 0 ? 18 : 0;
+    var innerX = x + pad;
+    var innerY = y + headerH + pad;
+    var innerW = w - pad * 2;
+    var innerH = h - headerH - pad * 2;
+    if (innerW < 1 || innerH < 1) return;
+
+    if (depth > 0) {
+      // Directory background — clickable
+      var dirBg = svgEl('rect', {
+        x: String(x), y: String(y), width: String(w), height: String(h),
+        fill: '#0d1117', stroke: '#1e293b', 'stroke-width': '1',
+        rx: '3',
+        class: 'tm-dir-bg', 'data-dir': node.name,
+        style: 'cursor:pointer;'
+      });
+      svgNode.append(dirBg);
+      // Directory label — also clickable
+      if (w > 40) {
+        var label = svgEl('text', {
+          x: String(x + 6), y: String(y + 13),
+          fill: '#94a3b8', 'font-size': '10', 'font-weight': '600', 'font-family': 'monospace',
+          class: 'tm-dir-label', 'data-dir': node.name,
+          style: 'cursor:pointer;pointer-events:auto;'
+        });
+        var maxLabelChars = Math.floor((w - 12) / 6);
+        var dirLabel = node.name;
+        if (dirLabel.length > maxLabelChars) dirLabel = dirLabel.slice(0, maxLabelChars - 1) + '…';
+        label.append(txt(dirLabel));
+        svgNode.append(label);
+      }
+    }
+
+    var items = tmCollectChildren(node);
+    if (items.length === 0) return;
+    var rects = squarify(items, innerX, innerY, innerW, innerH);
+
+    rects.forEach(function(r) {
+      if (r.data.type === 'file') {
+        var color = tmFileColor(env, r.data.file.path);
+        var gap = 1;
+        var rw = Math.max(0, r.w - gap);
+        var rh = Math.max(0, r.h - gap);
+        if (rw < 1 || rh < 1) return;
+        var rect = svgEl('rect', {
+          x: String(r.x), y: String(r.y),
+          width: String(rw), height: String(rh),
+          fill: color, class: 'tm-file', 'data-path': r.data.file.path,
+          rx: '2',
+          style: 'cursor:pointer;transition:opacity 0.15s;'
+        });
+        rect.addEventListener('mouseenter', function() { rect.setAttribute('opacity', '1'); });
+        rect.addEventListener('mouseleave', function() { rect.setAttribute('opacity', '0.88'); });
+        rect.setAttribute('opacity', '0.88');
+        svgNode.append(rect);
+        // File name label
+        if (rw > 36 && rh > 14) {
+          var textEl = svgEl('text', {
+            x: String(r.x + 3), y: String(r.y + 12),
+            fill: '#e2e8f0', 'font-size': '9', 'font-family': 'monospace',
+            'pointer-events': 'none', opacity: '0.85'
+          });
+          var maxChars = Math.floor((rw - 6) / 5.5);
+          var lbl = r.data.file.name;
+          if (lbl.length > maxChars) lbl = lbl.slice(0, maxChars - 1) + '…';
+          textEl.append(txt(lbl));
+          svgNode.append(textEl);
+        }
+        // LOC label on larger rects
+        if (rw > 50 && rh > 26) {
+          var locEl = svgEl('text', {
+            x: String(r.x + 3), y: String(r.y + 23),
+            fill: '#94a3b8', 'font-size': '8', 'font-family': 'monospace',
+            'pointer-events': 'none', opacity: '0.7'
+          });
+          locEl.append(txt(r.data.file.loc + ' loc'));
+          svgNode.append(locEl);
+        }
+      } else {
+        tmRenderTreeNode(env, svgNode, r.data.node, r.x, r.y, r.w, r.h, depth + 1);
+      }
+    });
+  }
+
+  function tmRenderCircleNode(env, svgNode, node, cx, cy, r, depth) {
+    if (r < 2) return;
+
+    // Draw parent circle for directories
+    if (depth > 0) {
+      var bg = svgEl('circle', {
+        cx: String(cx), cy: String(cy), r: String(r),
+        fill: '#0d1117', stroke: '#1e293b', 'stroke-width': '1',
+        class: 'tm-dir-bg', 'data-dir': node.name,
+        style: 'cursor:pointer;'
+      });
+      svgNode.append(bg);
+      // Label at top of circle
+      if (r > 25) {
+        var label = svgEl('text', {
+          x: String(cx), y: String(cy - r + 14),
+          fill: '#94a3b8', 'font-size': '10', 'font-weight': '600', 'font-family': 'monospace',
+          'text-anchor': 'middle',
+          class: 'tm-dir-label', 'data-dir': node.name,
+          style: 'cursor:pointer;pointer-events:auto;'
+        });
+        var maxChars = Math.floor((r * 2 - 12) / 6);
+        var dirLabel = node.name;
+        if (dirLabel.length > maxChars) dirLabel = dirLabel.slice(0, maxChars - 1) + '…';
+        label.append(txt(dirLabel));
+        svgNode.append(label);
+      }
+    }
+
+    var items = tmCollectChildren(node);
+    if (items.length === 0) return;
+    var innerR = depth > 0 ? r * 0.88 : r;
+    var circles = circlePack(items, cx, cy, innerR);
+
+    circles.forEach(function(c) {
+      if (c.data.type === 'file') {
+        var color = tmFileColor(env, c.data.file.path);
+        var circ = svgEl('circle', {
+          cx: String(c.cx), cy: String(c.cy), r: String(Math.max(0, c.r - 0.5)),
+          fill: color, class: 'tm-file', 'data-path': c.data.file.path,
+          style: 'cursor:pointer;transition:opacity 0.15s;'
+        });
+        circ.addEventListener('mouseenter', function() { circ.setAttribute('opacity', '1'); });
+        circ.addEventListener('mouseleave', function() { circ.setAttribute('opacity', '0.88'); });
+        circ.setAttribute('opacity', '0.88');
+        svgNode.append(circ);
+        // Label if circle big enough
+        if (c.r > 20) {
+          var textEl = svgEl('text', {
+            x: String(c.cx), y: String(c.cy + 1),
+            fill: '#e2e8f0', 'font-size': '9', 'font-family': 'monospace',
+            'pointer-events': 'none', 'text-anchor': 'middle', opacity: '0.85'
+          });
+          var maxC = Math.floor((c.r * 2 - 8) / 5.5);
+          var lbl = c.data.file.name;
+          if (lbl.length > maxC) lbl = lbl.slice(0, maxC - 1) + '…';
+          textEl.append(txt(lbl));
+          svgNode.append(textEl);
+        }
+        if (c.r > 30) {
+          var locEl = svgEl('text', {
+            x: String(c.cx), y: String(c.cy + 12),
+            fill: '#94a3b8', 'font-size': '8', 'font-family': 'monospace',
+            'pointer-events': 'none', 'text-anchor': 'middle', opacity: '0.7'
+          });
+          locEl.append(txt(c.data.file.loc + ' loc'));
+          svgNode.append(locEl);
+        }
+      } else {
+        tmRenderCircleNode(env, svgNode, c.data.node, c.cx, c.cy, c.r, depth + 1);
+      }
+    });
+  }
+
+  /* Fill the detail panel body for one file: metric rows, age, ownership. */
+  function tmRenderDetailBody(env, detailBody, f) {
+    detailBody.replaceChildren();
+    var title = el('div', { className: 'tm-detail-title' });
+    title.append(txt(f.path));
+    detailBody.append(title);
+
+    var jump = el('div', { className: 'tm-detail-links', style: { display: 'flex', gap: '6px', marginBottom: '10px' } });
+    ['Hotspots', 'Graph'].forEach(function(tab) {
+      var b = el('button', { className: 'chip', style: { cursor: 'pointer' } });
+      b.append(txt('View in ' + tab.toLowerCase()));
+      b.addEventListener('click', function() { focusFileOnTab(tab, f.path); });
+      jump.append(b);
+    });
+    detailBody.append(jump);
+
+    function row(label, value) {
+      var r = el('div', { className: 'tm-detail-row' });
+      var l = el('span');
+      l.append(txt(label));
+      var v = el('span');
+      v.append(txt(String(value)));
+      r.append(l, v);
+      detailBody.append(r);
+    }
+
+    row('Lines of code', f.loc);
+    row('Cyclomatic complexity', f.cyclomatic_complexity);
+    row('Churn count', f.churn_count);
+    row('Hotspot score', fmt(f.hotspot_score, 1));
+    row('Public methods', f.public_methods);
+    row('Properties', f.properties);
+
+    var age = env.ageMap[f.path];
+    if (age) {
+      row('Days since modified', age.days_since_modified);
+      if (age.last_modified) {
+        row('Last modified', String(age.last_modified).slice(0, 10));
+      }
+    }
+
+    var own = env.ownerMap[f.path];
+    if (own && own.authors) {
+      var ownerTitle = el('div', { style: { marginTop: '12px', marginBottom: '6px', color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em' } });
+      ownerTitle.append(txt('Ownership'));
+      detailBody.append(ownerTitle);
+      own.authors.slice(0, 5).forEach(function(a) {
+        var idx = env.authorIndex[a.name] != null ? env.authorIndex[a.name] % PALETTE.length : 0;
+        var r = el('div', { className: 'tm-detail-row' });
+        var nameWrap = el('span', { style: { display: 'flex', alignItems: 'center', gap: '6px' } });
+        var dot = el('span', { style: { display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: PALETTE[idx], flexShrink: '0' } });
+        var nameTxt = el('span');
+        nameTxt.append(txt(a.name));
+        nameWrap.append(dot, nameTxt);
+        var v = el('span');
+        v.append(txt(fmt(a.pct, 0) + '%'));
+        r.append(nameWrap, v);
+        detailBody.append(r);
+      });
+    }
+  }
+
+  /* Position and fill the hover tooltip for a file rect, a directory, or
+     hide it when hovering neither. */
+  function tmUpdateTooltip(tooltip, fileMap, e) {
+    var target = e.target;
+    if (target.classList && target.classList.contains('tm-file')) {
+      var path = target.getAttribute('data-path');
+      var f = fileMap[path];
+      if (f) {
+        tooltip.replaceChildren();
+        tooltip.append(el('div', { style: { fontWeight: '600', marginBottom: '4px', color: '#93c5fd' } }, f.path));
+        tooltip.append(el('div', null, 'LOC: ' + f.loc + '  CC: ' + f.cyclomatic_complexity + '  Churn: ' + f.churn_count));
+        tooltip.append(el('div', null, 'Hotspot: ' + fmt(f.hotspot_score, 1)));
+        tooltip.style.display = 'block';
+        tooltip.style.left = (e.clientX + 14) + 'px';
+        tooltip.style.top = (e.clientY + 14) + 'px';
+      }
+    } else if (target.getAttribute('data-dir')) {
+      var dn = target.getAttribute('data-dir');
+      tooltip.replaceChildren();
+      tooltip.append(el('div', { style: { fontWeight: '600', color: '#94a3b8' } }, '📁 ' + dn));
+      tooltip.append(el('div', null, 'Click to zoom in'));
+      tooltip.style.display = 'block';
+      tooltip.style.left = (e.clientX + 14) + 'px';
+      tooltip.style.top = (e.clientY + 14) + 'px';
+    } else {
+      tooltip.style.display = 'none';
+    }
+  }
+
+  /* Depth-first search for a directory node by name. */
+  function tmFindDir(node, name) {
+    var keys = Object.keys(node.children);
+    for (var i = 0; i < keys.length; i++) {
+      if (node.children[keys[i]].name === name) return node.children[keys[i]];
+      var found = tmFindDir(node.children[keys[i]], name);
+      if (found) return found;
+    }
+    return null;
+  }
+
   function buildTreemapTab() {
     var files = (R.file_hotspots || []).filter(function(f) { return f.loc >= 5; });
     if (files.length === 0) {
@@ -140,6 +428,15 @@
       return scale.color(f, maxCC, maxChurn, ageMap, maxAge, ownerMap, authorIndex);
     }
 
+    // Read-only lookups the pure renderers and panel builders need.
+    var env = {
+      fileMap: fileMap,
+      colorForFile: colorForFile,
+      ageMap: ageMap,
+      ownerMap: ownerMap,
+      authorIndex: authorIndex
+    };
+
     function updateLegend() {
       legendDiv.replaceChildren();
       var scale = metricScales[getMetric()];
@@ -211,266 +508,17 @@
     function showDetail(f) {
       selectedPath = f.path;
       highlightFile(f.path);
-      detailBody.replaceChildren();
-      var title = el('div', { className: 'tm-detail-title' });
-      title.append(txt(f.path));
-      detailBody.append(title);
-
-      var jump = el('div', { className: 'tm-detail-links', style: { display: 'flex', gap: '6px', marginBottom: '10px' } });
-      ['Hotspots', 'Graph'].forEach(function(tab) {
-        var b = el('button', { className: 'chip', style: { cursor: 'pointer' } });
-        b.append(txt('View in ' + tab.toLowerCase()));
-        b.addEventListener('click', function() { focusFileOnTab(tab, f.path); });
-        jump.append(b);
-      });
-      detailBody.append(jump);
-
-      function row(label, value) {
-        var r = el('div', { className: 'tm-detail-row' });
-        var l = el('span');
-        l.append(txt(label));
-        var v = el('span');
-        v.append(txt(String(value)));
-        r.append(l, v);
-        detailBody.append(r);
-      }
-
-      row('Lines of code', f.loc);
-      row('Cyclomatic complexity', f.cyclomatic_complexity);
-      row('Churn count', f.churn_count);
-      row('Hotspot score', fmt(f.hotspot_score, 1));
-      row('Public methods', f.public_methods);
-      row('Properties', f.properties);
-
-      var age = ageMap[f.path];
-      if (age) {
-        row('Days since modified', age.days_since_modified);
-        if (age.last_modified) {
-          row('Last modified', String(age.last_modified).slice(0, 10));
-        }
-      }
-
-      var own = ownerMap[f.path];
-      if (own && own.authors) {
-        var ownerTitle = el('div', { style: { marginTop: '12px', marginBottom: '6px', color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em' } });
-        ownerTitle.append(txt('Ownership'));
-        detailBody.append(ownerTitle);
-        own.authors.slice(0, 5).forEach(function(a) {
-          var idx = authorIndex[a.name] != null ? authorIndex[a.name] % PALETTE.length : 0;
-          var r = el('div', { className: 'tm-detail-row' });
-          var nameWrap = el('span', { style: { display: 'flex', alignItems: 'center', gap: '6px' } });
-          var dot = el('span', { style: { display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: PALETTE[idx], flexShrink: '0' } });
-          var nameTxt = el('span');
-          nameTxt.append(txt(a.name));
-          nameWrap.append(dot, nameTxt);
-          var v = el('span');
-          v.append(txt(fmt(a.pct, 0) + '%'));
-          r.append(nameWrap, v);
-          detailBody.append(r);
-        });
-      }
-
+      tmRenderDetailBody(env, detailBody, f);
       detail.classList.add('open');
-    }
-
-    function renderTreeNode(svgNode, node, x, y, w, h, depth) {
-      if (w < 1 || h < 1) return;
-      var pad = 2;
-      var headerH = depth > 0 ? 18 : 0;
-      var innerX = x + pad;
-      var innerY = y + headerH + pad;
-      var innerW = w - pad * 2;
-      var innerH = h - headerH - pad * 2;
-      if (innerW < 1 || innerH < 1) return;
-
-      if (depth > 0) {
-        // Directory background — clickable
-        var dirBg = svgEl('rect', {
-          x: String(x), y: String(y), width: String(w), height: String(h),
-          fill: '#0d1117', stroke: '#1e293b', 'stroke-width': '1',
-          rx: '3',
-          class: 'tm-dir-bg', 'data-dir': node.name,
-          style: 'cursor:pointer;'
-        });
-        svgNode.append(dirBg);
-        // Directory label — also clickable
-        if (w > 40) {
-          var label = svgEl('text', {
-            x: String(x + 6), y: String(y + 13),
-            fill: '#94a3b8', 'font-size': '10', 'font-weight': '600', 'font-family': 'monospace',
-            class: 'tm-dir-label', 'data-dir': node.name,
-            style: 'cursor:pointer;pointer-events:auto;'
-          });
-          var maxLabelChars = Math.floor((w - 12) / 6);
-          var dirLabel = node.name;
-          if (dirLabel.length > maxLabelChars) dirLabel = dirLabel.slice(0, maxLabelChars - 1) + '…';
-          label.append(txt(dirLabel));
-          svgNode.append(label);
-        }
-      }
-
-      // Collect children
-      var items = [];
-      var dirKeys = Object.keys(node.children);
-      dirKeys.forEach(function(k) {
-        var child = node.children[k];
-        if (child.totalLoc > 0) {
-          items.push({ size: child.totalLoc, data: { type: 'dir', node: child, name: k } });
-        }
-      });
-      node.files.forEach(function(f) {
-        if (f.loc > 0) {
-          items.push({ size: f.loc, data: { type: 'file', file: f } });
-        }
-      });
-
-      if (items.length === 0) return;
-      var rects = squarify(items, innerX, innerY, innerW, innerH);
-
-      rects.forEach(function(r) {
-        if (r.data.type === 'file') {
-          var fData = fileMap[r.data.file.path];
-          var color = fData ? colorForFile(fData) : '#334155';
-          var gap = 1;
-          var rw = Math.max(0, r.w - gap);
-          var rh = Math.max(0, r.h - gap);
-          if (rw < 1 || rh < 1) return;
-          var rect = svgEl('rect', {
-            x: String(r.x), y: String(r.y),
-            width: String(rw), height: String(rh),
-            fill: color, class: 'tm-file', 'data-path': r.data.file.path,
-            rx: '2',
-            style: 'cursor:pointer;transition:opacity 0.15s;'
-          });
-          rect.addEventListener('mouseenter', function() { rect.setAttribute('opacity', '1'); });
-          rect.addEventListener('mouseleave', function() { rect.setAttribute('opacity', '0.88'); });
-          rect.setAttribute('opacity', '0.88');
-          svgNode.append(rect);
-          // File name label
-          if (rw > 36 && rh > 14) {
-            var textEl = svgEl('text', {
-              x: String(r.x + 3), y: String(r.y + 12),
-              fill: '#e2e8f0', 'font-size': '9', 'font-family': 'monospace',
-              'pointer-events': 'none', opacity: '0.85'
-            });
-            var maxChars = Math.floor((rw - 6) / 5.5);
-            var lbl = r.data.file.name;
-            if (lbl.length > maxChars) lbl = lbl.slice(0, maxChars - 1) + '…';
-            textEl.append(txt(lbl));
-            svgNode.append(textEl);
-          }
-          // LOC label on larger rects
-          if (rw > 50 && rh > 26) {
-            var locEl = svgEl('text', {
-              x: String(r.x + 3), y: String(r.y + 23),
-              fill: '#94a3b8', 'font-size': '8', 'font-family': 'monospace',
-              'pointer-events': 'none', opacity: '0.7'
-            });
-            locEl.append(txt(r.data.file.loc + ' loc'));
-            svgNode.append(locEl);
-          }
-        } else {
-          renderTreeNode(svgNode, r.data.node, r.x, r.y, r.w, r.h, depth + 1);
-        }
-      });
-    }
-
-    function renderCircleNode(svgNode, node, cx, cy, r, depth) {
-      if (r < 2) return;
-
-      // Draw parent circle for directories
-      if (depth > 0) {
-        var bg = svgEl('circle', {
-          cx: String(cx), cy: String(cy), r: String(r),
-          fill: '#0d1117', stroke: '#1e293b', 'stroke-width': '1',
-          class: 'tm-dir-bg', 'data-dir': node.name,
-          style: 'cursor:pointer;'
-        });
-        svgNode.append(bg);
-        // Label at top of circle
-        if (r > 25) {
-          var label = svgEl('text', {
-            x: String(cx), y: String(cy - r + 14),
-            fill: '#94a3b8', 'font-size': '10', 'font-weight': '600', 'font-family': 'monospace',
-            'text-anchor': 'middle',
-            class: 'tm-dir-label', 'data-dir': node.name,
-            style: 'cursor:pointer;pointer-events:auto;'
-          });
-          var maxChars = Math.floor((r * 2 - 12) / 6);
-          var dirLabel = node.name;
-          if (dirLabel.length > maxChars) dirLabel = dirLabel.slice(0, maxChars - 1) + '…';
-          label.append(txt(dirLabel));
-          svgNode.append(label);
-        }
-      }
-
-      // Collect children
-      var items = [];
-      var dirKeys = Object.keys(node.children);
-      dirKeys.forEach(function(k) {
-        var child = node.children[k];
-        if (child.totalLoc > 0) {
-          items.push({ size: child.totalLoc, data: { type: 'dir', node: child, name: k } });
-        }
-      });
-      node.files.forEach(function(f) {
-        if (f.loc > 0) {
-          items.push({ size: f.loc, data: { type: 'file', file: f } });
-        }
-      });
-
-      if (items.length === 0) return;
-      var innerR = depth > 0 ? r * 0.88 : r;
-      var circles = circlePack(items, cx, cy, innerR);
-
-      circles.forEach(function(c) {
-        if (c.data.type === 'file') {
-          var fData = fileMap[c.data.file.path];
-          var color = fData ? colorForFile(fData) : '#334155';
-          var circ = svgEl('circle', {
-            cx: String(c.cx), cy: String(c.cy), r: String(Math.max(0, c.r - 0.5)),
-            fill: color, class: 'tm-file', 'data-path': c.data.file.path,
-            style: 'cursor:pointer;transition:opacity 0.15s;'
-          });
-          circ.addEventListener('mouseenter', function() { circ.setAttribute('opacity', '1'); });
-          circ.addEventListener('mouseleave', function() { circ.setAttribute('opacity', '0.88'); });
-          circ.setAttribute('opacity', '0.88');
-          svgNode.append(circ);
-          // Label if circle big enough
-          if (c.r > 20) {
-            var textEl = svgEl('text', {
-              x: String(c.cx), y: String(c.cy + 1),
-              fill: '#e2e8f0', 'font-size': '9', 'font-family': 'monospace',
-              'pointer-events': 'none', 'text-anchor': 'middle', opacity: '0.85'
-            });
-            var maxC = Math.floor((c.r * 2 - 8) / 5.5);
-            var lbl = c.data.file.name;
-            if (lbl.length > maxC) lbl = lbl.slice(0, maxC - 1) + '…';
-            textEl.append(txt(lbl));
-            svgNode.append(textEl);
-          }
-          if (c.r > 30) {
-            var locEl = svgEl('text', {
-              x: String(c.cx), y: String(c.cy + 12),
-              fill: '#94a3b8', 'font-size': '8', 'font-family': 'monospace',
-              'pointer-events': 'none', 'text-anchor': 'middle', opacity: '0.7'
-            });
-            locEl.append(txt(c.data.file.loc + ' loc'));
-            svgNode.append(locEl);
-          }
-        } else {
-          renderCircleNode(svgNode, c.data.node, c.cx, c.cy, c.r, depth + 1);
-        }
-      });
     }
 
     function renderTreemap() {
       while (svg.firstChild) svg.removeChild(svg.firstChild);
       if (layoutMode === 'circle') {
         var cr = Math.min(svgW, svgH) / 2;
-        renderCircleNode(svg, currentRoot, svgW / 2, svgH / 2, cr, 0);
+        tmRenderCircleNode(env, svg, currentRoot, svgW / 2, svgH / 2, cr, 0);
       } else {
-        renderTreeNode(svg, currentRoot, 0, 0, svgW, svgH, 0);
+        tmRenderTreeNode(env, svg, currentRoot, 0, 0, svgW, svgH, 0);
       }
       updateBreadcrumb();
       updateLegend();
@@ -496,17 +544,7 @@
       var filePath = target.getAttribute('data-path');
 
       if (dirName) {
-        // Clicked a directory bg or label — drill down
-        function findDir(node, name) {
-          var keys = Object.keys(node.children);
-          for (var i = 0; i < keys.length; i++) {
-            if (node.children[keys[i]].name === name) return node.children[keys[i]];
-            var found = findDir(node.children[keys[i]], name);
-            if (found) return found;
-          }
-          return null;
-        }
-        var dirNode = findDir(currentRoot, dirName);
+        var dirNode = tmFindDir(currentRoot, dirName);
         if (dirNode) {
           navStack.push({ name: dirNode.name, node: dirNode });
           currentRoot = dirNode;
@@ -521,30 +559,7 @@
 
     // Hover tooltip
     svg.addEventListener('mousemove', function(e) {
-      var target = e.target;
-      if (target.classList && target.classList.contains('tm-file')) {
-        var path = target.getAttribute('data-path');
-        var f = fileMap[path];
-        if (f) {
-          tooltip.replaceChildren();
-          tooltip.append(el('div', { style: { fontWeight: '600', marginBottom: '4px', color: '#93c5fd' } }, f.path));
-          tooltip.append(el('div', null, 'LOC: ' + f.loc + '  CC: ' + f.cyclomatic_complexity + '  Churn: ' + f.churn_count));
-          tooltip.append(el('div', null, 'Hotspot: ' + fmt(f.hotspot_score, 1)));
-          tooltip.style.display = 'block';
-          tooltip.style.left = (e.clientX + 14) + 'px';
-          tooltip.style.top = (e.clientY + 14) + 'px';
-        }
-      } else if (target.getAttribute('data-dir')) {
-        var dn = target.getAttribute('data-dir');
-        tooltip.replaceChildren();
-        tooltip.append(el('div', { style: { fontWeight: '600', color: '#94a3b8' } }, '📁 ' + dn));
-        tooltip.append(el('div', null, 'Click to zoom in'));
-        tooltip.style.display = 'block';
-        tooltip.style.left = (e.clientX + 14) + 'px';
-        tooltip.style.top = (e.clientY + 14) + 'px';
-      } else {
-        tooltip.style.display = 'none';
-      }
+      tmUpdateTooltip(tooltip, fileMap, e);
     });
 
     svg.addEventListener('mouseleave', function() {
