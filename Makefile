@@ -15,7 +15,7 @@ OUTPUT      ?= dashboard/report.json
 OUTPUT_HTML ?= report.html
 BROWSER     ?= xdg-open
 
-.PHONY: analyze dashboard report html-report build install setup version-bump gate-coupling
+.PHONY: analyze dashboard report html-report report-smoke build install setup version-bump gate-coupling
 
 analyze:
 	cargo run --release -- analyze $(TARGET) --json > $(OUTPUT)
@@ -25,6 +25,11 @@ analyze:
 html-report:
 	cargo run --release -- analyze $(TARGET) --html -o $(OUTPUT_HTML)
 	@echo "Report written to $(OUTPUT_HTML)"
+
+## Smoke-test the HTML report tabs in jsdom (needs dashboard deps installed)
+report-smoke:
+	cargo run --release -- analyze $(TARGET) --html -o /tmp/barad-dur-smoke.html
+	node scripts/report-smoke.mjs /tmp/barad-dur-smoke.html
 
 dashboard:
 	cd dashboard && pnpm run dev

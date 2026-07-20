@@ -16,6 +16,7 @@ cargo fmt -- --check
 
 make analyze                   # analyze current repo → dashboard/report.json
 make html-report               # generate self-contained HTML report → report.html
+make report-smoke              # click every report tab in jsdom, fail on JS errors (needs `pnpm -C dashboard install`; CI runs it too)
 make dashboard                 # start React dashboard dev server (pnpm, port 5173)
 make setup                     # configure git hooks (run once after clone)
 cargo run -- analyze . -v      # dogfood

@@ -423,6 +423,18 @@ self-analysis:
       - barad-dur-report.html
     expire_in: 1 month
 
+# Click through every tab of the generated report in jsdom — catches
+# template JS that throws at runtime, which the Rust renderer's string
+# assertions cannot see (safeRender would swallow it in the browser too).
+report-smoke:
+  stage: analysis
+  image: node:22
+  needs:
+    - self-analysis
+  script:
+    - npm install --no-save --no-audit --no-fund jsdom
+    - node scripts/report-smoke.mjs barad-dur-report.html
+
 # ── Deploy ───────────────────────────────────
 
 pages:
