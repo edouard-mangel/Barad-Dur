@@ -432,7 +432,9 @@ report-smoke:
   needs:
     - self-analysis
   script:
-    - npm install --no-save --no-audit --no-fund jsdom
+    # Pinned to the dashboard's major — a jsdom major bump can change the
+    # VirtualConsole/jsdomError API this harness depends on.
+    - npm install --no-save --no-audit --no-fund jsdom@29
     - node scripts/report-smoke.mjs barad-dur-report.html
 
 # ── Deploy ───────────────────────────────────
