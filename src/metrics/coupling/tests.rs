@@ -155,6 +155,52 @@ fn circular_deps_none() {
 }
 
 #[test]
+fn circular_deps_open_chain_is_zero() {
+    // a→b→c with no edge back: the depth-2 walk visits every c but none
+    // closes a cycle — count must stay zero (pins the c≠a ∧ c≠b ∧ edge
+    // conjunction against ||-mutations that would fabricate cycles).
+    let mut snapshot = make_snapshot();
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("a.rs"), vec![PathBuf::from("b.rs")]);
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("b.rs"), vec![PathBuf::from("c.rs")]);
+    let result = circular_dependencies(&snapshot);
+    assert!(
+        matches!(&result.raw_value, RawValue::List(cycles) if cycles.is_empty()),
+        "open chain must yield zero cycles, got {:?}",
+        result.raw_value
+    );
+    assert_eq!(result.score, Some(100));
+    assert!(
+        result.description.starts_with("0 "),
+        "description must report zero cycles: {}",
+        result.description
+    );
+}
+
+#[test]
+fn pair_key_orders_lexicographically() {
+    assert_eq!(
+        pair_key(Path::new("b.rs"), Path::new("a.rs")),
+        (PathBuf::from("a.rs"), PathBuf::from("b.rs"))
+    );
+    assert_eq!(
+        pair_key(Path::new("a.rs"), Path::new("b.rs")),
+        (PathBuf::from("a.rs"), PathBuf::from("b.rs"))
+    );
+}
+
+#[test]
+fn trio_key_keeps_two_smallest_members() {
+    assert_eq!(
+        trio_key(Path::new("c.rs"), Path::new("a.rs"), Path::new("b.rs")),
+        (PathBuf::from("a.rs"), PathBuf::from("b.rs"))
+    );
+}
+
+#[test]
 fn circular_deps_direct() {
     let mut snapshot = make_snapshot();
     snapshot

@@ -232,38 +232,48 @@ fn change_coupling_smells(snapshot: &RepoSnapshot, thresholds: &CouplingThreshol
     }
 }
 
+/// Whether the import graph has an edge `from` → `to`.
+fn has_edge(graph: &HashMap<PathBuf, Vec<PathBuf>>, from: &PathBuf, to: &PathBuf) -> bool {
+    graph.get(from).is_some_and(|targets| targets.contains(to))
+}
+
+/// Dedup key for a direct A↔B cycle: the pair in lexicographic order.
+fn pair_key(a: &Path, b: &Path) -> (PathBuf, PathBuf) {
+    let mut pair = [a.to_path_buf(), b.to_path_buf()];
+    pair.sort();
+    let [first, second] = pair;
+    (first, second)
+}
+
+/// Dedup key for an A→B→C→A cycle: its two smallest members, so the same
+/// loop found from any entry point collapses to one entry.
+fn trio_key(a: &Path, b: &Path, c: &Path) -> (PathBuf, PathBuf) {
+    let mut trio = [a.to_path_buf(), b.to_path_buf(), c.to_path_buf()];
+    trio.sort();
+    let [first, second, _] = trio;
+    (first, second)
+}
+
 /// Circular dependencies: file pairs where A→B and B→A (depth 1) or
 /// A→B→C→A (depth 2).
 fn circular_dependencies(snapshot: &RepoSnapshot) -> MetricValue {
-    let mut cycles: HashSet<(PathBuf, PathBuf)> = HashSet::new();
+    let graph = &snapshot.import_graph;
+    let edges = graph
+        .iter()
+        .flat_map(|(a, targets)| targets.iter().map(move |b| (a, b)));
 
-    for (a, targets_a) in &snapshot.import_graph {
-        for b in targets_a {
-            // Direct cycle: A→B and B→A
-            if let Some(targets_b) = snapshot.import_graph.get(b) {
-                if targets_b.contains(a) {
-                    let pair = if a < b {
-                        (a.clone(), b.clone())
-                    } else {
-                        (b.clone(), a.clone())
-                    };
-                    cycles.insert(pair);
-                }
-                // Depth-2 cycle: A→B→C→A
-                for c in targets_b {
-                    if c != a && c != b {
-                        if let Some(targets_c) = snapshot.import_graph.get(c) {
-                            if targets_c.contains(a) {
-                                let mut trio = [a.clone(), b.clone(), c.clone()];
-                                trio.sort();
-                                cycles.insert((trio[0].clone(), trio[1].clone()));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+    let cycles: HashSet<(PathBuf, PathBuf)> = edges
+        .flat_map(|(a, b)| {
+            let direct = has_edge(graph, b, a).then(|| pair_key(a, b));
+            let depth_two = graph
+                .get(b)
+                .into_iter()
+                .flatten()
+                .filter(move |c| *c != a && *c != b && has_edge(graph, c, a))
+                .map(move |c| trio_key(a, b, c));
+            direct.into_iter().chain(depth_two)
+        })
+        .collect();
 
     let count = cycles.len();
     let score = score_count_bands(count);

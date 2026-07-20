@@ -1,6 +1,28 @@
 
   /* ---- Treemap layout ---- */
 
+  /* Recursively sum LOC into each directory node's totalLoc. */
+  function tmComputeLoc(node) {
+    var sum = 0;
+    node.files.forEach(function(f) { sum += f.loc; });
+    Object.keys(node.children).forEach(function(k) { sum += tmComputeLoc(node.children[k]); });
+    node.totalLoc = sum;
+    return sum;
+  }
+
+  /* Collapse single-child directory chains (a/b/c) into one node. */
+  function tmSquashSingle(node) {
+    var keys = Object.keys(node.children);
+    keys.forEach(function(k) { tmSquashSingle(node.children[k]); });
+    keys = Object.keys(node.children);
+    if (keys.length === 1 && node.files.length === 0 && node.name !== '/') {
+      var child = node.children[keys[0]];
+      node.name = node.name + '/' + child.name;
+      node.children = child.children;
+      node.files = child.files;
+    }
+  }
+
   function buildFileTree(files) {
     var root = { name: '/', children: {}, files: [], totalLoc: 0 };
     files.forEach(function(f) {
@@ -15,76 +37,60 @@
       });
       node.files.push({ name: fname, path: f.path, loc: f.loc });
     });
-    function computeLoc(node) {
-      var sum = 0;
-      node.files.forEach(function(f) { sum += f.loc; });
-      var keys = Object.keys(node.children);
-      keys.forEach(function(k) { sum += computeLoc(node.children[k]); });
-      node.totalLoc = sum;
-      return sum;
-    }
-    computeLoc(root);
-    function squashSingle(node) {
-      var keys = Object.keys(node.children);
-      keys.forEach(function(k) { squashSingle(node.children[k]); });
-      keys = Object.keys(node.children);
-      if (keys.length === 1 && node.files.length === 0 && node.name !== '/') {
-        var child = node.children[keys[0]];
-        node.name = node.name + '/' + child.name;
-        node.children = child.children;
-        node.files = child.files;
-      }
-    }
-    squashSingle(root);
+    tmComputeLoc(root);
+    tmSquashSingle(root);
     return root;
+  }
+
+  /* Lay one squarified row into `rects`, filling the short side of the
+     free rectangle. Returns the remaining free rectangle. `norm` carries
+     the layout's totalSize/totalArea normalisation. */
+  function tmLayoutRow(rects, row, rowSize, rx, ry, rw, rh, norm) {
+    var short = Math.min(rw, rh);
+    var rowArea = (rowSize / norm.totalSize) * norm.totalArea;
+    var rowLen = short > 0 ? rowArea / short : 0;
+    var offset = 0;
+    var horizontal = rw >= rh;
+    row.forEach(function(it) {
+      var frac = rowSize > 0 ? it.size / rowSize : 0;
+      var itemLen = frac * short;
+      if (horizontal) {
+        rects.push({ x: rx, y: ry + offset, w: rowLen, h: itemLen, data: it.data });
+      } else {
+        rects.push({ x: rx + offset, y: ry, w: itemLen, h: rowLen, data: it.data });
+      }
+      offset += itemLen;
+    });
+    if (horizontal) {
+      return { x: rx + rowLen, y: ry, w: rw - rowLen, h: rh };
+    }
+    return { x: rx, y: ry + rowLen, w: rw, h: rh - rowLen };
+  }
+
+  /* Worst aspect ratio in a candidate row — the squarify criterion. */
+  function tmWorstRatio(row, rowSize, short, norm) {
+    if (row.length === 0 || short <= 0) return Infinity;
+    var rowArea = (rowSize / norm.totalSize) * norm.totalArea;
+    var worst = 0;
+    row.forEach(function(it) {
+      var frac = it.size / rowSize;
+      var itemArea = frac * rowArea;
+      var itemLen = short > 0 ? frac * short : 0;
+      var itemWidth = itemLen > 0 ? itemArea / itemLen : 0;
+      var r = itemWidth > itemLen ? itemWidth / itemLen : itemLen / itemWidth;
+      if (r > worst) worst = r;
+    });
+    return worst;
   }
 
   function squarify(items, x, y, w, h) {
     if (items.length === 0) return [];
     var results = [];
     var remaining = items.slice().sort(function(a, b) { return b.size - a.size; });
-    var totalArea = w * h;
     var totalSize = 0;
     remaining.forEach(function(it) { totalSize += it.size; });
     if (totalSize <= 0) return [];
-
-    function layoutRow(row, rowSize, rx, ry, rw, rh) {
-      var short = Math.min(rw, rh);
-      var rowArea = (rowSize / totalSize) * totalArea;
-      var rowLen = short > 0 ? rowArea / short : 0;
-      var offset = 0;
-      var horizontal = rw >= rh;
-      row.forEach(function(it) {
-        var frac = rowSize > 0 ? it.size / rowSize : 0;
-        var itemLen = frac * short;
-        if (horizontal) {
-          results.push({ x: rx, y: ry + offset, w: rowLen, h: itemLen, data: it.data });
-        } else {
-          results.push({ x: rx + offset, y: ry, w: itemLen, h: rowLen, data: it.data });
-        }
-        offset += itemLen;
-      });
-      if (horizontal) {
-        return { x: rx + rowLen, y: ry, w: rw - rowLen, h: rh };
-      } else {
-        return { x: rx, y: ry + rowLen, w: rw, h: rh - rowLen };
-      }
-    }
-
-    function worstRatio(row, rowSize, short) {
-      if (row.length === 0 || short <= 0) return Infinity;
-      var rowArea = (rowSize / totalSize) * totalArea;
-      var worst = 0;
-      row.forEach(function(it) {
-        var frac = it.size / rowSize;
-        var itemArea = frac * rowArea;
-        var itemLen = short > 0 ? frac * short : 0;
-        var itemWidth = itemLen > 0 ? itemArea / itemLen : 0;
-        var r = itemWidth > itemLen ? itemWidth / itemLen : itemLen / itemWidth;
-        if (r > worst) worst = r;
-      });
-      return worst;
-    }
+    var norm = { totalSize: totalSize, totalArea: w * h };
 
     var rx = x, ry = y, rw = w, rh = h;
     while (remaining.length > 0) {
@@ -93,23 +99,21 @@
       var row = [remaining[0]];
       var rowSize = remaining[0].size;
       remaining.splice(0, 1);
-      var currentWorst = worstRatio(row, rowSize, short);
+      var currentWorst = tmWorstRatio(row, rowSize, short, norm);
 
+      // Grow the row while it improves (or keeps) the worst aspect ratio
       while (remaining.length > 0) {
         var next = remaining[0];
         var newSize = rowSize + next.size;
         var newRow = row.concat([next]);
-        var newWorst = worstRatio(newRow, newSize, short);
-        if (newWorst <= currentWorst) {
-          row = newRow;
-          rowSize = newSize;
-          currentWorst = newWorst;
-          remaining.splice(0, 1);
-        } else {
-          break;
-        }
+        var newWorst = tmWorstRatio(newRow, newSize, short, norm);
+        if (newWorst > currentWorst) break;
+        row = newRow;
+        rowSize = newSize;
+        currentWorst = newWorst;
+        remaining.splice(0, 1);
       }
-      var rest = layoutRow(row, rowSize, rx, ry, rw, rh);
+      var rest = tmLayoutRow(results, row, rowSize, rx, ry, rw, rh, norm);
       rx = rest.x; ry = rest.y; rw = rest.w; rh = rest.h;
     }
     return results;
@@ -143,33 +147,8 @@
       } else if (i === 1) {
         placed.push({ cx: cx + placed[0].r + ri + 1, cy: cy, r: ri, data: sorted[i].data });
       } else {
-        // Find position that doesn't overlap existing circles, closest to center
-        var bestX = cx, bestY = cy, bestDist = Infinity;
-        for (var j = 0; j < placed.length; j++) {
-          for (var k = j + 1; k < placed.length; k++) {
-            // Try placing tangent to circles j and k
-            var candidates = tangentPositions(placed[j], placed[k], ri);
-            for (var c = 0; c < candidates.length; c++) {
-              var px = candidates[c].x, py = candidates[c].y;
-              var dist = Math.sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy));
-              if (dist + ri > r * 0.95) continue; // outside parent
-              var overlaps = false;
-              for (var m = 0; m < placed.length; m++) {
-                var dx = px - placed[m].cx, dy = py - placed[m].cy;
-                if (Math.sqrt(dx * dx + dy * dy) < ri + placed[m].r - 0.5) {
-                  overlaps = true;
-                  break;
-                }
-              }
-              if (!overlaps && dist < bestDist) {
-                bestDist = dist;
-                bestX = px;
-                bestY = py;
-              }
-            }
-          }
-        }
-        placed.push({ cx: bestX, cy: bestY, r: ri, data: sorted[i].data });
+        var best = tmBestCirclePosition(placed, ri, cx, cy, r);
+        placed.push({ cx: best.x, cy: best.y, r: ri, data: sorted[i].data });
       }
     }
 
@@ -184,6 +163,41 @@
     }
 
     return placed;
+  }
+
+  /* True when a circle of radius `ri` at (px, py) would overlap any
+     already-placed circle. */
+  function tmOverlapsAny(placed, px, py, ri) {
+    for (var m = 0; m < placed.length; m++) {
+      var dx = px - placed[m].cx, dy = py - placed[m].cy;
+      if (Math.sqrt(dx * dx + dy * dy) < ri + placed[m].r - 0.5) return true;
+    }
+    return false;
+  }
+
+  /* Best non-overlapping position for a new circle of radius `ri`: try
+     every tangent point of every placed pair, keep the candidate closest
+     to the parent centre that stays inside the parent radius. Falls back
+     to the centre when no candidate fits. */
+  function tmBestCirclePosition(placed, ri, cx, cy, r) {
+    var bestX = cx, bestY = cy, bestDist = Infinity;
+    for (var j = 0; j < placed.length; j++) {
+      for (var k = j + 1; k < placed.length; k++) {
+        var candidates = tangentPositions(placed[j], placed[k], ri);
+        for (var c = 0; c < candidates.length; c++) {
+          var px = candidates[c].x, py = candidates[c].y;
+          var dist = Math.sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy));
+          if (dist + ri > r * 0.95) continue; // outside parent
+          if (tmOverlapsAny(placed, px, py, ri)) continue;
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestX = px;
+            bestY = py;
+          }
+        }
+      }
+    }
+    return { x: bestX, y: bestY };
   }
 
   function tangentPositions(c1, c2, r) {
