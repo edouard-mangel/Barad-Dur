@@ -305,7 +305,7 @@ mutation-gate:
               # cargo-mutants prints only an INFO line (no summary) when the
               # diff touches no Rust source — a docs/CI-only push is a skip,
               # not a failure.
-              if re.search(r'Found 0 mutants|[Nn]o mutants found|Diff changes no Rust source files', content):
+              if re.search(r'Found 0 mutants|[Nn]o mutants found|No mutants to filter|Diff changes no Rust source files', content):
                   continue
               # Shards swallow cargo-mutants exit codes (|| true), so a log with
               # no summary means the run itself broke — surface that here.
