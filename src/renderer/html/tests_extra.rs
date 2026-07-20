@@ -320,8 +320,8 @@ fn html_full_report_with_all_data_renders_ok() {
 fn html_tab_render_has_error_boundary() {
     let html = render(&make_report()).unwrap();
     assert!(
-        html.contains("safeRender"),
-        "Tab lazy-render must use safeRender() wrapper so any tab builder exception shows a graceful error instead of a blank tab"
+        html.contains("appSafeRender"),
+        "Tab lazy-render must use the appSafeRender() wrapper so any tab builder exception shows a graceful error instead of a blank tab"
     );
 }
 
