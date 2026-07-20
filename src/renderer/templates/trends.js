@@ -1,5 +1,146 @@
 
   /* ---- Trends tab ---- */
+
+  /* Score of one history entry for the selected metric. */
+  function trGetScore(entry, metric) {
+    if (metric === 'Overall Score') return entry.overall_score;
+    if (entry.category_scores && entry.category_scores[metric] !== undefined) return entry.category_scores[metric];
+    if (entry.metrics && entry.metrics[metric] !== undefined) return entry.metrics[metric];
+    return 0;
+  }
+
+  function trFmtDate(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  /* Multi-line hover text for one data point. */
+  function trTooltipText(entry, metric, isBackfill) {
+    return trFmtDate(new Date(entry.timestamp)) + ' (' + entry.head.substring(0, 7) + ')\n'
+      + metric + ': ' + trGetScore(entry, metric) + '\n'
+      + entry.counts.commits + ' commits, '
+      + entry.counts.files + ' files, '
+      + entry.counts.authors + ' authors\n'
+      + (entry.counts.content_coupling != null
+          ? 'coupling findings: ' + entry.counts.content_coupling + ' content, '
+            + entry.counts.common_coupling + ' common, '
+            + (entry.counts.inheritance_coupling != null
+                ? entry.counts.inheritance_coupling + ' inheritance, '
+                : '')
+            + entry.counts.control_coupling + ' control\n'
+          : '')
+      + (isBackfill ? 'Source: Backfill' : 'Source: Live analysis');
+  }
+
+  /* The score-over-time chart as an SVG element. Dots carry data-idx so
+     the tab can wire hover tooltips. */
+  function trBuildChart(history, metric) {
+    var W = 900, H = 350;
+    var pad = { top: 20, right: 30, bottom: 40, left: 45 };
+    var cw = W - pad.left - pad.right;
+    var ch = H - pad.top - pad.bottom;
+
+    var scores = history.map(function(e) { return trGetScore(e, metric); });
+    var dates = history.map(function(e) { return new Date(e.timestamp); });
+
+    var minT = dates[0].getTime();
+    var maxT = dates[dates.length - 1].getTime();
+    var rangeT = maxT - minT || 1;
+
+    // Dynamic Y-axis: pad 10 points above max and below min, clamped to 0-100
+    var rawMin = Math.min.apply(null, scores);
+    var rawMax = Math.max.apply(null, scores);
+    var yMin = Math.max(0, Math.floor((rawMin - 10) / 5) * 5);
+    var yMax = Math.min(100, Math.ceil((rawMax + 10) / 5) * 5);
+    if (yMin === yMax) { yMin = Math.max(0, yMin - 10); yMax = Math.min(100, yMax + 10); }
+    var yRange = yMax - yMin || 1;
+
+    function x(i) { return pad.left + (dates[i].getTime() - minT) / rangeT * cw; }
+    function y(s) { return pad.top + (1 - (s - yMin) / yRange) * ch; }
+
+    var svg = svgEl('svg', {
+      xmlns: 'http://www.w3.org/2000/svg',
+      viewBox: '0 0 ' + W + ' ' + H,
+      style: 'width:100%;height:auto'
+    });
+
+    // Grid lines and Y labels
+    var gridSteps = 5;
+    for (var gi = 0; gi <= gridSteps; gi++) {
+      var v = Math.round(yMin + (yRange * gi / gridSteps));
+      var yy = y(v);
+      svg.append(svgEl('line', {
+        x1: String(pad.left), y1: String(yy), x2: String(W - pad.right), y2: String(yy),
+        stroke: '#1e293b', 'stroke-width': '1'
+      }));
+      var yLabel = svgEl('text', {
+        x: String(pad.left - 8), y: String(yy + 4), 'text-anchor': 'end',
+        fill: '#8b949e', 'font-size': '11'
+      });
+      yLabel.append(txt(String(v)));
+      svg.append(yLabel);
+    }
+
+    // X-axis date labels
+    var labelCount = Math.min(history.length, 8);
+    var step = Math.max(1, Math.floor(history.length / labelCount));
+    for (var li = 0; li < history.length; li += step) {
+      var xLabel = svgEl('text', {
+        x: String(x(li)), y: String(H - 5), 'text-anchor': 'middle',
+        fill: '#8b949e', 'font-size': '10'
+      });
+      xLabel.append(txt(trFmtDate(dates[li])));
+      svg.append(xLabel);
+    }
+
+    // Line
+    var lineColor = scoreColor(scores[scores.length - 1]);
+    var points = history.map(function(_, i) { return x(i) + ',' + y(scores[i]); }).join(' ');
+    svg.append(svgEl('polyline', {
+      points: points, fill: 'none', stroke: lineColor,
+      'stroke-width': '2', 'stroke-linejoin': 'round'
+    }));
+
+    // Dots — backfill entries render hollow, live analysis filled
+    history.forEach(function(entry, i) {
+      var isBackfill = entry.source === 'backfill';
+      var attrs = {
+        class: 'tr-dot',
+        cx: String(x(i)), cy: String(y(scores[i])), r: '4',
+        fill: isBackfill ? 'none' : scoreColor(scores[i]),
+        stroke: isBackfill ? scoreColor(scores[i]) : '#0d1117',
+        'stroke-width': '1.5',
+        'data-idx': String(i)
+      };
+      if (isBackfill) {
+        attrs.style = 'pointer-events:all';
+        attrs['data-backfill'] = '1';
+      }
+      svg.append(svgEl('circle', attrs));
+    });
+
+    return svg;
+  }
+
+  /* Backfill-vs-live legend, shown only when backfill entries exist. */
+  function trLegend() {
+    var leg = el('div');
+    leg.className = 'tr-legend';
+
+    var dotBackfill = el('span');
+    dotBackfill.className = 'tr-legend-dot';
+    dotBackfill.style.cssText = 'border:2px solid #8b949e;background:transparent;';
+    leg.append(dotBackfill);
+    leg.append(txt('Backfill'));
+
+    var dotLive = el('span');
+    dotLive.className = 'tr-legend-dot';
+    dotLive.style.cssText = 'background:var(--c-good);';
+    leg.append(dotLive);
+    leg.append(txt('Live analysis'));
+
+    return leg;
+  }
+
   function buildTrendsTab() {
     var container = document.createDocumentFragment();
     var history = R.history || [];
@@ -40,24 +181,8 @@
     label.append(select);
     controls.append(label);
 
-    // Legend — conditionally rendered when backfill entries exist
-    if (window.R.history.some(function(e){ return e.source === 'backfill'; })) {
-      var leg = el('div');
-      leg.className = 'tr-legend';
-
-      var dotBackfill = el('span');
-      dotBackfill.className = 'tr-legend-dot';
-      dotBackfill.style.cssText = 'border:2px solid #8b949e;background:transparent;';
-      leg.append(dotBackfill);
-      leg.append(txt('Backfill'));
-
-      var dotLive = el('span');
-      dotLive.className = 'tr-legend-dot';
-      dotLive.style.cssText = 'background:var(--c-good);';
-      leg.append(dotLive);
-      leg.append(txt('Live analysis'));
-
-      controls.append(leg);
+    if (history.some(function(e) { return e.source === 'backfill'; })) {
+      controls.append(trLegend());
     }
 
     container.append(controls);
@@ -71,111 +196,15 @@
     var tooltip = el('div', { className: 'tr-tooltip' });
     container.append(tooltip);
 
-    function getScore(entry, metric) {
-      if (metric === 'Overall Score') return entry.overall_score;
-      if (entry.category_scores && entry.category_scores[metric] !== undefined) return entry.category_scores[metric];
-      if (entry.metrics && entry.metrics[metric] !== undefined) return entry.metrics[metric];
-      return 0;
-    }
-
     function renderChart() {
       var metric = select.value;
-      var W = 900, H = 350;
-      var pad = { top: 20, right: 30, bottom: 40, left: 45 };
-      var cw = W - pad.left - pad.right;
-      var ch = H - pad.top - pad.bottom;
-
-      var scores = history.map(function(e) { return getScore(e, metric); });
-      var dates = history.map(function(e) { return new Date(e.timestamp); });
-
-      var minT = dates[0].getTime();
-      var maxT = dates[dates.length - 1].getTime();
-      var rangeT = maxT - minT || 1;
-
-      // Dynamic Y-axis: pad 10 points above max and below min, clamped to 0-100
-      var rawMin = Math.min.apply(null, scores);
-      var rawMax = Math.max.apply(null, scores);
-      var yMin = Math.max(0, Math.floor((rawMin - 10) / 5) * 5);
-      var yMax = Math.min(100, Math.ceil((rawMax + 10) / 5) * 5);
-      if (yMin === yMax) { yMin = Math.max(0, yMin - 10); yMax = Math.min(100, yMax + 10); }
-      var yRange = yMax - yMin || 1;
-
-      function x(i) { return pad.left + (dates[i].getTime() - minT) / rangeT * cw; }
-      function y(s) { return pad.top + (1 - (s - yMin) / yRange) * ch; }
-
-      var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto">';
-
-      // Grid lines and Y labels (avoid literal quote-hash in SVG attr values)
-      var h = String.fromCharCode(35);
-      var gridCol = h + '1e293b';
-      var labelCol = h + '8b949e';
-      var bgCol = h + '0d1117';
-      var gridSteps = 5;
-      for (var gi = 0; gi <= gridSteps; gi++) {
-        var v = yMin + (yRange * gi / gridSteps);
-        v = Math.round(v);
-        var yy = y(v);
-        svg += '<line x1="' + pad.left + '" y1="' + yy + '" x2="' + (W - pad.right) + '" y2="' + yy + '" stroke="' + gridCol + '" stroke-width="1"/>';
-        svg += '<text x="' + (pad.left - 8) + '" y="' + (yy + 4) + '" text-anchor="end" fill="' + labelCol + '" font-size="11">' + v + '</text>';
-      }
-
-      // X-axis date labels
-      var labelCount = Math.min(history.length, 8);
-      var step = Math.max(1, Math.floor(history.length / labelCount));
-      for (var li = 0; li < history.length; li += step) {
-        var dx = x(li);
-        var d = dates[li];
-        var dateStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-        svg += '<text x="' + dx + '" y="' + (H - 5) + '" text-anchor="middle" fill="' + labelCol + '" font-size="10">' + dateStr + '</text>';
-      }
-
-      // Line
-      var lastScore = scores[scores.length - 1];
-      var lineColor = scoreColor(lastScore);
-      var points = history.map(function(_, i) { return x(i) + ',' + y(scores[i]); }).join(' ');
-      svg += '<polyline points="' + points + '" fill="none" stroke="' + lineColor + '" stroke-width="2" stroke-linejoin="round"/>';
-
-      // Dots
-      history.forEach(function(entry, i) {
-        var cx = x(i);
-        var cy = y(scores[i]);
-        var isBackfill = entry.source === 'backfill';
-        var dotFill = isBackfill ? 'none' : scoreColor(scores[i]);
-        var dotStroke = isBackfill ? scoreColor(scores[i]) : bgCol;
-        var dotStyle = isBackfill ? ' style="pointer-events:all"' : '';
-        svg += '<circle class="tr-dot" cx="' + cx + '" cy="' + cy + '" r="4" fill="' + dotFill + '" '
-          + 'data-idx="' + i + '" stroke="' + dotStroke + '" stroke-width="1.5"'
-          + dotStyle
-          + (isBackfill ? ' data-backfill="1"' : '') + '/>';
-      });
-
-      svg += '</svg>';
-      chartDiv.innerHTML = svg;
+      chartDiv.replaceChildren(trBuildChart(history, metric));
 
       // Wire dot hover events
       chartDiv.querySelectorAll('.tr-dot').forEach(function(dot) {
         dot.addEventListener('mouseenter', function(e) {
           var idx = parseInt(dot.getAttribute('data-idx'), 10);
-          var entry = history[idx];
-          var d = new Date(entry.timestamp);
-          var dateStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-          var head7 = entry.head.substring(0, 7);
-          var srcLabel = dot.dataset.backfill === '1' ? 'Source: Backfill' : 'Source: Live analysis';
-          var lines = dateStr + ' (' + head7 + ')\n'
-            + metric + ': ' + getScore(entry, metric) + '\n'
-            + entry.counts.commits + ' commits, '
-            + entry.counts.files + ' files, '
-            + entry.counts.authors + ' authors\n'
-            + (entry.counts.content_coupling != null
-                ? 'coupling findings: ' + entry.counts.content_coupling + ' content, '
-                  + entry.counts.common_coupling + ' common, '
-                  + (entry.counts.inheritance_coupling != null
-                      ? entry.counts.inheritance_coupling + ' inheritance, '
-                      : '')
-                  + entry.counts.control_coupling + ' control\n'
-                : '')
-            + srcLabel;
-          tooltip.textContent = lines;
+          tooltip.textContent = trTooltipText(history[idx], metric, dot.dataset.backfill === '1');
           tooltip.style.display = 'block';
           tooltip.style.left = (e.clientX + 14) + 'px';
           tooltip.style.top = (e.clientY + 14) + 'px';
