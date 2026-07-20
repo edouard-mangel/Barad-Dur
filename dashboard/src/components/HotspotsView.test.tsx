@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import HotspotsView from './HotspotsView'
+import HotspotsView, { couplingBadge, riskColor, splitPath, visibleSorted } from './HotspotsView'
 import type { HotspotFile } from '../types'
 
 function file(path: string, score: number, churn = 10): HotspotFile {
@@ -16,6 +16,33 @@ function file(path: string, score: number, churn = 10): HotspotFile {
     hotspot_score: score,
   }
 }
+
+describe('HotspotsView helpers', () => {
+  it('visibleSorted filters dismissals, sorts by the active column, caps at 50', () => {
+    const many = Array.from({ length: 60 }, (_, i) => file(`f${i}.ts`, i, 100 - i))
+    const byScore = visibleSorted(many, new Set(), 'hotspot_score')
+    expect(byScore.length).toBe(50)
+    expect(byScore[0].path).toBe('f59.ts')
+    const byChurn = visibleSorted(many, new Set(['f0.ts']), 'churn_count')
+    expect(byChurn[0].path).toBe('f1.ts') // f0 (churn 100) dismissed
+  })
+
+  it('couplingBadge joins only the non-zero kinds', () => {
+    expect(couplingBadge(file('a', 1))).toBe('')
+    expect(couplingBadge({ ...file('a', 1), content_findings: 1, control_findings: 3 })).toBe('Cn 1 · Ct 3')
+  })
+
+  it('riskColor follows the 40/70 bands', () => {
+    expect(riskColor(30)).toBe('#10b981')
+    expect(riskColor(50)).toBe('#f59e0b')
+    expect(riskColor(80)).toBe('#ef4444')
+  })
+
+  it('splitPath separates directory prefix from file name', () => {
+    expect(splitPath('src/a/b.rs')).toEqual({ dir: 'src/a/', name: 'b.rs' })
+    expect(splitPath('README.md')).toEqual({ dir: '', name: 'README.md' })
+  })
+})
 
 describe('HotspotsView dismiss', () => {
   it('removes a file from the table when its dismiss control is clicked', () => {
