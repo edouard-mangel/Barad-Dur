@@ -332,6 +332,54 @@ mod tests {
     }
 
     #[test]
+    fn run_with_write_maps_alias_to_most_committed_email() {
+        // Two identities for one name: old@x authors 1 commit first, then
+        // new@x authors 2 — the canonical email must be new@x (most
+        // commits), which also pins the per-author commit counting.
+        let dir = TempDir::new().unwrap();
+        let git = |args: &[&str]| {
+            assert!(std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir.path())
+                .args(args)
+                .status()
+                .unwrap()
+                .success());
+        };
+        git(&["init", "-q"]);
+        let commit_as = |email: &str, file: &str| {
+            std::fs::write(dir.path().join(file), file).unwrap();
+            git(&["add", "-A"]);
+            git(&[
+                "-c",
+                &format!("user.email={email}"),
+                "-c",
+                "user.name=Alice Smith",
+                "commit",
+                "-q",
+                "-m",
+                "c",
+            ]);
+        };
+        commit_as("old@x", "one.txt");
+        commit_as("new@x", "two.txt");
+        commit_as("new@x", "three.txt");
+
+        let args = ContributorsArgs {
+            target: dir.path().to_string_lossy().into_owned(),
+            write: true,
+            since: None,
+        };
+        run(&args).unwrap();
+
+        let mailmap = std::fs::read_to_string(dir.path().join(".mailmap")).unwrap();
+        assert!(
+            mailmap.contains("Alice Smith <new@x> <old@x>"),
+            "canonical must be the most-committed email; got: {mailmap:?}"
+        );
+    }
+
+    #[test]
     fn write_mailmap_creates_file_when_absent() {
         let dir = tempfile::tempdir().unwrap();
         let repo_path = dir.path();

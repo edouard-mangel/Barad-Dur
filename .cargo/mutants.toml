@@ -1,0 +1,13 @@
+# Mutation-testing policy (cargo-mutants).
+#
+# Presentation-only helpers are excluded: they render progress bars and
+# stderr/stdout chatter, never data, so no test assertion can observe a
+# mutant inside them. Keep this list to pure display plumbing — anything
+# that computes or filters data must stay under mutation.
+exclude_re = [
+    "phase_spinner",
+    "phase_bar",
+    "finish_spinner",
+    "announce_",
+    "print_group",
+]
