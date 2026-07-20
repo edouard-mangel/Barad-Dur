@@ -15,7 +15,107 @@ use crate::snapshot::{
 use super::ignore_file::{should_include, BaradDurIgnore};
 use super::import_resolver::{resolve_imports, resolve_specifier, RawImports};
 use super::progress::{NoProgress, Progress};
-use super::{Collector, SnapshotOptions};
+use super::{Collector, CommitCollection, SnapshotOptions};
+
+/// Spinner for a fast phase; `None` when progress display is off.
+fn phase_spinner(show_progress: bool, msg: &str) -> Option<ProgressBar> {
+    if !show_progress {
+        return None;
+    }
+    let sp = ProgressBar::new_spinner();
+    sp.set_style(
+        ProgressStyle::default_spinner()
+            .template("  {spinner:.cyan} {msg}")
+            .unwrap(),
+    );
+    sp.set_message(msg.to_string());
+    sp.enable_steady_tick(std::time::Duration::from_millis(80));
+    Some(sp)
+}
+
+fn finish_spinner(sp: Option<ProgressBar>) {
+    if let Some(s) = sp {
+        s.finish_and_clear();
+    }
+}
+
+/// Progress bar for a slow phase; `None` when progress display is off.
+fn phase_bar(show_progress: bool, len: u64, msg: &str) -> Option<ProgressBar> {
+    if !show_progress {
+        return None;
+    }
+    let pb = ProgressBar::new(len);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("  {spinner:.cyan} {msg} [{bar:30.cyan/dim}] {pos}/{len} ({eta})")
+            .unwrap()
+            .progress_chars("━╸─"),
+    );
+    pb.set_message(msg.to_string());
+    pb.enable_steady_tick(std::time::Duration::from_millis(80));
+    Some(pb)
+}
+
+/// Non-binary files in the tree — the denominator shown by the blame and
+/// complexity progress displays.
+fn non_binary_count(files: &[FileEntry]) -> u64 {
+    files.iter().filter(|f| !f.is_binary).count() as u64
+}
+
+// The announce_* helpers below are presentation-only stderr notes: they
+// steer no data, so no assertion can observe their internals. They are
+// excluded from mutation testing in .cargo/mutants.toml.
+
+fn announce_exclusions(show_progress: bool, before: usize, remaining: usize) {
+    let excluded = before - remaining;
+    if show_progress && excluded > 0 {
+        eprintln!("  Excluded {} files ({} remaining)", excluded, remaining);
+    }
+}
+
+fn announce_blame_skipped(show_progress: bool, non_binary_total: u64) {
+    if show_progress {
+        eprintln!(
+            "  Skipping blame ({} files) — use without --skip-blame for full analysis",
+            non_binary_total
+        );
+    }
+}
+
+fn announce_blame_plan(
+    show_progress: bool,
+    changed: u64,
+    total: u64,
+    cache: &crate::cache::blame::BlameCache,
+    blame_files: &[FileEntry],
+) {
+    if !show_progress {
+        return;
+    }
+    if changed < total {
+        eprintln!(
+            "  Selective blame: {}/{} files changed in window",
+            changed, total
+        );
+    }
+    let cached = blame_files
+        .iter()
+        .filter(|f| cache.entries.contains_key(&f.blob_oid))
+        .count();
+    if cached > 0 {
+        eprintln!("  Blame cache: {}/{} files cached", cached, changed);
+    }
+}
+
+/// Working-tree AST pass output, pre-resolution: metrics plus raw imports,
+/// class records, and re-exports still keyed by unresolved specifiers.
+type RawAstOutput = (
+    HashMap<PathBuf, FileComplexity>,
+    RawImports,
+    Vec<CouplingFinding>,
+    HashMap<PathBuf, Vec<RawClassRecord>>,
+    HashMap<PathBuf, Vec<RawReExport>>,
+);
 
 /// Everything the AST pass produces for a baseline snapshot; `Default`
 /// gives the empty parts of an AST-less collection (ADR-005 backfill).
@@ -28,18 +128,11 @@ type AstParts = (
 );
 
 impl Collector {
-    #[allow(clippy::type_complexity)]
     pub(super) fn collect_file_metrics_with_progress(
         &self,
         files: &[FileEntry],
         progress: &dyn Progress,
-    ) -> (
-        HashMap<PathBuf, FileComplexity>,
-        RawImports,
-        Vec<CouplingFinding>,
-        HashMap<PathBuf, Vec<RawClassRecord>>,
-        HashMap<PathBuf, Vec<RawReExport>>,
-    ) {
+    ) -> RawAstOutput {
         let root = self.repo_path();
         let results: Vec<(PathBuf, complexity::SourceAnalysis)> = files
             .par_iter()
@@ -80,60 +173,79 @@ impl Collector {
         )
     }
 
+    /// Orchestrates the five collection phases; each phase manages its own
+    /// progress display and the orchestrator keeps the timing spine.
     pub(super) fn collect_snapshot_inner(
         &self,
         opts: &SnapshotOptions<'_>,
     ) -> Result<RepoSnapshot> {
-        let &SnapshotOptions {
-            show_progress,
-            verbose,
-            skip_blame,
-            no_cache,
-            exclude_patterns: cli_exclude_patterns,
-            exclude_extensions: cli_exclude_extensions,
-            use_default_excludes,
-        } = opts;
-        let make_spinner = |msg: &str| -> Option<ProgressBar> {
-            if !show_progress {
-                return None;
-            }
-            let sp = ProgressBar::new_spinner();
-            sp.set_style(
-                ProgressStyle::default_spinner()
-                    .template("  {spinner:.cyan} {msg}")
-                    .unwrap(),
-            );
-            sp.set_message(msg.to_string());
-            sp.enable_steady_tick(std::time::Duration::from_millis(80));
-            Some(sp)
-        };
-
-        let bar_style = ProgressStyle::default_bar()
-            .template("  {spinner:.cyan} {msg} [{bar:30.cyan/dim}] {pos}/{len} ({eta})")
-            .unwrap()
-            .progress_chars("━╸─");
-
         // Phase 1: commits (fast, spinner only)
-        let sp = make_spinner("Walking commits...");
+        let sp = phase_spinner(opts.show_progress, "Walking commits...");
         let t = Instant::now();
         let collection = self.collect_commits()?;
         let commits_ms = t.elapsed().as_millis();
-        if let Some(s) = sp {
-            s.finish_and_clear();
-        }
+        finish_spinner(sp);
 
         // Phase 2: file tree (fast, spinner only)
-        let sp = make_spinner(&format!(
-            "Found {} commits. Collecting file tree...",
-            collection.commits.len()
-        ));
+        let sp = phase_spinner(
+            opts.show_progress,
+            &format!(
+                "Found {} commits. Collecting file tree...",
+                collection.commits.len()
+            ),
+        );
         let t = Instant::now();
+        let files = self.collect_filtered_files(opts)?;
+        let files_ms = t.elapsed().as_millis();
+        finish_spinner(sp);
+
+        // Phase 3: blame (slow — real progress bar, skippable, with per-blob cache)
+        let t = Instant::now();
+        let blame_map = self.resolve_blame_map(&collection, &files, opts)?;
+        let blame_ms = t.elapsed().as_millis();
+
+        // Phase 4: complexity (can be slow on large repos — progress bar)
+        let complexity_bar = phase_bar(
+            opts.show_progress,
+            non_binary_count(&files),
+            "Analysing complexity",
+        );
+        let t = Instant::now();
+        let complexity_progress: &dyn Progress = match &complexity_bar {
+            Some(pb) => pb,
+            None => &NoProgress,
+        };
+        let ast = self.collect_file_metrics_with_progress(&files, complexity_progress);
+        let complexity_ms = t.elapsed().as_millis();
+        if let Some(pb) = complexity_bar {
+            pb.finish_and_clear();
+        }
+
+        // Phase 5: indexes (fast, spinner only)
+        let sp = phase_spinner(opts.show_progress, "Building indexes...");
+        let t = Instant::now();
+        let snapshot = self.assemble_snapshot(collection, files, blame_map, ast)?;
+        let indexes_ms = t.elapsed().as_millis();
+        finish_spinner(sp);
+
+        if opts.verbose {
+            eprintln!(
+                "  Timings: commits {}ms, files {}ms, blame {}ms, complexity {}ms, indexes {}ms",
+                commits_ms, files_ms, blame_ms, complexity_ms, indexes_ms
+            );
+        }
+
+        Ok(snapshot)
+    }
+
+    /// Phase 2 body: the tracked file tree with every exclusion layer applied
+    /// in a single pass. `.baraddurignore` (repo root) sits between the CLI
+    /// flags (highest) and the built-in defaults (lowest); its `!` rules
+    /// re-include default-excluded files. When nothing excludes a path
+    /// `should_include` returns true, so no separate short-circuit is needed.
+    /// See `ignore_file::should_include` for the precedence composition.
+    fn collect_filtered_files(&self, opts: &SnapshotOptions<'_>) -> Result<Vec<FileEntry>> {
         let all_files = self.collect_files()?;
-        // Apply every exclusion layer in a single pass. `.baraddurignore` (repo root)
-        // sits between the CLI flags (highest) and the built-in defaults (lowest); its
-        // `!` rules re-include default-excluded files. When nothing excludes a path
-        // `should_include` returns true, so no separate short-circuit is needed. See
-        // `ignore_file::should_include` for the precedence composition.
         let ignore = BaradDurIgnore::load(self.repo_path())?;
         let before = all_files.len();
         let files: Vec<FileEntry> = all_files
@@ -142,31 +254,28 @@ impl Collector {
                 should_include(
                     &ignore,
                     &f.path,
-                    cli_exclude_patterns,
-                    cli_exclude_extensions,
-                    use_default_excludes,
+                    opts.exclude_patterns,
+                    opts.exclude_extensions,
+                    opts.use_default_excludes,
                 )
             })
             .collect();
-        let excluded_count = before - files.len();
-        let files_ms = t.elapsed().as_millis();
-        if let Some(s) = sp {
-            s.finish_and_clear();
-        }
-        if show_progress && excluded_count > 0 {
-            eprintln!(
-                "  Excluded {} files ({} remaining)",
-                excluded_count,
-                files.len()
-            );
-        }
+        announce_exclusions(opts.show_progress, before, files.len());
+        Ok(files)
+    }
 
-        // Phase 3: blame (slow — real progress bar, skippable, with per-blob cache)
-        //
-        // Selective blame: only blame files modified in the time window.
-        // Files untouched in the window don't affect churn, coupling, or recent
-        // ownership metrics. For bus factor / knowledge distribution the cached
-        // blame from previous runs covers the rest.
+    /// Phase 3 body: blame the files changed within the window, reusing and
+    /// re-saving the per-blob cache. Empty when `skip_blame` is set.
+    ///
+    /// Selective blame: files untouched in the window don't affect churn,
+    /// coupling, or recent ownership metrics. For bus factor / knowledge
+    /// distribution the cached blame from previous runs covers the rest.
+    fn resolve_blame_map(
+        &self,
+        collection: &CommitCollection,
+        files: &[FileEntry],
+        opts: &SnapshotOptions<'_>,
+    ) -> Result<HashMap<PathBuf, Vec<crate::snapshot::BlameLine>>> {
         let changed_paths: std::collections::HashSet<PathBuf> = collection
             .commits
             .iter()
@@ -178,100 +287,62 @@ impl Collector {
             .cloned()
             .collect();
         let non_binary_changed: u64 = blame_files.len() as u64;
-        let non_binary_total: u64 = files.iter().filter(|f| !f.is_binary).count() as u64;
-        let t = Instant::now();
-        let blame_map = if skip_blame {
-            if show_progress {
-                eprintln!(
-                    "  Skipping blame ({} files) — use without --skip-blame for full analysis",
-                    non_binary_total
-                );
-            }
-            HashMap::new()
-        } else {
-            let blame_cache = if no_cache {
-                crate::cache::blame::BlameCache::default()
-            } else {
-                crate::cache::blame::load(self.repo_path()).unwrap_or_default()
-            };
-            if show_progress && non_binary_changed < non_binary_total {
-                eprintln!(
-                    "  Selective blame: {}/{} files changed in window",
-                    non_binary_changed, non_binary_total
-                );
-            }
-            let cached_count = blame_files
-                .iter()
-                .filter(|f| blame_cache.entries.contains_key(&f.blob_oid))
-                .count();
-            if show_progress && cached_count > 0 {
-                eprintln!(
-                    "  Blame cache: {}/{} files cached",
-                    cached_count, non_binary_changed
-                );
-            }
-            let blame_bar = if show_progress {
-                let pb = ProgressBar::new(non_binary_changed);
-                pb.set_style(bar_style.clone());
-                pb.set_message("Blaming files");
-                pb.enable_steady_tick(std::time::Duration::from_millis(80));
-                Some(pb)
-            } else {
-                None
-            };
-            let blame_progress: &dyn Progress = match &blame_bar {
-                Some(pb) => pb,
-                None => &NoProgress,
-            };
-            let (map, mut updated_cache) = self.collect_blame_cached(
-                &blame_files,
-                &collection.authors,
-                &collection.raw_email_to_id,
-                &blame_cache,
-                blame_progress,
-            )?;
-            if let Some(pb) = blame_bar {
-                pb.finish_and_clear();
-            }
-            // Prune stale entries
-            let current_oids: std::collections::HashSet<String> =
-                files.iter().map(|f| f.blob_oid.clone()).collect();
-            updated_cache.prune(&current_oids);
-            // Save blame cache
-            if let Err(e) = crate::cache::blame::save(&updated_cache, self.repo_path()) {
-                eprintln!("Warning: Failed to save blame cache: {}", e);
-            }
-            map
-        };
-        let blame_ms = t.elapsed().as_millis();
 
-        // Phase 4: complexity (can be slow on large repos — progress bar)
-        let complexity_bar = if show_progress {
-            let pb = ProgressBar::new(non_binary_total);
-            pb.set_style(bar_style);
-            pb.set_message("Analysing complexity");
-            pb.enable_steady_tick(std::time::Duration::from_millis(80));
-            Some(pb)
+        if opts.skip_blame {
+            announce_blame_skipped(opts.show_progress, non_binary_count(files));
+            return Ok(HashMap::new());
+        }
+
+        let blame_cache = if opts.no_cache {
+            crate::cache::blame::BlameCache::default()
         } else {
-            None
+            crate::cache::blame::load(self.repo_path()).unwrap_or_default()
         };
-        let t = Instant::now();
-        let complexity_progress: &dyn Progress = match &complexity_bar {
+        announce_blame_plan(
+            opts.show_progress,
+            non_binary_changed,
+            non_binary_count(files),
+            &blame_cache,
+            &blame_files,
+        );
+
+        let blame_bar = phase_bar(opts.show_progress, non_binary_changed, "Blaming files");
+        let blame_progress: &dyn Progress = match &blame_bar {
             Some(pb) => pb,
             None => &NoProgress,
         };
-        let (file_metrics, raw_imports, coupling_findings, raw_classes, raw_reexports) =
-            self.collect_file_metrics_with_progress(&files, complexity_progress);
-        let complexity_ms = t.elapsed().as_millis();
-        if let Some(pb) = complexity_bar {
+        let (map, mut updated_cache) = self.collect_blame_cached(
+            &blame_files,
+            &collection.authors,
+            &collection.raw_email_to_id,
+            &blame_cache,
+            blame_progress,
+        )?;
+        if let Some(pb) = blame_bar {
             pb.finish_and_clear();
         }
 
-        // Phase 5: indexes (fast, spinner only)
-        let sp = make_spinner("Building indexes...");
-        let t = Instant::now();
-        let head = self.head_commit_hash()?;
+        // Prune stale entries, then persist for the next run
+        let current_oids: std::collections::HashSet<String> =
+            files.iter().map(|f| f.blob_oid.clone()).collect();
+        updated_cache.prune(&current_oids);
+        if let Err(e) = crate::cache::blame::save(&updated_cache, self.repo_path()) {
+            eprintln!("Warning: Failed to save blame cache: {}", e);
+        }
+        Ok(map)
+    }
 
+    /// Phase 5 body: resolve the AST pass's raw output against the file set
+    /// and assemble the snapshot with derived indexes.
+    fn assemble_snapshot(
+        &self,
+        collection: CommitCollection,
+        files: Vec<FileEntry>,
+        blame_map: HashMap<PathBuf, Vec<crate::snapshot::BlameLine>>,
+        ast: RawAstOutput,
+    ) -> Result<RepoSnapshot> {
+        let (file_metrics, raw_imports, coupling_findings, raw_classes, raw_reexports) = ast;
+        let head = self.head_commit_hash()?;
         let import_graph = resolve_imports(&raw_imports, &files);
         let class_records = resolve_class_records(raw_classes, &files);
         let reexports = resolve_reexports(raw_reexports, &files);
@@ -297,19 +368,6 @@ impl Collector {
             commit_interner: collection.interner,
         };
         snapshot.build_indexes();
-        let indexes_ms = t.elapsed().as_millis();
-
-        if let Some(s) = sp {
-            s.finish_and_clear();
-        }
-
-        if verbose {
-            eprintln!(
-                "  Timings: commits {}ms, files {}ms, blame {}ms, complexity {}ms, indexes {}ms",
-                commits_ms, files_ms, blame_ms, complexity_ms, indexes_ms
-            );
-        }
-
         Ok(snapshot)
     }
 
@@ -633,6 +691,87 @@ mod tests {
             .keys()
             .find(|p| p.extension().and_then(|e| e.to_str()) == Some("rs"));
         assert!(rs_file.is_some(), "expected at least one .rs file");
+    }
+
+    #[test]
+    fn non_binary_count_ignores_binaries() {
+        let text = FileEntry {
+            path: PathBuf::from("a.rs"),
+            size_bytes: 10,
+            is_binary: false,
+            depth: 1,
+            blob_oid: String::new(),
+        };
+        let bin = FileEntry {
+            is_binary: true,
+            path: PathBuf::from("a.png"),
+            ..text.clone()
+        };
+        assert_eq!(
+            non_binary_count(&[text.clone(), bin.clone(), text.clone()]),
+            2
+        );
+        assert_eq!(non_binary_count(&[bin]), 0);
+        assert_eq!(non_binary_count(&[]), 0);
+    }
+
+    #[test]
+    fn resolve_blame_map_skip_blame_is_empty() {
+        let (dir, _head) = make_single_commit_repo_with(&[("src/lib.rs", "pub fn f() {}\n")]);
+        let collector = Collector::open(dir.path(), TimeWindow::default()).unwrap();
+        let collection = collector.collect_commits().unwrap();
+        let files = collector.collect_files().unwrap();
+        let opts = SnapshotOptions {
+            skip_blame: true,
+            ..SnapshotOptions::default()
+        };
+        let map = collector
+            .resolve_blame_map(&collection, &files, &opts)
+            .unwrap();
+        assert!(map.is_empty(), "skip_blame must produce an empty blame map");
+    }
+
+    #[test]
+    fn resolve_blame_map_blames_changed_text_files_only() {
+        let (dir, _head) = make_single_commit_repo_with(&[("src/lib.rs", "pub fn f() {}\n")]);
+        // Add a committed binary file so the !is_binary filter has something
+        // to reject.
+        std::fs::write(dir.path().join("blob.bin"), [0u8, 159, 146, 150, 0, 7]).unwrap();
+        let git = |args: &[&str]| {
+            assert!(std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir.path())
+                .args(args)
+                .status()
+                .unwrap()
+                .success());
+        };
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "add binary"]);
+
+        let collector = Collector::open(dir.path(), TimeWindow::default()).unwrap();
+        let collection = collector.collect_commits().unwrap();
+        let files = collector.collect_files().unwrap();
+        assert!(
+            files.iter().any(|f| f.is_binary),
+            "fixture must contain a binary file"
+        );
+        let opts = SnapshotOptions {
+            no_cache: true,
+            ..SnapshotOptions::default()
+        };
+        let map = collector
+            .resolve_blame_map(&collection, &files, &opts)
+            .unwrap();
+        assert!(
+            map.contains_key(&PathBuf::from("src/lib.rs")),
+            "changed text file must be blamed, got keys: {:?}",
+            map.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            !map.contains_key(&PathBuf::from("blob.bin")),
+            "binary files must never be blamed"
+        );
     }
 
     /// A throwaway git repo with one commit, for `collect_snapshot_at` (backfill

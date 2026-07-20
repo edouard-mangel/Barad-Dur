@@ -106,52 +106,24 @@ pub(crate) fn write_mailmap_entries(repo_path: &Path, entries: &[String]) -> Res
     Ok(())
 }
 
-// ── Entry point ───────────────────────────────────────────────────────────────
+/// The analysis window for alias detection: `--since` when it parses,
+/// otherwise full history so no alias is missed.
+fn resolve_time_window(since: Option<&str>) -> TimeWindow {
+    let now = Utc::now();
+    since
+        .and_then(|s| parse_time_spec(s, now))
+        .map(|since| TimeWindow {
+            since: Some(since),
+            until: Some(now),
+            default_months: 0,
+        })
+        .unwrap_or_else(TimeWindow::full_history)
+}
 
-pub fn run(args: &ContributorsArgs) -> Result<()> {
-    let repo_path = std::path::PathBuf::from(&args.target);
-
-    let time_window = if let Some(since_str) = &args.since {
-        let now = Utc::now();
-        let since = parse_time_spec(since_str, now);
-        if since.is_some() {
-            TimeWindow {
-                since,
-                until: Some(now),
-                default_months: 0,
-            }
-        } else {
-            TimeWindow::full_history()
-        }
-    } else {
-        // No --since flag: use full history so we don't miss any alias.
-        TimeWindow::full_history()
-    };
-    let collector = Collector::open(&repo_path, time_window)?;
-    let repo_path = collector.repo_path().to_path_buf();
-
-    let collection = collector.collect_commits()?;
-    let authors = &collection.authors;
-    let commits = &collection.commits;
-
-    // Count commits per AuthorId.
-    let commit_counts: HashMap<AuthorId, usize> =
-        commits.iter().fold(HashMap::new(), |mut acc, commit| {
-            *acc.entry(commit.author).or_insert(0) += 1;
-            acc
-        });
-
-    let groups = detect_duplicates(authors, &commit_counts);
-
-    if groups.is_empty() {
-        println!("No suspected duplicates found.");
-        return Ok(());
-    }
-
-    println!("Suspected duplicates:\n");
-
-    // Collect suggested entries functionally — separated from the printing loop below.
-    let all_entries: Vec<String> = groups
+/// All suggested `.mailmap` lines across `groups`: one entry per alias
+/// email, mapping it to the group's canonical (most-committed) email.
+fn mailmap_suggestions(groups: &[DuplicateGroup]) -> Vec<String> {
+    groups
         .iter()
         .filter(|g| g.emails.len() >= 2)
         .flat_map(|g| {
@@ -161,39 +133,71 @@ pub fn run(args: &ContributorsArgs) -> Result<()> {
                 .skip(1)
                 .map(|(alias, _)| format_mailmap_entry(&g.canonical_name, canonical, alias))
         })
-        .collect();
+        .collect()
+}
 
-    for group in &groups {
-        println!("  {}", group.canonical_name);
+/// Print one duplicate group: aligned email/commit rows plus its
+/// suggested `.mailmap` entries.
+fn print_group(group: &DuplicateGroup) {
+    println!("  {}", group.canonical_name);
 
-        let max_email_len = group.emails.iter().map(|(e, _)| e.len()).max().unwrap_or(0);
+    let max_email_len = group.emails.iter().map(|(e, _)| e.len()).max().unwrap_or(0);
+    for (email, count) in &group.emails {
+        println!(
+            "    {:<width$}  {} commits",
+            email,
+            count,
+            width = max_email_len
+        );
+    }
 
-        for (email, count) in &group.emails {
+    if group.emails.len() >= 2 {
+        let canonical_email = &group.emails[0].0;
+        println!("\n  Suggested .mailmap entries:");
+        for (alias_email, _) in group.emails.iter().skip(1) {
             println!(
-                "    {:<width$}  {} commits",
-                email,
-                count,
-                width = max_email_len
+                "    {}",
+                format_mailmap_entry(&group.canonical_name, canonical_email, alias_email)
             );
         }
-
-        if group.emails.len() >= 2 {
-            let canonical_email = &group.emails[0].0;
-            println!("\n  Suggested .mailmap entries:");
-            for (alias_email, _) in group.emails.iter().skip(1) {
-                println!(
-                    "    {}",
-                    format_mailmap_entry(&group.canonical_name, canonical_email, alias_email)
-                );
-            }
-        }
-
-        println!();
     }
+
+    println!();
+}
+
+// ── Entry point ───────────────────────────────────────────────────────────────
+
+pub fn run(args: &ContributorsArgs) -> Result<()> {
+    let repo_path = std::path::PathBuf::from(&args.target);
+    let time_window = resolve_time_window(args.since.as_deref());
+    let collector = Collector::open(&repo_path, time_window)?;
+    let repo_path = collector.repo_path().to_path_buf();
+
+    let collection = collector.collect_commits()?;
+
+    // Count commits per AuthorId.
+    let commit_counts: HashMap<AuthorId, usize> =
+        collection
+            .commits
+            .iter()
+            .fold(HashMap::new(), |mut acc, commit| {
+                *acc.entry(commit.author).or_insert(0) += 1;
+                acc
+            });
+
+    let groups = detect_duplicates(&collection.authors, &commit_counts);
+
+    if groups.is_empty() {
+        println!("No suspected duplicates found.");
+        return Ok(());
+    }
+
+    println!("Suspected duplicates:\n");
+    groups.iter().for_each(print_group);
 
     println!("Note: grouping is by display name only — verify suggestions before using --write.");
     if args.write {
-        write_mailmap_entries(&repo_path, &all_entries)?;
+        write_mailmap_entries(&repo_path, &mailmap_suggestions(&groups))?;
         println!("Written to .mailmap.");
     } else {
         println!("Run with --write to append to .mailmap");
@@ -264,6 +268,43 @@ mod tests {
     }
 
     #[test]
+    fn resolve_time_window_none_is_full_history() {
+        let w = resolve_time_window(None);
+        assert!(w.since.is_none() && w.until.is_none());
+    }
+
+    #[test]
+    fn resolve_time_window_parses_relative_spec() {
+        let w = resolve_time_window(Some("3months"));
+        assert!(w.since.is_some() && w.until.is_some());
+    }
+
+    #[test]
+    fn resolve_time_window_unparseable_falls_back_to_full_history() {
+        let w = resolve_time_window(Some("not-a-date"));
+        assert!(w.since.is_none() && w.until.is_none());
+    }
+
+    #[test]
+    fn mailmap_suggestions_map_aliases_to_canonical() {
+        let groups = vec![DuplicateGroup {
+            canonical_name: "Alice Smith".into(),
+            emails: vec![
+                ("alice@company.com".into(), 42),
+                ("alice@old.com".into(), 8),
+                ("alice@older.com".into(), 1),
+            ],
+        }];
+        assert_eq!(
+            mailmap_suggestions(&groups),
+            vec![
+                "Alice Smith <alice@company.com> <alice@old.com>",
+                "Alice Smith <alice@company.com> <alice@older.com>",
+            ]
+        );
+    }
+
+    #[test]
     fn format_mailmap_entry_produces_correct_string() {
         let entry = format_mailmap_entry("Alice Smith", "alice@company.com", "alice@old.com");
         assert_eq!(entry, "Alice Smith <alice@company.com> <alice@old.com>");
@@ -288,6 +329,54 @@ mod tests {
         let groups = detect_duplicates(&authors, &commit_counts);
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].canonical_name, "Alice Smith"); // name from the author with most commits
+    }
+
+    #[test]
+    fn run_with_write_maps_alias_to_most_committed_email() {
+        // Two identities for one name: old@x authors 1 commit first, then
+        // new@x authors 2 — the canonical email must be new@x (most
+        // commits), which also pins the per-author commit counting.
+        let dir = TempDir::new().unwrap();
+        let git = |args: &[&str]| {
+            assert!(std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir.path())
+                .args(args)
+                .status()
+                .unwrap()
+                .success());
+        };
+        git(&["init", "-q"]);
+        let commit_as = |email: &str, file: &str| {
+            std::fs::write(dir.path().join(file), file).unwrap();
+            git(&["add", "-A"]);
+            git(&[
+                "-c",
+                &format!("user.email={email}"),
+                "-c",
+                "user.name=Alice Smith",
+                "commit",
+                "-q",
+                "-m",
+                "c",
+            ]);
+        };
+        commit_as("old@x", "one.txt");
+        commit_as("new@x", "two.txt");
+        commit_as("new@x", "three.txt");
+
+        let args = ContributorsArgs {
+            target: dir.path().to_string_lossy().into_owned(),
+            write: true,
+            since: None,
+        };
+        run(&args).unwrap();
+
+        let mailmap = std::fs::read_to_string(dir.path().join(".mailmap")).unwrap();
+        assert!(
+            mailmap.contains("Alice Smith <new@x> <old@x>"),
+            "canonical must be the most-committed email; got: {mailmap:?}"
+        );
     }
 
     #[test]
