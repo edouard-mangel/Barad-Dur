@@ -1,44 +1,261 @@
 
   /* ---- Coupling tab ---- */
-  // Auto-exclude patterns for coupling: interface/implementation, lock files, test files, module indexes
+
+  /* Auto-exclude heuristics: pairs whose co-change is expected rather than
+     a design smell. Each rule is a small predicate over the pair's file
+     names (na/nb) and directories (da/db); the first match wins. */
+
+  var CP_LOCK_FILES = ['Cargo.lock', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'composer.lock', 'Gemfile.lock', 'poetry.lock'];
+  var CP_PROJECT_EXTS = ['.csproj', '.sln', '.fsproj', '.vbproj'];
+  var CP_BUILD_FILES = ['pom.xml', 'build.gradle'];
+  var CP_INDEX_FILES = ['mod.rs', 'lib.rs', 'index.ts', 'index.js', 'index.tsx', 'index.jsx', '__init__.py'];
+
+  function cpStripTestSuffix(name) {
+    return name
+      .replace(/\.spec\.(ts|js|tsx|jsx|mjs)$/, '.$1')
+      .replace(/\.test\.(ts|js|tsx|jsx|mjs|py)$/, '.$1')
+      .replace(/_test\.go$/, '.go')
+      .replace(/Tests?\.(java|cs|fs)$/, '.$1');
+  }
+
+  function cpIsTestPair(p) {
+    if (cpStripTestSuffix(p.na) !== p.na && cpStripTestSuffix(p.na) === p.nb) return true;
+    return cpStripTestSuffix(p.nb) !== p.nb && cpStripTestSuffix(p.nb) === p.na;
+  }
+
+  /* IFoo.cs <-> Foo.cs (same dir), FooImpl/FooInterface <-> Foo (Java). */
+  function cpIsInterfaceImplPair(p) {
+    if (p.da === p.db && p.na.endsWith('.cs') && p.nb.endsWith('.cs')) {
+      var aBase = p.na.slice(0, -3), bBase = p.nb.slice(0, -3);
+      if (aBase === 'I' + bBase || bBase === 'I' + aBase) return true;
+    }
+    if (p.na.endsWith('.java') && p.nb.endsWith('.java')) {
+      var aj = p.na.slice(0, -5), bj = p.nb.slice(0, -5);
+      if (aj + 'Impl' === bj || bj + 'Impl' === aj) return true;
+      if (aj + 'Interface' === bj || bj + 'Interface' === aj) return true;
+    }
+    return false;
+  }
+
+  var CP_EXCLUDE_RULES = [
+    { reason: 'lock file', match: function(p) {
+      return CP_LOCK_FILES.indexOf(p.na) >= 0 || CP_LOCK_FILES.indexOf(p.nb) >= 0;
+    } },
+    { reason: 'project file', match: function(p) {
+      return CP_PROJECT_EXTS.some(function(ext) { return p.na.endsWith(ext) || p.nb.endsWith(ext); });
+    } },
+    { reason: 'build file', match: function(p) {
+      return CP_BUILD_FILES.indexOf(p.na) >= 0 || CP_BUILD_FILES.indexOf(p.nb) >= 0;
+    } },
+    { reason: 'module index', match: function(p) {
+      return p.da === p.db && (CP_INDEX_FILES.indexOf(p.na) >= 0 || CP_INDEX_FILES.indexOf(p.nb) >= 0);
+    } },
+    { reason: 'test file', match: cpIsTestPair },
+    { reason: 'interface/impl', match: cpIsInterfaceImplPair }
+  ];
+
+  /* Reason string when the pair matches an auto-exclude rule, else null. */
   function isAutoExcluded(a, b) {
-    var na = a.split('/').pop(), nb = b.split('/').pop();
-    var da = a.substring(0, a.lastIndexOf('/') + 1);
-    var db = b.substring(0, b.lastIndexOf('/') + 1);
-    // Lock files: Cargo.lock/Cargo.toml, package-lock.json/package.json, yarn.lock, pnpm-lock.yaml, *.lock
-    var lockFiles = ['Cargo.lock', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'composer.lock', 'Gemfile.lock', 'poetry.lock'];
-    var manifestFiles = ['Cargo.toml', 'package.json', 'yarn.lock', 'pnpm-lock.yaml', 'composer.json', 'Gemfile', 'pyproject.toml'];
-    if (lockFiles.indexOf(na) >= 0 || lockFiles.indexOf(nb) >= 0) return 'lock file';
-    // Project files: *.csproj, *.sln, pom.xml, build.gradle
-    var projFiles = ['.csproj', '.sln', '.fsproj', '.vbproj'];
-    if (projFiles.some(function(ext) { return na.endsWith(ext) || nb.endsWith(ext); })) return 'project file';
-    if (na === 'pom.xml' || nb === 'pom.xml' || na === 'build.gradle' || nb === 'build.gradle') return 'build file';
-    // Module index files: mod.rs, index.ts/js, __init__.py, lib.rs
-    var indexFiles = ['mod.rs', 'lib.rs', 'index.ts', 'index.js', 'index.tsx', 'index.jsx', '__init__.py'];
-    if (da === db && (indexFiles.indexOf(na) >= 0 || indexFiles.indexOf(nb) >= 0)) return 'module index';
-    // Test file pairs: foo.ts <-> foo.spec.ts, foo.test.ts, foo_test.go, FooTest.java, FooTests.cs
-    function stripTestSuffix(name) {
-      return name
-        .replace(/\.spec\.(ts|js|tsx|jsx|mjs)$/, '.$1')
-        .replace(/\.test\.(ts|js|tsx|jsx|mjs|py)$/, '.$1')
-        .replace(/_test\.go$/, '.go')
-        .replace(/Tests?\.(java|cs|fs)$/, '.$1')
-        .replace(/Tests?\.(cs|fs)$/, '.$1');
-    }
-    if (stripTestSuffix(na) !== na && stripTestSuffix(na) === nb) return 'test file';
-    if (stripTestSuffix(nb) !== nb && stripTestSuffix(nb) === na) return 'test file';
-    // C# interface: IFoo.cs <-> Foo.cs (same dir)
-    if (da === db && na.endsWith('.cs') && nb.endsWith('.cs')) {
-      var aBase = na.slice(0, -3), bBase = nb.slice(0, -3);
-      if (aBase === 'I' + bBase || bBase === 'I' + aBase) return 'interface/impl';
-    }
-    // Java interface/impl: FooInterface.java <-> FooImpl.java
-    if (na.endsWith('.java') && nb.endsWith('.java')) {
-      var aj = na.slice(0, -5), bj = nb.slice(0, -5);
-      if (aj + 'Impl' === bj || bj + 'Impl' === aj) return 'interface/impl';
-      if (aj + 'Interface' === bj || bj + 'Interface' === aj) return 'interface/impl';
+    var pair = {
+      na: a.split('/').pop(),
+      nb: b.split('/').pop(),
+      da: a.substring(0, a.lastIndexOf('/') + 1),
+      db: b.substring(0, b.lastIndexOf('/') + 1)
+    };
+    for (var i = 0; i < CP_EXCLUDE_RULES.length; i++) {
+      if (CP_EXCLUDE_RULES[i].match(pair)) return CP_EXCLUDE_RULES[i].reason;
     }
     return null;
+  }
+
+  function cpPctColor(pct) {
+    return pct > 70 ? 'var(--c-danger)' : pct > 40 ? 'var(--c-warn)' : 'var(--c-good)';
+  }
+
+  /* A file cell with dimmed directory prefix. */
+  function cpFileCell(path) {
+    var cell = el('td');
+    var parts = fileParts(path);
+    var dir = el('span', { className: 'file-dir' });
+    dir.append(txt(parts.dir));
+    var name = el('span', { className: 'file-name' });
+    name.append(txt(parts.name));
+    cell.append(dir, name);
+    return cell;
+  }
+
+  /* One coupled-pair row. `ui.rerender` rebuilds the table after dismiss. */
+  function cpPairRow(p, idx, excludeReason, state, ui) {
+    var row = el('tr');
+    if (excludeReason) row.className = 'cp-auto-excluded';
+
+    var aCell = cpFileCell(p.file_a);
+    var bCell = cpFileCell(p.file_b);
+    if (excludeReason) {
+      var tag = el('span', { className: 'cp-auto-tag' });
+      tag.append(txt(excludeReason));
+      bCell.append(tag);
+    }
+
+    var coCell = el('td');
+    coCell.append(txt(String(p.co_changes)));
+
+    var pctCell = el('td');
+    var pctSpan = el('span', { style: { fontWeight: '700', color: cpPctColor(p.coupling_pct) } });
+    pctSpan.append(txt(fmt(p.coupling_pct, 1) + '%'));
+    pctCell.append(pctSpan);
+
+    var cbCell = el('td');
+    if (p.cross_boundary) {
+      var cbBadge = el('span', { style: { color: 'var(--c-warn)', fontWeight: '600', fontSize: '0.75rem' } });
+      cbBadge.append(txt('⚠ cross-boundary'));
+      cbCell.append(cbBadge);
+    }
+    if (p.is_test_pair) {
+      var tpBadge = el('span', { title: 'Expected coupling — production file and its test file naturally change together.', style: { marginLeft: '4px', cursor: 'default' } });
+      tpBadge.append(txt('🧪'));
+      cbCell.append(tpBadge);
+    }
+
+    var barCell = el('td', { className: 'inline-bar' });
+    barCell.append(inlineBar(p.coupling_pct, cpPctColor(p.coupling_pct)));
+
+    var dismissCell = el('td');
+    var dismissBtn = el('button', { className: 'cp-dismiss' });
+    dismissBtn.append(txt('×'));
+    dismissBtn.addEventListener('click', function() {
+      state.dismissed[idx] = true;
+      ui.rerender();
+    });
+    dismissCell.append(dismissBtn);
+
+    row.append(aCell, bCell, coCell, pctCell, cbCell, barCell, dismissCell);
+    return row;
+  }
+
+  var CP_COL_TIPS = {
+    'Co-changes': 'Number of commits where both files were modified together.',
+    'Coupling %': 'Co-changes ÷ min(commits A, commits B). Answers: “Of the less-frequently-changed file’s commits, what share also touched the other file?” 100 % means the two files always move together.',
+    'Cross-boundary': 'The files live in different top-level modules or directories. Cross-boundary coupling is riskier because it signals hidden dependencies between components that should be independent.'
+  };
+
+  /* The coupled-pairs table. Returns the table plus the counts the status
+     bar needs (auto-excluded matches and rows currently hidden). */
+  function cpPairsTable(pairs, state, ui) {
+    var table = el('table');
+    var thead = el('thead');
+    var hRow = el('tr');
+    ['File A', 'File B', 'Co-changes', 'Coupling %', 'Cross-boundary', '', ''].forEach(function(h) {
+      hRow.append(thWithTip(h, CP_COL_TIPS[h] || null));
+    });
+    thead.append(hRow);
+    table.append(thead);
+
+    var tbody = el('tbody');
+    var hiddenCount = 0;
+    var autoCount = 0;
+
+    pairs.slice(0, 100).forEach(function(p, idx) {
+      var excludeReason = isAutoExcluded(p.file_a, p.file_b);
+      if (excludeReason) autoCount++;
+      if (state.dismissed[idx]) { hiddenCount++; return; }
+      if (excludeReason && !state.showAutoExcluded) { hiddenCount++; return; }
+      tbody.append(cpPairRow(p, idx, excludeReason, state, ui));
+    });
+    table.append(tbody);
+    return { table: table, autoCount: autoCount, hiddenCount: hiddenCount };
+  }
+
+  /* Instability panel: Ce/(Ca+Ce) per file from the static import graph. */
+  function cpInstabilityCard() {
+    var card = el('div', { className: 'view-card' });
+
+    var header = el('div', { className: 'tab-info-title' });
+    header.append(txt('Instability by File'));
+    card.append(header);
+
+    var desc = el('div', { style: { fontSize: '13px', color: 'var(--text-muted)', margin: '6px 0 12px' } });
+    desc.append(txt('Instability = Ce ÷ (Ca + Ce). 0 = maximally stable (depended upon, changes carefully). 1 = maximally unstable (depends on others, safe to change freely).'));
+    card.append(desc);
+
+    var perFileCoupling = R.per_file_coupling;
+    if (!perFileCoupling || perFileCoupling.length === 0) {
+      var noData = el('div', { className: 'no-data' });
+      noData.append(txt('No static import data available.'));
+      card.append(noData);
+      return card;
+    }
+
+    var wrap = el('div', { style: { overflowX: 'auto' } });
+    var table = el('table');
+    var thead = el('thead');
+    var hRow = el('tr');
+    [
+      { label: 'File', tip: null },
+      { label: 'Ca', tip: 'Afferent coupling: number of files that import this file. High Ca = many dependents, risky to change.' },
+      { label: 'Ce', tip: 'Efferent coupling: number of files this file imports. High Ce = many dependencies.' },
+      { label: 'Instability', tip: 'Ce / (Ca + Ce). 0 = stable (depended upon). 1 = unstable (depends on others).' }
+    ].forEach(function(col) {
+      hRow.append(thWithTip(col.label, col.tip));
+    });
+    thead.append(hRow);
+    table.append(thead);
+
+    var tbody = el('tbody');
+    perFileCoupling.slice().sort(function(a, b) { return b.instability - a.instability; }).slice(0, 50).forEach(function(f) {
+      var row = el('tr');
+
+      var fileCell = cpFileCell(f.path);
+      linkFileCell(fileCell, f.path, 'Graph');
+
+      var caCell = el('td');
+      caCell.append(txt(String(f.ca)));
+
+      var ceCell = el('td');
+      ceCell.append(txt(String(f.ce)));
+
+      var instColor = f.instability <= 0.3
+        ? 'var(--c-good)'
+        : f.instability <= 0.7
+          ? 'var(--c-warn)'
+          : 'var(--c-danger)';
+
+      var instCell = el('td', { style: { display: 'flex', alignItems: 'center', gap: '8px' } });
+      var instVal = el('span', { style: { fontWeight: '700', color: instColor, minWidth: '3.5ch' } });
+      instVal.append(txt(fmt(f.instability, 2)));
+      instCell.append(instVal, inlineBar(f.instability * 100, instColor));
+
+      row.append(fileCell, caCell, ceCell, instCell);
+      tbody.append(row);
+    });
+    table.append(tbody);
+    wrap.append(table);
+    card.append(wrap);
+    return card;
+  }
+
+  /* Prioritised per-file refactoring suggestions, or null when none. */
+  function cpActionsCard() {
+    var couplingActions = R.coupling_actions;
+    if (!couplingActions || couplingActions.length === 0) return null;
+
+    var card = el('div', { className: 'view-card' });
+    var header = el('div', { className: 'tab-info-title' });
+    header.append(txt('Coupling Actions'));
+    card.append(header);
+
+    var desc = el('div', { style: { fontSize: '13px', color: 'var(--text-muted)', margin: '6px 0 12px' } });
+    desc.append(txt('Prioritised per-file refactoring suggestions, worst coupling rung first.'));
+    card.append(desc);
+
+    var list = el('ol', { className: 'coupling-actions-list' });
+    couplingActions.forEach(function(a) {
+      var li = el('li');
+      li.append(txt(a.text));
+      list.append(li);
+    });
+    card.append(list);
+    return card;
   }
 
   function buildCouplingTab() {
@@ -63,9 +280,8 @@
         ]
       ));
 
-      // Track hidden state
-      var dismissed = {};
-      var showAutoExcluded = false;
+      // Hidden-row state, mutated by the dismiss buttons and the toggle.
+      var state = { dismissed: {}, showAutoExcluded: false };
 
       // Controls
       var controls = el('div', { className: 'cp-controls' });
@@ -80,115 +296,33 @@
       var card = el('div', { className: 'view-card' });
       var tableWrap = el('div', { style: { overflowX: 'auto' } });
 
-      var COL_TIPS = {
-        'Co-changes': 'Number of commits where both files were modified together.',
-        'Coupling %': 'Co-changes ÷ min(commits A, commits B). Answers: “Of the less-frequently-changed file’s commits, what share also touched the other file?” 100 % means the two files always move together.',
-        'Cross-boundary': 'The files live in different top-level modules or directories. Cross-boundary coupling is riskier because it signals hidden dependencies between components that should be independent.'
-      };
+      var ui = { rerender: renderTable };
 
       function renderTable() {
-        tableWrap.replaceChildren();
-        var table = el('table');
-        var thead = el('thead');
-        var hRow = el('tr');
-        ['File A', 'File B', 'Co-changes', 'Coupling %', 'Cross-boundary', '', ''].forEach(function(h) {
-          hRow.append(thWithTip(h, COL_TIPS[h] || null));
-        });
-        thead.append(hRow);
-        table.append(thead);
+        var built = cpPairsTable(pairs, state, ui);
+        tableWrap.replaceChildren(built.table);
 
-        var tbody = el('tbody');
-        var hiddenCount = 0;
-        var autoCount = 0;
-
-        pairs.slice(0, 100).forEach(function(p, idx) {
-          var excludeReason = isAutoExcluded(p.file_a, p.file_b);
-          if (excludeReason) autoCount++;
-          if (dismissed[idx]) { hiddenCount++; return; }
-          if (excludeReason && !showAutoExcluded) { hiddenCount++; return; }
-
-          var row = el('tr');
-          if (excludeReason) row.className = 'cp-auto-excluded';
-
-          var aCell = el('td');
-          var aParts = fileParts(p.file_a);
-          var aDir = el('span', { className: 'file-dir' });
-          aDir.append(txt(aParts.dir));
-          var aName = el('span', { className: 'file-name' });
-          aName.append(txt(aParts.name));
-          aCell.append(aDir, aName);
-
-          var bCell = el('td');
-          var bParts = fileParts(p.file_b);
-          var bDir = el('span', { className: 'file-dir' });
-          bDir.append(txt(bParts.dir));
-          var bName = el('span', { className: 'file-name' });
-          bName.append(txt(bParts.name));
-          bCell.append(bDir, bName);
-          if (excludeReason) {
-            var tag = el('span', { className: 'cp-auto-tag' });
-            tag.append(txt(excludeReason));
-            bCell.append(tag);
-          }
-
-          var coCell = el('td');
-          coCell.append(txt(String(p.co_changes)));
-
-          var pctCell = el('td');
-          var pctSpan = el('span', { style: { fontWeight: '700', color: p.coupling_pct > 70 ? 'var(--c-danger)' : p.coupling_pct > 40 ? 'var(--c-warn)' : 'var(--c-good)' } });
-          pctSpan.append(txt(fmt(p.coupling_pct, 1) + '%'));
-          pctCell.append(pctSpan);
-
-          var cbCell = el('td');
-          if (p.cross_boundary) {
-            var cbBadge = el('span', { style: { color: 'var(--c-warn)', fontWeight: '600', fontSize: '0.75rem' } });
-            cbBadge.append(txt('⚠ cross-boundary'));
-            cbCell.append(cbBadge);
-          }
-          if (p.is_test_pair) {
-            var tpBadge = el('span', { title: 'Expected coupling — production file and its test file naturally change together.', style: { marginLeft: '4px', cursor: 'default' } });
-            tpBadge.append(txt('🧪'));
-            cbCell.append(tpBadge);
-          }
-
-          var barCell = el('td', { className: 'inline-bar' });
-          barCell.append(inlineBar(p.coupling_pct, p.coupling_pct > 70 ? 'var(--c-danger)' : p.coupling_pct > 40 ? 'var(--c-warn)' : 'var(--c-good)'));
-
-          var dismissCell = el('td');
-          var dismissBtn = el('button', { className: 'cp-dismiss' });
-          dismissBtn.append(txt('×'));
-          dismissBtn.addEventListener('click', (function(i) {
-            return function() { dismissed[i] = true; renderTable(); };
-          })(idx));
-          dismissCell.append(dismissBtn);
-
-          row.append(aCell, bCell, coCell, pctCell, cbCell, barCell, dismissCell);
-          tbody.append(row);
-        });
-        table.append(tbody);
-        tableWrap.append(table);
-
-        // Update status
+        // Status line + control labels reflect the new counts
         statusSpan.replaceChildren();
         var parts = [];
-        if (autoCount > 0) parts.push(autoCount + ' auto-excluded');
-        var dismissedCount = Object.keys(dismissed).length;
+        if (built.autoCount > 0) parts.push(built.autoCount + ' auto-excluded');
+        var dismissedCount = Object.keys(state.dismissed).length;
         if (dismissedCount > 0) parts.push(dismissedCount + ' dismissed');
         if (parts.length > 0) {
-          statusSpan.append(txt(parts.join(', ') + ' — ' + hiddenCount + ' hidden'));
+          statusSpan.append(txt(parts.join(', ') + ' — ' + built.hiddenCount + ' hidden'));
         }
         resetBtn.style.display = dismissedCount > 0 ? '' : 'none';
-        toggleAutoBtn.className = showAutoExcluded ? 'active' : '';
+        toggleAutoBtn.className = state.showAutoExcluded ? 'active' : '';
         toggleAutoBtn.replaceChildren();
-        toggleAutoBtn.append(txt(showAutoExcluded ? 'Hide auto-excluded' : 'Show auto-excluded (' + autoCount + ')'));
+        toggleAutoBtn.append(txt(state.showAutoExcluded ? 'Hide auto-excluded' : 'Show auto-excluded (' + built.autoCount + ')'));
       }
 
       toggleAutoBtn.addEventListener('click', function() {
-        showAutoExcluded = !showAutoExcluded;
+        state.showAutoExcluded = !state.showAutoExcluded;
         renderTable();
       });
       resetBtn.addEventListener('click', function() {
-        dismissed = {};
+        state.dismissed = {};
         renderTable();
       });
 
@@ -197,99 +331,10 @@
       container.append(card);
     }
 
-    // ---- Instability panel ----
-    var instabilityCard = el('div', { className: 'view-card' });
+    container.append(cpInstabilityCard());
 
-    var instHeader = el('div', { className: 'tab-info-title' });
-    instHeader.append(txt('Instability by File'));
-    instabilityCard.append(instHeader);
-
-    var instDesc = el('div', { style: { fontSize: '13px', color: 'var(--text-muted)', margin: '6px 0 12px' } });
-    instDesc.append(txt('Instability = Ce ÷ (Ca + Ce). 0 = maximally stable (depended upon, changes carefully). 1 = maximally unstable (depends on others, safe to change freely).'));
-    instabilityCard.append(instDesc);
-
-    var perFileCoupling = R.per_file_coupling;
-    if (!perFileCoupling || perFileCoupling.length === 0) {
-      var noInstData = el('div', { className: 'no-data' });
-      noInstData.append(txt('No static import data available.'));
-      instabilityCard.append(noInstData);
-    } else {
-      var instTableWrap = el('div', { style: { overflowX: 'auto' } });
-      var instTable = el('table');
-      var instThead = el('thead');
-      var instHRow = el('tr');
-      [
-        { label: 'File', tip: null },
-        { label: 'Ca', tip: 'Afferent coupling: number of files that import this file. High Ca = many dependents, risky to change.' },
-        { label: 'Ce', tip: 'Efferent coupling: number of files this file imports. High Ce = many dependencies.' },
-        { label: 'Instability', tip: 'Ce / (Ca + Ce). 0 = stable (depended upon). 1 = unstable (depends on others).' }
-      ].forEach(function(col) {
-        instHRow.append(thWithTip(col.label, col.tip));
-      });
-      instThead.append(instHRow);
-      instTable.append(instThead);
-
-      var instTbody = el('tbody');
-      perFileCoupling.slice().sort(function(a, b) { return b.instability - a.instability; }).slice(0, 50).forEach(function(f) {
-        var fRow = el('tr');
-
-        var fileCell = el('td');
-        var fParts = fileParts(f.path);
-        var dirSpan = el('span', { className: 'file-dir' });
-        dirSpan.append(txt(fParts.dir));
-        var nameSpan = el('span', { className: 'file-name' });
-        nameSpan.append(txt(fParts.name));
-        fileCell.append(dirSpan, nameSpan);
-        linkFileCell(fileCell, f.path, 'Graph');
-
-        var caCell = el('td');
-        caCell.append(txt(String(f.ca)));
-
-        var ceCell = el('td');
-        ceCell.append(txt(String(f.ce)));
-
-        var instColor = f.instability <= 0.3
-          ? 'var(--c-good)'
-          : f.instability <= 0.7
-            ? 'var(--c-warn)'
-            : 'var(--c-danger)';
-
-        var instCell = el('td', { style: { display: 'flex', alignItems: 'center', gap: '8px' } });
-        var instVal = el('span', { style: { fontWeight: '700', color: instColor, minWidth: '3.5ch' } });
-        instVal.append(txt(fmt(f.instability, 2)));
-        instCell.append(instVal, inlineBar(f.instability * 100, instColor));
-
-        fRow.append(fileCell, caCell, ceCell, instCell);
-        instTbody.append(fRow);
-      });
-      instTable.append(instTbody);
-      instTableWrap.append(instTable);
-      instabilityCard.append(instTableWrap);
-    }
-
-    container.append(instabilityCard);
-
-    // ---- Coupling Actions panel ----
-    var couplingActions = R.coupling_actions;
-    if (couplingActions && couplingActions.length > 0) {
-      var actionsCard = el('div', { className: 'view-card' });
-      var actHeader = el('div', { className: 'tab-info-title' });
-      actHeader.append(txt('Coupling Actions'));
-      actionsCard.append(actHeader);
-
-      var actDesc = el('div', { style: { fontSize: '13px', color: 'var(--text-muted)', margin: '6px 0 12px' } });
-      actDesc.append(txt('Prioritised per-file refactoring suggestions, worst coupling rung first.'));
-      actionsCard.append(actDesc);
-
-      var actList = el('ol', { className: 'coupling-actions-list' });
-      couplingActions.forEach(function(a) {
-        var li = el('li');
-        li.append(txt(a.text));
-        actList.append(li);
-      });
-      actionsCard.append(actList);
-      container.append(actionsCard);
-    }
+    var actions = cpActionsCard();
+    if (actions) container.append(actions);
 
     return container;
   }
