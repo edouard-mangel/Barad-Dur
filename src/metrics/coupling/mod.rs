@@ -238,12 +238,11 @@ fn has_edge(graph: &HashMap<PathBuf, Vec<PathBuf>>, from: &PathBuf, to: &PathBuf
 }
 
 /// Dedup key for a direct A↔B cycle: the pair in lexicographic order.
-fn pair_key(a: &PathBuf, b: &PathBuf) -> (PathBuf, PathBuf) {
-    if a < b {
-        (a.clone(), b.clone())
-    } else {
-        (b.clone(), a.clone())
-    }
+fn pair_key(a: &Path, b: &Path) -> (PathBuf, PathBuf) {
+    let mut pair = [a.to_path_buf(), b.to_path_buf()];
+    pair.sort();
+    let [first, second] = pair;
+    (first, second)
 }
 
 /// Dedup key for an A→B→C→A cycle: its two smallest members, so the same
