@@ -151,6 +151,26 @@ mod tests {
     }
 
     #[test]
+    fn functions_in_test_files_are_not_counted() {
+        let mut snapshot = make_snapshot();
+        add_normal_functions(&mut snapshot, 19);
+        // A giant test function must not be flagged — nor swell the total.
+        add_file_with_functions(
+            &mut snapshot,
+            "tests/coupling_milestone_1.rs",
+            vec![FunctionMetrics {
+                name: "end_to_end".to_string(),
+                loc: 120,
+                cyclomatic_complexity: 2,
+                max_nesting_depth: 2,
+            }],
+        );
+        let result = long_methods(&snapshot);
+        assert_eq!(result.score, Some(100));
+        assert_eq!(result.description, "0/19 functions flagged (0.0%)");
+    }
+
+    #[test]
     fn scores_50_at_medium_pct() {
         let mut snapshot = make_snapshot();
         // 17 normal + 3 bad = 20 total, 3/20 = 15% -> score 50

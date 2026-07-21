@@ -237,6 +237,7 @@ fn html_audit_pct_of_total_uses_fmt() {
 
 #[test]
 fn html_full_report_with_all_data_renders_ok() {
+    use crate::metrics::file_role::FileRole;
     use crate::scorer::{
         AuditReport, AuthorShare, CouplingPair, DirConcentration, FileOwnership, HotspotFile,
     };
@@ -252,6 +253,7 @@ fn html_full_report_with_all_data_renders_ok() {
     }];
     report.file_hotspots = vec![HotspotFile {
         path: "src/big.rs".into(),
+        role: FileRole::Source,
         churn_count: 20,
         bug_commit_count: 3,
         loc: 500,

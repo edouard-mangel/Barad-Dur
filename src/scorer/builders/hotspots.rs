@@ -6,6 +6,7 @@ use std::path::Path;
 
 use crate::config::CouplingThresholds;
 use crate::metrics::coupling::all_coupling_findings;
+use crate::metrics::file_role::classify;
 use crate::snapshot::{CouplingKind, RepoSnapshot};
 
 use super::super::types::HotspotFile;
@@ -97,6 +98,7 @@ pub(crate) fn build_hotspots(
                     .unwrap_or((0, 0, 0, 0));
             HotspotFile {
                 path: f.path.to_string_lossy().to_string(),
+                role: classify(&f.path),
                 churn_count: churn,
                 bug_commit_count,
                 loc: metrics.loc,
@@ -154,9 +156,37 @@ pub(crate) fn build_hotspots(
 mod tests {
     use super::super::test_support::*;
     use super::*;
+    use crate::metrics::file_role::FileRole;
     use crate::snapshot::{CommitId, TimeWindow};
     use chrono::Utc;
     use std::path::PathBuf;
+
+    #[test]
+    fn hotspot_rows_carry_the_file_role() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp/test"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        snapshot.files = vec![
+            make_file_entry("src/lib.rs"),
+            make_file_entry("tests/e2e.rs"),
+            make_file_entry(".gitlab-ci.yml"),
+        ];
+
+        let hotspots = build_hotspots(&snapshot, &crate::config::CouplingThresholds::default());
+        let role_of = |path: &str| {
+            hotspots
+                .iter()
+                .find(|f| f.path == path)
+                .map(|f| f.role)
+                .unwrap()
+        };
+        assert_eq!(role_of("src/lib.rs"), FileRole::Source);
+        assert_eq!(role_of("tests/e2e.rs"), FileRole::Test);
+        assert_eq!(role_of(".gitlab-ci.yml"), FileRole::Config);
+    }
 
     #[test]
     fn churn_timeline_buckets_commits_across_window() {

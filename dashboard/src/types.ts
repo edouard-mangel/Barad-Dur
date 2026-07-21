@@ -38,6 +38,9 @@ export interface HotspotFile {
   common_findings?: number
   control_findings?: number
   inheritance_findings?: number
+  // What kind of file this is. Optional: reports generated before the
+  // role-classification release don't carry it — treat missing as 'source'.
+  role?: 'source' | 'test' | 'config' | 'docs' | 'other'
 }
 
 export interface CouplingPair {

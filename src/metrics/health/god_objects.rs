@@ -1,27 +1,10 @@
+use crate::metrics::file_role::{classify, FileRole};
 use crate::metrics::{MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
 
+/// Production source code only — tests, config, and docs are other roles.
 pub(super) fn is_source_file(path: &std::path::Path) -> bool {
-    matches!(
-        path.extension().and_then(|e| e.to_str()).unwrap_or(""),
-        "rs" | "py"
-            | "go"
-            | "java"
-            | "cs"
-            | "js"
-            | "ts"
-            | "tsx"
-            | "jsx"
-            | "kt"
-            | "cpp"
-            | "c"
-            | "h"
-            | "hpp"
-            | "rb"
-            | "php"
-            | "swift"
-            | "scala"
-    )
+    classify(path) == FileRole::Source
 }
 
 /// Files that have grown too large to maintain (god objects / bloaters).
@@ -120,6 +103,32 @@ mod tests {
             RawValue::List(v) => assert_eq!(v.len(), 1),
             _ => panic!("Expected List"),
         }
+    }
+
+    #[test]
+    fn god_objects_ignores_test_files_in_flagging_and_denominator() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        // A huge test suite must be neither flagged nor counted as a source file.
+        snapshot.file_metrics.insert(
+            PathBuf::from("src/metrics/coupling/tests.rs"),
+            FileComplexity {
+                total_lines: 1200,
+                loc: 1100,
+                cyclomatic_complexity: 17,
+                public_methods: 0,
+                properties: 0,
+                ..Default::default()
+            },
+        );
+        add_normal_files(&mut snapshot, 10);
+        let result = god_objects(&snapshot);
+        assert_eq!(result.score, Some(100));
+        assert_eq!(result.description, "0/10 source files oversized (0.0%)");
     }
 
     #[test]

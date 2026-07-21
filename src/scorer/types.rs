@@ -8,6 +8,9 @@ use crate::metrics::CategoryResult;
 #[non_exhaustive]
 pub struct HotspotFile {
     pub path: String,
+    /// What kind of file this is (source / test / config / docs / other) —
+    /// lets renderers separate code hotspots from CI-file and test churn.
+    pub role: crate::metrics::file_role::FileRole,
     pub churn_count: usize,
     pub bug_commit_count: usize,
     pub loc: usize,

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import HotspotsView, { couplingBadge, riskColor, splitPath, visibleSorted } from './HotspotsView'
+import HotspotsView, { couplingBadge, riskColor, roleMatches, splitPath, visibleSorted } from './HotspotsView'
 import type { HotspotFile } from '../types'
 
 function file(path: string, score: number, churn = 10): HotspotFile {
@@ -41,6 +41,69 @@ describe('HotspotsView helpers', () => {
   it('splitPath separates directory prefix from file name', () => {
     expect(splitPath('src/a/b.rs')).toEqual({ dir: 'src/a/', name: 'b.rs' })
     expect(splitPath('README.md')).toEqual({ dir: '', name: 'README.md' })
+  })
+
+  it('roleMatches groups roles and treats missing role as source', () => {
+    const src: HotspotFile = { ...file('a.rs', 1), role: 'source' }
+    const test: HotspotFile = { ...file('b.rs', 1), role: 'test' }
+    const config: HotspotFile = { ...file('c.yml', 1), role: 'config' }
+    const legacy: HotspotFile = file('d.rs', 1) // pre-role report shape
+    expect(roleMatches(src, 'code')).toBe(true)
+    expect(roleMatches(test, 'code')).toBe(false)
+    expect(roleMatches(test, 'test')).toBe(true)
+    expect(roleMatches(config, 'other')).toBe(true)
+    expect(roleMatches(config, 'code')).toBe(false)
+    expect(roleMatches(legacy, 'code')).toBe(true)
+    expect(roleMatches(config, 'all')).toBe(true)
+  })
+
+  it('visibleSorted applies the role filter', () => {
+    const mixed = [
+      { ...file('src/app.ts', 50), role: 'source' as const },
+      { ...file('app.test.ts', 90), role: 'test' as const },
+      { ...file('.gitlab-ci.yml', 99), role: 'config' as const },
+    ]
+    const code = visibleSorted(mixed, new Set(), 'hotspot_score', 'code')
+    expect(code.map(f => f.path)).toEqual(['src/app.ts'])
+    const all = visibleSorted(mixed, new Set(), 'hotspot_score', 'all')
+    expect(all.length).toBe(3)
+  })
+})
+
+describe('HotspotsView role filter', () => {
+  it('defaults to Code, hiding test and config rows', () => {
+    render(
+      <HotspotsView
+        files={[
+          { ...file('src/app.ts', 50), role: 'source' },
+          { ...file('src/app.test.ts', 90), role: 'test' },
+          { ...file('.gitlab-ci.yml', 99), role: 'config' },
+        ]}
+      />
+    )
+    expect(screen.queryByTitle('src/app.ts')).not.toBeNull()
+    expect(screen.queryByTitle('src/app.test.ts')).toBeNull()
+    expect(screen.queryByTitle('.gitlab-ci.yml')).toBeNull()
+  })
+
+  it('shows everything when All is selected', () => {
+    render(
+      <HotspotsView
+        files={[
+          { ...file('src/app.ts', 50), role: 'source' },
+          { ...file('src/app.test.ts', 90), role: 'test' },
+        ]}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: /^All/ }))
+    expect(screen.queryByTitle('src/app.ts')).not.toBeNull()
+    expect(screen.queryByTitle('src/app.test.ts')).not.toBeNull()
+  })
+
+  it('renders every row for reports without role data', () => {
+    render(<HotspotsView files={[file('src/plain.ts', 60), file('src/other.ts', 40)]} />)
+    expect(screen.queryByTitle('src/plain.ts')).not.toBeNull()
+    expect(screen.queryByTitle('src/other.ts')).not.toBeNull()
   })
 })
 

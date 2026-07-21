@@ -121,6 +121,24 @@ mod tests {
     }
 
     #[test]
+    fn test_files_are_not_flagged_or_counted() {
+        let mut snapshot = make_snapshot();
+        add_normal_files(&mut snapshot, 10);
+        // Deeply nested test code is expected (arrange blocks) — skip it.
+        snapshot.file_metrics.insert(
+            PathBuf::from("tests/e2e_test.rs"),
+            FileComplexity {
+                max_nesting_depth: 7,
+                nesting_variance: 1.0,
+                ..Default::default()
+            },
+        );
+        let result = biomarkers(&snapshot);
+        assert_eq!(result.score, Some(100));
+        assert_eq!(result.description, "0/10 source files flagged (0.0%)");
+    }
+
+    #[test]
     fn flags_high_variance() {
         let mut snapshot = make_snapshot();
         add_normal_files(&mut snapshot, 99);

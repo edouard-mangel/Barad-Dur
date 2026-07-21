@@ -2,6 +2,7 @@ pub mod complexity;
 pub mod coupling;
 pub mod deps;
 pub mod evolution;
+pub mod file_role;
 pub mod health;
 pub mod hygiene;
 pub mod team;
