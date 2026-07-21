@@ -8,14 +8,29 @@ interface Props {
 
 export type SortKey = 'hotspot_score' | 'churn_count' | 'cyclomatic_complexity' | 'loc'
 
-/** Files that survive dismissal, ordered by the active column, top 50. */
+export type RoleFilter = 'code' | 'test' | 'other' | 'all'
+
+/** Does the file belong to the selected role group? Reports generated before
+ * role classification carry no role — treat those files as source so the
+ * default Code view never hides them. */
+export function roleMatches(f: HotspotFile, filter: RoleFilter): boolean {
+  const role = f.role ?? 'source'
+  if (filter === 'all') return true
+  if (filter === 'code') return role === 'source'
+  if (filter === 'test') return role === 'test'
+  return role === 'config' || role === 'docs' || role === 'other'
+}
+
+/** Files that survive dismissal and the role filter, ordered by the active
+ * column, top 50. */
 export function visibleSorted(
   files: HotspotFile[],
   dismissed: Set<string>,
-  sort: SortKey
+  sort: SortKey,
+  role: RoleFilter = 'all'
 ): HotspotFile[] {
   return files
-    .filter(f => !dismissed.has(f.path))
+    .filter(f => !dismissed.has(f.path) && roleMatches(f, role))
     .sort((a, b) => b[sort] - a[sort])
     .slice(0, 50)
 }
@@ -172,19 +187,27 @@ const SORTABLE_COLUMNS: { key: SortKey; label: string }[] = [
   { key: 'loc', label: 'LOC' },
 ]
 
+const ROLE_FILTERS: { key: RoleFilter; label: string }[] = [
+  { key: 'code', label: 'Code' },
+  { key: 'test', label: 'Tests' },
+  { key: 'other', label: 'Config & docs' },
+  { key: 'all', label: 'All' },
+]
+
 export default function HotspotsView({ files }: Props) {
   const svgRef = useRef<SVGSVGElement>(null)
   const [sort, setSort] = useState<SortKey>('hotspot_score')
+  const [role, setRole] = useState<RoleFilter>('code')
   // Client-side, ephemeral dismissal — mirrors the coupling tab. Keyed by path so
   // sorting stays correct.
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
 
-  const visible = files.filter(f => !dismissed.has(f.path))
-  const sorted = visibleSorted(files, dismissed, sort)
+  const visible = files.filter(f => !dismissed.has(f.path) && roleMatches(f, role))
+  const sorted = visibleSorted(files, dismissed, sort, role)
 
   useEffect(() => {
     if (svgRef.current) renderScatter(svgRef.current, visible)
-  }, [files, dismissed])
+  }, [files, dismissed, role])
 
   if (files.length === 0) {
     return (
@@ -198,6 +221,33 @@ export default function HotspotsView({ files }: Props) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+      {/* Role filter — Code by default so test suites and CI files don't
+          dominate the ranking */}
+      <div style={{ display: 'flex', gap: '0.4rem', fontFamily: 'JetBrains Mono', fontSize: '0.7rem' }}>
+        {ROLE_FILTERS.map(rf => {
+          const count = files.filter(f => roleMatches(f, rf.key)).length
+          const active = role === rf.key
+          return (
+            <button
+              key={rf.key}
+              onClick={() => setRole(rf.key)}
+              style={{
+                background: active ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)',
+                border: `1px solid ${active ? 'rgba(148,163,184,0.6)' : 'rgba(255,255,255,0.08)'}`,
+                borderRadius: 999,
+                padding: '0.25rem 0.7rem',
+                color: active ? 'rgba(226,232,240,0.9)' : 'rgba(148,163,184,0.6)',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                fontSize: 'inherit',
+              }}
+            >
+              {rf.label} ({count})
+            </button>
+          )
+        })}
+      </div>
+
       {/* Scatter plot */}
       <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, padding: '1rem 1.25rem', backgroundColor: 'rgba(255,255,255,0.02)', overflowX: 'auto' }}>
         <p style={{ fontFamily: 'Syne', fontSize: '0.7rem', color: 'rgba(148,163,184,0.4)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '0.75rem', margin: '0 0 0.75rem' }}>

@@ -1,6 +1,8 @@
 use crate::metrics::{score_count_bands, MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
 
+use super::god_objects::is_source_file;
+
 fn percentile_75<T: Ord + Copy + Default>(mut values: Vec<T>) -> T {
     values.sort_unstable();
     values
@@ -20,14 +22,24 @@ pub(super) fn complex_hotspots(snapshot: &RepoSnapshot) -> MetricValue {
         };
     }
 
+    // Percentiles and flagging both run over production source only, so test
+    // suites and CI files neither appear as hotspots nor skew the thresholds.
     let cc_p75 = percentile_75(
         snapshot
             .file_metrics
-            .values()
-            .map(|m| m.cyclomatic_complexity)
+            .iter()
+            .filter(|(p, _)| is_source_file(p))
+            .map(|(_, m)| m.cyclomatic_complexity)
             .collect(),
     );
-    let churn_p75 = percentile_75(snapshot.commits_by_file.values().map(|c| c.len()).collect());
+    let churn_p75 = percentile_75(
+        snapshot
+            .commits_by_file
+            .iter()
+            .filter(|(p, _)| is_source_file(p))
+            .map(|(_, c)| c.len())
+            .collect(),
+    );
 
     let hotspots: Vec<String> = snapshot
         .file_metrics
@@ -38,7 +50,7 @@ pub(super) fn complex_hotspots(snapshot: &RepoSnapshot) -> MetricValue {
                 .get(*path)
                 .map(|c| c.len())
                 .unwrap_or(0);
-            m.cyclomatic_complexity > cc_p75 && churn > churn_p75
+            is_source_file(path) && m.cyclomatic_complexity > cc_p75 && churn > churn_p75
         })
         .map(|(p, _)| p.display().to_string())
         .collect();
@@ -130,6 +142,52 @@ mod tests {
         assert_eq!(result.score, Some(75)); // 1 hotspot → score 75
         match &result.raw_value {
             RawValue::List(v) => assert_eq!(v.len(), 1),
+            _ => panic!("Expected List"),
+        }
+    }
+
+    #[test]
+    fn complex_hotspots_ignores_test_and_config_files() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        // High-CC high-churn files that are not production source: neither may
+        // be flagged, nor may they inflate the percentile thresholds.
+        let noise: &[(&str, u32, usize)] = &[
+            ("tests/e2e_milestone_1.rs", 90, 60),
+            (".gitlab-ci.yml", 0, 100),
+        ];
+        let source: &[(&str, u32, usize)] = &[
+            ("src/hot.rs", 20, 20),
+            ("src/ok1.rs", 2, 1),
+            ("src/ok2.rs", 3, 2),
+            ("src/ok3.rs", 4, 3),
+        ];
+        for (name, cc, churn) in noise.iter().chain(source) {
+            snapshot.file_metrics.insert(
+                PathBuf::from(name),
+                FileComplexity {
+                    total_lines: 100,
+                    loc: 80,
+                    cyclomatic_complexity: *cc,
+                    public_methods: 2,
+                    properties: 1,
+                    ..Default::default()
+                },
+            );
+            snapshot.commits_by_file.insert(
+                PathBuf::from(name),
+                (0..*churn).map(|i| CommitId(i as u32)).collect(),
+            );
+        }
+        let result = complex_hotspots(&snapshot);
+        // Only src/hot.rs is a hotspot among source files → score 75.
+        assert_eq!(result.score, Some(75));
+        match &result.raw_value {
+            RawValue::List(v) => assert_eq!(v, &["src/hot.rs"]),
             _ => panic!("Expected List"),
         }
     }

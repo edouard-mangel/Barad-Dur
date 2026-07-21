@@ -144,6 +144,39 @@ fn html_hotspots_has_dismiss_controls() {
 }
 
 #[test]
+fn html_hotspots_has_role_filter_chips() {
+    // The hotspots view ships role-filter chips (Code / Tests / Config & docs /
+    // All) defaulting to Code, so test suites and CI files don't dominate the
+    // ranking. Click behavior is exercised by the jsdom smoke harness; this
+    // pins the chip markup and the role-matching helper in the template.
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains("hs-role-chip"),
+        "hotspots view must include role-filter chips (hs-role-chip class)"
+    );
+    assert!(
+        html.contains("hsRoleMatches"),
+        "hotspots table filtering must go through the hsRoleMatches helper"
+    );
+    assert!(
+        html.contains("roleFilter: 'code'"),
+        "the role filter must default to production code"
+    );
+}
+
+#[test]
+fn html_hotspots_serializes_file_roles() {
+    // Every hotspot row carries its role so the client-side filter has data
+    // to work with — spot-check via the treemap fixture, which mixes source
+    // and test paths.
+    let html = render(&make_treemap_report()).unwrap();
+    assert!(
+        html.contains("\"role\":\"source\"") || html.contains(r#"\"role\":\"source\""#),
+        "hotspot rows must serialize their file role"
+    );
+}
+
+#[test]
 fn html_hotspots_dismiss_is_keyed_by_path() {
     // AC-D3: dismissal must be keyed by file path, so re-sorting/filtering the table
     // keeps the correct rows hidden (not whatever row lands in the dismissed slot).
@@ -229,6 +262,7 @@ fn html_score_color_uses_css_vars() {
 // ---- Treemap tests ----
 
 fn make_treemap_report() -> AnalysisReport {
+    use crate::metrics::file_role::FileRole;
     use crate::scorer::{AuthorShare, FileAge, FileOwnership, HotspotFile};
     use chrono::Utc;
 
@@ -236,6 +270,7 @@ fn make_treemap_report() -> AnalysisReport {
     report.file_hotspots = vec![
         HotspotFile {
             path: "src/main.rs".into(),
+            role: FileRole::Source,
             churn_count: 12,
             bug_commit_count: 0,
             loc: 200,
@@ -252,6 +287,7 @@ fn make_treemap_report() -> AnalysisReport {
         },
         HotspotFile {
             path: "src/lib.rs".into(),
+            role: FileRole::Source,
             churn_count: 8,
             bug_commit_count: 0,
             loc: 150,
@@ -268,6 +304,7 @@ fn make_treemap_report() -> AnalysisReport {
         },
         HotspotFile {
             path: "tests/test_a.rs".into(),
+            role: FileRole::Test,
             churn_count: 3,
             bug_commit_count: 0,
             loc: 80,
@@ -284,6 +321,7 @@ fn make_treemap_report() -> AnalysisReport {
         },
         HotspotFile {
             path: "tests/test_b.rs".into(),
+            role: FileRole::Test,
             churn_count: 1,
             bug_commit_count: 0,
             loc: 60,

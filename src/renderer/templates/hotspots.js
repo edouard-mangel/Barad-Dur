@@ -164,6 +164,54 @@
     return svg;
   }
 
+  /* Role-filter groups: 'code' is production source; tests, and
+     config/docs/other churn are real but separate conversations. */
+  var HS_ROLE_GROUPS = [
+    { key: 'code',  label: 'Code',  match: function(r) { return r === 'source'; } },
+    { key: 'test',  label: 'Tests', match: function(r) { return r === 'test'; } },
+    { key: 'other', label: 'Config & docs', match: function(r) { return r === 'config' || r === 'docs' || r === 'other'; } },
+    { key: 'all',   label: 'All',   match: function() { return true; } }
+  ];
+
+  /* Old reports have no role field — treat those files as source so the
+     default filter never hides everything. */
+  function hsRoleMatches(f, filterKey) {
+    var group = HS_ROLE_GROUPS.find(function(g) { return g.key === filterKey; });
+    return group ? group.match(f.role || 'source') : true;
+  }
+
+  /* Chip row toggling state.roleFilter. Counts per group so the reader
+     knows how much each slice hides. Registers ui.setRoleFilter so other
+     handlers (cross-tab focus) can switch the filter programmatically. */
+  function hsRoleChips(files, state, ui) {
+    var bar = el('div', { className: 'hs-role-bar', style: { margin: '12px 12px 0 12px', display: 'inline-flex', gap: '6px' } });
+    ui.setRoleFilter = function(key) {
+      state.roleFilter = key;
+      bar.querySelectorAll('.hs-role-chip').forEach(function(c) {
+        var active = c.getAttribute('data-role') === key;
+        c.className = 'hs-role-chip' + (active ? ' active' : '');
+        c.style.borderColor = active ? 'var(--c-accent, #60a5fa)' : '#334155';
+      });
+      ui.rerender();
+    };
+    HS_ROLE_GROUPS.forEach(function(g) {
+      var count = files.filter(function(f) { return g.match(f.role || 'source'); }).length;
+      var chip = el('button', {
+        className: 'hs-role-chip' + (state.roleFilter === g.key ? ' active' : ''),
+        'data-role': g.key,
+        style: {
+          background: 'var(--bg-panel, #0f172a)', color: 'inherit',
+          border: '1px solid ' + (state.roleFilter === g.key ? 'var(--c-accent, #60a5fa)' : '#334155'),
+          borderRadius: '999px', padding: '4px 12px', fontSize: '12px', cursor: 'pointer'
+        }
+      });
+      chip.append(txt(g.label + ' (' + count + ')'));
+      chip.addEventListener('click', function() { ui.setRoleFilter(g.key); });
+      bar.append(chip);
+    });
+    return bar;
+  }
+
   var HS_COL_TIPS = {
     File: 'Path relative to the repository root. Click a row to highlight its bubble in the scatter plot.',
     Score: 'Composite hotspot score 0–100: normalized churn (50%), cyclomatic complexity (30%) and '
@@ -274,6 +322,7 @@
   function hsBuildTable(files, state, ui) {
     var visible = files.filter(function(f) {
       if (state.dismissed[f.path]) return false;
+      if (!hsRoleMatches(f, state.roleFilter)) return false;
       if (state.filterQuery && f.path.toLowerCase().indexOf(state.filterQuery) === -1) return false;
       return true;
     });
@@ -353,12 +402,28 @@
       sortAsc: false,
       selected: null,
       filterQuery: '',
+      roleFilter: 'code',
       dismissed: {}
     };
     var tableCard = el('div', { className: 'view-card' });
     var tableWrap = el('div', { style: { overflowX: 'auto' } });
+
+    // The scatter is built once over all files; the role filter just hides
+    // dots so selection wiring stays valid across filter flips.
+    function applyRoleToScatter() {
+      var byPath = {};
+      files.forEach(function(f) { byPath[f.path] = f; });
+      scatter.querySelectorAll('.hs-scatter-dot').forEach(function(d) {
+        var f = byPath[d.getAttribute('data-path')];
+        d.style.display = f && hsRoleMatches(f, state.roleFilter) ? '' : 'none';
+      });
+    }
+
     var ui = {
-      rerender: function() { tableWrap.replaceChildren(hsBuildTable(files, state, ui)); },
+      rerender: function() {
+        tableWrap.replaceChildren(hsBuildTable(files, state, ui));
+        applyRoleToScatter();
+      },
       updateDismissBar: updateDismissBar
     };
 
@@ -407,7 +472,7 @@
     }
 
     ui.rerender();
-    tableCard.append(filterInput, resetBtn, dismissStatus, tableWrap);
+    tableCard.append(hsRoleChips(files, state, ui), filterInput, resetBtn, dismissStatus, tableWrap);
     updateDismissBar();
     wrap.append(tableCard);
 
@@ -474,6 +539,10 @@
 
     // Cross-tab entry point: select the file and scroll its row into view
     registerFileFocus('hotspots', function(path) {
+      // The focused file may be hidden by the role filter (e.g. a test file
+      // under the default Code view) — widen to All before locating its row.
+      var target = files.find(function(x) { return x.path === path; });
+      if (target && !hsRoleMatches(target, state.roleFilter)) ui.setRoleFilter('all');
       if (state.selected !== path) selectHotspot(path);
       var row = tableWrap.querySelector('tr[data-path="' + CSS.escape(path) + '"]');
       if (!row) {
