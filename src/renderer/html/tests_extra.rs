@@ -462,10 +462,10 @@ fn html_theme_toggle_button_present() {
 }
 
 #[test]
-fn js_shared_has_theme_btn_id() {
+fn js_navigation_has_theme_btn_id() {
     assert!(
-        super::JS_SHARED.contains("theme-btn"),
-        "shared.js must contain the string 'theme-btn' (the theme toggle button id)"
+        super::JS_NAVIGATION.contains("theme-btn"),
+        "navigation.js must contain the string 'theme-btn' (the theme toggle button id)"
     );
 }
 

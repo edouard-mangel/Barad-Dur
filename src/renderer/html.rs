@@ -1,5 +1,11 @@
 const CSS: &str = include_str!("templates/style.css");
+// shared.js opens the report IIFE; authors.js closes it. The three files
+// after shared.js are its former sections: overview widgets, tab chrome
+// (banners/tooltips), and navigation (theme, hash state, quick-open).
 const JS_SHARED: &str = include_str!("templates/shared.js");
+const JS_OVERVIEW_WIDGETS: &str = include_str!("templates/overview_widgets.js");
+const JS_CHROME: &str = include_str!("templates/chrome.js");
+const JS_NAVIGATION: &str = include_str!("templates/navigation.js");
 const JS_OVERVIEW: &str = include_str!("templates/overview.js");
 const JS_HOTSPOTS: &str = include_str!("templates/hotspots.js");
 const JS_COUPLING: &str = include_str!("templates/coupling.js");
@@ -48,6 +54,9 @@ pub fn render(report: &AnalysisReport) -> Result<String> {
 fn build_js(_report: &AnalysisReport) -> String {
     [
         JS_SHARED,
+        JS_OVERVIEW_WIDGETS,
+        JS_CHROME,
+        JS_NAVIGATION,
         JS_OVERVIEW,
         JS_HOTSPOTS,
         JS_COUPLING,

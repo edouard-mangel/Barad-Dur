@@ -799,9 +799,9 @@ fn html_theme_init_function_present() {
 }
 
 #[test]
-fn js_shared_has_toggle_theme_function() {
+fn js_navigation_has_toggle_theme_function() {
     assert!(
-        super::JS_SHARED.contains("toggleTheme"),
-        "shared.js must define a toggleTheme function"
+        super::JS_NAVIGATION.contains("toggleTheme"),
+        "navigation.js must define a toggleTheme function"
     );
 }
