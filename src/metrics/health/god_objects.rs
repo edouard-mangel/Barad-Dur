@@ -26,13 +26,19 @@ fn god_reason(
     thresholds: &HealthThresholds,
 ) -> Option<String> {
     let mut reasons = Vec::new();
-    if m.loc > 500 {
-        reasons.push(format!("{} loc", m.loc));
-    } else if m.loc > 300 && m.public_methods > 15 {
-        reasons.push(format!(
-            "{} loc, {} public methods",
-            m.loc, m.public_methods
-        ));
+    // The size/method-bloat rungs only mean something for files with actual
+    // logic — a CC=0 file (e.g. a pure re-export barrel) is exempt from
+    // those, but not from the hub check below, which is about import-graph
+    // centrality and has nothing to do with cyclomatic complexity.
+    if m.cyclomatic_complexity > 0 {
+        if m.loc > 500 {
+            reasons.push(format!("{} loc", m.loc));
+        } else if m.loc > 300 && m.public_methods > 15 {
+            reasons.push(format!(
+                "{} loc, {} public methods",
+                m.loc, m.public_methods
+            ));
+        }
     }
     if is_structural_hub(degree, median_degree, thresholds) {
         let ratio = if median_degree > 0.0 {
@@ -57,7 +63,7 @@ pub(super) fn god_objects(snapshot: &RepoSnapshot, thresholds: &HealthThresholds
         .keys()
         .filter(|p| is_source_file(p))
         .map(|p| {
-            let outgoing = snapshot.import_graph.get(p).map(|v| v.len()).unwrap_or(0);
+            let outgoing = crate::metrics::outgoing_degree(&snapshot.import_graph, p);
             let inc = incoming.get(p.as_path()).copied().unwrap_or(0);
             (p.as_path(), outgoing + inc)
         })
@@ -68,19 +74,18 @@ pub(super) fn god_objects(snapshot: &RepoSnapshot, thresholds: &HealthThresholds
 
     let source_total = degrees.len();
 
-    let gods: Vec<String> = snapshot
+    let mut gods: Vec<String> = snapshot
         .file_metrics
         .iter()
         .filter(|(p, _)| is_source_file(p))
         .filter_map(|(p, m)| {
-            if m.cyclomatic_complexity == 0 {
-                return None;
-            }
             let degree = degrees.get(p.as_path()).copied().unwrap_or(0);
             god_reason(m, degree, median_degree, thresholds)
                 .map(|reason| format!("{} — {reason}", p.display()))
         })
         .collect();
+    // snapshot.file_metrics is a HashMap — sort for deterministic report output.
+    gods.sort();
 
     let count = gods.len();
     let pct = if source_total > 0 {
@@ -544,6 +549,91 @@ mod tests {
                     v[0].contains("20 connections"),
                     "entry should show the degree, got: {}",
                     v[0]
+                );
+            }
+            _ => panic!("Expected List"),
+        }
+    }
+
+    #[test]
+    fn god_objects_flags_barrel_file_hub_despite_zero_complexity() {
+        // A pure re-export barrel file has no branches, so cyclomatic_complexity
+        // is 0 — that must not exempt it from the (unrelated) hub check.
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        snapshot.file_metrics.insert(
+            PathBuf::from("index.ts"),
+            FileComplexity {
+                total_lines: 3,
+                loc: 3,
+                cyclomatic_complexity: 0,
+                public_methods: 0,
+                properties: 0,
+                ..Default::default()
+            },
+        );
+        for i in 0..20 {
+            let name = format!("leaf{i}.ts");
+            snapshot.file_metrics.insert(
+                PathBuf::from(&name),
+                FileComplexity {
+                    total_lines: 20,
+                    loc: 10,
+                    cyclomatic_complexity: 1,
+                    public_methods: 1,
+                    properties: 0,
+                    ..Default::default()
+                },
+            );
+            snapshot
+                .import_graph
+                .insert(PathBuf::from(&name), vec![PathBuf::from("index.ts")]);
+        }
+        let result = god_objects(&snapshot, &HealthThresholds::default());
+        match &result.raw_value {
+            RawValue::List(v) => {
+                assert!(
+                    v.iter().any(|e| e.starts_with("index.ts — structural hub")),
+                    "barrel file with CC=0 must still be flagged as a hub, got: {v:?}"
+                );
+            }
+            _ => panic!("Expected List"),
+        }
+    }
+
+    #[test]
+    fn god_objects_list_is_sorted_for_determinism() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        for name in ["zeta.rs", "alpha.rs", "mu.rs"] {
+            snapshot.file_metrics.insert(
+                PathBuf::from(name),
+                FileComplexity {
+                    total_lines: 600,
+                    loc: 600,
+                    cyclomatic_complexity: 1,
+                    public_methods: 1,
+                    properties: 0,
+                    ..Default::default()
+                },
+            );
+        }
+        let result = god_objects(&snapshot, &HealthThresholds::default());
+        match &result.raw_value {
+            RawValue::List(v) => {
+                let mut sorted = v.clone();
+                sorted.sort();
+                assert_eq!(
+                    v, &sorted,
+                    "god objects list must be sorted for deterministic report output"
                 );
             }
             _ => panic!("Expected List"),

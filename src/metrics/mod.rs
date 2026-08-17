@@ -100,6 +100,13 @@ pub(crate) fn incoming_import_counts(
     incoming
 }
 
+/// A file's outgoing edge count in the import graph — zero if it imports
+/// nothing (or isn't a key at all). Shared by every metric that needs
+/// efferent-style degree.
+pub(crate) fn outgoing_degree(import_graph: &HashMap<PathBuf, Vec<PathBuf>>, path: &Path) -> usize {
+    import_graph.get(path).map(|v| v.len()).unwrap_or(0)
+}
+
 /// Accumulate blame line counts per author from a slice of blame lines.
 pub(crate) fn author_line_counts(lines: &[BlameLine]) -> HashMap<AuthorId, usize> {
     let mut counts: HashMap<AuthorId, usize> = HashMap::new();
@@ -157,6 +164,29 @@ mod incoming_import_counts_tests {
             None,
             "a source-only file has no incoming edges"
         );
+    }
+}
+
+#[cfg(test)]
+mod outgoing_degree_tests {
+    use super::outgoing_degree;
+    use std::collections::HashMap;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn counts_a_files_own_targets() {
+        let mut graph: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
+        graph.insert(
+            PathBuf::from("a.rs"),
+            vec![PathBuf::from("b.rs"), PathBuf::from("c.rs")],
+        );
+        assert_eq!(outgoing_degree(&graph, Path::new("a.rs")), 2);
+    }
+
+    #[test]
+    fn zero_for_a_file_with_no_outgoing_imports() {
+        let graph: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
+        assert_eq!(outgoing_degree(&graph, Path::new("a.rs")), 0);
     }
 }
 

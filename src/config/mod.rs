@@ -261,10 +261,18 @@ pub fn validate(config: &RepoConfig) -> Result<()> {
     if config.thresholds.coupling.inheritance_min_depth == 1 {
         bail!("thresholds.coupling.inheritance_min_depth must be 0 (disabled) or >= 2, got 1");
     }
+    // No realistic import-graph degree needs a multiplier anywhere near this;
+    // above it, `median_degree * multiplier` risks overflowing to +inf, which
+    // silently disables the hub check the same way a literal Infinity would.
+    const GOD_NODE_MULTIPLIER_MAX: f64 = 1_000_000.0;
     let god_multiplier = config.thresholds.health.god_node_degree_multiplier;
-    if !god_multiplier.is_finite() || god_multiplier <= 0.0 {
+    if !god_multiplier.is_finite()
+        || god_multiplier <= 0.0
+        || god_multiplier > GOD_NODE_MULTIPLIER_MAX
+    {
         bail!(
-            "thresholds.health.god_node_degree_multiplier must be finite and > 0.0, got {}",
+            "thresholds.health.god_node_degree_multiplier must be finite, > 0.0, and <= {}, got {}",
+            GOD_NODE_MULTIPLIER_MAX,
             god_multiplier
         );
     }
@@ -631,12 +639,39 @@ mod tests {
     }
 
     #[test]
+    fn load_god_node_degree_multiplier_default() {
+        let dir = TempDir::new().unwrap();
+        let cfg = load(dir.path()).unwrap();
+        assert!((cfg.thresholds.health.god_node_degree_multiplier - 4.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn load_god_node_min_degree_default() {
+        let dir = TempDir::new().unwrap();
+        let cfg = load(dir.path()).unwrap();
+        assert_eq!(cfg.thresholds.health.god_node_min_degree, 8);
+    }
+
+    #[test]
     fn validate_god_node_degree_multiplier_infinite_errors() {
         let mut cfg = RepoConfig::default();
         cfg.thresholds.health.god_node_degree_multiplier = f64::INFINITY;
         assert!(
             validate(&cfg).is_err(),
             "an infinite multiplier would make the hub check unsatisfiable, silently disabling it"
+        );
+    }
+
+    #[test]
+    fn validate_god_node_degree_multiplier_extreme_finite_value_errors() {
+        let mut cfg = RepoConfig::default();
+        // Finite, but median_degree * multiplier would overflow to +inf for
+        // any realistic median degree — the same silent-disable failure as
+        // literal Infinity, just reached via a value that passes is_finite().
+        cfg.thresholds.health.god_node_degree_multiplier = 1e308;
+        assert!(
+            validate(&cfg).is_err(),
+            "an extreme-but-finite multiplier can still overflow the hub threshold to infinity"
         );
     }
 

@@ -16,6 +16,7 @@ use crate::snapshot::TimeWindow;
 // ADR-005 baseline collection skips blame unconditionally.
 pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
     let cfg = config::load(repo_path)?;
+    config::validate(&cfg)?;
     let sample_count = cfg.backfill.sample_count as usize;
 
     let time_window = TimeWindow::full_history();
@@ -93,4 +94,51 @@ pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
         println!("{} entries written", written);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli::BackfillArgs;
+
+    fn temp_git_repo() -> tempfile::TempDir {
+        let dir = tempfile::TempDir::new().unwrap();
+        let git = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .arg("-C")
+                .arg(dir.path())
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?} failed");
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "t@e"]);
+        git(&["config", "user.name", "t"]);
+        std::fs::write(dir.path().join("main.rs"), "fn main() {}\n").unwrap();
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "init"]);
+        dir
+    }
+
+    #[test]
+    fn run_rejects_invalid_config() {
+        let dir = temp_git_repo();
+        let cache_dir = dir.path().join(".repository-analysis");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        std::fs::write(
+            cache_dir.join("barad-dur.toml"),
+            "[thresholds.health]\ngod_node_degree_multiplier = 0.0\n",
+        )
+        .unwrap();
+        let args = BackfillArgs {
+            target: dir.path().to_string_lossy().into_owned(),
+            no_blame: false,
+        };
+        assert!(
+            run(&args, dir.path()).is_err(),
+            "backfill must reject a config that analyze would also reject"
+        );
+    }
 }

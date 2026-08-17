@@ -116,13 +116,7 @@ fn efferent_coupling(snapshot: &RepoSnapshot) -> MetricValue {
     let ce_values: Vec<usize> = snapshot
         .files
         .iter()
-        .map(|f| {
-            snapshot
-                .import_graph
-                .get(&f.path)
-                .map(|v| v.len())
-                .unwrap_or(0)
-        })
+        .map(|f| crate::metrics::outgoing_degree(&snapshot.import_graph, &f.path))
         .collect();
 
     let max_ce = ce_values.iter().copied().max().unwrap_or(0);
