@@ -10,6 +10,7 @@ pub mod team;
 pub mod testutil;
 
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
@@ -66,6 +67,39 @@ pub(crate) fn score_count_bands(count: usize) -> u32 {
     }
 }
 
+/// Median of a slice; 0.0 for an empty slice. Does not mutate the input —
+/// sorts an internal copy.
+pub(crate) fn median(values: &[usize]) -> f64 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort_unstable();
+    let len = sorted.len();
+    #[allow(clippy::manual_is_multiple_of)]
+    if len % 2 == 0 {
+        (sorted[len / 2 - 1] + sorted[len / 2]) as f64 / 2.0
+    } else {
+        sorted[len / 2] as f64
+    }
+}
+
+/// Count how many times each file appears as an import target (incoming
+/// edges) across the whole import graph. Shared by every metric that needs
+/// afferent-style degree — a file's own key in `import_graph` counts as an
+/// outgoing edge, so it never touches this map.
+pub(crate) fn incoming_import_counts(
+    import_graph: &HashMap<PathBuf, Vec<PathBuf>>,
+) -> HashMap<&Path, usize> {
+    let mut incoming: HashMap<&Path, usize> = HashMap::new();
+    for targets in import_graph.values() {
+        for target in targets {
+            *incoming.entry(target.as_path()).or_insert(0) += 1;
+        }
+    }
+    incoming
+}
+
 /// Accumulate blame line counts per author from a slice of blame lines.
 pub(crate) fn author_line_counts(lines: &[BlameLine]) -> HashMap<AuthorId, usize> {
     let mut counts: HashMap<AuthorId, usize> = HashMap::new();
@@ -91,6 +125,58 @@ impl CategoryResult {
             scored.iter().sum::<u32>() / scored.len() as u32
         };
         self
+    }
+}
+
+#[cfg(test)]
+mod incoming_import_counts_tests {
+    use super::incoming_import_counts;
+    use std::collections::HashMap;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn empty_graph_yields_empty_map() {
+        let graph: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
+        let counts = incoming_import_counts(&graph);
+        assert!(counts.is_empty());
+    }
+
+    #[test]
+    fn counts_each_target_occurrence() {
+        let mut graph: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
+        graph.insert(
+            PathBuf::from("a.rs"),
+            vec![PathBuf::from("core.rs"), PathBuf::from("util.rs")],
+        );
+        graph.insert(PathBuf::from("b.rs"), vec![PathBuf::from("core.rs")]);
+        let counts = incoming_import_counts(&graph);
+        assert_eq!(counts.get(Path::new("core.rs")), Some(&2));
+        assert_eq!(counts.get(Path::new("util.rs")), Some(&1));
+        assert_eq!(
+            counts.get(Path::new("a.rs")),
+            None,
+            "a source-only file has no incoming edges"
+        );
+    }
+}
+
+#[cfg(test)]
+mod median_tests {
+    use super::median;
+
+    #[test]
+    fn empty_slice_is_zero() {
+        assert_eq!(median(&[]), 0.0);
+    }
+
+    #[test]
+    fn odd_count_returns_middle_value() {
+        assert_eq!(median(&[5, 1, 3]), 3.0);
+    }
+
+    #[test]
+    fn even_count_averages_the_two_middle_values() {
+        assert_eq!(median(&[1, 2, 3, 4]), 2.5);
     }
 }
 

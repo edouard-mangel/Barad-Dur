@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::config::CouplingThresholds;
-use crate::metrics::{score_count_bands, CategoryResult, MetricValue, RawValue};
+use crate::metrics::{median, score_count_bands, CategoryResult, MetricValue, RawValue};
 use crate::scorer::CouplingFindingCounts;
 use crate::snapshot::{CouplingFinding, CouplingKind, RepoSnapshot};
 
@@ -48,29 +48,12 @@ pub(crate) fn extract_component(path: &Path, depth: usize) -> String {
         .join("/")
 }
 
-/// Compute median of a non-empty slice (sorts in place).
-fn median(values: &mut [usize]) -> f64 {
-    values.sort_unstable();
-    let len = values.len();
-    #[allow(clippy::manual_is_multiple_of)] // is_multiple_of is unstable on CI's stable Rust
-    if len % 2 == 0 {
-        (values[len / 2 - 1] + values[len / 2]) as f64 / 2.0
-    } else {
-        values[len / 2] as f64
-    }
-}
-
 /// Afferent coupling (Ca): how many files depend on each file (incoming imports).
 ///
 /// Scored on the median Ca rather than the max. A single hub (core data model)
 /// is normal — what matters is whether *most* files have excessive incoming deps.
 fn afferent_coupling(snapshot: &RepoSnapshot) -> MetricValue {
-    let mut incoming: HashMap<&PathBuf, usize> = HashMap::new();
-    for targets in snapshot.import_graph.values() {
-        for target in targets {
-            *incoming.entry(target).or_insert(0) += 1;
-        }
-    }
+    let incoming = crate::metrics::incoming_import_counts(&snapshot.import_graph);
 
     if incoming.is_empty() {
         return MetricValue {
@@ -83,15 +66,15 @@ fn afferent_coupling(snapshot: &RepoSnapshot) -> MetricValue {
 
     // Include all files in the distribution (files with zero incoming deps too),
     // so a single hub doesn't skew the median.
-    let mut ca_values: Vec<usize> = snapshot
+    let ca_values: Vec<usize> = snapshot
         .files
         .iter()
-        .map(|f| incoming.get(&f.path).copied().unwrap_or(0))
+        .map(|f| incoming.get(f.path.as_path()).copied().unwrap_or(0))
         .collect();
 
     let max_ca = ca_values.iter().copied().max().unwrap_or(0);
     let mean_ca = ca_values.iter().sum::<usize>() as f64 / ca_values.len() as f64;
-    let median_ca = median(&mut ca_values);
+    let median_ca = median(&ca_values);
 
     // Score on median: most files having few dependents is healthy
     let score = if median_ca <= 2.0 {
@@ -130,7 +113,7 @@ fn efferent_coupling(snapshot: &RepoSnapshot) -> MetricValue {
     }
 
     // Include all files in the distribution (files with zero outgoing imports too).
-    let mut ce_values: Vec<usize> = snapshot
+    let ce_values: Vec<usize> = snapshot
         .files
         .iter()
         .map(|f| {
@@ -144,7 +127,7 @@ fn efferent_coupling(snapshot: &RepoSnapshot) -> MetricValue {
 
     let max_ce = ce_values.iter().copied().max().unwrap_or(0);
     let mean_ce = ce_values.iter().sum::<usize>() as f64 / ce_values.len() as f64;
-    let median_ce = median(&mut ce_values);
+    let median_ce = median(&ce_values);
 
     // Score on median: most files importing few deps is healthy
     let score = if median_ce <= 3.0 {
@@ -217,14 +200,16 @@ pub(crate) fn corroboration_degree(
 ///
 /// Scored on smell count: 0 → 100, 1–2 → 75, 3–5 → 50, >5 → 25
 fn change_coupling_smells(snapshot: &RepoSnapshot, thresholds: &CouplingThresholds) -> MetricValue {
-    let smell_count = qualifying_smell_pairs(snapshot, thresholds).count();
+    let smell_pairs: Vec<(&PathBuf, &PathBuf)> =
+        qualifying_smell_pairs(snapshot, thresholds).collect();
+    let smell_count = smell_pairs.len();
 
     let score = score_count_bands(smell_count);
 
     let community_note = if thresholds.community_corroboration && smell_count > 0 {
         format!(
             ", {} also cross-community",
-            cross_community_smell_count(snapshot, thresholds)
+            cross_community_smell_count(&smell_pairs, snapshot)
         )
     } else {
         String::new()
@@ -243,13 +228,17 @@ fn change_coupling_smells(snapshot: &RepoSnapshot, thresholds: &CouplingThreshol
     }
 }
 
-/// Of the qualifying smell pairs, how many also sit in different Louvain
-/// communities of the import graph — additive structural evidence, never
-/// folded into the score. A pair with no import-graph data on either side
-/// is not counted (absence of data isn't evidence of separation).
-fn cross_community_smell_count(snapshot: &RepoSnapshot, thresholds: &CouplingThresholds) -> usize {
+/// Of the already-qualified smell pairs, how many also sit in different
+/// Louvain communities of the import graph — additive structural evidence,
+/// never folded into the score. A pair with no import-graph data on either
+/// side is not counted (absence of data isn't evidence of separation).
+fn cross_community_smell_count(
+    smell_pairs: &[(&PathBuf, &PathBuf)],
+    snapshot: &RepoSnapshot,
+) -> usize {
     let communities = community::detect_communities(&snapshot.import_graph);
-    qualifying_smell_pairs(snapshot, thresholds)
+    smell_pairs
+        .iter()
         .filter(|(a, b)| match (communities.get(*a), communities.get(*b)) {
             (Some(ca), Some(cb)) => ca != cb,
             _ => false,
