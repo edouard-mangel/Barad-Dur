@@ -1,3 +1,4 @@
+use crate::config::HealthThresholds;
 use crate::metrics::file_role::{classify, FileRole};
 use crate::metrics::{MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
@@ -7,13 +8,54 @@ pub(super) fn is_source_file(path: &std::path::Path) -> bool {
     classify(path) == FileRole::Source
 }
 
-/// Files that have grown too large to maintain (god objects / bloaters).
-pub(super) fn god_objects(snapshot: &RepoSnapshot) -> MetricValue {
-    let source_total = snapshot
+/// Median of a non-empty slice (sorts in place); 0.0 for an empty slice.
+fn median(values: &mut [usize]) -> f64 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    values.sort_unstable();
+    let len = values.len();
+    #[allow(clippy::manual_is_multiple_of)]
+    if len % 2 == 0 {
+        (values[len / 2 - 1] + values[len / 2]) as f64 / 2.0
+    } else {
+        values[len / 2] as f64
+    }
+}
+
+/// A file structurally dominates the codebase when its import-graph degree
+/// clears both an absolute floor and a multiple of the repo's median degree
+/// — the floor alone keeps small/sparse repos from flagging on noise.
+fn is_structural_hub(degree: usize, median_degree: f64, thresholds: &HealthThresholds) -> bool {
+    degree >= thresholds.god_node_min_degree
+        && (degree as f64) > median_degree * thresholds.god_node_degree_multiplier
+}
+
+/// Files that have grown too large to maintain (god objects / bloaters), or
+/// that dominate the import graph as a structural hub.
+pub(super) fn god_objects(snapshot: &RepoSnapshot, thresholds: &HealthThresholds) -> MetricValue {
+    let mut incoming: std::collections::HashMap<&std::path::Path, usize> =
+        std::collections::HashMap::new();
+    for targets in snapshot.import_graph.values() {
+        for target in targets {
+            *incoming.entry(target.as_path()).or_insert(0) += 1;
+        }
+    }
+    let degree_of = |p: &std::path::Path| -> usize {
+        let outgoing = snapshot.import_graph.get(p).map(|v| v.len()).unwrap_or(0);
+        let inc = incoming.get(p).copied().unwrap_or(0);
+        outgoing + inc
+    };
+
+    let mut degrees: Vec<usize> = snapshot
         .file_metrics
         .keys()
         .filter(|p| is_source_file(p))
-        .count();
+        .map(|p| degree_of(p))
+        .collect();
+    let median_degree = median(&mut degrees);
+
+    let source_total = degrees.len();
 
     let gods: Vec<String> = snapshot
         .file_metrics
@@ -21,7 +63,9 @@ pub(super) fn god_objects(snapshot: &RepoSnapshot) -> MetricValue {
         .filter(|(p, m)| {
             is_source_file(p)
                 && m.cyclomatic_complexity > 0
-                && (m.loc > 500 || (m.loc > 300 && m.public_methods > 15))
+                && (m.loc > 500
+                    || (m.loc > 300 && m.public_methods > 15)
+                    || is_structural_hub(degree_of(p), median_degree, thresholds))
         })
         .map(|(p, _)| p.display().to_string())
         .collect();
@@ -97,7 +141,7 @@ mod tests {
             },
         );
         add_normal_files(&mut snapshot, 99); // 1/100 = 1% → score 75
-        let result = god_objects(&snapshot);
+        let result = god_objects(&snapshot, &HealthThresholds::default());
         assert_eq!(result.score, Some(75));
         match &result.raw_value {
             RawValue::List(v) => assert_eq!(v.len(), 1),
@@ -126,7 +170,7 @@ mod tests {
             },
         );
         add_normal_files(&mut snapshot, 10);
-        let result = god_objects(&snapshot);
+        let result = god_objects(&snapshot, &HealthThresholds::default());
         assert_eq!(result.score, Some(100));
         assert_eq!(result.description, "0/10 source files oversized (0.0%)");
     }
@@ -151,7 +195,7 @@ mod tests {
             },
         );
         add_normal_files(&mut snapshot, 99); // 1/100 = 1% → score 75
-        let result = god_objects(&snapshot);
+        let result = god_objects(&snapshot, &HealthThresholds::default());
         assert_eq!(result.score, Some(75)); // LOC>300 AND methods>15
     }
 
@@ -174,7 +218,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let result = god_objects(&snapshot);
+        let result = god_objects(&snapshot, &HealthThresholds::default());
         assert_eq!(result.score, Some(100));
     }
 
@@ -198,7 +242,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let result = god_objects(&snapshot);
+        let result = god_objects(&snapshot, &HealthThresholds::default());
         assert_eq!(result.score, Some(100));
     }
 
@@ -223,7 +267,7 @@ mod tests {
             },
         );
         add_normal_files(&mut snapshot, 99); // 1/100 = 1% → score 75
-        let result = god_objects(&snapshot);
+        let result = god_objects(&snapshot, &HealthThresholds::default());
         assert_eq!(result.score, Some(75));
     }
 
@@ -247,7 +291,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let result = god_objects(&snapshot);
+        let result = god_objects(&snapshot, &HealthThresholds::default());
         assert_eq!(result.score, Some(100));
     }
 
@@ -274,7 +318,7 @@ mod tests {
             );
         }
         add_normal_files(&mut snapshot, 95); // 5/100 = 5% ≤ 8% → score 50
-        let result = god_objects(&snapshot);
+        let result = god_objects(&snapshot, &HealthThresholds::default());
         assert_eq!(result.score, Some(50));
     }
 
@@ -301,7 +345,7 @@ mod tests {
             );
         }
         add_normal_files(&mut snapshot, 90); // 10/100 = 10% > 8% → score 25
-        let result = god_objects(&snapshot);
+        let result = god_objects(&snapshot, &HealthThresholds::default());
         assert_eq!(result.score, Some(25));
     }
 
@@ -328,7 +372,7 @@ mod tests {
             );
         }
         add_normal_files(&mut snapshot, 98); // 2/100 = 2% ≤ 2% → score 75
-        let result = god_objects(&snapshot);
+        let result = god_objects(&snapshot, &HealthThresholds::default());
         assert_eq!(result.score, Some(75));
     }
 
@@ -353,7 +397,7 @@ mod tests {
             },
         );
         add_normal_files(&mut snapshot, 99); // 1/100 = 1% → score 75
-        let result = god_objects(&snapshot);
+        let result = god_objects(&snapshot, &HealthThresholds::default());
         assert_eq!(result.score, Some(75)); // flagged: 1/100 = 1%
     }
 
@@ -377,7 +421,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let result = god_objects(&snapshot);
+        let result = god_objects(&snapshot, &HealthThresholds::default());
         assert_eq!(result.score, Some(100)); // loc=300 is not > 300
     }
 
@@ -425,7 +469,95 @@ mod tests {
                 ..Default::default()
             },
         );
-        let result = god_objects(&snapshot);
+        let result = god_objects(&snapshot, &HealthThresholds::default());
+        assert_eq!(result.score, Some(100));
+    }
+
+    #[test]
+    fn god_objects_flags_structural_hub_by_import_degree() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        // hub.rs is small, but imported by 20 leaf files → degree 20.
+        snapshot.file_metrics.insert(
+            PathBuf::from("hub.rs"),
+            FileComplexity {
+                total_lines: 20,
+                loc: 10,
+                cyclomatic_complexity: 1,
+                public_methods: 1,
+                properties: 0,
+                ..Default::default()
+            },
+        );
+        for i in 0..20 {
+            let name = format!("leaf{i}.rs");
+            snapshot.file_metrics.insert(
+                PathBuf::from(&name),
+                FileComplexity {
+                    total_lines: 20,
+                    loc: 10,
+                    cyclomatic_complexity: 1,
+                    public_methods: 1,
+                    properties: 0,
+                    ..Default::default()
+                },
+            );
+            snapshot
+                .import_graph
+                .insert(PathBuf::from(&name), vec![PathBuf::from("hub.rs")]);
+        }
+        let result = god_objects(&snapshot, &HealthThresholds::default());
+        match &result.raw_value {
+            RawValue::List(v) => {
+                assert_eq!(v, &["hub.rs".to_string()], "only the hub should be flagged");
+            }
+            _ => panic!("Expected List"),
+        }
+    }
+
+    #[test]
+    fn god_objects_does_not_flag_hub_below_the_min_degree_floor() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        // small.rs has degree 3 — well above median (0) * multiplier, but
+        // under the default min-degree floor of 8, so it must not flag.
+        snapshot.file_metrics.insert(
+            PathBuf::from("small.rs"),
+            FileComplexity {
+                total_lines: 20,
+                loc: 10,
+                cyclomatic_complexity: 1,
+                public_methods: 1,
+                properties: 0,
+                ..Default::default()
+            },
+        );
+        for i in 0..3 {
+            let name = format!("leaf{i}.rs");
+            snapshot.file_metrics.insert(
+                PathBuf::from(&name),
+                FileComplexity {
+                    total_lines: 20,
+                    loc: 10,
+                    cyclomatic_complexity: 1,
+                    public_methods: 1,
+                    properties: 0,
+                    ..Default::default()
+                },
+            );
+            snapshot
+                .import_graph
+                .insert(PathBuf::from(&name), vec![PathBuf::from("small.rs")]);
+        }
+        let result = god_objects(&snapshot, &HealthThresholds::default());
         assert_eq!(result.score, Some(100));
     }
 }
