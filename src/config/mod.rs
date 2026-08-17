@@ -261,6 +261,13 @@ pub fn validate(config: &RepoConfig) -> Result<()> {
     if config.thresholds.coupling.inheritance_min_depth == 1 {
         bail!("thresholds.coupling.inheritance_min_depth must be 0 (disabled) or >= 2, got 1");
     }
+    let god_multiplier = config.thresholds.health.god_node_degree_multiplier;
+    if god_multiplier.is_nan() || god_multiplier <= 0.0 {
+        bail!(
+            "thresholds.health.god_node_degree_multiplier must be > 0.0, got {}",
+            god_multiplier
+        );
+    }
     Ok(())
 }
 
@@ -593,6 +600,34 @@ mod tests {
             validate(&cfg).is_err(),
             "1 would flag every cross-file extends"
         );
+    }
+
+    #[test]
+    fn validate_god_node_degree_multiplier_zero_errors() {
+        let mut cfg = RepoConfig::default();
+        cfg.thresholds.health.god_node_degree_multiplier = 0.0;
+        let err = validate(&cfg).unwrap_err();
+        assert!(err.to_string().contains("god_node_degree_multiplier"));
+    }
+
+    #[test]
+    fn validate_god_node_degree_multiplier_negative_errors() {
+        let mut cfg = RepoConfig::default();
+        cfg.thresholds.health.god_node_degree_multiplier = -1.0;
+        assert!(validate(&cfg).is_err());
+    }
+
+    #[test]
+    fn validate_god_node_degree_multiplier_nan_errors() {
+        let mut cfg = RepoConfig::default();
+        cfg.thresholds.health.god_node_degree_multiplier = f64::NAN;
+        assert!(validate(&cfg).is_err());
+    }
+
+    #[test]
+    fn validate_god_node_degree_multiplier_default_is_valid() {
+        let cfg = RepoConfig::default();
+        assert!(validate(&cfg).is_ok());
     }
 
     #[test]

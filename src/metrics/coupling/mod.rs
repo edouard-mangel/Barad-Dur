@@ -1,3 +1,4 @@
+mod community;
 mod inheritance;
 pub(crate) use inheritance::inheritance_findings;
 
@@ -220,16 +221,40 @@ fn change_coupling_smells(snapshot: &RepoSnapshot, thresholds: &CouplingThreshol
 
     let score = score_count_bands(smell_count);
 
+    let community_note = if thresholds.community_corroboration && smell_count > 0 {
+        format!(
+            ", {} also cross-community",
+            cross_community_smell_count(snapshot, thresholds)
+        )
+    } else {
+        String::new()
+    };
+
     MetricValue {
         name: "Change coupling smells".to_string(),
         description: format!(
-            "{} cross-boundary co-change pair(s) above {:.0}% ratio threshold",
+            "{} cross-boundary co-change pair(s) above {:.0}% ratio threshold{}",
             smell_count,
-            thresholds.change_coupling_min_ratio * 100.0
+            thresholds.change_coupling_min_ratio * 100.0,
+            community_note
         ),
         raw_value: RawValue::Count(smell_count),
         score: Some(score),
     }
+}
+
+/// Of the qualifying smell pairs, how many also sit in different Louvain
+/// communities of the import graph — additive structural evidence, never
+/// folded into the score. A pair with no import-graph data on either side
+/// is not counted (absence of data isn't evidence of separation).
+fn cross_community_smell_count(snapshot: &RepoSnapshot, thresholds: &CouplingThresholds) -> usize {
+    let communities = community::detect_communities(&snapshot.import_graph);
+    qualifying_smell_pairs(snapshot, thresholds)
+        .filter(|(a, b)| match (communities.get(*a), communities.get(*b)) {
+            (Some(ca), Some(cb)) => ca != cb,
+            _ => false,
+        })
+        .count()
 }
 
 /// Whether the import graph has an edge `from` → `to`.

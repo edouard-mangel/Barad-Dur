@@ -378,6 +378,111 @@ fn change_coupling_scoring_bands() {
 }
 
 #[test]
+fn change_coupling_smells_notes_cross_community_pairs() {
+    let mut snapshot = make_snapshot();
+    snapshot
+        .file_change_pairs
+        .push((PathBuf::from("src/a.rs"), PathBuf::from("tests/b.rs"), 5));
+    snapshot.commits_by_file.insert(
+        PathBuf::from("src/a.rs"),
+        (0u32..10).map(CommitId).collect::<Vec<_>>(),
+    );
+    snapshot.commits_by_file.insert(
+        PathBuf::from("tests/b.rs"),
+        (0u32..10).map(CommitId).collect::<Vec<_>>(),
+    );
+    // Disjoint import clusters — a.rs and tests/b.rs never appear on the
+    // same side of any edge, so they land in different communities.
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("src/a.rs"), vec![PathBuf::from("src/x.rs")]);
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("src/x.rs"), vec![PathBuf::from("src/a.rs")]);
+    snapshot.import_graph.insert(
+        PathBuf::from("tests/b.rs"),
+        vec![PathBuf::from("tests/y.rs")],
+    );
+    snapshot.import_graph.insert(
+        PathBuf::from("tests/y.rs"),
+        vec![PathBuf::from("tests/b.rs")],
+    );
+
+    let result = change_coupling_smells(&snapshot, &default_thresholds());
+    assert_eq!(result.score, Some(75)); // community evidence never changes the score
+    assert!(
+        result.description.contains("1 also cross-community"),
+        "description was: {}",
+        result.description
+    );
+}
+
+#[test]
+fn change_coupling_smells_same_community_not_counted() {
+    let mut snapshot = make_snapshot();
+    snapshot
+        .file_change_pairs
+        .push((PathBuf::from("src/a.rs"), PathBuf::from("tests/b.rs"), 5));
+    snapshot.commits_by_file.insert(
+        PathBuf::from("src/a.rs"),
+        (0u32..10).map(CommitId).collect::<Vec<_>>(),
+    );
+    snapshot.commits_by_file.insert(
+        PathBuf::from("tests/b.rs"),
+        (0u32..10).map(CommitId).collect::<Vec<_>>(),
+    );
+    // Directly, mutually coupled by imports despite the directory split —
+    // modularity optimization puts them in the same community.
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("src/a.rs"), vec![PathBuf::from("tests/b.rs")]);
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("tests/b.rs"), vec![PathBuf::from("src/a.rs")]);
+
+    let result = change_coupling_smells(&snapshot, &default_thresholds());
+    assert_eq!(result.score, Some(75));
+    assert!(
+        result.description.contains("0 also cross-community"),
+        "description was: {}",
+        result.description
+    );
+}
+
+#[test]
+fn change_coupling_smells_community_corroboration_can_be_disabled() {
+    let mut snapshot = make_snapshot();
+    snapshot
+        .file_change_pairs
+        .push((PathBuf::from("src/a.rs"), PathBuf::from("tests/b.rs"), 5));
+    snapshot.commits_by_file.insert(
+        PathBuf::from("src/a.rs"),
+        (0u32..10).map(CommitId).collect::<Vec<_>>(),
+    );
+    snapshot.commits_by_file.insert(
+        PathBuf::from("tests/b.rs"),
+        (0u32..10).map(CommitId).collect::<Vec<_>>(),
+    );
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("src/a.rs"), vec![PathBuf::from("src/x.rs")]);
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("src/x.rs"), vec![PathBuf::from("src/a.rs")]);
+
+    let thresholds = CouplingThresholds {
+        community_corroboration: false,
+        ..CouplingThresholds::default()
+    };
+    let result = change_coupling_smells(&snapshot, &thresholds);
+    assert!(
+        !result.description.contains("cross-community"),
+        "description was: {}",
+        result.description
+    );
+}
+
+#[test]
 fn change_coupling_depth1_same_component() {
     let mut snapshot = make_snapshot();
     snapshot

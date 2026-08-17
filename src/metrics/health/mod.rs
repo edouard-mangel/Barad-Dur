@@ -12,7 +12,7 @@ use crate::snapshot::RepoSnapshot;
 pub fn compute_health(snapshot: &RepoSnapshot, thresholds: &HealthThresholds) -> CategoryResult {
     let metrics = vec![
         bus_factor::bus_factor(snapshot, thresholds),
-        god_objects::god_objects(snapshot),
+        god_objects::god_objects(snapshot, thresholds),
         complex_hotspots::complex_hotspots(snapshot),
         long_methods::long_methods(snapshot),
         biomarkers::biomarkers(snapshot),

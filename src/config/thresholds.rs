@@ -17,6 +17,16 @@ pub struct HealthThresholds {
     pub biomarker_max_depth: u32,
     #[serde(default = "default_biomarker_max_variance")]
     pub biomarker_max_variance: f64,
+    /// A source file's import-graph degree (incoming + outgoing) must exceed
+    /// the repo's median degree by this multiple to be flagged a structural
+    /// hub, alongside `god_node_min_degree`. Default 4.0.
+    #[serde(default = "default_god_node_degree_multiplier")]
+    pub god_node_degree_multiplier: f64,
+    /// Absolute floor on import-graph degree before a file can be flagged a
+    /// structural hub — keeps small repos, where even a modest degree is
+    /// "4x the median", from producing spurious flags. Default 8.
+    #[serde(default = "default_god_node_min_degree")]
+    pub god_node_min_degree: usize,
 }
 
 fn default_max_complexity() -> u32 {
@@ -40,6 +50,12 @@ fn default_biomarker_max_depth() -> u32 {
 fn default_biomarker_max_variance() -> f64 {
     2.0
 }
+fn default_god_node_degree_multiplier() -> f64 {
+    4.0
+}
+fn default_god_node_min_degree() -> usize {
+    8
+}
 
 impl Default for HealthThresholds {
     fn default() -> Self {
@@ -51,6 +67,8 @@ impl Default for HealthThresholds {
             long_method_cc: default_long_method_cc(),
             biomarker_max_depth: default_biomarker_max_depth(),
             biomarker_max_variance: default_biomarker_max_variance(),
+            god_node_degree_multiplier: default_god_node_degree_multiplier(),
+            god_node_min_degree: default_god_node_min_degree(),
         }
     }
 }
@@ -159,6 +177,12 @@ pub struct CouplingThresholds {
     /// OO, not the deep-chain hazard this rung targets). Default 2.
     #[serde(default = "default_inheritance_min_depth")]
     pub inheritance_min_depth: usize,
+    /// Annotate change-coupling smells with whether the pair also sits in
+    /// different Louvain communities of the import graph — additive
+    /// evidence only, never changes the smell count or score. Teams that
+    /// find it noisy can turn it off.
+    #[serde(default = "default_community_corroboration")]
+    pub community_corroboration: bool,
 }
 
 fn default_component_depth() -> usize {
@@ -179,6 +203,9 @@ fn default_corroboration_weight() -> f64 {
 fn default_inheritance_min_depth() -> usize {
     2
 }
+fn default_community_corroboration() -> bool {
+    true
+}
 
 impl Default for CouplingThresholds {
     fn default() -> Self {
@@ -189,6 +216,7 @@ impl Default for CouplingThresholds {
             hotspot_multiplier: default_hotspot_multiplier(),
             corroboration_weight: default_corroboration_weight(),
             inheritance_min_depth: default_inheritance_min_depth(),
+            community_corroboration: default_community_corroboration(),
         }
     }
 }
