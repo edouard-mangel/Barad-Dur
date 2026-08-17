@@ -73,7 +73,8 @@ fn build_graph(import_graph: &HashMap<PathBuf, Vec<PathBuf>>) -> WeightedGraph {
 fn optimize_modularity(neighbors: &[Vec<(usize, f64)>], degree: &[f64], m: f64) -> Vec<usize> {
     let n = neighbors.len();
     let mut community: Vec<usize> = (0..n).collect();
-    if n == 0 || m == 0.0 {
+    // No nodes implies no edges implies m == 0.0, so this alone covers n == 0 too.
+    if m == 0.0 {
         return community;
     }
     let mut sigma_tot: Vec<f64> = degree.to_vec();
@@ -93,10 +94,18 @@ fn optimize_modularity(neighbors: &[Vec<(usize, f64)>], degree: &[f64], m: f64) 
                 *k_in.entry(community[j]).or_insert(0.0) += w;
             }
 
+            // Sorted by community id so a modularity-gain tie always resolves
+            // the same way — never dependent on HashMap iteration order.
+            let mut candidates: Vec<(usize, f64)> = k_in.into_iter().collect();
+            candidates.sort_unstable_by_key(|&(c, _)| c);
+
             let mut best_c = c_i;
-            let mut best_gain =
-                k_in.get(&c_i).copied().unwrap_or(0.0) - sigma_tot[c_i] * k_i / two_m;
-            for (&c, &k_in_c) in &k_in {
+            let mut best_gain = candidates
+                .iter()
+                .find(|&&(c, _)| c == c_i)
+                .map_or(0.0, |&(_, k_in_c)| k_in_c)
+                - sigma_tot[c_i] * k_i / two_m;
+            for (c, k_in_c) in candidates {
                 if c == c_i {
                     continue;
                 }
@@ -133,6 +142,26 @@ mod tests {
                 .push(PathBuf::from(b));
         }
         g
+    }
+
+    #[test]
+    fn build_graph_computes_exact_weights_and_degrees() {
+        let mut g: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
+        g.insert(
+            PathBuf::from("a"),
+            vec![PathBuf::from("b"), PathBuf::from("b"), PathBuf::from("c")],
+        );
+        let (nodes, _neighbors, degree, total_weight) = build_graph(&g);
+        let idx = |name: &str| {
+            nodes
+                .iter()
+                .position(|p| p == &PathBuf::from(name))
+                .unwrap()
+        };
+        assert_eq!(degree[idx("a")], 3.0, "a: 2x edge to b + 1x edge to c");
+        assert_eq!(degree[idx("b")], 2.0, "b: 2x edge from a");
+        assert_eq!(degree[idx("c")], 1.0, "c: 1x edge from a");
+        assert_eq!(total_weight, 3.0);
     }
 
     #[test]
@@ -220,5 +249,40 @@ mod tests {
         let g = graph(&[("a", "a")]);
         let communities = detect_communities(&g);
         assert!(communities.contains_key(&PathBuf::from("a")));
+    }
+
+    #[test]
+    fn ties_break_toward_lowest_community_id() {
+        // Three isomorphic triangles A/B/C, each pulled on by node z via one
+        // equal-weight edge to its first member. Once each triangle merges
+        // internally (a far stronger pull than z's single edge), z faces an
+        // exact 3-way tie. Tie-breaking must be deterministic — never depend
+        // on HashMap iteration order — and by construction always resolves
+        // toward the lowest community id, which is A's.
+        let g = graph(&[
+            ("a1", "a2"),
+            ("a2", "a3"),
+            ("a3", "a1"),
+            ("b1", "b2"),
+            ("b2", "b3"),
+            ("b3", "b1"),
+            ("c1", "c2"),
+            ("c2", "c3"),
+            ("c3", "c1"),
+            ("z", "a1"),
+            ("z", "b1"),
+            ("z", "c1"),
+        ]);
+        let communities = detect_communities(&g);
+        let cz = communities[&PathBuf::from("z")];
+        let ca = communities[&PathBuf::from("a1")];
+        let cb = communities[&PathBuf::from("b1")];
+        let cc = communities[&PathBuf::from("c1")];
+        assert_eq!(
+            cz, ca,
+            "on an exact tie, z must always join the lowest-id community (A's)"
+        );
+        assert_ne!(cz, cb);
+        assert_ne!(cz, cc);
     }
 }

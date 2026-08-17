@@ -450,6 +450,21 @@ fn change_coupling_smells_same_community_not_counted() {
 }
 
 #[test]
+fn change_coupling_smells_omits_community_note_when_zero_smells() {
+    // No file_change_pairs at all → smell_count == 0. The community note
+    // must not appear at all in this case (not even ", 0 also cross-community"),
+    // distinguishing "no smells to annotate" from "zero smells are cross-community".
+    let snapshot = make_snapshot();
+    let result = change_coupling_smells(&snapshot, &default_thresholds());
+    assert_eq!(result.score, Some(100));
+    assert!(
+        !result.description.contains("cross-community"),
+        "description was: {}",
+        result.description
+    );
+}
+
+#[test]
 fn change_coupling_smells_community_corroboration_can_be_disabled() {
     let mut snapshot = make_snapshot();
     snapshot

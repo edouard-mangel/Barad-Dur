@@ -14,6 +14,7 @@ use crate::trend::{self, VelocityDirection};
 pub fn run_gate(args: GateArgs) -> Result<i32> {
     let local_path = PathBuf::from(&args.target);
     let cfg = config::load(&local_path)?;
+    config::validate(&cfg)?;
     let skip_blame = args.skip_blame.unwrap_or(cfg.skip_blame);
 
     let time_window = TimeWindow::default();
@@ -506,6 +507,24 @@ mod tests {
         args.target = dir.path().to_string_lossy().into_owned();
         // A trivial repo cannot score 100, so the gate fails with exit code 1.
         assert_eq!(run_gate(args).unwrap(), 1);
+    }
+
+    #[test]
+    fn run_gate_rejects_invalid_config() {
+        let dir = temp_git_repo();
+        let cache_dir = dir.path().join(".repository-analysis");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        std::fs::write(
+            cache_dir.join("barad-dur.toml"),
+            "[thresholds.health]\ngod_node_degree_multiplier = 0.0\n",
+        )
+        .unwrap();
+        let mut args = make_gate_args(0, vec![]);
+        args.target = dir.path().to_string_lossy().into_owned();
+        assert!(
+            run_gate(args).is_err(),
+            "gate must reject a config that analyze would also reject"
+        );
     }
 
     // ── check_trend_gate ────────────────────────────────────────────
