@@ -15,8 +15,8 @@ Barad-dur analyzes git metadata (commits, blame, file tree) and source code comp
 
 | Category | Metrics | Weight |
 |----------|---------|--------|
-| **Health** | Bus factor, churn hotspots, stale code, file complexity | 35% |
-| **Coupling** | Afferent/efferent coupling, circular deps, change coupling smells | 20% |
+| **Health** | Bus factor, churn hotspots, stale code, file complexity, structural centrality | 35% |
+| **Coupling** | Afferent/efferent coupling, circular deps, change coupling smells (with community-detection corroboration) | 20% |
 | **Evolution** | Growth trend, refactoring ratio, code age, commit cadence | 20% |
 | **Git Hygiene** | Commit message quality, history cleanliness, gitignore coverage | 15% |
 | **Team** | Knowledge distribution (Gini), contributor activity, ownership clarity, silos, merge patterns | 10% |
