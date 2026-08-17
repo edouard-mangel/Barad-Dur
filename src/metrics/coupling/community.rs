@@ -29,14 +29,15 @@ pub(crate) fn detect_communities(
 /// index, edge weight), aggregating direction and multiplicity; each node's
 /// total incident weight; and the graph's total edge weight (`m`).
 fn build_graph(import_graph: &HashMap<PathBuf, Vec<PathBuf>>) -> WeightedGraph {
-    let mut nodes: Vec<PathBuf> = import_graph
+    // BTreeSet iterates in sorted order, so `nodes` is already sorted —
+    // deterministic node indexing without a second sort pass.
+    let nodes: Vec<PathBuf> = import_graph
         .iter()
         .flat_map(|(source, targets)| std::iter::once(source).chain(targets.iter()))
         .cloned()
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .collect();
-    nodes.sort();
     let index: HashMap<&PathBuf, usize> = nodes.iter().enumerate().map(|(i, p)| (p, i)).collect();
 
     let mut weights: HashMap<(usize, usize), f64> = HashMap::new();

@@ -112,7 +112,7 @@
   var METRIC_TIPS = {
     // Health
     'Bus factor':           'Percentage of files where a single author owns >50% of blame lines. A low score means critical knowledge is concentrated in too few people.',
-    'God objects':          'Files with LOC > 500, or LOC > 300 with >15 public methods. Large classes with many responsibilities are hard to understand and change (Fowler: Large Class).',
+    'God objects':          'Files with LOC > 500, or LOC > 300 with >15 public methods, or that structurally dominate the import graph as a connectivity hub. Large or overly central files are hard to understand and change (Fowler: Large Class).',
     'Complex hotspots':     'Files above the 75th percentile in both cyclomatic complexity and churn. Code that is both complex and frequently changed is the highest-risk area for bugs (Tornhill).',
     'Long methods':         'Functions with LOC > 40 or cyclomatic complexity > 10. Long or complex functions are harder to test, understand, and maintain (Fowler: Long Method).',
     'Code biomarkers':      'Files with nesting depth > 4 or nesting variance > 2.0. Deeply nested code signals accumulated complexity; high variance indicates erratic structure (Tornhill: Code Biomarkers).',

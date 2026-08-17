@@ -262,9 +262,9 @@ pub fn validate(config: &RepoConfig) -> Result<()> {
         bail!("thresholds.coupling.inheritance_min_depth must be 0 (disabled) or >= 2, got 1");
     }
     let god_multiplier = config.thresholds.health.god_node_degree_multiplier;
-    if god_multiplier.is_nan() || god_multiplier <= 0.0 {
+    if !god_multiplier.is_finite() || god_multiplier <= 0.0 {
         bail!(
-            "thresholds.health.god_node_degree_multiplier must be > 0.0, got {}",
+            "thresholds.health.god_node_degree_multiplier must be finite and > 0.0, got {}",
             god_multiplier
         );
     }
@@ -628,6 +628,16 @@ mod tests {
     fn validate_god_node_degree_multiplier_default_is_valid() {
         let cfg = RepoConfig::default();
         assert!(validate(&cfg).is_ok());
+    }
+
+    #[test]
+    fn validate_god_node_degree_multiplier_infinite_errors() {
+        let mut cfg = RepoConfig::default();
+        cfg.thresholds.health.god_node_degree_multiplier = f64::INFINITY;
+        assert!(
+            validate(&cfg).is_err(),
+            "an infinite multiplier would make the hub check unsatisfiable, silently disabling it"
+        );
     }
 
     #[test]

@@ -1,26 +1,11 @@
 use crate::config::HealthThresholds;
 use crate::metrics::file_role::{classify, FileRole};
-use crate::metrics::{MetricValue, RawValue};
+use crate::metrics::{median, MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
 
 /// Production source code only — tests, config, and docs are other roles.
 pub(super) fn is_source_file(path: &std::path::Path) -> bool {
     classify(path) == FileRole::Source
-}
-
-/// Median of a non-empty slice (sorts in place); 0.0 for an empty slice.
-fn median(values: &mut [usize]) -> f64 {
-    if values.is_empty() {
-        return 0.0;
-    }
-    values.sort_unstable();
-    let len = values.len();
-    #[allow(clippy::manual_is_multiple_of)]
-    if len % 2 == 0 {
-        (values[len / 2 - 1] + values[len / 2]) as f64 / 2.0
-    } else {
-        values[len / 2] as f64
-    }
 }
 
 /// A file structurally dominates the codebase when its import-graph degree
@@ -31,43 +16,70 @@ fn is_structural_hub(degree: usize, median_degree: f64, thresholds: &HealthThres
         && (degree as f64) > median_degree * thresholds.god_node_degree_multiplier
 }
 
+/// Why a file was flagged — LOC, method bloat, structural centrality, or a
+/// combination — so the report says what actually tripped, not just what.
+/// `None` when neither condition fires.
+fn god_reason(
+    m: &crate::snapshot::FileComplexity,
+    degree: usize,
+    median_degree: f64,
+    thresholds: &HealthThresholds,
+) -> Option<String> {
+    let mut reasons = Vec::new();
+    if m.loc > 500 {
+        reasons.push(format!("{} loc", m.loc));
+    } else if m.loc > 300 && m.public_methods > 15 {
+        reasons.push(format!(
+            "{} loc, {} public methods",
+            m.loc, m.public_methods
+        ));
+    }
+    if is_structural_hub(degree, median_degree, thresholds) {
+        let ratio = if median_degree > 0.0 {
+            format!("{:.1}x median", degree as f64 / median_degree)
+        } else {
+            "median 0".to_string()
+        };
+        reasons.push(format!("structural hub — {degree} connections ({ratio})"));
+    }
+    (!reasons.is_empty()).then(|| reasons.join("; "))
+}
+
 /// Files that have grown too large to maintain (god objects / bloaters), or
 /// that dominate the import graph as a structural hub.
 pub(super) fn god_objects(snapshot: &RepoSnapshot, thresholds: &HealthThresholds) -> MetricValue {
-    let mut incoming: std::collections::HashMap<&std::path::Path, usize> =
-        std::collections::HashMap::new();
-    for targets in snapshot.import_graph.values() {
-        for target in targets {
-            *incoming.entry(target.as_path()).or_insert(0) += 1;
-        }
-    }
-    let degree_of = |p: &std::path::Path| -> usize {
-        let outgoing = snapshot.import_graph.get(p).map(|v| v.len()).unwrap_or(0);
-        let inc = incoming.get(p).copied().unwrap_or(0);
-        outgoing + inc
-    };
+    let incoming = crate::metrics::incoming_import_counts(&snapshot.import_graph);
 
-    let mut degrees: Vec<usize> = snapshot
+    // Computed once per file here, then looked up (never recomputed) for
+    // both the median and the per-file hub check below.
+    let degrees: std::collections::HashMap<&std::path::Path, usize> = snapshot
         .file_metrics
         .keys()
         .filter(|p| is_source_file(p))
-        .map(|p| degree_of(p))
+        .map(|p| {
+            let outgoing = snapshot.import_graph.get(p).map(|v| v.len()).unwrap_or(0);
+            let inc = incoming.get(p.as_path()).copied().unwrap_or(0);
+            (p.as_path(), outgoing + inc)
+        })
         .collect();
-    let median_degree = median(&mut degrees);
+
+    let degree_values: Vec<usize> = degrees.values().copied().collect();
+    let median_degree = median(&degree_values);
 
     let source_total = degrees.len();
 
     let gods: Vec<String> = snapshot
         .file_metrics
         .iter()
-        .filter(|(p, m)| {
-            is_source_file(p)
-                && m.cyclomatic_complexity > 0
-                && (m.loc > 500
-                    || (m.loc > 300 && m.public_methods > 15)
-                    || is_structural_hub(degree_of(p), median_degree, thresholds))
+        .filter(|(p, _)| is_source_file(p))
+        .filter_map(|(p, m)| {
+            if m.cyclomatic_complexity == 0 {
+                return None;
+            }
+            let degree = degrees.get(p.as_path()).copied().unwrap_or(0);
+            god_reason(m, degree, median_degree, thresholds)
+                .map(|reason| format!("{} — {reason}", p.display()))
         })
-        .map(|(p, _)| p.display().to_string())
         .collect();
 
     let count = gods.len();
@@ -90,7 +102,7 @@ pub(super) fn god_objects(snapshot: &RepoSnapshot, thresholds: &HealthThresholds
     MetricValue {
         name: "God objects".to_string(),
         description: format!(
-            "{}/{} source files oversized ({:.1}%)",
+            "{}/{} source files oversized or structurally overconnected ({:.1}%)",
             count, source_total, pct
         ),
         raw_value: RawValue::List(gods),
@@ -144,7 +156,13 @@ mod tests {
         let result = god_objects(&snapshot, &HealthThresholds::default());
         assert_eq!(result.score, Some(75));
         match &result.raw_value {
-            RawValue::List(v) => assert_eq!(v.len(), 1),
+            RawValue::List(v) => {
+                assert_eq!(v.len(), 1);
+                assert_eq!(
+                    v[0], "fat.rs — 520 loc",
+                    "size-flagged entries must name the LOC reason, not just the path"
+                );
+            }
             _ => panic!("Expected List"),
         }
     }
@@ -172,7 +190,10 @@ mod tests {
         add_normal_files(&mut snapshot, 10);
         let result = god_objects(&snapshot, &HealthThresholds::default());
         assert_eq!(result.score, Some(100));
-        assert_eq!(result.description, "0/10 source files oversized (0.0%)");
+        assert_eq!(
+            result.description,
+            "0/10 source files oversized or structurally overconnected (0.0%)"
+        );
     }
 
     #[test]
@@ -513,7 +534,17 @@ mod tests {
         let result = god_objects(&snapshot, &HealthThresholds::default());
         match &result.raw_value {
             RawValue::List(v) => {
-                assert_eq!(v, &["hub.rs".to_string()], "only the hub should be flagged");
+                assert_eq!(v.len(), 1, "only the hub should be flagged");
+                assert!(
+                    v[0].starts_with("hub.rs — structural hub"),
+                    "entry should name the hub reason, got: {}",
+                    v[0]
+                );
+                assert!(
+                    v[0].contains("20 connections"),
+                    "entry should show the degree, got: {}",
+                    v[0]
+                );
             }
             _ => panic!("Expected List"),
         }
