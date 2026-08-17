@@ -121,7 +121,7 @@ test:
   <<: *rust-tools-base
   timeout: 3 hours
   script:
-    - cargo binstall --no-confirm cargo-nextest
+    - cargo binstall --no-confirm --locked cargo-nextest
     - cargo nextest run --workspace --profile ci
   artifacts:
     reports:
@@ -221,7 +221,7 @@ semver-check:
         echo "skipping mutation run" > mutants-${SHARD_INDEX}.log
         exit 0
       fi
-      cargo binstall --no-confirm cargo-mutants cargo-nextest
+      cargo binstall --no-confirm --locked cargo-mutants cargo-nextest
       # --in-diff: only mutate code touched by the feature diff (per-feature strategy).
       # --timeout-multiplier instead of a fixed cap: the suite's clean runtime grows
       # with the codebase and already outran a hardcoded 300s once (baseline timeout).
