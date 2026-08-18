@@ -1070,6 +1070,108 @@ mod tests {
     }
 
     #[test]
+    fn resolve_call_records_sort_uses_every_key_component() {
+        use crate::metrics::complexity::{RawCallEdge, RawCalleeRef};
+        use crate::snapshot::CalleeRef;
+        let files = vec![
+            crate::metrics::testutil::make_file("src/a.ts"),
+            crate::metrics::testutil::make_file("src/b.ts"),
+            crate::metrics::testutil::make_file("src/c.ts"),
+            crate::metrics::testutil::make_file("src/z.ts"),
+        ];
+        let edge = |callee: RawCalleeRef| RawCallEdge {
+            caller: "f".into(),
+            callee,
+            count: 1,
+        };
+        let spec = |s: &str, n: &str| RawCalleeRef::Specifier {
+            specifier: s.into(),
+            name: n.into(),
+        };
+        let mut raw = HashMap::new();
+        // Cross-file ordering must come from the sort, not HashMap luck.
+        raw.insert(
+            PathBuf::from("src/z.ts"),
+            vec![edge(RawCalleeRef::SameFile("a".into()))],
+        );
+        // Same (path, caller) throughout, input deliberately in REVERSE of
+        // the expected order: `sort_by` is stable, so a degenerate
+        // `callee_sort_key` (any constant) would keep this order and fail.
+        raw.insert(
+            PathBuf::from("src/a.ts"),
+            vec![
+                edge(RawCalleeRef::Unresolved { name: "z".into() }),
+                edge(spec("./c", "m")),
+                edge(spec("./b", "x")),
+                edge(spec("./b", "a")),
+                edge(RawCalleeRef::SameFile("z".into())),
+                edge(RawCalleeRef::SameFile("a".into())),
+            ],
+        );
+        let callees: Vec<(String, CalleeRef)> = resolve_call_records(raw, &files)
+            .into_iter()
+            .map(|r| (r.path.display().to_string(), r.callee))
+            .collect();
+        let resolved = |p: &str, n: &str| CalleeRef::Resolved {
+            path: p.into(),
+            name: n.into(),
+        };
+        assert_eq!(
+            callees,
+            vec![
+                // variant rank first: SameFile < Resolved < Unresolved,
+                // then path, then name within a path.
+                ("src/a.ts".into(), CalleeRef::SameFile("a".into())),
+                ("src/a.ts".into(), CalleeRef::SameFile("z".into())),
+                ("src/a.ts".into(), resolved("src/b.ts", "a")),
+                ("src/a.ts".into(), resolved("src/b.ts", "x")),
+                ("src/a.ts".into(), resolved("src/c.ts", "m")),
+                (
+                    "src/a.ts".into(),
+                    CalleeRef::Unresolved { name: "z".into() }
+                ),
+                ("src/z.ts".into(), CalleeRef::SameFile("a".into())),
+            ]
+        );
+    }
+
+    #[test]
+    fn ast_pass_at_extracts_and_resolves_call_records() {
+        use crate::snapshot::{CallRecord, CalleeRef};
+        let dir = tempfile::TempDir::new().unwrap();
+        let repo = git2::Repository::init(dir.path()).unwrap();
+        let caller_blob = repo
+            .blob(b"import { f } from './lib';\nexport function g() { f(); }\n")
+            .unwrap();
+        let lib_blob = repo.blob(b"export function f() {}\n").unwrap();
+        let entry = |path: &str, oid: git2::Oid| FileEntry {
+            path: PathBuf::from(path),
+            size_bytes: 1,
+            is_binary: false,
+            depth: 2,
+            blob_oid: oid.to_string(),
+        };
+        let files = vec![
+            entry("src/a.ts", caller_blob),
+            entry("src/lib.ts", lib_blob),
+        ];
+        let (_, _, _, _, _, calls) = ast_pass_at(&repo, &files).unwrap();
+        assert_eq!(
+            calls,
+            vec![CallRecord {
+                path: "src/a.ts".into(),
+                caller: "g".into(),
+                callee: CalleeRef::Resolved {
+                    path: "src/lib.ts".into(),
+                    name: "f".into(),
+                },
+                count: 1,
+            }],
+            "the at-SHA AST pass must extract and resolve call records"
+        );
+    }
+
+    #[test]
     fn resolve_class_records_resolves_specifiers_and_sorts() {
         use crate::metrics::complexity::{RawBaseRef, RawClassRecord};
         use crate::snapshot::BaseRef;

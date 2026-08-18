@@ -441,6 +441,41 @@ mod tests {
     }
 
     #[test]
+    fn named_import_receiver_is_not_a_namespace() {
+        // Only `import * as h` receivers resolve (D4) — a *named* import
+        // binding used as a receiver is a value whose members we can't
+        // follow (kills the namespace_import kind-check inversion mutant).
+        let src = "import { h } from './x';\nh.run();\n";
+        let e = edges("src/a.ts", src);
+        assert_eq!(
+            e,
+            vec![RawCallEdge {
+                caller: "<toplevel>".into(),
+                callee: RawCalleeRef::Unresolved { name: "run".into() },
+                count: 1,
+            }]
+        );
+    }
+
+    #[test]
+    fn edge_sort_is_not_input_order() {
+        // Call sites appear in REVERSE of the sorted output — a degenerate
+        // sort key (any constant) would keep AST order via stable sort.
+        let e = edges("src/a.ts", "o.save();\nb();\na();\n");
+        let callees: Vec<&RawCalleeRef> = e.iter().map(|r| &r.callee).collect();
+        assert_eq!(
+            callees,
+            vec![
+                &RawCalleeRef::SameFile("a".into()),
+                &RawCalleeRef::SameFile("b".into()),
+                &RawCalleeRef::Unresolved {
+                    name: "save".into()
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn bare_local_call_is_same_file_from_toplevel() {
         let e = edges("src/a.ts", "function f() {}\nf();\n");
         assert_eq!(

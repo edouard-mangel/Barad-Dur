@@ -54,3 +54,32 @@ pub(crate) fn resolve_symbol<'a>(
                 .find_map(|r| resolve_symbol((&r.target, key.1), declares, rx, visited))
         })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn named_hop_requires_matching_exported_name() {
+        // The barrel forwards Y as X — looking up "B" must NOT follow that
+        // entry, even though blindly hopping would land on a declared
+        // symbol (kills the `exported == key` guard-to-true mutant).
+        let records = vec![ReExportRecord {
+            path: "src/index.ts".into(),
+            target: "src/b.ts".into(),
+            kind: ReExportKind::Named {
+                exported: "X".into(),
+                source: "Y".into(),
+            },
+        }];
+        let rx = reexport_index(&records);
+        let b = PathBuf::from("src/b.ts");
+        let declares = move |k: SymbolKey<'_>| *k.0 == b && k.1 == "Y";
+        let barrel = PathBuf::from("src/index.ts");
+        assert_eq!(
+            resolve_symbol((&barrel, "B"), &declares, &rx, &mut Vec::new()),
+            None,
+            "a named re-export of a different name must not be followed"
+        );
+    }
+}
