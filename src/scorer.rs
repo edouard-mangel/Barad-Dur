@@ -62,6 +62,7 @@ pub fn build_report(
     remote_meta: Option<RemoteMeta>,
     weights: &[(&str, f64)],
     coupling: &crate::config::CouplingThresholds,
+    health: &crate::config::HealthThresholds,
 ) -> AnalysisReport {
     let overall_score = compute_overall_score_with_weights(&categories, weights);
     let top_actions = generate_top_actions(&categories);
@@ -78,6 +79,7 @@ pub fn build_report(
     let import_cycles = build_import_cycles(snapshot);
     let coupling_finding_counts =
         crate::metrics::coupling::pressman_finding_counts(snapshot, coupling);
+    let call_graph = crate::metrics::callgraph::call_graph_report(snapshot, health);
 
     AnalysisReport {
         repo_name: snapshot.name.clone(),
@@ -103,6 +105,7 @@ pub fn build_report(
         import_edges,
         import_cycles,
         coupling_finding_counts,
+        call_graph,
         score_thresholds: ScoreThresholds::default(),
     }
 }
@@ -151,6 +154,7 @@ mod tests {
             None,
             WEIGHTS,
             &crate::config::CouplingThresholds::default(),
+            &crate::config::HealthThresholds::default(),
         );
 
         assert_eq!(report.repo_name, "test-repo");
@@ -179,6 +183,7 @@ mod tests {
             None,
             WEIGHTS,
             &crate::config::CouplingThresholds::default(),
+            &crate::config::HealthThresholds::default(),
         );
         assert!(
             report.audit.is_some(),
@@ -334,6 +339,7 @@ mod tests {
             None,
             WEIGHTS,
             &crate::config::CouplingThresholds::default(),
+            &crate::config::HealthThresholds::default(),
         );
         let entry = build_history_entry(&report, "abc123", None);
 
@@ -360,6 +366,7 @@ mod tests {
             None,
             WEIGHTS,
             &crate::config::CouplingThresholds::default(),
+            &crate::config::HealthThresholds::default(),
         );
         assert!(report.author_cards.is_empty());
     }
@@ -392,6 +399,7 @@ mod tests {
             None,
             WEIGHTS,
             &crate::config::CouplingThresholds::default(),
+            &crate::config::HealthThresholds::default(),
         );
         assert!(
             report.per_file_coupling.is_empty(),
@@ -414,6 +422,7 @@ mod tests {
             None,
             WEIGHTS,
             &crate::config::CouplingThresholds::default(),
+            &crate::config::HealthThresholds::default(),
         );
         assert!(
             report.import_edges.is_empty(),
@@ -439,6 +448,7 @@ mod tests {
             None,
             WEIGHTS,
             &crate::config::CouplingThresholds::default(),
+            &crate::config::HealthThresholds::default(),
         )
     }
 
@@ -455,7 +465,41 @@ mod tests {
             None,
             WEIGHTS,
             &crate::config::CouplingThresholds::default(),
+            &crate::config::HealthThresholds::default(),
         )
+    }
+
+    #[test]
+    fn report_embeds_call_graph_when_call_records_exist() {
+        let mut snapshot = crate::metrics::testutil::make_snapshot();
+        snapshot
+            .file_metrics
+            .insert("a.ts".into(), crate::snapshot::FileComplexity::default());
+        snapshot.call_records = vec![crate::snapshot::CallRecord {
+            path: "a.ts".into(),
+            caller: "f".into(),
+            callee: crate::snapshot::CalleeRef::SameFile("g".into()),
+            count: 2,
+        }];
+        let report = build_report(
+            &snapshot,
+            vec![make_category("Health", 80)],
+            None,
+            WEIGHTS,
+            &crate::config::CouplingThresholds::default(),
+            &crate::config::HealthThresholds::default(),
+        );
+        let cg = report.call_graph.expect("call_graph section");
+        assert!((cg.resolution_rate - 1.0).abs() < f64::EPSILON);
+        assert_eq!(cg.edges_same_file, 1);
+        assert_eq!(cg.edges_resolved, 0);
+        assert_eq!(cg.edges_unresolved, 0);
+    }
+
+    #[test]
+    fn report_call_graph_none_for_backfill_style_snapshot() {
+        let report = report_without_detection();
+        assert_eq!(report.call_graph, None);
     }
 
     #[test]

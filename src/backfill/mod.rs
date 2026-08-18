@@ -70,6 +70,7 @@ pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
             None,
             &weight_pairs,
             &cfg.thresholds.coupling,
+            &cfg.thresholds.health,
         );
         let mut entry = scorer::build_history_entry(&report, sha, Some("backfill".to_string()));
 

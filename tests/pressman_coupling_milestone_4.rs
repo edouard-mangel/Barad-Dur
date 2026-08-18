@@ -92,6 +92,7 @@ fn report_hotspots_carry_counts_and_multiplied_score() {
         None,
         &cfg.weights.as_weight_pairs(),
         &cfg.thresholds.coupling,
+        &cfg.thresholds.health,
     );
 
     let flagged = report
@@ -137,6 +138,7 @@ fn hotspot_json_contract_for_renderers() {
         None,
         &cfg.weights.as_weight_pairs(),
         &cfg.thresholds.coupling,
+        &cfg.thresholds.health,
     );
     let json = serde_json::to_value(&report.file_hotspots).unwrap();
     let flagged = json

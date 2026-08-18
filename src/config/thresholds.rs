@@ -27,6 +27,12 @@ pub struct HealthThresholds {
     /// "4x the median", from producing spurious flags. Default 8.
     #[serde(default = "default_god_node_min_degree")]
     pub god_node_min_degree: usize,
+    /// Trust floor for call-graph analysis: when the snapshot-wide call
+    /// resolution rate (resolved + same-file over all edges) falls below
+    /// this fraction, function-hub output is suppressed rather than built
+    /// on mostly-unresolved data. Must be in [0.0, 1.0]. Default 0.5.
+    #[serde(default = "default_call_resolution_floor")]
+    pub call_resolution_floor: f64,
 }
 
 fn default_max_complexity() -> u32 {
@@ -56,6 +62,9 @@ fn default_god_node_degree_multiplier() -> f64 {
 fn default_god_node_min_degree() -> usize {
     8
 }
+fn default_call_resolution_floor() -> f64 {
+    0.5
+}
 
 impl Default for HealthThresholds {
     fn default() -> Self {
@@ -69,6 +78,7 @@ impl Default for HealthThresholds {
             biomarker_max_variance: default_biomarker_max_variance(),
             god_node_degree_multiplier: default_god_node_degree_multiplier(),
             god_node_min_degree: default_god_node_min_degree(),
+            call_resolution_floor: default_call_resolution_floor(),
         }
     }
 }

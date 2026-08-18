@@ -265,6 +265,13 @@ pub fn validate(config: &RepoConfig) -> Result<()> {
     // above it, `median_degree * multiplier` risks overflowing to +inf, which
     // silently disables the hub check the same way a literal Infinity would.
     const GOD_NODE_MULTIPLIER_MAX: f64 = 1_000_000.0;
+    let call_floor = config.thresholds.health.call_resolution_floor;
+    if !(0.0..=1.0).contains(&call_floor) || call_floor.is_nan() {
+        bail!(
+            "thresholds.health.call_resolution_floor must be in [0.0, 1.0], got {}",
+            call_floor
+        );
+    }
     let god_multiplier = config.thresholds.health.god_node_degree_multiplier;
     if !god_multiplier.is_finite()
         || god_multiplier <= 0.0
@@ -608,6 +615,44 @@ mod tests {
             validate(&cfg).is_err(),
             "1 would flag every cross-file extends"
         );
+    }
+
+    #[test]
+    fn call_resolution_floor_default_is_half() {
+        let cfg = RepoConfig::default();
+        assert!((cfg.thresholds.health.call_resolution_floor - 0.5).abs() < f64::EPSILON);
+        assert!(validate(&cfg).is_ok());
+    }
+
+    #[test]
+    fn validate_call_resolution_floor_above_one_errors() {
+        let mut cfg = RepoConfig::default();
+        cfg.thresholds.health.call_resolution_floor = 1.5;
+        let err = validate(&cfg).unwrap_err();
+        assert!(err.to_string().contains("call_resolution_floor"));
+    }
+
+    #[test]
+    fn validate_call_resolution_floor_negative_errors() {
+        let mut cfg = RepoConfig::default();
+        cfg.thresholds.health.call_resolution_floor = -0.1;
+        assert!(validate(&cfg).is_err());
+    }
+
+    #[test]
+    fn validate_call_resolution_floor_nan_errors() {
+        let mut cfg = RepoConfig::default();
+        cfg.thresholds.health.call_resolution_floor = f64::NAN;
+        assert!(validate(&cfg).is_err());
+    }
+
+    #[test]
+    fn validate_call_resolution_floor_bounds_are_valid() {
+        for floor in [0.0, 1.0] {
+            let mut cfg = RepoConfig::default();
+            cfg.thresholds.health.call_resolution_floor = floor;
+            assert!(validate(&cfg).is_ok(), "floor {floor} must be accepted");
+        }
     }
 
     #[test]
