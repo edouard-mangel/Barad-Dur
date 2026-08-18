@@ -6,10 +6,12 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use crate::metrics::complexity::{self, RawBaseRef, RawClassRecord, RawReExport, RawReExportKind};
+use crate::metrics::complexity::{
+    self, RawBaseRef, RawCallEdge, RawCalleeRef, RawClassRecord, RawReExport, RawReExportKind,
+};
 use crate::snapshot::{
-    BaseRef, ClassRecord, CouplingFinding, FileComplexity, FileEntry, ReExportKind, ReExportRecord,
-    RepoSnapshot, TimeWindow,
+    BaseRef, CallRecord, CalleeRef, ClassRecord, CouplingFinding, FileComplexity, FileEntry,
+    ReExportKind, ReExportRecord, RepoSnapshot, TimeWindow,
 };
 
 use super::ignore_file::{should_include, BaradDurIgnore};
@@ -108,13 +110,15 @@ fn announce_blame_plan(
 }
 
 /// Working-tree AST pass output, pre-resolution: metrics plus raw imports,
-/// class records, and re-exports still keyed by unresolved specifiers.
+/// class records, re-exports, and call edges still keyed by unresolved
+/// specifiers.
 type RawAstOutput = (
     HashMap<PathBuf, FileComplexity>,
     RawImports,
     Vec<CouplingFinding>,
     HashMap<PathBuf, Vec<RawClassRecord>>,
     HashMap<PathBuf, Vec<RawReExport>>,
+    HashMap<PathBuf, Vec<RawCallEdge>>,
 );
 
 /// Everything the AST pass produces for a baseline snapshot; `Default`
@@ -125,6 +129,7 @@ type AstParts = (
     Vec<CouplingFinding>,
     Vec<ClassRecord>,
     Vec<ReExportRecord>,
+    Vec<CallRecord>,
 );
 
 impl Collector {
@@ -150,6 +155,7 @@ impl Collector {
         let mut coupling_findings = Vec::new();
         let mut raw_classes = HashMap::new();
         let mut raw_reexports = HashMap::new();
+        let mut raw_calls = HashMap::new();
         for (path, analysis) in results {
             file_metrics.insert(path.clone(), analysis.metrics);
             if !analysis.imports.is_empty() {
@@ -157,6 +163,9 @@ impl Collector {
             }
             if !analysis.class_records.is_empty() {
                 raw_classes.insert(path.clone(), analysis.class_records);
+            }
+            if !analysis.call_edges.is_empty() {
+                raw_calls.insert(path.clone(), analysis.call_edges);
             }
             if !analysis.reexports.is_empty() {
                 raw_reexports.insert(path, analysis.reexports);
@@ -170,6 +179,7 @@ impl Collector {
             coupling_findings,
             raw_classes,
             raw_reexports,
+            raw_calls,
         )
     }
 
@@ -341,11 +351,13 @@ impl Collector {
         blame_map: HashMap<PathBuf, Vec<crate::snapshot::BlameLine>>,
         ast: RawAstOutput,
     ) -> Result<RepoSnapshot> {
-        let (file_metrics, raw_imports, coupling_findings, raw_classes, raw_reexports) = ast;
+        let (file_metrics, raw_imports, coupling_findings, raw_classes, raw_reexports, raw_calls) =
+            ast;
         let head = self.head_commit_hash()?;
         let import_graph = resolve_imports(&raw_imports, &files);
         let class_records = resolve_class_records(raw_classes, &files);
         let reexports = resolve_reexports(raw_reexports, &files);
+        let call_records = resolve_call_records(raw_calls, &files);
         let mut snapshot = RepoSnapshot {
             path: self.repo_path().to_path_buf(),
             name: self.repo_name(),
@@ -365,6 +377,7 @@ impl Collector {
             coupling_findings,
             class_records,
             reexports,
+            call_records,
             commit_interner: collection.interner,
         };
         snapshot.build_indexes();
@@ -443,7 +456,7 @@ impl Collector {
             .and_then(|h| h.shorthand().ok().map(String::from))
             .unwrap_or_else(|| "main".to_string());
 
-        let (file_metrics, import_graph, coupling_findings, class_records, reexports) =
+        let (file_metrics, import_graph, coupling_findings, class_records, reexports, call_records) =
             ast_pass(&repo, &files)?;
 
         let mut snapshot = RepoSnapshot {
@@ -465,6 +478,7 @@ impl Collector {
             coupling_findings,
             class_records,
             reexports,
+            call_records,
             commit_interner: collection.interner,
         };
         snapshot.build_indexes();
@@ -484,6 +498,7 @@ fn ast_pass_at(repo: &git2::Repository, files: &[FileEntry]) -> Result<AstParts>
     let mut coupling_findings = Vec::new();
     let mut raw_classes: HashMap<PathBuf, Vec<RawClassRecord>> = HashMap::new();
     let mut raw_reexports: HashMap<PathBuf, Vec<RawReExport>> = HashMap::new();
+    let mut raw_calls: HashMap<PathBuf, Vec<RawCallEdge>> = HashMap::new();
     for entry in files.iter().filter(|f| !f.is_binary) {
         let oid = match git2::Oid::from_str(&entry.blob_oid) {
             Ok(o) => o,
@@ -507,17 +522,22 @@ fn ast_pass_at(repo: &git2::Repository, files: &[FileEntry]) -> Result<AstParts>
         if !analysis.reexports.is_empty() {
             raw_reexports.insert(entry.path.clone(), analysis.reexports);
         }
+        if !analysis.call_edges.is_empty() {
+            raw_calls.insert(entry.path.clone(), analysis.call_edges);
+        }
     }
     coupling_findings.sort_by(|a, b| (&a.path, a.line).cmp(&(&b.path, b.line)));
     let import_graph = resolve_imports(&raw_imports, files);
     let class_records = resolve_class_records(raw_classes, files);
     let reexports = resolve_reexports(raw_reexports, files);
+    let call_records = resolve_call_records(raw_calls, files);
     Ok((
         file_metrics,
         import_graph,
         coupling_findings,
         class_records,
         reexports,
+        call_records,
     ))
 }
 
@@ -553,6 +573,60 @@ fn resolve_reexports(
         .collect();
     records.sort_by(|a, b| (&a.path, &a.target).cmp(&(&b.path, &b.target)));
     records
+}
+
+/// Resolve raw call edges' import specifiers against the repo's file set,
+/// producing the snapshot's `call_records` (sorted by path, caller, callee).
+/// An unresolvable specifier (external package) becomes `Unresolved` —
+/// kept, never dropped, so unresolved calls stay countable (design §4).
+fn resolve_call_records(
+    raw: HashMap<PathBuf, Vec<RawCallEdge>>,
+    files: &[FileEntry],
+) -> Vec<CallRecord> {
+    let known: std::collections::HashSet<&PathBuf> = files.iter().map(|f| &f.path).collect();
+    let mut records: Vec<CallRecord> = raw
+        .into_iter()
+        .flat_map(|(path, edges)| {
+            edges
+                .into_iter()
+                .map(|e| {
+                    let callee = match e.callee {
+                        RawCalleeRef::SameFile(name) => CalleeRef::SameFile(name),
+                        RawCalleeRef::Unresolved { name } => CalleeRef::Unresolved { name },
+                        RawCalleeRef::Specifier { specifier, name } => {
+                            match resolve_specifier(&specifier, &path, &known) {
+                                Some(target) => CalleeRef::Resolved { path: target, name },
+                                None => CalleeRef::Unresolved { name },
+                            }
+                        }
+                    };
+                    CallRecord {
+                        path: path.clone(),
+                        caller: e.caller,
+                        callee,
+                        count: e.count,
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    records.sort_by(|a, b| {
+        (&a.path, &a.caller, callee_sort_key(&a.callee)).cmp(&(
+            &b.path,
+            &b.caller,
+            callee_sort_key(&b.callee),
+        ))
+    });
+    records
+}
+
+/// Stable ordering for resolved callees: variant rank, then names.
+fn callee_sort_key(c: &CalleeRef) -> (u8, String, &str) {
+    match c {
+        CalleeRef::SameFile(name) => (0, name.clone(), ""),
+        CalleeRef::Resolved { path, name } => (1, path.display().to_string(), name),
+        CalleeRef::Unresolved { name } => (2, name.clone(), ""),
+    }
 }
 
 /// Resolve raw class records' import specifiers against the repo's file
@@ -669,7 +743,7 @@ mod tests {
         // NoProgress is already imported at the top of snapshot_builder.rs
         // (`use super::progress::{NoProgress, Progress};`) and reaches the
         // tests module via `use super::*`.
-        let (_, _, findings, _, _) =
+        let (_, _, findings, _, _, _) =
             collector.collect_file_metrics_with_progress(&files, &NoProgress);
         // barad-dur's own code should produce a deterministic, sorted list
         let mut sorted = findings.clone();
@@ -928,7 +1002,7 @@ mod tests {
             ),
             entry("src/non_utf8.rs", non_utf8.to_string()),
         ];
-        let (metrics, _imports, findings, _classes, _reexports) =
+        let (metrics, _imports, findings, _classes, _reexports, _calls) =
             ast_pass_at(&repo, &files).unwrap();
         assert_eq!(
             findings.len(),
@@ -939,6 +1013,60 @@ mod tests {
         assert!(!metrics.contains_key(Path::new("src/bad_oid.rs")));
         assert!(!metrics.contains_key(Path::new("src/missing.rs")));
         assert!(!metrics.contains_key(Path::new("src/non_utf8.rs")));
+    }
+
+    #[test]
+    fn resolve_call_records_resolves_specifiers_keeps_unresolved_and_sorts() {
+        use crate::metrics::complexity::{RawCallEdge, RawCalleeRef};
+        use crate::snapshot::CalleeRef;
+        let files = vec![
+            crate::metrics::testutil::make_file("src/a.ts"),
+            crate::metrics::testutil::make_file("src/b.ts"),
+        ];
+        let mut raw = HashMap::new();
+        raw.insert(
+            PathBuf::from("src/b.ts"),
+            vec![
+                RawCallEdge {
+                    caller: "g".into(),
+                    callee: RawCalleeRef::Specifier {
+                        specifier: "react".into(),
+                        name: "useState".into(),
+                    },
+                    count: 2,
+                },
+                RawCallEdge {
+                    caller: "f".into(),
+                    callee: RawCalleeRef::Specifier {
+                        specifier: "./a".into(),
+                        name: "helper".into(),
+                    },
+                    count: 3,
+                },
+            ],
+        );
+        let records = resolve_call_records(raw, &files);
+        assert_eq!(records.len(), 2);
+        // Sorted by (path, caller): f before g.
+        assert_eq!(records[0].caller, "f");
+        assert_eq!(records[0].count, 3);
+        assert_eq!(
+            records[0].callee,
+            CalleeRef::Resolved {
+                path: "src/a.ts".into(),
+                name: "helper".into()
+            }
+        );
+        // External package: kept as Unresolved for honest accounting —
+        // never dropped (unlike class records) and never Resolved.
+        assert_eq!(records[1].caller, "g");
+        assert_eq!(records[1].count, 2);
+        assert_eq!(
+            records[1].callee,
+            CalleeRef::Unresolved {
+                name: "useState".into()
+            }
+        );
     }
 
     #[test]

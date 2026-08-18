@@ -1,3 +1,4 @@
+mod calls;
 mod counters;
 mod fallback;
 mod inheritance;
@@ -10,6 +11,7 @@ use std::path::Path;
 
 use crate::snapshot::{CouplingFinding, FileComplexity};
 
+pub use calls::{extract_call_edges, RawCallEdge, RawCalleeRef};
 pub use fallback::{detect_language, Language};
 pub use inheritance::{
     extract_class_records, extract_reexports, RawBaseRef, RawClassRecord, RawReExport,
@@ -27,6 +29,7 @@ pub struct SourceAnalysis {
     pub coupling_findings: Vec<CouplingFinding>,
     pub class_records: Vec<RawClassRecord>,
     pub reexports: Vec<RawReExport>,
+    pub call_edges: Vec<RawCallEdge>,
 }
 
 /// Analyse one file for complexity metrics, imports, coupling findings, and
@@ -49,6 +52,10 @@ pub fn analyse_source(path: &Path, content: &str) -> SourceAnalysis {
                 Language::JsTs => inheritance::reexports_from_tree(tree.root_node(), content),
                 _ => Vec::new(),
             },
+            call_edges: match lang {
+                Language::JsTs => calls::call_edges_from_tree(tree.root_node(), content),
+                _ => Vec::new(),
+            },
         },
         None => SourceAnalysis {
             metrics: fallback::analyse_content(content, lang),
@@ -56,6 +63,7 @@ pub fn analyse_source(path: &Path, content: &str) -> SourceAnalysis {
             coupling_findings: Vec::new(),
             class_records: Vec::new(),
             reexports: Vec::new(),
+            call_edges: Vec::new(),
         },
     }
 }
@@ -91,12 +99,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn analyse_source_matches_the_four_individual_extractions() {
+    fn analyse_source_matches_the_five_individual_extractions() {
         let content = "import { Base } from './base';\n\
                        export class Derived extends Base {}\n\
                        export function run(flag: boolean) {\n\
                          if (flag) {\n\
-                           return 1;\n\
+                           return check(flag);\n\
                          }\n\
                          return 2;\n\
                        }\n";
@@ -111,10 +119,12 @@ mod tests {
             extract_coupling_findings(path, content)
         );
         assert_eq!(combined.class_records, extract_class_records(path, content));
+        assert_eq!(combined.call_edges, extract_call_edges(path, content));
         // The sample must actually exercise every channel.
         assert!(!combined.imports.is_empty());
         assert!(!combined.coupling_findings.is_empty());
         assert!(!combined.class_records.is_empty());
+        assert!(!combined.call_edges.is_empty());
     }
 
     #[test]

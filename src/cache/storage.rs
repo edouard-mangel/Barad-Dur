@@ -14,8 +14,9 @@ const FINGERPRINT_FILE: &str = "exclude.fingerprint";
 /// failing, silently serving stale data. The explicit version makes
 /// invalidation deterministic. History: 1 = post-M1 shape (coupling_findings);
 /// 2 = M7 (class_records); 3 = bincode 2 wire format (varint);
-/// 4 = barrel re-exports (reexports field).
-const CACHE_VERSION: u32 = 4;
+/// 4 = barrel re-exports (reexports field);
+/// 5 = call-graph edges (call_records field).
+const CACHE_VERSION: u32 = 5;
 
 /// Wire format for all cache files. Bincode 2's standard config (varint
 /// lengths) — not compatible with the bincode 1 fixint files of versions ≤ 2.

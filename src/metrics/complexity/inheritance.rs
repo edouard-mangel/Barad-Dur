@@ -233,7 +233,9 @@ fn base_expression(heritage: Node<'_>) -> Option<Node<'_>> {
 /// local binding → (module specifier, exported name). Default imports map
 /// to their local name (best-effort: a renamed default import terminates
 /// the chain at resolution time instead — under-count, never over-count).
-fn import_bindings(root: Node<'_>, content: &str) -> HashMap<String, (String, String)> {
+/// Shared with the call-edge extractor (`calls.rs`), which classifies
+/// callees against the same binding table.
+pub(super) fn import_bindings(root: Node<'_>, content: &str) -> HashMap<String, (String, String)> {
     descendants(root)
         .into_iter()
         .filter(|n| n.kind() == "import_statement")

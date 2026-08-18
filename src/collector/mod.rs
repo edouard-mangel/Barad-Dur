@@ -155,7 +155,7 @@ impl Collector {
 
     /// Analyse working-tree files for static complexity metrics.
     pub fn collect_file_metrics(&self, files: &[FileEntry]) -> HashMap<PathBuf, FileComplexity> {
-        let (metrics, _, _, _, _) = self.collect_file_metrics_with_progress(files, &NoProgress);
+        let (metrics, _, _, _, _, _) = self.collect_file_metrics_with_progress(files, &NoProgress);
         metrics
     }
 

@@ -214,6 +214,37 @@ pub enum ReExportKind {
     Star,
 }
 
+/// One aggregated caller→callee edge in a file, with the callee resolved
+/// as far as static analysis allows. Produced by the collector's AST pass;
+/// HEAD-only per ADR-005 (absent from backfill snapshots). Call sites are
+/// collapsed to counted edges — no line numbers by design (D5).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CallRecord {
+    /// File containing the call site(s).
+    pub path: PathBuf,
+    /// Innermost enclosing named function, or `"<toplevel>"`.
+    pub caller: String,
+    pub callee: CalleeRef,
+    /// Number of call sites aggregated onto this edge (the weight).
+    pub count: u32,
+}
+
+/// The callee of a call record. Unlike `BaseRef::Unresolvable`, an
+/// unresolved callee keeps its name — unresolved calls are *counted*
+/// toward the resolution rate, never dropped.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum CalleeRef {
+    /// Callee assumed declared in the same file.
+    SameFile(String),
+    /// Callee bound by an import resolved to a project-local file
+    /// (possibly a barrel — chased at metric time).
+    Resolved { path: PathBuf, name: String },
+    /// A real call whose target static analysis cannot name a file for:
+    /// external package, method on a value, dynamic dispatch.
+    /// `"<dynamic>"` for computed callees.
+    Unresolved { name: String },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimeWindow {
     pub since: Option<DateTime<Utc>>,
@@ -279,6 +310,7 @@ pub struct RepoSnapshot {
     pub coupling_findings: Vec<CouplingFinding>,
     pub class_records: Vec<ClassRecord>,
     pub reexports: Vec<ReExportRecord>,
+    pub call_records: Vec<CallRecord>,
     pub commit_interner: CommitInterner,
 }
 
@@ -303,6 +335,7 @@ impl RepoSnapshot {
             coupling_findings: Vec::new(),
             class_records: Vec::new(),
             reexports: Vec::new(),
+            call_records: Vec::new(),
             commit_interner: CommitInterner::default(),
         }
     }
