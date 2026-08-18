@@ -13,6 +13,72 @@ languages) over depth, defer the whole feature; nothing here rots.
 
 ---
 
+## Decision log (maintainer, 2026-08-18)
+
+Open choices resolved one by one; each entry supersedes the corresponding
+open language in the sections below.
+
+- **D1 — Scope: build M1–M2 only.** TS/JS extraction, resolution, and JSON
+  exposure ship first; no metric surface changes yet. The M3 (god-object
+  attribution) and M4 (barrel liveness) annotations are a *separate, later
+  decision* taken after observing real resolution-rate numbers on dogfood
+  and user repos — not a committed milestone. M5–M6 remain gated as before.
+- **D2 — Caller attribution: ancestor walk.** The calls query captures call
+  nodes; extraction walks `parent()` up to the first node whose kind is in a
+  small per-language function-kind table (innermost-wins falls out of "first
+  hit"); no ancestor found → `"<toplevel>"`. The function-subtree-scan
+  alternative was rejected for its nested-function double-count hazard.
+  Anonymous enclosing functions (arrow/lambda with no name binding)
+  attribute to `"<toplevel>"` in M1 — an accepted under-attribution,
+  revisit only if dogfood shows it dominates.
+- **D3 — Constructor calls: included.** `new Foo()` classifies exactly like
+  an identifier call (`SameFile` / `Specifier` / `Unresolved` by the same
+  binding lookup). Documented caveat: a resolved constructor edge targets a
+  class name with no `FunctionMetrics` entry — acceptable because in-degree
+  and dominance-share consume edges without requiring that join.
+- **D4 — Namespace-qualified calls: resolved in M1/M2.** A member call whose
+  receiver is a namespace-import binding (`import * as h from './x';
+  h.run()`) classifies as `Specifier { specifier, name: "run" }` — the TS
+  analog of Rust path calls. Only a *direct* namespace receiver qualifies
+  (`h.a.b()` and aliased/re-assigned namespaces stay `Unresolved`).
+- **D5 — Aggregation at extraction.** The raw type is `RawCallEdge { caller,
+  callee: RawCalleeRef, count }` — sites collapse to counted edges inside the
+  extractor, mirroring `RawBaseRef` naming. No line numbers stored; if
+  per-line evidence is ever wanted it is a cache-version bump regardless, so
+  nothing is lost by deferring.
+- **D6 — Barrel-chase helper at `metrics/` root** (e.g.
+  `src/metrics/reexport.rs`). Extracted from `coupling/inheritance.rs` as a
+  pure refactor under green in M2, porting its six re-export tests
+  unchanged. Consumers: DIT (coupling) today, the M2 call-graph JSON
+  builder, and any later-approved M3/M4 surfaces — none should import from
+  inside another category's module.
+- **D7 — JSON schema pinned; `SameFile` counts as resolved.**
+  `resolution_rate = (resolved + same_file) / (resolved + same_file +
+  unresolved)` — a same-file callee is a named, located target. Section
+  shape:
+
+  ```json
+  "call_graph": {
+    "resolution_rate": 0.71,
+    "edges_resolved": 812,
+    "edges_same_file": 340,
+    "edges_unresolved": 471,
+    "function_hubs": [
+      { "path": "src/scorer.rs", "name": "build_report",
+        "resolved_in_degree": 23 }
+    ]
+  }
+  ```
+
+  `resolved_in_degree` = distinct caller functions over `Resolved` +
+  `SameFile` edges, barrel-chased; `function_hubs` sorted descending then by
+  path/name for determinism, top 10.
+- **D8 — No config gate unless measured cost demands it.** Extraction ships
+  ungated; the M1 dogfood measurement stands as the abort criterion (> 15%
+  AST-pass slowdown → gate before M2 proceeds). No speculative knob.
+
+---
+
 ## 1. Proposed approach
 
 ### 1.1 Where it slots in
@@ -26,7 +92,16 @@ extractor is today:
 ```rust
 pub struct SourceAnalysis {
     // …existing fields…
-    pub call_sites: Vec<RawCallSite>,   // new
+    pub call_edges: Vec<RawCallEdge>,   // new (D5: aggregated at extraction)
+}
+
+pub struct RawCallEdge {
+    /// Innermost enclosing *named* function (D2: ancestor walk over a
+    /// per-language function-kind table), or "<toplevel>".
+    pub caller: String,
+    pub callee: RawCalleeRef,           // SameFile / Specifier / Unresolved
+    /// Call sites collapsed onto this edge (D5 — no line numbers kept).
+    pub count: u32,
 }
 ```
 
@@ -50,7 +125,9 @@ expression, classify the callee:
 | Bare identifier bound by an import | `import { f } from './x'; f()` | `Specifier { specifier, name }` (aliases unwrapped, same as `RawBaseRef`) |
 | Bare identifier, not import-bound | `f()` with local `function f` | `SameFile(name)` |
 | Qualifier is an import binding | Rust `helpers::run()` with `use crate::helpers;` — Phase 2 | `Specifier` |
-| Method on a value | `obj.method()`, `self.f()`, `this.f()` | `Unresolved { name: "method" }` |
+| Constructor call, binding rules as above (D3) | `new Foo()` | `SameFile` / `Specifier` / `Unresolved` by the same lookup |
+| Direct namespace-import receiver (D4) | `import * as h from './x'; h.run()` | `Specifier { specifier, name: "run" }` |
+| Method on a value | `obj.method()`, `self.f()`, `this.f()`, `h.a.b()` | `Unresolved { name: "method" }` |
 | Computed / dynamic | `fns[k]()`, `(cond ? a : b)()` | `Unresolved { name: "<dynamic>" }` |
 | Callback *reference* (not a call) | `arr.map(f)` | **not extracted** — no call edge exists at this site |
 
@@ -74,9 +151,9 @@ Nested functions attribute to the innermost, consistent with how
 A callee resolved to a barrel file must be chased to the declaring file, or
 function-level in-degree silently accretes on `index.ts`. The chase logic is
 `metrics/coupling/inheritance.rs::resolve_key` — named hop, star hop,
-cycle-cut. Plan: extract `resolve_key` into a shared helper
-(`metrics/coupling/reexport.rs` or similar) parameterized over the record
-index, used by both DIT and call-edge lookup. This is metric-time resolution
+cycle-cut. Plan: extract `resolve_key` into a shared helper at
+`src/metrics/reexport.rs` (D6 — consumers span categories) parameterized
+over the record index, used by both DIT and call-edge lookup. This is metric-time resolution
 (like DIT), so the stored snapshot keeps the barrel-level `Resolved` target
 and the knob-free chase stays live without re-collection — same rationale as
 the existing "depth is computed at metric time" comment on `ClassRecord`.
@@ -268,9 +345,10 @@ conclusion. If historical call graphs are ever wanted, that is the ADR's own
 
 ## 7. Renderer / output surface
 
-- JSON report: new top-level `call_graph` section — resolution rate, edge
-  counts by state, top function hubs (path, name, resolved in-degree). All
-  consumers read `score_thresholds` as today; no new hardcoded bands.
+- JSON report: new top-level `call_graph` section — schema pinned in **D7**
+  (resolution rate with `SameFile` counted as resolved, edge counts by
+  state, top-10 deterministic `function_hubs`). All consumers read
+  `score_thresholds` as today; no new hardcoded bands.
 - CLI/HTML: milestone-gated. M1–M2 expose JSON only; the HTML report gains a
   function-hub list inside the existing health tab later (template file per
   tab pattern in `renderer/templates/`, `include_str!` embedding, no
@@ -300,11 +378,14 @@ assertion, per lesson already encoded in this repo's tests:
    Query-validity tests for `JS_CALLS`/TS in `queries.rs` (existing pattern).
    Unit tests per syntactic form, one exact-expectation test each: bare local
    call → `SameFile`; imported call → `Specifier` with alias unwrapped;
-   default-import call; method call → `Unresolved{name}`; computed call →
-   `Unresolved{"<dynamic>"}`; `arr.map(f)` → **no record** (the refusal is a
-   test, or a mutant deleting the guard survives); nested-function caller
-   attribution; top-level → `"<toplevel>"`; two identical calls → one record
-   `count: 2`. Plus the `analyse_source_matches_the_four_individual_extractions`
+   default-import call; `new Foo()` with import-bound `Foo` → `Specifier`
+   (D3); namespace-import receiver `h.run()` → `Specifier` and deep/aliased
+   receiver `h.a.b()` → `Unresolved` (D4, both sides of the rule); method
+   call → `Unresolved{name}`; computed call → `Unresolved{"<dynamic>"}`;
+   `arr.map(f)` → **no record** (the refusal is a test, or a mutant deleting
+   the guard survives); nested-function caller attribution (innermost wins,
+   D2); call inside an anonymous arrow → `"<toplevel>"` (D2); top-level →
+   `"<toplevel>"`; two identical calls → one record `count: 2`. Plus the `analyse_source_matches_the_four_individual_extractions`
    consistency test extended to five channels. Integration:
    `call_graph_walking_skeleton.rs` — analyze `BARAD_DUR_TEST_REPO`, assert
    `call_records` in JSON output with the exact expected shape for a pinned
@@ -314,9 +395,14 @@ assertion, per lesson already encoded in this repo's tests:
    barrel chase: named hop, aliased hop, star hop, barrel-of-barrels,
    cyclic barrels terminate (port the six `inheritance.rs` re-export tests to
    the shared helper — refactor under green); resolution-rate arithmetic
-   pinned at exact fractions incl. 0-edge and all-resolved cases; trust-floor
+   pinned at exact fractions incl. 0-edge, all-resolved, and a mixed case
+   proving `SameFile` counts as resolved (D7); trust-floor
    boundary both sides (0.49 → `score: None` with exact description, 0.50 →
    data present).
+> **D1 gate:** milestones 3–6 below are *not committed*. M3–M4 are a
+> separate decision taken after observing M1–M2 resolution-rate numbers on
+> dogfood and real repos; M5–M6 remain gated as §9 describes.
+
 3. **M3 — god-object attribution (§5.1).** Dominance boundary both sides at
    0.6; low-resolution snapshot degrades to byte-identical current reason
    string; exact reason-string pinning.
