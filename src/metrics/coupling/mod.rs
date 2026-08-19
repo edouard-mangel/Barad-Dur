@@ -518,9 +518,16 @@ const JS_EXTS: &[&str] = &["ts", "tsx", "js", "jsx", "mjs", "cjs"];
 const DETECTABLE_EXTS: &[&str] = &["rs", "ts", "tsx", "js", "jsx", "mjs", "cjs"];
 
 /// True when the collector's AST pass actually ran on this snapshot.
-/// `collect_snapshot_at` (ADR-005, backfill) skips it, leaving
-/// `file_metrics` empty — an empty findings list there means "not
-/// collected", never "clean".
+/// Every production collection path (`collect_snapshot`/
+/// `collect_snapshot_with_options` for live `analyze`/`watch`, and
+/// `gate`'s and `backfill`'s baseline sampling via
+/// `collect_snapshot_at_with_ast`) runs the AST pass unconditionally, so
+/// `file_metrics` is always populated in practice. The AST-free
+/// `collect_snapshot_at` has no production callers left — it's kept
+/// `#[cfg(test)]`-only as this module's own AST-free coverage — so this
+/// guard now exists for snapshots built directly (e.g. `RepoSnapshot::new`
+/// in unit tests) without going through a collector at all: an empty
+/// findings list there means "not collected", never "clean".
 pub(crate) fn detection_ran(snapshot: &RepoSnapshot) -> bool {
     !snapshot.file_metrics.is_empty()
 }

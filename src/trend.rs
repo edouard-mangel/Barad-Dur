@@ -73,6 +73,49 @@ pub fn compute_entity_trend(series: &[f64]) -> EntityTrendDirection {
     }
 }
 
+/// Attach a `Growing`/`Shrinking`/`Stable` direction to every hotspot and
+/// coupling pair that has at least 2 points of history — matched by path
+/// (hotspots) or sorted pair key (coupling pairs). Entities absent from
+/// `history` (never in a backfill sample's top-N, or no history exists yet)
+/// are left as `None`, same "empty state" contract as `TrendSummary`.
+pub fn attach_entity_trends(
+    hotspots: &mut [crate::scorer::HotspotFile],
+    pairs: &mut [crate::scorer::CouplingPair],
+    history: &[crate::cache::entity_history::EntityTrendEntry],
+) {
+    for h in hotspots.iter_mut() {
+        let complexity_series: Vec<f64> = history
+            .iter()
+            .filter_map(|e| e.complexity.get(&h.path).copied())
+            .map(|c| c as f64)
+            .collect();
+        if complexity_series.len() >= 2 {
+            h.complexity_trend = Some(compute_entity_trend(&complexity_series));
+        }
+
+        let churn_series: Vec<f64> = history
+            .iter()
+            .filter_map(|e| e.churn.get(&h.path).copied())
+            .map(|c| c as f64)
+            .collect();
+        if churn_series.len() >= 2 {
+            h.churn_trend = Some(compute_entity_trend(&churn_series));
+        }
+    }
+
+    for p in pairs.iter_mut() {
+        let key = crate::cache::entity_history::entity_pair_key(&p.file_a, &p.file_b);
+        let series: Vec<f64> = history
+            .iter()
+            .filter_map(|e| e.coupling_degree.get(&key).copied())
+            .map(|c| c as f64)
+            .collect();
+        if series.len() >= 2 {
+            p.coupling_trend = Some(compute_entity_trend(&series));
+        }
+    }
+}
+
 /// One point on the sparkline: score at a given commit.
 #[derive(Debug, Clone, Serialize)]
 pub struct SparklinePoint {
@@ -551,5 +594,110 @@ mod tests {
             Some(5),
             "delta should compare against main branch entry (65 - 60 = +5), not feature branch"
         );
+    }
+
+    #[test]
+    fn attach_entity_trends_sets_direction_on_matching_hotspot() {
+        use crate::cache::entity_history::EntityTrendEntry;
+        use crate::scorer::HotspotFile;
+        use std::collections::HashMap;
+
+        let mut hotspots = vec![HotspotFile {
+            path: "src/big.rs".to_string(),
+            role: crate::metrics::file_role::FileRole::Source,
+            churn_count: 10,
+            bug_commit_count: 0,
+            loc: 500,
+            total_lines: 500,
+            cyclomatic_complexity: 50,
+            public_methods: 0,
+            properties: 0,
+            hotspot_score: 90.0,
+            coupling_trend: None,
+            content_findings: 0,
+            common_findings: 0,
+            control_findings: 0,
+            inheritance_findings: 0,
+            churn_timeline: vec![],
+            complexity_trend: None,
+            churn_trend: None,
+        }];
+        let mut pairs: Vec<crate::scorer::CouplingPair> = vec![];
+
+        let mut complexity_a = HashMap::new();
+        complexity_a.insert("src/big.rs".to_string(), 10u32);
+        let mut complexity_b = HashMap::new();
+        complexity_b.insert("src/big.rs".to_string(), 50u32);
+        let mut churn_a = HashMap::new();
+        churn_a.insert("src/big.rs".to_string(), 20u32);
+        let mut churn_b = HashMap::new();
+        churn_b.insert("src/big.rs".to_string(), 21u32);
+
+        let history = vec![
+            EntityTrendEntry {
+                timestamp: chrono::Utc::now(),
+                head: "aaa".into(),
+                branch: "main".into(),
+                complexity: complexity_a,
+                churn: churn_a,
+                coupling_degree: HashMap::new(),
+                schema_version: 1,
+            },
+            EntityTrendEntry {
+                timestamp: chrono::Utc::now(),
+                head: "bbb".into(),
+                branch: "main".into(),
+                complexity: complexity_b,
+                churn: churn_b,
+                coupling_degree: HashMap::new(),
+                schema_version: 1,
+            },
+        ];
+
+        attach_entity_trends(&mut hotspots, &mut pairs, &history);
+
+        assert_eq!(
+            hotspots[0].complexity_trend,
+            Some(EntityTrendDirection::Growing),
+            "10 -> 50 is a 400% increase, well past the 15% threshold"
+        );
+        assert_eq!(
+            hotspots[0].churn_trend,
+            Some(EntityTrendDirection::Stable),
+            "20 -> 21 is a 5% increase, under the 15% threshold — complexity and \
+             churn must classify independently"
+        );
+    }
+
+    #[test]
+    fn attach_entity_trends_leaves_none_for_unmatched_hotspot() {
+        use crate::scorer::HotspotFile;
+
+        let mut hotspots = vec![HotspotFile {
+            path: "src/never_seen.rs".to_string(),
+            role: crate::metrics::file_role::FileRole::Source,
+            churn_count: 0,
+            bug_commit_count: 0,
+            loc: 10,
+            total_lines: 10,
+            cyclomatic_complexity: 1,
+            public_methods: 0,
+            properties: 0,
+            hotspot_score: 5.0,
+            coupling_trend: None,
+            content_findings: 0,
+            common_findings: 0,
+            control_findings: 0,
+            inheritance_findings: 0,
+            churn_timeline: vec![],
+            complexity_trend: None,
+            churn_trend: None,
+        }];
+        let mut pairs: Vec<crate::scorer::CouplingPair> = vec![];
+
+        attach_entity_trends(&mut hotspots, &mut pairs, &[]);
+
+        assert_eq!(hotspots[0].complexity_trend, None);
+        assert_eq!(hotspots[0].churn_trend, None);
     }
 }

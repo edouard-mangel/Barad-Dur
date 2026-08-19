@@ -61,6 +61,7 @@ pub(crate) fn build_coupling_pairs(
                 is_test_pair: is_test_pair(a, b),
                 growth_a: growth.get(a).copied().unwrap_or(0),
                 growth_b: growth.get(b).copied().unwrap_or(0),
+                coupling_trend: None,
             }
         })
         .collect()

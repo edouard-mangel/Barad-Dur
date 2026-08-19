@@ -255,6 +255,7 @@ fn html_full_report_with_all_data_renders_ok() {
         is_test_pair: false,
         growth_a: 0,
         growth_b: 0,
+        coupling_trend: None,
     }];
     report.file_hotspots = vec![HotspotFile {
         path: "src/big.rs".into(),
@@ -273,6 +274,8 @@ fn html_full_report_with_all_data_renders_ok() {
         control_findings: 1,
         inheritance_findings: 0,
         churn_timeline: vec![],
+        complexity_trend: None,
+        churn_trend: None,
     }];
     report.author_ownership = vec![FileOwnership {
         path: "src/a.rs".into(),
@@ -502,6 +505,7 @@ fn coupling_tab_shows_test_pair_badge_when_is_test_pair() {
         is_test_pair: true,
         growth_a: 0,
         growth_b: 0,
+        coupling_trend: None,
     }];
     let html = render(&report).unwrap();
     // The emoji appears in the JS template; window.R carrying is_test_pair:true is what
@@ -532,6 +536,7 @@ fn coupling_tab_no_test_pair_badge_for_regular_pairs() {
         is_test_pair: false,
         growth_a: 0,
         growth_b: 0,
+        coupling_trend: None,
     }];
     let html = render(&report).unwrap();
     assert!(

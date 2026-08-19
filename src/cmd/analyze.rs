@@ -122,6 +122,17 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<()> {
         eprintln!("  Scoring: {}ms", t.elapsed().as_millis());
     }
 
+    let (entity_history, entity_history_warning) =
+        cache::entity_history::load_entity_history_checked(&local_path).unwrap_or_default();
+    if let Some(ref warning) = entity_history_warning {
+        println!("{}", warning);
+    }
+    trend::attach_entity_trends(
+        &mut report.file_hotspots,
+        &mut report.coupling_pairs,
+        &entity_history,
+    );
+
     let trend_summary = compute_trend_and_update_history(&mut report, &local_path, &current_head);
 
     render_and_write(&report, &args, &cfg, &trend_summary, &local_path)?;

@@ -269,6 +269,8 @@ mod tests {
             control_findings: 0,
             inheritance_findings: 0,
             churn_timeline: vec![],
+            complexity_trend: None,
+            churn_trend: None,
         }
     }
 
