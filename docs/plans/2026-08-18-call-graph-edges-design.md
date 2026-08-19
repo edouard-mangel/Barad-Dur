@@ -102,6 +102,39 @@ all folded into the classification table above:
   (`FN_KINDS`) to the `JS_FUNCTIONS` query universe; extending either
   alone fails the test.
 
+### M5 addendum (2026-08-19): Rust extraction shipped
+
+`rust_calls.rs` mirrors the TS/JS honesty contract. Decisions made in
+implementation:
+
+- Specifier strings are shaped like `use` paths, so the collector's
+  existing `resolve_rust_import` resolves them with **zero collector
+  changes**. `super::`-relative and mod-sibling paths emit honestly and
+  fail resolution → `Unresolved`.
+- `use` bindings: plain, aliased, and nested-group imports flattened;
+  globs skipped (unenumerable → under-count).
+- `Type::assoc_fn()` uses the capitalization convention: a capitalized
+  second-to-last segment is a type, so the target is the *module file*
+  declaring it; `Self::f()` is same-file by construction.
+- Method calls (`x.f()`, `self.f()`) → `Unresolved`; macro invocations
+  produce no edges and calls inside macro token trees are invisible to
+  the parser (documented under-count).
+- F1/F2/F5 parity: declared-name gate (`fn`/`struct`/`enum`), param +
+  `let` shadow detection, and a `RUST_FUNCTIONS`↔`FN_KINDS` tripwire.
+- Known limitation: Rust `pub use` re-exports are not recorded as
+  `ReExportRecord`s, so hub in-degree can accrete on a `mod.rs` that
+  forwards a symbol. Extending re-export extraction to Rust is future
+  work.
+
+**Dogfood finding:** with Rust live, barad-dûr self-analysis shows rate
+0.237 (608 resolved / 1,794 same-file / 7,737 unresolved) — idiomatic
+iterator-chain Rust is method-call-heavy, so recall is structurally low
+and the 0.5 floor suppresses hubs. Open design question for M6: the
+floor conflates recall with precision — the resolved edges themselves
+are high-confidence facts. A hub list built only on resolved edges may
+deserve a lower floor, a per-language floor, or a precision-based gate
+instead. Decide with more repo data before any scored metric.
+
 ---
 
 ## 1. Proposed approach

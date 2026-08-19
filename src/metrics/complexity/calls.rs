@@ -50,7 +50,7 @@ pub enum RawCalleeRef {
 /// yield none — call-graph extraction is TS/JS-only in M1 (design D1).
 pub fn extract_call_edges(path: &Path, content: &str) -> Vec<RawCallEdge> {
     let lang = detect_language(&path.to_string_lossy());
-    if !matches!(lang, Language::JsTs) {
+    if !matches!(lang, Language::JsTs | Language::Rust) {
         return Vec::new();
     }
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -60,7 +60,10 @@ pub fn extract_call_edges(path: &Path, content: &str) -> Vec<RawCallEdge> {
     let Some(tree) = parse(content, &grammar) else {
         return Vec::new();
     };
-    call_edges_from_tree(tree.root_node(), content)
+    match lang {
+        Language::JsTs => call_edges_from_tree(tree.root_node(), content),
+        _ => super::rust_calls::rust_call_edges_from_tree(tree.root_node(), content),
+    }
 }
 
 /// Tree-level core of [`extract_call_edges`], for callers that already
@@ -307,7 +310,7 @@ fn classify_callee(
 }
 
 /// Collapse call sites onto counted edges (D5), sorted deterministically.
-fn aggregate(sites: impl Iterator<Item = (String, RawCalleeRef)>) -> Vec<RawCallEdge> {
+pub(super) fn aggregate(sites: impl Iterator<Item = (String, RawCalleeRef)>) -> Vec<RawCallEdge> {
     let counts = sites.fold(
         HashMap::<(String, RawCalleeRef), u32>::new(),
         |mut m, key| {
@@ -561,8 +564,11 @@ mod tests {
     }
 
     #[test]
-    fn non_jsts_files_yield_no_edges() {
-        assert!(edges("src/lib.rs", "fn f() {}\nfn g() { f(); }\n").is_empty());
+    fn unsupported_language_files_yield_no_edges() {
+        // Rust is handled by rust_calls (M5); Python/Go remain out of
+        // scope per design D1.
+        assert!(edges("src/app.py", "def f():\n    g()\n").is_empty());
+        assert!(edges("src/main.go", "func f() { g() }\n").is_empty());
     }
 
     #[test]
