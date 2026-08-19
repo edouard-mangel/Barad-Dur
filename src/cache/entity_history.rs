@@ -20,6 +20,11 @@ const SCHEMA_VERSION: u32 = 1;
 pub struct EntityTrendEntry {
     pub timestamp: DateTime<Utc>,
     pub head: String,
+    /// Recorded for a future branch-aware filtering feature. Unlike
+    /// `compute_trend` in `src/trend.rs`, which filters aggregate-score
+    /// history to same-branch entries before computing a trend,
+    /// `attach_entity_trends` currently reads all history regardless of
+    /// branch — this is a deliberate scope decision, not a bug.
     pub branch: String,
     /// path → cyclomatic_complexity, top-N hotspots only.
     pub complexity: HashMap<String, u32>,
@@ -27,6 +32,9 @@ pub struct EntityTrendEntry {
     pub churn: HashMap<String, u32>,
     /// "{path_a}|{path_b}" (sorted) → co_changes, qualifying smell pairs only.
     pub coupling_degree: HashMap<String, usize>,
+    /// v1 is currently the only schema version and there is only one
+    /// producer, so this is not validated on read (see `load_entity_history`).
+    /// Revisit if/when the schema changes.
     pub schema_version: u32,
 }
 
@@ -43,6 +51,9 @@ pub fn load_entity_history(repo_path: &Path) -> Result<Vec<EntityTrendEntry>> {
         if line.trim().is_empty() {
             continue;
         }
+        // `schema_version` is deserialized but not validated here — fine
+        // while there's only one schema version (see `SCHEMA_VERSION`) and
+        // one producer of this file.
         if let Ok(entry) = serde_json::from_str::<EntityTrendEntry>(&line) {
             entries.push(entry);
         }

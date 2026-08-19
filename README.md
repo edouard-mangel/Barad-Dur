@@ -345,6 +345,8 @@ barad-dur backfill .            # backfill full history
 barad-dur backfill . --no-blame # skip blame (faster)
 ```
 
+If you've already run `backfill` before upgrading to a version with per-entity trend history, delete `.repository-analysis/trends.json` and re-run `backfill` — this version's AST-pass collection produces more accurate (and non-comparable) Health scores for historical samples than earlier versions did.
+
 ### coupling
 
 Analyze cross-repository coupling — discovers repos under a root directory and
@@ -375,6 +377,7 @@ When a `--token` is provided and the target is a GitHub URL, the report is enric
 ### Operational notes
 
 - **Cache**: Snapshots are cached at `.repository-analysis/snapshot.bin` (auto-added to `.gitignore`). Subsequent runs are instant if HEAD hasn't changed. Use `--no-cache` to force re-collection, `--cache-only` to fail if no cache exists.
+- **Per-entity trend history**: `backfill` also writes `.repository-analysis/entity_trends.json`, a JSONL sidecar with one line per backfill sample, holding per-file complexity/churn and per-coupling-pair co-change degree history used to compute the `Growing`/`Shrinking`/`Stable` trend directions shown on hotspot and coupling-pair rows.
 - **Progress**: In interactive mode (non-JSON, non-HTML), a progress spinner shows collection stages (commits, file tree, blame, complexity, indexes).
 - **Shallow clones**: Detected automatically with a warning. For accurate CI/CD results, ensure a full clone (`GIT_DEPTH=0` in GitLab CI).
 
