@@ -21,6 +21,7 @@ function parseAction(action: string): { category: string; metric: string; score:
   const metric = action
     .replace(/^\[[^\]]+\]\s*/, '')
     .replace(/\s*\(score:\s*\d+\).*$/, '')
+    .split('—')[0]
     .trim()
 
   return { category, metric, score, recommendation }

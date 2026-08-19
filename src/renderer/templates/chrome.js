@@ -132,7 +132,8 @@
     'Commit message quality': 'Percentage of commits with meaningful messages (\u2265 20 chars). Conventional commit format (feat:, fix:, chore:) scores higher.',
     'History cleanliness':    'Presence of merge commits, octopus merges, and empty messages. A clean history makes git bisect, blame, and revert reliable.',
     'Gitignore coverage':     'Whether build artefacts, OS metadata, or credentials are tracked in git. Tracked artefacts bloat the repo and can expose sensitive data.',
-    'Firefighting ratio':     'Percentage of commits containing fix / bug / hotfix / urgent keywords. A high ratio means the team is mostly reacting to failures rather than building.',
+    'Firefighting ratio':     'Percentage of commits containing revert / hotfix / emergency / rollback keywords. A high ratio means the team is mostly reacting to incidents rather than building.',
+    'Friction language ratio':'Percentage of commits admitting technical-debt friction (hack / workaround / kludge / temporary / fixme / sorry keywords). Unlike the firefighting ratio’s reactive-incident-response signal, this tracks debt knowingly shipped rather than something that broke.',
     // Coupling
     'Afferent coupling':      'Incoming dependencies (Ca) — how many files import this one. Detected via import graph built from use/import/require statements. Scored on the median Ca across ALL files, including the majority that have zero incoming deps. A value of 0.00 is normal and healthy for most repos. Scoring: median \u22642 \u2192 100, \u22645 \u2192 75, \u226410 \u2192 50, >10 \u2192 25.',
     'Efferent coupling':      'Outgoing dependencies (Ce) — how many files this one imports. Scored on the median Ce across ALL files. Most healthy codebases have median Ce near 0 because most files are leaf nodes that import few others. Scoring: median \u22643 \u2192 100, \u22646 \u2192 75, \u226412 \u2192 50, >12 \u2192 25.',

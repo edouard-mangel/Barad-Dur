@@ -10,6 +10,7 @@ pub fn compute_hygiene(
         history_cleanliness(snapshot, thresholds),
         gitignore_coverage(snapshot, thresholds),
         firefighting_ratio(snapshot, thresholds),
+        friction_language_ratio(snapshot, thresholds),
     ];
 
     CategoryResult {
@@ -261,13 +262,40 @@ fn gitignore_coverage(
     }
 }
 
-const FIREFIGHTING_KEYWORDS: &[&str] = &["revert", "hotfix", "emergency", "rollback"];
+/// Common English inflectional suffixes tolerated after a keyword match —
+/// "hotfixed" (hotfix+ed), "reverting" (revert+ing), "workarounds"
+/// (workaround+s) are genuine occurrences of the keyword. Deliberately
+/// small and generic (not a real stemmer): a suffix outside this set, like
+/// "athon" in "hackathon", means the word is unrelated to the keyword, not
+/// an inflection of it.
+const INFLECTION_SUFFIXES: &[&str] = &["s", "es", "d", "ed", "ing"];
 
-/// Percentage of commits that are reactive firefighting work (reverts, hotfixes, rollbacks).
-/// High ratios signal unreliable tests, missing staging, or deploy process issues.
-fn firefighting_ratio(
+/// True if `message` contains any of `keywords` as a whole word, or that
+/// word plus a common inflectional suffix — not as a substring of an
+/// unrelated word (e.g. "hack" must not match "hackathon", "hotfix" must
+/// not match "HotfixManager", but "hotfix" must match "hotfixed"). Shared
+/// by `firefighting_ratio` and `friction_language_ratio`, whose keyword
+/// lists are otherwise disjoint.
+fn message_contains_keyword(message: &str, keywords: &[&str]) -> bool {
+    let lower = message.to_lowercase();
+    let words = lower.split(|c: char| !c.is_ascii_alphanumeric());
+    words.filter(|w| !w.is_empty()).any(|w| {
+        keywords.iter().any(|kw| {
+            w == *kw || (w.starts_with(kw) && INFLECTION_SUFFIXES.contains(&&w[kw.len()..]))
+        })
+    })
+}
+
+/// Shared shape for a "percentage of commits whose message contains one of
+/// `keywords`" hygiene metric: window filtering, the N/A-on-empty branch,
+/// and the score ladder are identical between `firefighting_ratio` and
+/// `friction_language_ratio` — only the metric name, keyword list, and
+/// description wording differ, so those are the only parameters.
+fn keyword_commit_ratio(
     snapshot: &RepoSnapshot,
-    _thresholds: &crate::config::HygieneThresholds,
+    metric_name: &str,
+    keywords: &[&str],
+    describe: impl Fn(usize, f64, usize) -> String,
 ) -> MetricValue {
     let window_commits: Vec<_> = snapshot
         .commits
@@ -277,23 +305,20 @@ fn firefighting_ratio(
 
     if window_commits.is_empty() {
         return MetricValue {
-            name: "Firefighting ratio".to_string(),
+            name: metric_name.to_string(),
             description: "No commits in window".to_string(),
             raw_value: RawValue::Text("N/A".to_string()),
             score: None,
         };
     }
 
-    let firefighting = window_commits
+    let matched = window_commits
         .iter()
-        .filter(|c| {
-            let msg = c.message.to_lowercase();
-            FIREFIGHTING_KEYWORDS.iter().any(|kw| msg.contains(kw))
-        })
+        .filter(|c| message_contains_keyword(&c.message, keywords))
         .count();
 
     let total = window_commits.len();
-    let pct = (firefighting as f64 / total as f64) * 100.0;
+    let pct = (matched as f64 / total as f64) * 100.0;
 
     let score = if pct < 2.0 {
         90
@@ -308,13 +333,58 @@ fn firefighting_ratio(
     };
 
     MetricValue {
-        name: "Firefighting ratio".to_string(),
-        description: format!(
-            "{firefighting} firefighting commits ({pct:.1}% of {total} non-merge commits)"
-        ),
+        name: metric_name.to_string(),
+        description: describe(matched, pct, total),
         raw_value: RawValue::Percentage(pct),
         score: Some(score),
     }
+}
+
+const FIREFIGHTING_KEYWORDS: &[&str] = &["revert", "hotfix", "emergency", "rollback"];
+
+/// Percentage of commits that are reactive firefighting work (reverts, hotfixes, rollbacks).
+/// High ratios signal unreliable tests, missing staging, or deploy process issues.
+fn firefighting_ratio(
+    snapshot: &RepoSnapshot,
+    _thresholds: &crate::config::HygieneThresholds,
+) -> MetricValue {
+    keyword_commit_ratio(
+        snapshot,
+        "Firefighting ratio",
+        FIREFIGHTING_KEYWORDS,
+        |matched, pct, total| {
+            format!("{matched} firefighting commits ({pct:.1}% of {total} non-merge commits)")
+        },
+    )
+}
+
+const FRICTION_KEYWORDS: &[&str] = &[
+    "hack",
+    "workaround",
+    "kludge",
+    "temporary",
+    "fixme",
+    "sorry",
+];
+
+/// Percentage of commits whose message admits technical-debt friction
+/// (hacks, workarounds, temporary fixes) — a different social signal than
+/// `firefighting_ratio`'s reactive-incident-response keywords: this one
+/// signals debt knowingly shipped, not something that broke.
+fn friction_language_ratio(
+    snapshot: &RepoSnapshot,
+    _thresholds: &crate::config::HygieneThresholds,
+) -> MetricValue {
+    keyword_commit_ratio(
+        snapshot,
+        "Friction language ratio",
+        FRICTION_KEYWORDS,
+        |matched, pct, total| {
+            format!(
+                "{matched} commit(s) admitting technical-debt friction ({pct:.1}% of {total} non-merge commits)"
+            )
+        },
+    )
 }
 
 #[cfg(test)]
@@ -536,6 +606,469 @@ mod tests {
         let result = firefighting_ratio(&snapshot, &crate::config::HygieneThresholds::default());
         match result.raw_value {
             RawValue::Percentage(p) => assert!((p - 100.0).abs() < 1.0),
+            _ => panic!("Expected Percentage"),
+        }
+    }
+
+    #[test]
+    fn friction_language_ratio_detects_friction_commits() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+
+        let now = Utc::now();
+        let messages = [
+            "feat: add login page",         // normal
+            "hack: quick fix for the demo", // friction
+            "fix: typo in README",          // normal
+            "workaround for flaky CI",      // friction
+            "refactor: clean up modules",   // normal
+        ];
+
+        for (i, msg) in messages.iter().enumerate() {
+            snapshot.commits.push(Commit {
+                id: CommitId(i as u32),
+                author: 0,
+                timestamp: now - Duration::days(i as i64 + 1),
+                message: msg.to_string(),
+                files_changed: vec![],
+                is_merge: false,
+                parent_count: 1,
+            });
+        }
+
+        let result =
+            friction_language_ratio(&snapshot, &crate::config::HygieneThresholds::default());
+        match result.raw_value {
+            RawValue::Percentage(p) => assert!((p - 40.0).abs() < 1.0, "Expected 40%, got {}", p),
+            _ => panic!("Expected Percentage"),
+        }
+        assert!(
+            result.score.unwrap() <= 35,
+            "40% friction language should score ≤35, got {:?}",
+            result.score
+        );
+    }
+
+    #[test]
+    fn friction_language_ratio_ignores_merge_commits() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+
+        let now = Utc::now();
+        snapshot.commits = vec![
+            Commit {
+                id: CommitId(0),
+                author: 0,
+                timestamp: now - Duration::days(1),
+                message: "Merge branch main".into(),
+                files_changed: vec![],
+                is_merge: true,
+                parent_count: 2,
+            },
+            Commit {
+                id: CommitId(1),
+                author: 0,
+                timestamp: now - Duration::days(2),
+                message: "hack: temporary fix".into(),
+                files_changed: vec![],
+                is_merge: false,
+                parent_count: 1,
+            },
+            Commit {
+                id: CommitId(2),
+                author: 0,
+                timestamp: now - Duration::days(3),
+                message: "feat: new feature".into(),
+                files_changed: vec![],
+                is_merge: false,
+                parent_count: 1,
+            },
+        ];
+
+        let result =
+            friction_language_ratio(&snapshot, &crate::config::HygieneThresholds::default());
+        match result.raw_value {
+            RawValue::Percentage(p) => assert!((p - 50.0).abs() < 1.0, "Expected 50%, got {}", p),
+            _ => panic!("Expected Percentage"),
+        }
+    }
+
+    #[test]
+    fn friction_language_ratio_all_keywords_detected() {
+        let now = Utc::now();
+        for (msg, label) in &[
+            ("hack: quick patch", "hack"),
+            ("workaround for the bug", "workaround"),
+            ("kludge to unblock release", "kludge"),
+            ("temporary disable of the check", "temporary"),
+            ("fixme: revisit this later", "fixme"),
+            ("sorry, this is ugly", "sorry"),
+        ] {
+            let mut snapshot = RepoSnapshot::new(
+                PathBuf::from("/tmp"),
+                "test".into(),
+                "main".into(),
+                TimeWindow::default(),
+            );
+            snapshot.commits = vec![
+                Commit {
+                    id: CommitId(0),
+                    author: 0,
+                    timestamp: now - Duration::days(1),
+                    message: msg.to_string(),
+                    files_changed: vec![],
+                    is_merge: false,
+                    parent_count: 1,
+                },
+                Commit {
+                    id: CommitId(1),
+                    author: 0,
+                    timestamp: now - Duration::days(2),
+                    message: "feat: normal commit".into(),
+                    files_changed: vec![],
+                    is_merge: false,
+                    parent_count: 1,
+                },
+            ];
+            let result =
+                friction_language_ratio(&snapshot, &crate::config::HygieneThresholds::default());
+            match result.raw_value {
+                RawValue::Percentage(p) => assert!(
+                    (p - 50.0).abs() < 1.0,
+                    "keyword '{}' should yield 50%, got {}",
+                    label,
+                    p
+                ),
+                _ => panic!("Expected Percentage for keyword '{}'", label),
+            }
+        }
+    }
+
+    #[test]
+    fn friction_language_ratio_zero_percent_scores_highest() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        let now = Utc::now();
+        snapshot.commits = vec![
+            Commit {
+                id: CommitId(0),
+                author: 0,
+                timestamp: now - Duration::days(1),
+                message: "feat: add login".into(),
+                files_changed: vec![],
+                is_merge: false,
+                parent_count: 1,
+            },
+            Commit {
+                id: CommitId(1),
+                author: 0,
+                timestamp: now - Duration::days(2),
+                message: "refactor: extract module".into(),
+                files_changed: vec![],
+                is_merge: false,
+                parent_count: 1,
+            },
+        ];
+        let result =
+            friction_language_ratio(&snapshot, &crate::config::HygieneThresholds::default());
+        assert_eq!(
+            result.score,
+            Some(90),
+            "0% friction language should score 90"
+        );
+    }
+
+    /// Builds `total` non-merge commits in-window, the first `friction_count`
+    /// carrying a friction keyword and the rest a plain conventional message.
+    fn friction_commits(total: usize, friction_count: usize) -> RepoSnapshot {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        let now = Utc::now();
+        snapshot.commits = (0..total)
+            .map(|i| {
+                let message = if i < friction_count {
+                    format!("hack: friction commit {i}")
+                } else {
+                    format!("feat: normal commit {i}")
+                };
+                Commit {
+                    id: CommitId(i as u32),
+                    author: 0,
+                    timestamp: now - Duration::days(i as i64 + 1),
+                    message,
+                    files_changed: vec![],
+                    is_merge: false,
+                    parent_count: 1,
+                }
+            })
+            .collect();
+        snapshot
+    }
+
+    #[test]
+    fn friction_language_ratio_scores_75_just_below_5_percent_boundary() {
+        // 1/30 = 3.33% — in [2.0, 5.0) → score 75.
+        let snapshot = friction_commits(30, 1);
+        let result =
+            friction_language_ratio(&snapshot, &crate::config::HygieneThresholds::default());
+        match result.raw_value {
+            RawValue::Percentage(p) => assert!((p - 3.33).abs() < 0.1, "Expected ~3.33%, got {p}"),
+            _ => panic!("Expected Percentage"),
+        }
+        assert_eq!(result.score, Some(75), "~3.3% friction should score 75");
+    }
+
+    #[test]
+    fn friction_language_ratio_scores_55_just_below_10_percent_boundary() {
+        // 1/14 = 7.14% — in [5.0, 10.0) → score 55.
+        let snapshot = friction_commits(14, 1);
+        let result =
+            friction_language_ratio(&snapshot, &crate::config::HygieneThresholds::default());
+        match result.raw_value {
+            RawValue::Percentage(p) => assert!((p - 7.14).abs() < 0.1, "Expected ~7.14%, got {p}"),
+            _ => panic!("Expected Percentage"),
+        }
+        assert_eq!(result.score, Some(55), "~7.1% friction should score 55");
+    }
+
+    #[test]
+    fn friction_language_ratio_scores_35_just_below_20_percent_boundary() {
+        // 3/20 = 15.0% — in [10.0, 20.0) → score 35.
+        let snapshot = friction_commits(20, 3);
+        let result =
+            friction_language_ratio(&snapshot, &crate::config::HygieneThresholds::default());
+        match result.raw_value {
+            RawValue::Percentage(p) => assert!((p - 15.0).abs() < 0.1, "Expected ~15.0%, got {p}"),
+            _ => panic!("Expected Percentage"),
+        }
+        assert_eq!(result.score, Some(35), "~15% friction should score 35");
+    }
+
+    #[test]
+    fn friction_language_ratio_returns_na_when_no_commits_in_window() {
+        let snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        let result =
+            friction_language_ratio(&snapshot, &crate::config::HygieneThresholds::default());
+        match result.raw_value {
+            RawValue::Text(ref s) => assert_eq!(s, "N/A"),
+            _ => panic!("Expected Text(N/A) for empty commit list"),
+        }
+        assert_eq!(result.score, None);
+    }
+
+    #[test]
+    fn friction_language_ratio_is_case_insensitive() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        let now = Utc::now();
+        snapshot.commits = vec![Commit {
+            id: CommitId(0),
+            author: 0,
+            timestamp: now - Duration::days(1),
+            message: "HACK: SHIP IT ANYWAY".into(),
+            files_changed: vec![],
+            is_merge: false,
+            parent_count: 1,
+        }];
+        let result =
+            friction_language_ratio(&snapshot, &crate::config::HygieneThresholds::default());
+        match result.raw_value {
+            RawValue::Percentage(p) => assert!((p - 100.0).abs() < 1.0),
+            _ => panic!("Expected Percentage"),
+        }
+    }
+
+    #[test]
+    fn friction_language_ratio_ignores_hackathon_mentions() {
+        // "hack" must match as a whole word, not as a substring of an
+        // unrelated word like "hackathon" — a team that runs hackathons
+        // should not have every such commit counted as technical-debt
+        // friction.
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        let now = Utc::now();
+        snapshot.commits = vec![
+            Commit {
+                id: CommitId(0),
+                author: 0,
+                timestamp: now - Duration::days(1),
+                message: "prep slides for the hackathon".into(),
+                files_changed: vec![],
+                is_merge: false,
+                parent_count: 1,
+            },
+            Commit {
+                id: CommitId(1),
+                author: 0,
+                timestamp: now - Duration::days(2),
+                message: "feat: add login".into(),
+                files_changed: vec![],
+                is_merge: false,
+                parent_count: 1,
+            },
+        ];
+        let result =
+            friction_language_ratio(&snapshot, &crate::config::HygieneThresholds::default());
+        match result.raw_value {
+            RawValue::Percentage(p) => {
+                assert!(
+                    (p - 0.0).abs() < 1.0,
+                    "hackathon must not count as friction, got {p}%"
+                )
+            }
+            _ => panic!("Expected Percentage"),
+        }
+    }
+
+    #[test]
+    fn firefighting_ratio_word_boundary_ignores_partial_matches() {
+        // "hotfix" must match as a whole word, not as a substring of an
+        // unrelated word (mirrors the hackathon fix on the friction side —
+        // both metrics share the same word-boundary matching helper).
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        let now = Utc::now();
+        snapshot.commits = vec![
+            Commit {
+                id: CommitId(0),
+                author: 0,
+                timestamp: now - Duration::days(1),
+                message: "renamed HotfixManager to PatchManager".into(),
+                files_changed: vec![],
+                is_merge: false,
+                parent_count: 1,
+            },
+            Commit {
+                id: CommitId(1),
+                author: 0,
+                timestamp: now - Duration::days(2),
+                message: "feat: add login".into(),
+                files_changed: vec![],
+                is_merge: false,
+                parent_count: 1,
+            },
+        ];
+        let result = firefighting_ratio(&snapshot, &crate::config::HygieneThresholds::default());
+        match result.raw_value {
+            RawValue::Percentage(p) => assert!(
+                (p - 0.0).abs() < 1.0,
+                "HotfixManager must not count as firefighting, got {p}%"
+            ),
+            _ => panic!("Expected Percentage"),
+        }
+    }
+
+    #[test]
+    fn firefighting_ratio_matches_common_inflected_forms() {
+        // The word-boundary fix must not lose common inflections the old
+        // substring match used to catch — "reverting", "hotfixed" are
+        // genuine occurrences of the keyword, unlike "HotfixManager".
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        let now = Utc::now();
+        snapshot.commits = vec![
+            Commit {
+                id: CommitId(0),
+                author: 0,
+                timestamp: now - Duration::days(1),
+                message: "reverting the bad migration".into(),
+                files_changed: vec![],
+                is_merge: false,
+                parent_count: 1,
+            },
+            Commit {
+                id: CommitId(1),
+                author: 0,
+                timestamp: now - Duration::days(2),
+                message: "hotfixed the prod outage".into(),
+                files_changed: vec![],
+                is_merge: false,
+                parent_count: 1,
+            },
+        ];
+        let result = firefighting_ratio(&snapshot, &crate::config::HygieneThresholds::default());
+        match result.raw_value {
+            RawValue::Percentage(p) => assert!(
+                (p - 100.0).abs() < 1.0,
+                "both inflected forms must count as firefighting, got {p}%"
+            ),
+            _ => panic!("Expected Percentage"),
+        }
+    }
+
+    #[test]
+    fn friction_language_ratio_matches_common_inflected_forms() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        let now = Utc::now();
+        snapshot.commits = vec![
+            Commit {
+                id: CommitId(0),
+                author: 0,
+                timestamp: now - Duration::days(1),
+                message: "workarounds needed for flaky CI".into(),
+                files_changed: vec![],
+                is_merge: false,
+                parent_count: 1,
+            },
+            Commit {
+                id: CommitId(1),
+                author: 0,
+                timestamp: now - Duration::days(2),
+                message: "hacked together a quick patch".into(),
+                files_changed: vec![],
+                is_merge: false,
+                parent_count: 1,
+            },
+        ];
+        let result =
+            friction_language_ratio(&snapshot, &crate::config::HygieneThresholds::default());
+        match result.raw_value {
+            RawValue::Percentage(p) => assert!(
+                (p - 100.0).abs() < 1.0,
+                "both inflected forms must count as friction, got {p}%"
+            ),
             _ => panic!("Expected Percentage"),
         }
     }

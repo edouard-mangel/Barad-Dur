@@ -40,8 +40,12 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
         },
     )?;
 
+    // Computed once, shared by the Health category's "God objects" metric
+    // and by build_report's refactoring-action generator.
+    let flagged_god_objects = health::god_object_files(&snapshot, &cfg.thresholds.health);
+
     let categories = vec![
-        health::compute_health(&snapshot, &cfg.thresholds.health),
+        health::compute_health(&snapshot, &cfg.thresholds.health, &flagged_god_objects),
         team::compute_team(&snapshot, &cfg.thresholds.team),
         evolution::compute_evolution(&snapshot, &cfg.thresholds.evolution),
         hygiene::compute_hygiene(&snapshot, &cfg.thresholds.hygiene),
@@ -55,6 +59,7 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
         None,
         &weight_pairs,
         &cfg.thresholds.coupling,
+        &flagged_god_objects,
     );
 
     let threshold = args.min_score;

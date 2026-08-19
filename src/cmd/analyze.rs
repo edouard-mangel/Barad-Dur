@@ -69,9 +69,14 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<()> {
         eprintln!("Warning: No commits found in the specified time window.");
     }
 
+    // Computed once, shared by the Health category's "God objects" metric
+    // and by build_report's refactoring-action generator — avoids running
+    // the O(files) god-object detection pass twice per analysis.
+    let flagged_god_objects = metrics::health::god_object_files(&snapshot, &cfg.thresholds.health);
+
     // Compute selected metrics
     let t = std::time::Instant::now();
-    let mut categories = compute_selected_metrics(&snapshot, &args, &cfg);
+    let mut categories = compute_selected_metrics(&snapshot, &args, &cfg, &flagged_god_objects);
     if args.verbose > 0 {
         eprintln!("  Metrics: {}ms", t.elapsed().as_millis());
     }
@@ -96,6 +101,7 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<()> {
         remote_meta,
         &weight_pairs,
         &cfg.thresholds.coupling,
+        &flagged_god_objects,
     );
     report.dep_ecosystem_reports = dep_reports;
     if args.verbose > 0 {
@@ -285,13 +291,18 @@ pub fn compute_selected_metrics(
     snapshot: &RepoSnapshot,
     args: &AnalyzeArgs,
     cfg: &RepoConfig,
+    flagged_god_objects: &[(std::path::PathBuf, String)],
 ) -> Vec<CategoryResult> {
     use crate::metrics::{coupling, evolution, health, hygiene, team};
 
     let mut categories = Vec::new();
 
     if args.should_run("health") {
-        categories.push(health::compute_health(snapshot, &cfg.thresholds.health));
+        categories.push(health::compute_health(
+            snapshot,
+            &cfg.thresholds.health,
+            flagged_god_objects,
+        ));
     }
     if args.should_run("team") {
         categories.push(team::compute_team(snapshot, &cfg.thresholds.team));
