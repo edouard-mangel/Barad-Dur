@@ -305,3 +305,41 @@ fn merge_patterns_counts_merges() {
         _ => panic!("Expected Count"),
     }
 }
+
+mod primary_author_tests {
+    use super::*;
+    use crate::snapshot::BlameLine;
+    use chrono::Utc;
+
+    fn lines(counts: &[(usize, usize)]) -> Vec<BlameLine> {
+        counts
+            .iter()
+            .map(|&(author_id, line_count)| {
+                let mut l = BlameLine::new(author_id, Utc::now());
+                l.line_count = line_count;
+                l
+            })
+            .collect()
+    }
+
+    #[test]
+    fn empty_blame_has_no_primary_author() {
+        assert_eq!(primary_author(&[]), None);
+    }
+
+    #[test]
+    fn exact_fifty_fifty_split_has_no_primary_author() {
+        // Mirrors bus_factor.rs's strict-majority semantics (`max * 2 > total`).
+        assert_eq!(primary_author(&lines(&[(0, 50), (1, 50)])), None);
+    }
+
+    #[test]
+    fn fifty_one_forty_nine_yields_the_majority_author() {
+        assert_eq!(primary_author(&lines(&[(0, 49), (1, 51)])), Some(1));
+    }
+
+    #[test]
+    fn single_author_file_yields_that_author() {
+        assert_eq!(primary_author(&lines(&[(3, 10)])), Some(3));
+    }
+}

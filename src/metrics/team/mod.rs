@@ -393,5 +393,20 @@ fn merge_patterns(
     }
 }
 
+/// The author holding a *strict* majority (> 50%) of a file's blamed lines
+/// — the "main developer" proxy from the org-coupling design (Decision 1).
+/// `None` when blame is empty or no author clears the majority (a
+/// collectively-owned file has no single owner to mismatch against).
+/// Same strict-majority rule as `bus_factor`'s `is_file_author_dominated`,
+/// but returns *which* author instead of discarding it.
+fn primary_author(lines: &[crate::snapshot::BlameLine]) -> Option<usize> {
+    let counts = author_line_counts(lines);
+    let total: usize = counts.values().sum();
+    counts
+        .into_iter()
+        .find(|&(_, count)| count * 2 > total)
+        .map(|(author, _)| author)
+}
+
 #[cfg(test)]
 mod tests;
