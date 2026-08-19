@@ -61,9 +61,9 @@ pub fn build_report(
     categories: Vec<CategoryResult>,
     remote_meta: Option<RemoteMeta>,
     weights: &[(&str, f64)],
-    coupling: &crate::config::CouplingThresholds,
-    health: &crate::config::HealthThresholds,
+    thresholds: &crate::config::Thresholds,
 ) -> AnalysisReport {
+    let coupling = &thresholds.coupling;
     let overall_score = compute_overall_score_with_weights(&categories, weights);
     let top_actions = generate_top_actions(&categories);
     let coupling_actions = generate_coupling_actions(snapshot, coupling);
@@ -79,7 +79,7 @@ pub fn build_report(
     let import_cycles = build_import_cycles(snapshot);
     let coupling_finding_counts =
         crate::metrics::coupling::pressman_finding_counts(snapshot, coupling);
-    let call_graph = crate::metrics::callgraph::call_graph_report(snapshot, health);
+    let call_graph = crate::metrics::callgraph::call_graph_report(snapshot, &thresholds.health);
 
     AnalysisReport {
         repo_name: snapshot.name.clone(),
@@ -153,8 +153,7 @@ mod tests {
             categories,
             None,
             WEIGHTS,
-            &crate::config::CouplingThresholds::default(),
-            &crate::config::HealthThresholds::default(),
+            &crate::config::Thresholds::default(),
         );
 
         assert_eq!(report.repo_name, "test-repo");
@@ -182,8 +181,7 @@ mod tests {
             categories,
             None,
             WEIGHTS,
-            &crate::config::CouplingThresholds::default(),
-            &crate::config::HealthThresholds::default(),
+            &crate::config::Thresholds::default(),
         );
         assert!(
             report.audit.is_some(),
@@ -338,8 +336,7 @@ mod tests {
             categories,
             None,
             WEIGHTS,
-            &crate::config::CouplingThresholds::default(),
-            &crate::config::HealthThresholds::default(),
+            &crate::config::Thresholds::default(),
         );
         let entry = build_history_entry(&report, "abc123", None);
 
@@ -365,8 +362,7 @@ mod tests {
             categories,
             None,
             WEIGHTS,
-            &crate::config::CouplingThresholds::default(),
-            &crate::config::HealthThresholds::default(),
+            &crate::config::Thresholds::default(),
         );
         assert!(report.author_cards.is_empty());
     }
@@ -398,8 +394,7 @@ mod tests {
             categories,
             None,
             WEIGHTS,
-            &crate::config::CouplingThresholds::default(),
-            &crate::config::HealthThresholds::default(),
+            &crate::config::Thresholds::default(),
         );
         assert!(
             report.per_file_coupling.is_empty(),
@@ -421,8 +416,7 @@ mod tests {
             categories,
             None,
             WEIGHTS,
-            &crate::config::CouplingThresholds::default(),
-            &crate::config::HealthThresholds::default(),
+            &crate::config::Thresholds::default(),
         );
         assert!(
             report.import_edges.is_empty(),
@@ -447,8 +441,7 @@ mod tests {
             vec![make_category("Health", 80)],
             None,
             WEIGHTS,
-            &crate::config::CouplingThresholds::default(),
-            &crate::config::HealthThresholds::default(),
+            &crate::config::Thresholds::default(),
         )
     }
 
@@ -464,8 +457,7 @@ mod tests {
             vec![make_category("Health", 80)],
             None,
             WEIGHTS,
-            &crate::config::CouplingThresholds::default(),
-            &crate::config::HealthThresholds::default(),
+            &crate::config::Thresholds::default(),
         )
     }
 
@@ -486,8 +478,7 @@ mod tests {
             vec![make_category("Health", 80)],
             None,
             WEIGHTS,
-            &crate::config::CouplingThresholds::default(),
-            &crate::config::HealthThresholds::default(),
+            &crate::config::Thresholds::default(),
         );
         let cg = report.call_graph.expect("call_graph section");
         assert!((cg.resolution_rate - 1.0).abs() < f64::EPSILON);

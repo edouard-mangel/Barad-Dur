@@ -7,9 +7,9 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use crate::config::HealthThresholds;
-use crate::metrics::reexport::{reexport_index, resolve_symbol};
+use crate::metrics::reexport::{chase_named, reexport_index, resolve_symbol};
 use crate::scorer::{CallGraphReport, FunctionHub};
-use crate::snapshot::{CallRecord, CalleeRef, RepoSnapshot};
+use crate::snapshot::{CalleeRef, RepoSnapshot};
 
 /// Build the report's `call_graph` section. `None` means "no call data" —
 /// either the AST pass did not run (ADR-005 backfill snapshot) or no file
@@ -22,9 +22,16 @@ pub(crate) fn call_graph_report(
         return None;
     }
     let records = &snapshot.call_records;
-    let edges_resolved = count_kind(records, |c| matches!(c, CalleeRef::Resolved { .. }));
-    let edges_same_file = count_kind(records, |c| matches!(c, CalleeRef::SameFile(_)));
-    let edges_unresolved = count_kind(records, |c| matches!(c, CalleeRef::Unresolved { .. }));
+    // One exhaustive pass: a future CalleeRef variant is a compile error
+    // here, not a silently uncounted bucket (review C10).
+    let (edges_resolved, edges_same_file, edges_unresolved) =
+        records
+            .iter()
+            .fold((0, 0, 0), |(r, s, u), rec| match rec.callee {
+                CalleeRef::Resolved { .. } => (r + 1, s, u),
+                CalleeRef::SameFile(_) => (r, s + 1, u),
+                CalleeRef::Unresolved { .. } => (r, s, u + 1),
+            });
     // D7: a same-file callee is a named, located target — it counts as
     // resolved. Rate over edge records, not call counts.
     let resolution_rate = (edges_resolved + edges_same_file) as f64 / records.len() as f64;
@@ -42,10 +49,6 @@ pub(crate) fn call_graph_report(
         edges_unresolved,
         function_hubs,
     })
-}
-
-fn count_kind(records: &[CallRecord], pred: impl Fn(&CalleeRef) -> bool) -> usize {
-    records.iter().filter(|r| pred(&r.callee)).count()
 }
 
 /// Top-10 call targets by distinct-caller in-degree over resolved and
@@ -67,14 +70,20 @@ fn top_hubs(snapshot: &RepoSnapshot) -> Vec<FunctionHub> {
                 CalleeRef::Resolved { path, name } => {
                     let key = (path, name.as_str());
                     // A target resolved to a barrel has no declaration
-                    // there — chase; keep the original key when no chain
-                    // lands on a declaration (constructor edges, D3).
-                    resolve_symbol(key, &declares, &rx, &mut Vec::new()).unwrap_or(key)
+                    // there — chase to the declaring file; when nothing
+                    // declares the symbol (arrow-const exports, classes),
+                    // fall back to following explicit named re-exports to
+                    // their terminal file (review F4) so barrel and
+                    // direct importers land on one hub key.
+                    resolve_symbol(key, &declares, &rx, &mut Vec::new())
+                        .unwrap_or_else(|| chase_named(key, &rx))
                 }
                 CalleeRef::Unresolved { .. } => return None,
             };
             Some((target, (&r.path, r.caller.as_str())))
         })
+        // Self-recursion is not an incoming caller (review F3).
+        .filter(|(target, caller)| target != caller)
         .fold(HashMap::new(), |mut m, (target, caller)| {
             m.entry(target).or_default().insert(caller);
             m
@@ -246,6 +255,29 @@ mod tests {
     }
 
     #[test]
+    fn self_recursion_does_not_count_as_a_caller() {
+        // Review F3: `walk` calling itself must not add itself to its own
+        // distinct-caller in-degree.
+        let s = snap(
+            vec![
+                record("lib.ts", "walk", CalleeRef::SameFile("walk".into()), 1),
+                record("a.ts", "run", resolved("lib.ts", "walk"), 1),
+            ],
+            &[("lib.ts", "walk")],
+        );
+        let r = call_graph_report(&s, &HealthThresholds::default()).expect("report");
+        assert_eq!(
+            r.function_hubs,
+            vec![FunctionHub {
+                path: "lib.ts".into(),
+                name: "walk".into(),
+                resolved_in_degree: 1,
+            }],
+            "in-degree must count only the external caller"
+        );
+    }
+
+    #[test]
     fn barrel_resolved_target_is_chased_to_declaring_file() {
         let mut s = snap(
             vec![record("a.ts", "f", resolved("src/index.ts", "B"), 1)],
@@ -268,6 +300,39 @@ mod tests {
                 resolved_in_degree: 1,
             }],
             "in-degree must land on the declaring file, not the barrel"
+        );
+    }
+
+    #[test]
+    fn barrel_and_direct_importers_of_an_undeclared_symbol_share_one_hub() {
+        // Review F4: `export const useFetch = () => …` has no
+        // FunctionMetrics entry, so the declares-chase dead-ends — the
+        // named-only chase must still unify barrel importers with direct
+        // importers on the terminal file.
+        let mut s = snap(
+            vec![
+                record("a.ts", "f", resolved("src/index.ts", "useFetch"), 1),
+                record("b.ts", "g", resolved("src/use_fetch.ts", "useFetch"), 1),
+            ],
+            &[],
+        );
+        s.reexports = vec![ReExportRecord {
+            path: "src/index.ts".into(),
+            target: "src/use_fetch.ts".into(),
+            kind: ReExportKind::Named {
+                exported: "useFetch".into(),
+                source: "useFetch".into(),
+            },
+        }];
+        let r = call_graph_report(&s, &HealthThresholds::default()).expect("report");
+        assert_eq!(
+            r.function_hubs,
+            vec![FunctionHub {
+                path: "src/use_fetch.ts".into(),
+                name: "useFetch".into(),
+                resolved_in_degree: 2,
+            }],
+            "one symbol must not split into a barrel row and a direct row"
         );
     }
 

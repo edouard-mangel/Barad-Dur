@@ -10,7 +10,7 @@ use std::path::Path;
 use tree_sitter::Node;
 
 use super::fallback::{detect_language, Language};
-use super::inheritance::import_bindings;
+use super::inheritance::{import_bindings, namespace_bindings};
 use super::lang_dispatch::grammar_for;
 use super::pressman::descendants;
 use super::treesitter::parse;
@@ -30,7 +30,10 @@ pub struct RawCallEdge {
 
 /// The callee as extraction sees it. `Specifier` is resolved to a repo
 /// path (or `Unresolved`) by the collector's snapshot builder.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// Variant order is load-bearing: the derived `Ord` is the edge sort
+/// order within a file.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RawCalleeRef {
     /// Callee identifier not bound by any import — assumed same-file.
     SameFile(String),
@@ -65,35 +68,43 @@ pub fn extract_call_edges(path: &Path, content: &str) -> Vec<RawCallEdge> {
 pub(super) fn call_edges_from_tree(root: Node<'_>, content: &str) -> Vec<RawCallEdge> {
     let imports = import_bindings(root, content);
     let namespaces = namespace_bindings(root, content);
+    let declared = declared_names(root, content);
     let sites = descendants(root)
         .into_iter()
         .filter(|n| matches!(n.kind(), "call_expression" | "new_expression"))
         .filter_map(|n| {
-            let callee = classify_callee(n, content, &imports, &namespaces)?;
+            let callee = classify_callee(n, content, &imports, &namespaces, &declared);
+            let callee = callee?;
             Some((enclosing_caller(n, content), callee))
         });
     aggregate(sites)
 }
 
-/// local namespace binding → module specifier (`import * as h from './x'`).
-/// Complements `import_bindings`, which covers named and default imports.
-fn namespace_bindings(root: Node<'_>, content: &str) -> HashMap<String, String> {
+/// Node kinds whose `name` field (or declarator pattern) introduces a
+/// file-local binding a bare call could target.
+const DECL_KINDS: &[&str] = &[
+    "function_declaration",
+    "generator_function_declaration",
+    "class_declaration",
+    "abstract_class_declaration",
+    "variable_declarator",
+];
+
+/// Every name the file itself declares (functions, generators, classes,
+/// `const`/`let`/`var` declarators at any depth). A bare identifier call
+/// is `SameFile` only when its name is in this set — anything else
+/// (`fetch`, `setTimeout`, other globals) is a real call whose target we
+/// cannot name, and claiming it resolved would inflate the resolution
+/// rate the trust floor gates on (review F1).
+fn declared_names(root: Node<'_>, content: &str) -> std::collections::HashSet<String> {
     descendants(root)
         .into_iter()
-        .filter(|n| n.kind() == "import_statement")
-        .filter_map(|stmt| {
-            let source = stmt.child_by_field_name("source")?;
-            let specifier = text(source, content)
-                .trim_matches(|c| c == '"' || c == '\'')
-                .to_string();
-            let ns = descendants(stmt)
-                .into_iter()
-                .find(|n| n.kind() == "namespace_import")?;
-            let ident = descendants(ns)
-                .into_iter()
-                .find(|n| n.kind() == "identifier")?;
-            Some((text(ident, content).to_string(), specifier))
-        })
+        .filter(|n| DECL_KINDS.contains(&n.kind()))
+        .filter_map(|n| n.child_by_field_name("name"))
+        // TS class names parse as `type_identifier`; everything else
+        // introduces a plain `identifier`.
+        .filter(|name| matches!(name.kind(), "identifier" | "type_identifier"))
+        .map(|name| text(name, content).to_string())
         .collect()
 }
 
@@ -113,11 +124,87 @@ fn enclosing_caller(call: Node<'_>, content: &str) -> String {
         .unwrap_or_else(|| "<toplevel>".to_string())
 }
 
+/// Function-scope node kinds whose parameters can shadow a binding.
+const SCOPE_FN_KINDS: &[&str] = &[
+    "function_declaration",
+    "generator_function_declaration",
+    "function_expression",
+    "generator_function",
+    "arrow_function",
+    "method_definition",
+];
+
+/// Whether `name` is rebound between the call site and the file scope —
+/// a parameter or a block-local declaration in any enclosing scope
+/// (review F2). Deliberately over-approximates in edge cases: treating a
+/// call as shadowed only downgrades it to `Unresolved`, which under-counts
+/// and never fabricates (design §1.2).
+fn is_shadowed(call: Node<'_>, name: &str, content: &str) -> bool {
+    std::iter::successors(call.parent(), |n| n.parent())
+        .any(|anc| scope_params_contain(anc, name, content) || block_declares(anc, name, content))
+}
+
+fn scope_params_contain(node: Node<'_>, name: &str, content: &str) -> bool {
+    SCOPE_FN_KINDS.contains(&node.kind())
+        && ["parameters", "parameter"]
+            .iter()
+            .filter_map(|f| node.child_by_field_name(f))
+            .any(|params| {
+                let mut idents = Vec::new();
+                pattern_identifiers(params, &mut idents);
+                idents.iter().any(|n| text(*n, content) == name)
+            })
+}
+
+fn block_declares(node: Node<'_>, name: &str, content: &str) -> bool {
+    if node.kind() != "statement_block" {
+        return false;
+    }
+    (0..node.named_child_count())
+        .filter_map(|i| node.named_child(i as u32))
+        .filter(|c| matches!(c.kind(), "lexical_declaration" | "variable_declaration"))
+        .any(|decl| {
+            let mut idents = Vec::new();
+            pattern_identifiers(decl, &mut idents);
+            idents.iter().any(|n| text(*n, content) == name)
+        })
+}
+
+/// Identifiers *bound* by a parameter list, declaration, or destructuring
+/// pattern — default values and declarator initializers are skipped so an
+/// expression on the right-hand side never counts as a binding.
+fn pattern_identifiers<'a>(node: Node<'a>, out: &mut Vec<Node<'a>>) {
+    match node.kind() {
+        "identifier" => out.push(node),
+        "required_parameter" | "optional_parameter" => {
+            if let Some(p) = node.child_by_field_name("pattern") {
+                pattern_identifiers(p, out);
+            }
+        }
+        "assignment_pattern" => {
+            if let Some(l) = node.child_by_field_name("left") {
+                pattern_identifiers(l, out);
+            }
+        }
+        "variable_declarator" => {
+            if let Some(n) = node.child_by_field_name("name") {
+                pattern_identifiers(n, out);
+            }
+        }
+        _ => {
+            (0..node.named_child_count())
+                .filter_map(|i| node.named_child(i as u32))
+                .for_each(|c| pattern_identifiers(c, out));
+        }
+    }
+}
+
 fn classify_callee(
     call: Node<'_>,
     content: &str,
     imports: &HashMap<String, (String, String)>,
     namespaces: &HashMap<String, String>,
+    declared: &std::collections::HashSet<String>,
 ) -> Option<RawCalleeRef> {
     // `new Foo()` (D3) classifies exactly like `foo()` — the constructor
     // expression goes through the same binding rules.
@@ -127,12 +214,20 @@ fn classify_callee(
     match callee.kind() {
         "identifier" => {
             let ident = text(callee, content).to_string();
+            // A shadowed name targets the local rebinding, not the import
+            // or file-level declaration (review F2).
+            if is_shadowed(call, &ident, content) {
+                return Some(RawCalleeRef::Unresolved { name: ident });
+            }
             Some(match imports.get(&ident) {
                 Some((specifier, name)) => RawCalleeRef::Specifier {
                     specifier: specifier.clone(),
                     name: name.clone(),
                 },
-                None => RawCalleeRef::SameFile(ident),
+                None if declared.contains(&ident) => RawCalleeRef::SameFile(ident),
+                // Unbound identifier — a global or host builtin, not a
+                // file-local target (review F1).
+                None => RawCalleeRef::Unresolved { name: ident },
             })
         }
         // `h.run()` with a *direct* namespace-import receiver resolves
@@ -144,6 +239,7 @@ fn classify_callee(
             let namespace_specifier = callee
                 .child_by_field_name("object")
                 .filter(|o| o.kind() == "identifier")
+                .filter(|o| !is_shadowed(call, text(*o, content), content))
                 .and_then(|o| namespaces.get(text(o, content)));
             Some(match namespace_specifier {
                 Some(specifier) => RawCalleeRef::Specifier {
@@ -177,19 +273,8 @@ fn aggregate(sites: impl Iterator<Item = (String, RawCalleeRef)>) -> Vec<RawCall
             count,
         })
         .collect();
-    edges.sort_by(|a, b| {
-        (&a.caller, callee_sort_key(&a.callee)).cmp(&(&b.caller, callee_sort_key(&b.callee)))
-    });
+    edges.sort_by(|a, b| (&a.caller, &a.callee).cmp(&(&b.caller, &b.callee)));
     edges
-}
-
-/// Stable ordering for edges within a file: variant rank, then names.
-fn callee_sort_key(c: &RawCalleeRef) -> (u8, &str, &str) {
-    match c {
-        RawCalleeRef::SameFile(name) => (0, name, ""),
-        RawCalleeRef::Specifier { specifier, name } => (1, specifier, name),
-        RawCalleeRef::Unresolved { name } => (2, name, ""),
-    }
 }
 
 fn text<'a>(node: Node<'_>, content: &'a str) -> &'a str {
@@ -224,7 +309,7 @@ mod tests {
 
     #[test]
     fn method_call_on_value_is_unresolved_with_method_name() {
-        let e = edges("src/a.ts", "const x = mk();\nx.save();\n");
+        let e = edges("src/a.ts", "function mk() {}\nconst x = mk();\nx.save();\n");
         assert_eq!(
             e,
             vec![
@@ -319,7 +404,10 @@ mod tests {
 
     #[test]
     fn call_attributes_to_enclosing_function() {
-        let e = edges("src/a.ts", "function outer() { helper(); }\n");
+        let e = edges(
+            "src/a.ts",
+            "function helper() {}\nfunction outer() { helper(); }\n",
+        );
         assert_eq!(
             e,
             vec![RawCallEdge {
@@ -332,7 +420,7 @@ mod tests {
 
     #[test]
     fn nested_function_call_attributes_to_innermost() {
-        let src = "function outer() {\n  function inner() { helper(); }\n}\n";
+        let src = "function helper() {}\nfunction outer() {\n  function inner() { helper(); }\n}\n";
         let e = edges("src/a.ts", src);
         assert_eq!(
             e,
@@ -346,7 +434,7 @@ mod tests {
 
     #[test]
     fn method_call_site_attributes_to_method_name() {
-        let src = "class A {\n  render() { helper(); }\n}\n";
+        let src = "function helper() {}\nclass A {\n  render() { helper(); }\n}\n";
         let e = edges("src/a.ts", src);
         assert_eq!(
             e,
@@ -362,7 +450,10 @@ mod tests {
     fn call_inside_anonymous_arrow_attributes_to_toplevel() {
         // D2: arrows have no FunctionMetrics identity — the walk passes
         // through them to the nearest *named* function or "<toplevel>".
-        let e = edges("src/a.ts", "const go = () => { helper(); };\n");
+        let e = edges(
+            "src/a.ts",
+            "function helper() {}\nconst go = () => { helper(); };\n",
+        );
         assert_eq!(
             e,
             vec![RawCallEdge {
@@ -461,7 +552,10 @@ mod tests {
     fn edge_sort_is_not_input_order() {
         // Call sites appear in REVERSE of the sorted output — a degenerate
         // sort key (any constant) would keep AST order via stable sort.
-        let e = edges("src/a.ts", "o.save();\nb();\na();\n");
+        let e = edges(
+            "src/a.ts",
+            "function b() {}\nfunction a() {}\no.save();\nb();\na();\n",
+        );
         let callees: Vec<&RawCalleeRef> = e.iter().map(|r| &r.callee).collect();
         assert_eq!(
             callees,
@@ -472,6 +566,170 @@ mod tests {
                     name: "save".into()
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn unbound_global_calls_are_unresolved_not_same_file() {
+        // Review F1: `fetch`, `setTimeout`, … are neither import-bound nor
+        // declared in the file — claiming SameFile would inflate the
+        // resolution rate and surface phantom hubs.
+        let e = edges("src/a.ts", "fetch(u);\nsetTimeout(cb, 5);\n");
+        assert_eq!(
+            e,
+            vec![
+                RawCallEdge {
+                    caller: "<toplevel>".into(),
+                    callee: RawCalleeRef::Unresolved {
+                        name: "fetch".into()
+                    },
+                    count: 1,
+                },
+                RawCallEdge {
+                    caller: "<toplevel>".into(),
+                    callee: RawCalleeRef::Unresolved {
+                        name: "setTimeout".into()
+                    },
+                    count: 1,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn const_arrow_declaration_still_counts_as_same_file() {
+        // A file-local `const f = () => …` is a real in-file target.
+        let e = edges("src/a.ts", "const f = () => 1;\nf();\n");
+        assert_eq!(
+            e,
+            vec![RawCallEdge {
+                caller: "<toplevel>".into(),
+                callee: RawCalleeRef::SameFile("f".into()),
+                count: 1,
+            }]
+        );
+    }
+
+    #[test]
+    fn parameter_shadowing_an_import_downgrades_to_unresolved() {
+        // Review F2: the call targets the parameter, not './db' — a
+        // resolved edge here would be fabricated.
+        let src = "import { save } from './db';\n\
+                   export function retry(save: () => void) { save(); }\n";
+        let e = edges("src/a.ts", src);
+        assert_eq!(
+            e,
+            vec![RawCallEdge {
+                caller: "retry".into(),
+                callee: RawCalleeRef::Unresolved {
+                    name: "save".into()
+                },
+                count: 1,
+            }]
+        );
+    }
+
+    #[test]
+    fn local_declaration_shadowing_an_import_downgrades_to_unresolved() {
+        let src = "import { save } from './db';\n\
+                   export function f() { const save = () => 1; save(); }\n";
+        let e = edges("src/a.ts", src);
+        assert_eq!(
+            e,
+            vec![RawCallEdge {
+                caller: "f".into(),
+                callee: RawCalleeRef::Unresolved {
+                    name: "save".into()
+                },
+                count: 1,
+            }]
+        );
+    }
+
+    #[test]
+    fn parameter_shadowing_a_namespace_import_downgrades_to_unresolved() {
+        let src = "import * as h from './x';\nfunction g(h: any) { h.run(); }\n";
+        let e = edges("src/a.ts", src);
+        assert_eq!(
+            e,
+            vec![RawCallEdge {
+                caller: "g".into(),
+                callee: RawCalleeRef::Unresolved { name: "run".into() },
+                count: 1,
+            }]
+        );
+    }
+
+    #[test]
+    fn unrelated_parameters_do_not_shadow_an_import() {
+        // The shadow check must be scoped to the call's own ancestors —
+        // a different function's parameter must not over-trigger it.
+        let src = "import { save } from './db';\n\
+                   function other(save: any) {}\n\
+                   function g(x: any) { save(); }\n";
+        let e = edges("src/a.ts", src);
+        assert_eq!(
+            e,
+            vec![RawCallEdge {
+                caller: "g".into(),
+                callee: RawCalleeRef::Specifier {
+                    specifier: "./db".into(),
+                    name: "save".into(),
+                },
+                count: 1,
+            }]
+        );
+    }
+
+    #[test]
+    fn caller_attribution_universe_matches_the_js_functions_query() {
+        // Review F5: FN_KINDS hand-mirrors the JS_FUNCTIONS capture set.
+        // This fixture holds one call inside every candidate function
+        // shape; whatever the query captures must be exactly the set of
+        // caller names attribution produces. Extending either list alone
+        // fails here.
+        let src = "function marker() {}\n\
+                   function decl() { marker(); }\n\
+                   class C { meth() { marker(); } }\n\
+                   function* gen() { marker(); }\n\
+                   const arrow = () => { marker(); };\n";
+        let grammar: tree_sitter::Language = tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into();
+        let tree = parse(src, &grammar).expect("parse");
+        let (query, matches) = super::super::treesitter::collect_matches(
+            &tree,
+            src.as_bytes(),
+            super::super::queries::JS_FUNCTIONS,
+            &grammar,
+        );
+        let query = query.expect("valid query");
+        let name_idx = query
+            .capture_names()
+            .iter()
+            .position(|n| *n == "name")
+            .expect("@name capture") as u32;
+        let query_names: std::collections::HashSet<String> = matches
+            .iter()
+            .flatten()
+            .filter(|(idx, _)| *idx == name_idx)
+            .map(|(_, range)| src[range.clone()].to_string())
+            .collect();
+
+        let attributed_callers: std::collections::HashSet<String> = edges("src/a.ts", src)
+            .into_iter()
+            .map(|e| e.caller)
+            .filter(|c| c != "<toplevel>")
+            .collect();
+
+        // `marker` is a declared function with no calls inside it — it
+        // appears in the query universe but never as a caller.
+        let expected: std::collections::HashSet<String> = query_names
+            .iter()
+            .filter(|n| n.as_str() != "marker")
+            .cloned()
+            .collect();
+        assert_eq!(
+            attributed_callers, expected,
+            "FN_KINDS (attribution) and JS_FUNCTIONS (queries.rs) diverged"
         );
     }
 

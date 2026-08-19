@@ -33,8 +33,7 @@ fn live_analysis_records_finding_counts_in_history_entry() {
         categories,
         None,
         &weight_pairs,
-        &default_cfg.thresholds.coupling,
-        &default_cfg.thresholds.health,
+        &default_cfg.thresholds,
     );
 
     let counts = report
@@ -91,8 +90,7 @@ fn backfill_style_snapshot_records_no_counts_and_unscored_metrics() {
         categories,
         None,
         &weight_pairs,
-        &default_cfg.thresholds.coupling,
-        &default_cfg.thresholds.health,
+        &default_cfg.thresholds,
     );
     assert_eq!(report.coupling_finding_counts, None);
     let entry = scorer::build_history_entry(&report, &head, Some("backfill".into()));

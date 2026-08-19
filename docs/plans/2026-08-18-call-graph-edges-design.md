@@ -77,6 +77,31 @@ open language in the sections below.
   ungated; the M1 dogfood measurement stands as the abort criterion (> 15%
   AST-pass slowdown → gate before M2 proceeds). No speculative knob.
 
+### Review addendum (2026-08-19, post-implementation)
+
+Code review of the M1–M2 implementation produced five correctness fixes,
+all folded into the classification table above:
+
+- **F1** — `SameFile` now requires an in-file declaration (functions,
+  generators, classes, declarators); unbound identifiers (globals) are
+  `Unresolved`. Dogfood impact: this repo's dashboard rate fell from
+  0.411 to an honest 0.165 — a quarter of all edges had been phantom
+  resolutions.
+- **F2** — enclosing-scope shadow detection (parameters + block-level
+  declarations, destructuring-aware) downgrades shadowed names to
+  `Unresolved`. Over-approximate by design: a false shadow only
+  under-counts. Full scope analysis remains out of scope.
+- **F3** — self-recursion is excluded from a function's distinct-caller
+  in-degree.
+- **F4** — when the declares-based barrel chase dead-ends (symbols with
+  no `FunctionMetrics` identity: arrow-const exports, classes), hub
+  targets fall back to following *named* re-exports to their terminal
+  file, so barrel and direct importers share one hub key. Star re-exports
+  are never followed without a declaration — that would be a guess.
+- **F5** — a cross-check test pins the caller-attribution kind list
+  (`FN_KINDS`) to the `JS_FUNCTIONS` query universe; extending either
+  alone fails the test.
+
 ---
 
 ## 1. Proposed approach
@@ -123,7 +148,9 @@ expression, classify the callee:
 | Callee shape | Example | Classification |
 |---|---|---|
 | Bare identifier bound by an import | `import { f } from './x'; f()` | `Specifier { specifier, name }` (aliases unwrapped, same as `RawBaseRef`) |
-| Bare identifier, not import-bound | `f()` with local `function f` | `SameFile(name)` |
+| Bare identifier declared in-file (function/generator/class/declarator) | `f()` with local `function f` | `SameFile(name)` |
+| Bare identifier neither import-bound nor declared in-file (review F1) | `fetch()`, `setTimeout()` | `Unresolved { name }` — claiming SameFile would inflate the trust-floor rate |
+| Identifier shadowed by an enclosing parameter or block declaration (review F2) | `function retry(save){ save(); }` with `import { save }` | `Unresolved { name }` — the call targets the rebinding; shadow detection over-approximates in the under-counting direction |
 | Qualifier is an import binding | Rust `helpers::run()` with `use crate::helpers;` — Phase 2 | `Specifier` |
 | Constructor call, binding rules as above (D3) | `new Foo()` | `SameFile` / `Specifier` / `Unresolved` by the same lookup |
 | Direct namespace-import receiver (D4) | `import * as h from './x'; h.run()` | `Specifier { specifier, name: "run" }` |

@@ -541,6 +541,31 @@ fn ast_pass_at(repo: &git2::Repository, files: &[FileEntry]) -> Result<AstParts>
     ))
 }
 
+/// Shared skeleton of the three raw→snapshot resolvers: build the known
+/// file-set once, map every raw item (with `resolve_specifier` access via
+/// the known set), and sort deterministically. `map` returning `None`
+/// drops the item (re-exports drop unresolvable specifiers; the other
+/// resolvers never drop).
+fn resolve_against_files<R, T, K: Ord>(
+    raw: HashMap<PathBuf, Vec<R>>,
+    files: &[FileEntry],
+    map: impl Fn(&PathBuf, R, &std::collections::HashSet<&PathBuf>) -> Option<T>,
+    sort_key: impl Fn(&T) -> K,
+) -> Vec<T> {
+    let known: std::collections::HashSet<&PathBuf> = files.iter().map(|f| &f.path).collect();
+    let mut records: Vec<T> = raw
+        .into_iter()
+        .flat_map(|(path, items)| {
+            items
+                .into_iter()
+                .filter_map(|item| map(&path, item, &known))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    records.sort_by_key(sort_key);
+    records
+}
+
 /// Resolve raw re-export specifiers against the repo's file set, producing
 /// the snapshot's `reexports` (sorted by path). Unresolvable specifiers
 /// (external packages) are dropped — they can't lead to a project-local
@@ -549,30 +574,25 @@ fn resolve_reexports(
     raw: HashMap<PathBuf, Vec<RawReExport>>,
     files: &[FileEntry],
 ) -> Vec<ReExportRecord> {
-    let known: std::collections::HashSet<&PathBuf> = files.iter().map(|f| &f.path).collect();
-    let mut records: Vec<ReExportRecord> = raw
-        .into_iter()
-        .flat_map(|(path, rexs)| {
-            rexs.into_iter()
-                .filter_map(|r| {
-                    let target = resolve_specifier(&r.specifier, &path, &known)?;
-                    let kind = match r.kind {
-                        RawReExportKind::Named { exported, source } => {
-                            ReExportKind::Named { exported, source }
-                        }
-                        RawReExportKind::Star => ReExportKind::Star,
-                    };
-                    Some(ReExportRecord {
-                        path: path.clone(),
-                        target,
-                        kind,
-                    })
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect();
-    records.sort_by(|a, b| (&a.path, &a.target).cmp(&(&b.path, &b.target)));
-    records
+    resolve_against_files(
+        raw,
+        files,
+        |path, r, known| {
+            let target = resolve_specifier(&r.specifier, path, known)?;
+            let kind = match r.kind {
+                RawReExportKind::Named { exported, source } => {
+                    ReExportKind::Named { exported, source }
+                }
+                RawReExportKind::Star => ReExportKind::Star,
+            };
+            Some(ReExportRecord {
+                path: path.clone(),
+                target,
+                kind,
+            })
+        },
+        |r| (r.path.clone(), r.target.clone()),
+    )
 }
 
 /// Resolve raw call edges' import specifiers against the repo's file set,
@@ -583,50 +603,29 @@ fn resolve_call_records(
     raw: HashMap<PathBuf, Vec<RawCallEdge>>,
     files: &[FileEntry],
 ) -> Vec<CallRecord> {
-    let known: std::collections::HashSet<&PathBuf> = files.iter().map(|f| &f.path).collect();
-    let mut records: Vec<CallRecord> = raw
-        .into_iter()
-        .flat_map(|(path, edges)| {
-            edges
-                .into_iter()
-                .map(|e| {
-                    let callee = match e.callee {
-                        RawCalleeRef::SameFile(name) => CalleeRef::SameFile(name),
-                        RawCalleeRef::Unresolved { name } => CalleeRef::Unresolved { name },
-                        RawCalleeRef::Specifier { specifier, name } => {
-                            match resolve_specifier(&specifier, &path, &known) {
-                                Some(target) => CalleeRef::Resolved { path: target, name },
-                                None => CalleeRef::Unresolved { name },
-                            }
-                        }
-                    };
-                    CallRecord {
-                        path: path.clone(),
-                        caller: e.caller,
-                        callee,
-                        count: e.count,
+    resolve_against_files(
+        raw,
+        files,
+        |path, e, known| {
+            let callee = match e.callee {
+                RawCalleeRef::SameFile(name) => CalleeRef::SameFile(name),
+                RawCalleeRef::Unresolved { name } => CalleeRef::Unresolved { name },
+                RawCalleeRef::Specifier { specifier, name } => {
+                    match resolve_specifier(&specifier, path, known) {
+                        Some(target) => CalleeRef::Resolved { path: target, name },
+                        None => CalleeRef::Unresolved { name },
                     }
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect();
-    records.sort_by(|a, b| {
-        (&a.path, &a.caller, callee_sort_key(&a.callee)).cmp(&(
-            &b.path,
-            &b.caller,
-            callee_sort_key(&b.callee),
-        ))
-    });
-    records
-}
-
-/// Stable ordering for resolved callees: variant rank, then names.
-fn callee_sort_key(c: &CalleeRef) -> (u8, String, &str) {
-    match c {
-        CalleeRef::SameFile(name) => (0, name.clone(), ""),
-        CalleeRef::Resolved { path, name } => (1, path.display().to_string(), name),
-        CalleeRef::Unresolved { name } => (2, name.clone(), ""),
-    }
+                }
+            };
+            Some(CallRecord {
+                path: path.clone(),
+                caller: e.caller,
+                callee,
+                count: e.count,
+            })
+        },
+        |r| (r.path.clone(), r.caller.clone(), r.callee.clone()),
+    )
 }
 
 /// Resolve raw class records' import specifiers against the repo's file
@@ -635,34 +634,29 @@ fn resolve_class_records(
     raw: HashMap<PathBuf, Vec<RawClassRecord>>,
     files: &[FileEntry],
 ) -> Vec<ClassRecord> {
-    let known: std::collections::HashSet<&PathBuf> = files.iter().map(|f| &f.path).collect();
-    let mut records: Vec<ClassRecord> = raw
-        .into_iter()
-        .flat_map(|(path, recs)| {
-            recs.into_iter()
-                .map(|r| {
-                    let base = match r.base {
-                        RawBaseRef::SameFile(name) => BaseRef::SameFile(name),
-                        RawBaseRef::Unresolvable => BaseRef::Unresolvable,
-                        RawBaseRef::Specifier { specifier, name } => {
-                            match resolve_specifier(&specifier, &path, &known) {
-                                Some(target) => BaseRef::Resolved { path: target, name },
-                                None => BaseRef::Unresolvable,
-                            }
-                        }
-                    };
-                    ClassRecord {
-                        path: path.clone(),
-                        line: r.line,
-                        class_name: r.class_name,
-                        base,
+    resolve_against_files(
+        raw,
+        files,
+        |path, r, known| {
+            let base = match r.base {
+                RawBaseRef::SameFile(name) => BaseRef::SameFile(name),
+                RawBaseRef::Unresolvable => BaseRef::Unresolvable,
+                RawBaseRef::Specifier { specifier, name } => {
+                    match resolve_specifier(&specifier, path, known) {
+                        Some(target) => BaseRef::Resolved { path: target, name },
+                        None => BaseRef::Unresolvable,
                     }
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect();
-    records.sort_by(|a, b| (&a.path, a.line).cmp(&(&b.path, b.line)));
-    records
+                }
+            };
+            Some(ClassRecord {
+                path: path.clone(),
+                line: r.line,
+                class_name: r.class_name,
+                base,
+            })
+        },
+        |r| (r.path.clone(), r.line),
+    )
 }
 
 #[cfg(test)]

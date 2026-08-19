@@ -55,9 +55,91 @@ pub(crate) fn resolve_symbol<'a>(
         })
 }
 
+/// Follow *named* re-exports for `key` to their terminal file, without
+/// requiring any declaration check: a `export { X } from './y'` entry is
+/// an explicit fact worth following even when the symbol has no
+/// `FunctionMetrics` identity (arrow-const exports, classes — review F4).
+/// Star re-exports are NOT followed here: without a declaration to
+/// confirm, a star hop is a guess. Cycles cut; returns the last key
+/// reached (the input itself when nothing matches).
+pub(crate) fn chase_named<'a>(key: SymbolKey<'a>, rx: &ReExportIndex<'a>) -> SymbolKey<'a> {
+    let mut visited: Vec<SymbolKey<'a>> = Vec::new();
+    let mut current = key;
+    loop {
+        if visited.contains(&current) {
+            return current;
+        }
+        visited.push(current);
+        let hop = rx.get(current.0).and_then(|recs| {
+            recs.iter().find_map(|r| match &r.kind {
+                ReExportKind::Named { exported, source } if exported.as_str() == current.1 => {
+                    Some((&r.target, source.as_str()))
+                }
+                _ => None,
+            })
+        });
+        match hop {
+            Some(next) => current = next,
+            None => return current,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chase_named_follows_explicit_reexports_without_declarations() {
+        // Review F4: arrow-const exports have no FunctionMetrics identity,
+        // so the declares-based chase dead-ends — but a Named re-export is
+        // an explicit fact we can follow to the terminal file regardless.
+        let records = vec![ReExportRecord {
+            path: "src/index.ts".into(),
+            target: "src/use_fetch.ts".into(),
+            kind: ReExportKind::Named {
+                exported: "useFetch".into(),
+                source: "useFetch".into(),
+            },
+        }];
+        let rx = reexport_index(&records);
+        let barrel = PathBuf::from("src/index.ts");
+        let terminal = PathBuf::from("src/use_fetch.ts");
+        assert_eq!(
+            chase_named((&barrel, "useFetch"), &rx),
+            (&terminal, "useFetch")
+        );
+    }
+
+    #[test]
+    fn chase_named_stops_at_cycles_and_unmatched_names() {
+        let records = vec![
+            ReExportRecord {
+                path: "src/a.ts".into(),
+                target: "src/b.ts".into(),
+                kind: ReExportKind::Named {
+                    exported: "X".into(),
+                    source: "X".into(),
+                },
+            },
+            ReExportRecord {
+                path: "src/b.ts".into(),
+                target: "src/a.ts".into(),
+                kind: ReExportKind::Named {
+                    exported: "X".into(),
+                    source: "X".into(),
+                },
+            },
+        ];
+        let rx = reexport_index(&records);
+        let a = PathBuf::from("src/a.ts");
+        let c = PathBuf::from("src/c.ts");
+        // Cycle: terminates without hanging, lands somewhere in the cycle.
+        let (_, name) = chase_named((&a, "X"), &rx);
+        assert_eq!(name, "X");
+        // No matching entry anywhere: key returned unchanged.
+        assert_eq!(chase_named((&c, "Y"), &rx), (&c, "Y"));
+    }
 
     #[test]
     fn named_hop_requires_matching_exported_name() {

@@ -232,7 +232,10 @@ pub struct CallRecord {
 /// The callee of a call record. Unlike `BaseRef::Unresolvable`, an
 /// unresolved callee keeps its name — unresolved calls are *counted*
 /// toward the resolution rate, never dropped.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+///
+/// Variant order is load-bearing: the derived `Ord` (SameFile < Resolved
+/// < Unresolved, then fields) is the record sort order in the snapshot.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum CalleeRef {
     /// Callee assumed declared in the same file.
     SameFile(String),

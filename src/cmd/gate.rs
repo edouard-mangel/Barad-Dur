@@ -49,14 +49,7 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
     ];
 
     let weight_pairs = cfg.weights.as_weight_pairs();
-    let report = scorer::build_report(
-        &snapshot,
-        categories,
-        None,
-        &weight_pairs,
-        &cfg.thresholds.coupling,
-        &cfg.thresholds.health,
-    );
+    let report = scorer::build_report(&snapshot, categories, None, &weight_pairs, &cfg.thresholds);
 
     let threshold = args.min_score;
     let score_failed = check_gate_categories(&report, &args, threshold);

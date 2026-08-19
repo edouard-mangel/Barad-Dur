@@ -265,8 +265,9 @@ pub fn validate(config: &RepoConfig) -> Result<()> {
     // above it, `median_degree * multiplier` risks overflowing to +inf, which
     // silently disables the hub check the same way a literal Infinity would.
     const GOD_NODE_MULTIPLIER_MAX: f64 = 1_000_000.0;
+    // NaN fails the range check on its own — no separate is_nan clause.
     let call_floor = config.thresholds.health.call_resolution_floor;
-    if !(0.0..=1.0).contains(&call_floor) || call_floor.is_nan() {
+    if !(0.0..=1.0).contains(&call_floor) {
         bail!(
             "thresholds.health.call_resolution_floor must be in [0.0, 1.0], got {}",
             call_floor
