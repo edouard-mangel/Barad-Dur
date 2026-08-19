@@ -447,7 +447,7 @@ fn files_by_bucket(snapshot: &RepoSnapshot) -> BTreeMap<(usize, i32, u32), HashS
 /// commit — a *separate* data source from `snapshot.file_change_pairs`;
 /// existing coupling metrics are untouched (design Decision 2). Pairs are
 /// lexicographically normalized (a < b) and sorted for determinism.
-pub fn day_bucketed_pairs(snapshot: &RepoSnapshot) -> Vec<(PathBuf, PathBuf, usize)> {
+fn day_bucketed_pairs(snapshot: &RepoSnapshot) -> Vec<(PathBuf, PathBuf, usize)> {
     let pair_counts: BTreeMap<(PathBuf, PathBuf), usize> = files_by_bucket(snapshot)
         .into_values()
         .flat_map(|files| {
@@ -456,8 +456,7 @@ pub fn day_bucketed_pairs(snapshot: &RepoSnapshot) -> Vec<(PathBuf, PathBuf, usi
             (0..sorted.len())
                 .flat_map(move |i| {
                     let sorted = sorted.clone();
-                    (i + 1..sorted.len())
-                        .map(move |j| (sorted[i].clone(), sorted[j].clone()))
+                    (i + 1..sorted.len()).map(move |j| (sorted[i].clone(), sorted[j].clone()))
                 })
                 .collect::<Vec<_>>()
         })
@@ -474,7 +473,7 @@ pub fn day_bucketed_pairs(snapshot: &RepoSnapshot) -> Vec<(PathBuf, PathBuf, usi
 /// Per file: the number of distinct (author, day) buckets it appears in —
 /// the ratio denominator for day-bucketed qualification (spec's "Note on
 /// day-bucketing").
-pub fn day_bucket_counts(snapshot: &RepoSnapshot) -> HashMap<PathBuf, usize> {
+fn day_bucket_counts(snapshot: &RepoSnapshot) -> HashMap<PathBuf, usize> {
     files_by_bucket(snapshot)
         .into_values()
         .flat_map(|files| files.into_iter().cloned().collect::<Vec<_>>())
