@@ -18,7 +18,7 @@ pub(crate) fn call_graph_report(
     snapshot: &RepoSnapshot,
     thresholds: &HealthThresholds,
 ) -> Option<CallGraphReport> {
-    if snapshot.file_metrics.is_empty() || snapshot.call_records.is_empty() {
+    if !crate::metrics::coupling::detection_ran(snapshot) || snapshot.call_records.is_empty() {
         return None;
     }
     let records = &snapshot.call_records;
@@ -47,6 +47,7 @@ pub(crate) fn call_graph_report(
         edges_resolved,
         edges_same_file,
         edges_unresolved,
+        call_resolution_floor: thresholds.call_resolution_floor,
         function_hubs,
     })
 }
@@ -55,11 +56,20 @@ pub(crate) fn call_graph_report(
 /// same-file edges, barrel-chased to the declaring file where possible.
 fn top_hubs(snapshot: &RepoSnapshot) -> Vec<FunctionHub> {
     let rx = reexport_index(&snapshot.reexports);
+    // A class has no `FunctionMetrics` entry, so `declares` must also check
+    // `class_records` — otherwise a class reachable only via a star
+    // re-export (which `chase_named`'s Named-only fallback can't rescue)
+    // resolves to its barrel file instead of where it's actually declared
+    // (review F6).
     let declares = |key: (&PathBuf, &str)| {
         snapshot
             .file_metrics
             .get(key.0)
             .is_some_and(|m| m.functions.iter().any(|f| f.name == key.1))
+            || snapshot
+                .class_records
+                .iter()
+                .any(|c| &c.path == key.0 && c.class_name == key.1)
     };
     let callers_by_target: HashMap<(&PathBuf, &str), HashSet<(&PathBuf, &str)>> = snapshot
         .call_records
@@ -111,7 +121,9 @@ fn top_hubs(snapshot: &RepoSnapshot) -> Vec<FunctionHub> {
 mod tests {
     use super::*;
     use crate::metrics::testutil::{make_snapshot, normal_function};
-    use crate::snapshot::{CallRecord, CalleeRef, FileComplexity, ReExportKind, ReExportRecord};
+    use crate::snapshot::{
+        BaseRef, CallRecord, CalleeRef, ClassRecord, FileComplexity, ReExportKind, ReExportRecord,
+    };
 
     fn record(path: &str, caller: &str, callee: CalleeRef, count: u32) -> CallRecord {
         CallRecord {
@@ -382,5 +394,57 @@ mod tests {
             .map(|h| h.name.as_str())
             .collect();
         assert_eq!(rest, vec!["a", "b", "c", "d", "e", "f", "g", "h", "i"]);
+    }
+
+    #[test]
+    fn report_carries_the_floor_that_gated_it() {
+        // Review finding: the report never said what floor was applied, so
+        // an empty function_hubs was indistinguishable from "no hubs
+        // exist" vs. "hubs were suppressed" — and by what threshold.
+        let s = snap(
+            vec![record("a.ts", "f", unresolved("x"), 1)],
+            &[("lib.ts", "helper")],
+        );
+        let thresholds = HealthThresholds {
+            call_resolution_floor: 0.8,
+            ..HealthThresholds::default()
+        };
+        let r = call_graph_report(&s, &thresholds).expect("report");
+        assert!((r.call_resolution_floor - 0.8).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn class_declaration_resolves_through_a_star_reexport() {
+        // Review finding: `declares` only checked file_metrics.functions,
+        // never class_records. A class reachable only through a `export *`
+        // barrel can't be rescued by chase_named's fallback (it only
+        // follows Named re-exports, deliberately, per reexport.rs), so
+        // resolve_symbol's own declares-check must recognize the class —
+        // otherwise the hub lands on the barrel file, not the declaring one.
+        let mut s = snap(
+            vec![record("a.ts", "f", resolved("src/index.ts", "Widget"), 1)],
+            &[],
+        );
+        s.class_records = vec![ClassRecord {
+            path: "src/widget.ts".into(),
+            line: 1,
+            class_name: "Widget".into(),
+            base: BaseRef::Unresolvable,
+        }];
+        s.reexports = vec![ReExportRecord {
+            path: "src/index.ts".into(),
+            target: "src/widget.ts".into(),
+            kind: ReExportKind::Star,
+        }];
+        let r = call_graph_report(&s, &HealthThresholds::default()).expect("report");
+        assert_eq!(
+            r.function_hubs,
+            vec![FunctionHub {
+                path: "src/widget.ts".into(),
+                name: "Widget".into(),
+                resolved_in_degree: 1,
+            }],
+            "a class reachable only via a star re-export must land on its declaring file"
+        );
     }
 }

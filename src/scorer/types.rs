@@ -192,6 +192,10 @@ pub struct CallGraphReport {
     pub edges_resolved: usize,
     pub edges_same_file: usize,
     pub edges_unresolved: usize,
+    /// The trust floor `resolution_rate` was checked against — lets a
+    /// reader tell "no hubs exist" apart from "hubs were suppressed below
+    /// this threshold" instead of guessing from an empty list alone.
+    pub call_resolution_floor: f64,
     /// Top functions by distinct-caller in-degree (barrel-chased), empty
     /// when the resolution rate sits below the configured trust floor.
     pub function_hubs: Vec<FunctionHub>,

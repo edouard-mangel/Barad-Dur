@@ -90,28 +90,64 @@ const DECL_KINDS: &[&str] = &[
     "variable_declarator",
 ];
 
-/// Every name the file itself declares (functions, generators, classes,
-/// `const`/`let`/`var` declarators at any depth). A bare identifier call
-/// is `SameFile` only when its name is in this set — anything else
-/// (`fetch`, `setTimeout`, other globals) is a real call whose target we
-/// cannot name, and claiming it resolved would inflate the resolution
-/// rate the trust floor gates on (review F1).
+/// Ancestor kinds a declaration can sit inside and still count as module
+/// (top) level — wrappers around a declaration, never a new lexical scope.
+const TOP_LEVEL_PASSTHROUGH_KINDS: &[&str] = &[
+    "export_statement",
+    "lexical_declaration",
+    "variable_declaration",
+];
+
+/// Whether `node` sits at module level — no function, class, or block
+/// scope encloses it between it and the file root.
+fn is_top_level(node: Node<'_>) -> bool {
+    std::iter::successors(node.parent(), |n| n.parent())
+        .take_while(|n| n.kind() != "program")
+        .all(|n| TOP_LEVEL_PASSTHROUGH_KINDS.contains(&n.kind()))
+}
+
+/// Every name the file declares at module scope (functions, generators,
+/// classes, `const`/`let`/`var` declarators — including destructured
+/// bindings). A bare identifier call is `SameFile` only when its name is
+/// in this set — anything else (`fetch`, `setTimeout`, other globals, or a
+/// name local to some *other* function) is a real call whose target we
+/// cannot name from here, and claiming it resolved would inflate the
+/// resolution rate the trust floor gates on (review F1/F3/F6).
+///
+/// Deliberately restricted to module level rather than full lexical-scope
+/// tracking: a name declared inside one function is invisible from a
+/// sibling function, and the current caller-attribution scheme has no way
+/// to disambiguate two same-named locals in different scopes of one file
+/// (a hub-reporting collision, review F6) — module-level-only sidesteps
+/// both by construction, staying on the "under-count, never fabricate or
+/// conflate" side (design §1.2) at the cost of not resolving calls to
+/// function-local helpers.
 fn declared_names(root: Node<'_>, content: &str) -> std::collections::HashSet<String> {
     descendants(root)
         .into_iter()
-        .filter(|n| DECL_KINDS.contains(&n.kind()))
+        .filter(|n| DECL_KINDS.contains(&n.kind()) && is_top_level(*n))
         .filter_map(|n| n.child_by_field_name("name"))
-        // TS class names parse as `type_identifier`; everything else
-        // introduces a plain `identifier`.
-        .filter(|name| matches!(name.kind(), "identifier" | "type_identifier"))
+        .flat_map(|name| {
+            let mut idents = Vec::new();
+            pattern_identifiers(name, &mut idents);
+            idents
+        })
         .map(|name| text(name, content).to_string())
         .collect()
 }
 
-/// Node kinds that carry a function identity in `FunctionMetrics` — the
-/// walk stops at these and nowhere else (D2: arrows and anonymous
-/// function expressions are passed through).
-const FN_KINDS: &[&str] = &["function_declaration", "method_definition"];
+/// Node kinds that carry a caller identity for attribution — the walk
+/// stops at these and nowhere else (D2: arrows and anonymous function
+/// expressions are passed through). Not the same set as `FunctionMetrics`'
+/// `JS_FUNCTIONS` query: a generator is a valid `SameFile` callee target
+/// (`DECL_KINDS` includes it), so it must also be a valid caller identity,
+/// even though `JS_FUNCTIONS` (used for complexity/public-method counting,
+/// an unrelated concern) doesn't track generators separately (review F5).
+const FN_KINDS: &[&str] = &[
+    "function_declaration",
+    "generator_function_declaration",
+    "method_definition",
+];
 
 /// Innermost enclosing *named* function of a call site (D2: ancestor
 /// walk — the first `FN_KINDS` ancestor is the innermost), or
@@ -149,25 +185,34 @@ fn scope_params_contain(node: Node<'_>, name: &str, content: &str) -> bool {
         && ["parameters", "parameter"]
             .iter()
             .filter_map(|f| node.child_by_field_name(f))
-            .any(|params| {
-                let mut idents = Vec::new();
-                pattern_identifiers(params, &mut idents);
-                idents.iter().any(|n| text(*n, content) == name)
-            })
+            .any(|params| binds(params, name, content))
+}
+
+/// Whether `pattern`'s bound names include `name`.
+fn binds(pattern: Node<'_>, name: &str, content: &str) -> bool {
+    let mut idents = Vec::new();
+    pattern_identifiers(pattern, &mut idents);
+    idents.iter().any(|n| text(*n, content) == name)
 }
 
 fn block_declares(node: Node<'_>, name: &str, content: &str) -> bool {
-    if node.kind() != "statement_block" {
-        return false;
+    match node.kind() {
+        "statement_block" => (0..node.named_child_count())
+            .filter_map(|i| node.named_child(i as u32))
+            .filter(|c| matches!(c.kind(), "lexical_declaration" | "variable_declaration"))
+            .any(|decl| binds(decl, name, content)),
+        // `for (const save of tasks)` / `for (save in obj)` — the loop
+        // variable in `left` is in scope for the whole loop body (review
+        // finding: previously invisible to shadow detection entirely).
+        "for_in_statement" => node
+            .child_by_field_name("left")
+            .is_some_and(|left| binds(left, name, content)),
+        // `catch (save) { ... }` — the caught-error binding.
+        "catch_clause" => node
+            .child_by_field_name("parameter")
+            .is_some_and(|param| binds(param, name, content)),
+        _ => false,
     }
-    (0..node.named_child_count())
-        .filter_map(|i| node.named_child(i as u32))
-        .filter(|c| matches!(c.kind(), "lexical_declaration" | "variable_declaration"))
-        .any(|decl| {
-            let mut idents = Vec::new();
-            pattern_identifiers(decl, &mut idents);
-            idents.iter().any(|n| text(*n, content) == name)
-        })
 }
 
 /// Identifiers *bound* by a parameter list, declaration, or destructuring
@@ -175,7 +220,12 @@ fn block_declares(node: Node<'_>, name: &str, content: &str) -> bool {
 /// expression on the right-hand side never counts as a binding.
 fn pattern_identifiers<'a>(node: Node<'a>, out: &mut Vec<Node<'a>>) {
     match node.kind() {
-        "identifier" => out.push(node),
+        // `type_identifier`: TS class names. `shorthand_property_identifier_pattern`:
+        // the `save` in `{ save }` destructuring — a distinct leaf kind from
+        // `identifier`, easy to silently miss (review finding).
+        "identifier" | "type_identifier" | "shorthand_property_identifier_pattern" => {
+            out.push(node)
+        }
         "required_parameter" | "optional_parameter" => {
             if let Some(p) = node.child_by_field_name("pattern") {
                 pattern_identifiers(p, out);
@@ -682,12 +732,14 @@ mod tests {
     }
 
     #[test]
-    fn caller_attribution_universe_matches_the_js_functions_query() {
-        // Review F5: FN_KINDS hand-mirrors the JS_FUNCTIONS capture set.
-        // This fixture holds one call inside every candidate function
-        // shape; whatever the query captures must be exactly the set of
-        // caller names attribution produces. Extending either list alone
-        // fails here.
+    fn caller_attribution_universe_is_js_functions_plus_generators() {
+        // FN_KINDS = JS_FUNCTIONS (the complexity/public-method query) plus
+        // generator_function_declaration — generators are a valid SameFile
+        // callee target (DECL_KINDS) and so must also be a valid caller
+        // identity (review F5), even though JS_FUNCTIONS itself doesn't
+        // track them (unrelated concern). This fixture holds one call
+        // inside every candidate function shape; extending either FN_KINDS
+        // or JS_FUNCTIONS without updating this test's expectation fails.
         let src = "function marker() {}\n\
                    function decl() { marker(); }\n\
                    class C { meth() { marker(); } }\n\
@@ -721,15 +773,18 @@ mod tests {
             .collect();
 
         // `marker` is a declared function with no calls inside it — it
-        // appears in the query universe but never as a caller.
+        // appears in the query universe but never as a caller. `gen` is
+        // the one intentional addition: FN_KINDS covers it, JS_FUNCTIONS
+        // doesn't.
         let expected: std::collections::HashSet<String> = query_names
             .iter()
             .filter(|n| n.as_str() != "marker")
             .cloned()
+            .chain(["gen".to_string()])
             .collect();
         assert_eq!(
             attributed_callers, expected,
-            "FN_KINDS (attribution) and JS_FUNCTIONS (queries.rs) diverged"
+            "FN_KINDS (attribution) must be exactly JS_FUNCTIONS (queries.rs) plus generators"
         );
     }
 
@@ -741,6 +796,145 @@ mod tests {
             vec![RawCallEdge {
                 caller: "<toplevel>".into(),
                 callee: RawCalleeRef::SameFile("f".into()),
+                count: 1,
+            }]
+        );
+    }
+
+    #[test]
+    fn destructuring_shorthand_parameter_shadowing_an_import_downgrades_to_unresolved() {
+        // Review finding: `{ save }` is a shorthand destructuring pattern —
+        // shorthand_property_identifier_pattern, not `identifier`. Before the
+        // fix this binding was invisible to shadow detection, fabricating a
+        // resolved edge to './db' instead of downgrading.
+        let src = "import { save } from './db';\n\
+                   export function retry({ save }: { save: () => void }) { save(); }\n";
+        let e = edges("src/a.ts", src);
+        assert_eq!(
+            e,
+            vec![RawCallEdge {
+                caller: "retry".into(),
+                callee: RawCalleeRef::Unresolved {
+                    name: "save".into()
+                },
+                count: 1,
+            }]
+        );
+    }
+
+    #[test]
+    fn for_of_loop_variable_shadowing_an_import_downgrades_to_unresolved() {
+        let src = "import { save } from './db';\n\
+                   export function retryAll(tasks: (() => void)[]) {\n\
+                     for (const save of tasks) { save(); }\n\
+                   }\n";
+        let e = edges("src/a.ts", src);
+        assert_eq!(
+            e,
+            vec![RawCallEdge {
+                caller: "retryAll".into(),
+                callee: RawCalleeRef::Unresolved {
+                    name: "save".into()
+                },
+                count: 1,
+            }]
+        );
+    }
+
+    #[test]
+    fn catch_parameter_shadowing_an_import_downgrades_to_unresolved() {
+        let src = "import { save } from './db';\n\
+                   export function retry() {\n\
+                     try {} catch (save) { save(); }\n\
+                   }\n";
+        let e = edges("src/a.ts", src);
+        assert_eq!(
+            e,
+            vec![RawCallEdge {
+                caller: "retry".into(),
+                callee: RawCalleeRef::Unresolved {
+                    name: "save".into()
+                },
+                count: 1,
+            }]
+        );
+    }
+
+    #[test]
+    fn locally_declared_helper_in_an_unrelated_function_is_not_a_same_file_target() {
+        // Review finding: declared_names used to be whole-file, so a
+        // `const helper` local to one function was treated as callable
+        // from anywhere in the file. `helper` here is only in scope inside
+        // `unrelated` — a call to it from `caller` must not fabricate a
+        // resolved edge (under-count, never fabricate).
+        let src = "function unrelated() { const helper = () => {}; helper(); }\n\
+                   function caller() { helper(); }\n";
+        let e = edges("src/a.ts", src);
+        assert_eq!(
+            e,
+            vec![
+                RawCallEdge {
+                    caller: "caller".into(),
+                    callee: RawCalleeRef::Unresolved {
+                        name: "helper".into()
+                    },
+                    count: 1,
+                },
+                RawCallEdge {
+                    caller: "unrelated".into(),
+                    callee: RawCalleeRef::Unresolved {
+                        name: "helper".into()
+                    },
+                    count: 1,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn module_level_destructured_import_binding_still_counts_as_same_file() {
+        // Review finding: declared_names dropped destructured declarators
+        // (`name` field is an object_pattern, not a plain identifier).
+        // `require(...)` is itself a call site (to an unbound global).
+        let e = edges(
+            "src/a.ts",
+            "const { helper } = require('./utils');\nhelper();\n",
+        );
+        assert_eq!(
+            e,
+            vec![
+                RawCallEdge {
+                    caller: "<toplevel>".into(),
+                    callee: RawCalleeRef::SameFile("helper".into()),
+                    count: 1,
+                },
+                RawCallEdge {
+                    caller: "<toplevel>".into(),
+                    callee: RawCalleeRef::Unresolved {
+                        name: "require".into()
+                    },
+                    count: 1,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn call_inside_a_generator_attributes_to_the_generator_not_the_enclosing_function() {
+        // Review finding: a generator is a valid SameFile callee target
+        // (DECL_KINDS includes generator_function_declaration) but FN_KINDS
+        // excluded it from caller attribution, so calls inside a generator
+        // nested in another named function were misattributed outward.
+        let src = "function helper() {}\n\
+                   function outer() {\n\
+                     function* gen() { helper(); }\n\
+                   }\n";
+        let e = edges("src/a.ts", src);
+        assert_eq!(
+            e,
+            vec![RawCallEdge {
+                caller: "gen".into(),
+                callee: RawCalleeRef::SameFile("helper".into()),
                 count: 1,
             }]
         );
