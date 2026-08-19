@@ -26,6 +26,53 @@ pub enum VelocityDirection {
     Stable,
 }
 
+/// Relative threshold for classifying an entity's series as growing or
+/// shrinking — percent change from the oldest to the newest available
+/// point. Unlike `DIRECTION_THRESHOLD` (tuned for 0-100 integer scores),
+/// entity series (complexity, coupling degree, churn) have unrelated
+/// natural scales, so classification uses percent change, not an absolute
+/// delta (Decision 6).
+const ENTITY_TREND_THRESHOLD_PCT: f64 = 0.15;
+
+/// Direction of a per-entity metric series (complexity, coupling degree,
+/// churn) across backfill samples — distinct from `VelocityDirection`,
+/// which classifies the aggregate report score on an absolute scale.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EntityTrendDirection {
+    Growing,
+    Shrinking,
+    Stable,
+}
+
+/// Classify a per-entity metric series by percent change from its oldest
+/// to its newest point. Fewer than 2 points, or a zero baseline with no
+/// growth, classifies as `Stable` (no signal yet / undefined percent
+/// change). A zero baseline with growth classifies as `Growing`.
+pub fn compute_entity_trend(series: &[f64]) -> EntityTrendDirection {
+    let (Some(&first), Some(&last)) = (series.first(), series.last()) else {
+        return EntityTrendDirection::Stable;
+    };
+    if series.len() < 2 {
+        return EntityTrendDirection::Stable;
+    }
+    if first == 0.0 {
+        return if last > 0.0 {
+            EntityTrendDirection::Growing
+        } else {
+            EntityTrendDirection::Stable
+        };
+    }
+    let pct_change = (last - first) / first;
+    if pct_change > ENTITY_TREND_THRESHOLD_PCT {
+        EntityTrendDirection::Growing
+    } else if pct_change < -ENTITY_TREND_THRESHOLD_PCT {
+        EntityTrendDirection::Shrinking
+    } else {
+        EntityTrendDirection::Stable
+    }
+}
+
 /// One point on the sparkline: score at a given commit.
 #[derive(Debug, Clone, Serialize)]
 pub struct SparklinePoint {
@@ -235,6 +282,59 @@ mod tests {
     use super::*;
     use crate::scorer::HistoryCounts;
     use chrono::Utc;
+
+    #[test]
+    fn compute_entity_trend_50_percent_increase_is_growing() {
+        assert_eq!(compute_entity_trend(&[10.0, 15.0]), EntityTrendDirection::Growing);
+    }
+
+    #[test]
+    fn compute_entity_trend_20_percent_decrease_is_shrinking() {
+        assert_eq!(compute_entity_trend(&[10.0, 8.0]), EntityTrendDirection::Shrinking);
+    }
+
+    #[test]
+    fn compute_entity_trend_5_percent_increase_is_stable() {
+        // Under the ±15% threshold.
+        assert_eq!(compute_entity_trend(&[10.0, 10.5]), EntityTrendDirection::Stable);
+    }
+
+    #[test]
+    fn compute_entity_trend_empty_series_is_stable() {
+        assert_eq!(compute_entity_trend(&[]), EntityTrendDirection::Stable);
+    }
+
+    #[test]
+    fn compute_entity_trend_single_point_is_stable() {
+        assert_eq!(compute_entity_trend(&[10.0]), EntityTrendDirection::Stable);
+    }
+
+    #[test]
+    fn compute_entity_trend_zero_baseline_with_growth_is_growing() {
+        assert_eq!(compute_entity_trend(&[0.0, 5.0]), EntityTrendDirection::Growing);
+    }
+
+    #[test]
+    fn compute_entity_trend_zero_baseline_no_growth_is_stable() {
+        assert_eq!(compute_entity_trend(&[0.0, 0.0]), EntityTrendDirection::Stable);
+    }
+
+    #[test]
+    fn compute_entity_trend_uses_oldest_and_newest_only() {
+        // A dip in the middle must not affect the classification — only the
+        // first and last points of the available window matter (Decision 6).
+        assert_eq!(
+            compute_entity_trend(&[10.0, 2.0, 14.0]),
+            EntityTrendDirection::Growing
+        );
+    }
+
+    #[test]
+    fn compute_entity_trend_exactly_at_threshold_boundary_is_stable() {
+        // 15.0% change is NOT > 15% — boundary is exclusive, matching
+        // trend.rs's own DIRECTION_THRESHOLD comparison style (`>`, not `>=`).
+        assert_eq!(compute_entity_trend(&[100.0, 115.0]), EntityTrendDirection::Stable);
+    }
 
     fn make_entry(branch: &str, overall_score: u32, head: &str) -> HistoryEntry {
         let mut categories = HashMap::new();
