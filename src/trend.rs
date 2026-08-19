@@ -285,18 +285,27 @@ mod tests {
 
     #[test]
     fn compute_entity_trend_50_percent_increase_is_growing() {
-        assert_eq!(compute_entity_trend(&[10.0, 15.0]), EntityTrendDirection::Growing);
+        assert_eq!(
+            compute_entity_trend(&[10.0, 15.0]),
+            EntityTrendDirection::Growing
+        );
     }
 
     #[test]
     fn compute_entity_trend_20_percent_decrease_is_shrinking() {
-        assert_eq!(compute_entity_trend(&[10.0, 8.0]), EntityTrendDirection::Shrinking);
+        assert_eq!(
+            compute_entity_trend(&[10.0, 8.0]),
+            EntityTrendDirection::Shrinking
+        );
     }
 
     #[test]
     fn compute_entity_trend_5_percent_increase_is_stable() {
         // Under the ±15% threshold.
-        assert_eq!(compute_entity_trend(&[10.0, 10.5]), EntityTrendDirection::Stable);
+        assert_eq!(
+            compute_entity_trend(&[10.0, 10.5]),
+            EntityTrendDirection::Stable
+        );
     }
 
     #[test]
@@ -311,12 +320,18 @@ mod tests {
 
     #[test]
     fn compute_entity_trend_zero_baseline_with_growth_is_growing() {
-        assert_eq!(compute_entity_trend(&[0.0, 5.0]), EntityTrendDirection::Growing);
+        assert_eq!(
+            compute_entity_trend(&[0.0, 5.0]),
+            EntityTrendDirection::Growing
+        );
     }
 
     #[test]
     fn compute_entity_trend_zero_baseline_no_growth_is_stable() {
-        assert_eq!(compute_entity_trend(&[0.0, 0.0]), EntityTrendDirection::Stable);
+        assert_eq!(
+            compute_entity_trend(&[0.0, 0.0]),
+            EntityTrendDirection::Stable
+        );
     }
 
     #[test]
@@ -333,7 +348,10 @@ mod tests {
     fn compute_entity_trend_exactly_at_threshold_boundary_is_stable() {
         // 15.0% change is NOT > 15% — boundary is exclusive, matching
         // trend.rs's own DIRECTION_THRESHOLD comparison style (`>`, not `>=`).
-        assert_eq!(compute_entity_trend(&[100.0, 115.0]), EntityTrendDirection::Stable);
+        assert_eq!(
+            compute_entity_trend(&[100.0, 115.0]),
+            EntityTrendDirection::Stable
+        );
     }
 
     fn make_entry(branch: &str, overall_score: u32, head: &str) -> HistoryEntry {
