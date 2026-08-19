@@ -83,8 +83,17 @@ pub fn attach_entity_trends(
     pairs: &mut [crate::scorer::CouplingPair],
     history: &[crate::cache::entity_history::EntityTrendEntry],
 ) {
+    // `history`'s write order is not guaranteed chronological (see
+    // `select_samples`'s `count >= len` shortcut and multi-run appends), so
+    // sort a local copy by timestamp once, up front, and have every loop
+    // below read from it — `compute_entity_trend` relies on `series.first()`
+    // being the oldest point and `series.last()` being the newest.
+    let mut ordered: Vec<&crate::cache::entity_history::EntityTrendEntry> =
+        history.iter().collect();
+    ordered.sort_by_key(|e| e.timestamp);
+
     for h in hotspots.iter_mut() {
-        let complexity_series: Vec<f64> = history
+        let complexity_series: Vec<f64> = ordered
             .iter()
             .filter_map(|e| e.complexity.get(&h.path).copied())
             .map(|c| c as f64)
@@ -93,7 +102,7 @@ pub fn attach_entity_trends(
             h.complexity_trend = Some(compute_entity_trend(&complexity_series));
         }
 
-        let churn_series: Vec<f64> = history
+        let churn_series: Vec<f64> = ordered
             .iter()
             .filter_map(|e| e.churn.get(&h.path).copied())
             .map(|c| c as f64)
@@ -105,7 +114,7 @@ pub fn attach_entity_trends(
 
     for p in pairs.iter_mut() {
         let key = crate::cache::entity_history::entity_pair_key(&p.file_a, &p.file_b);
-        let series: Vec<f64> = history
+        let series: Vec<f64> = ordered
             .iter()
             .filter_map(|e| e.coupling_degree.get(&key).copied())
             .map(|c| c as f64)
@@ -699,5 +708,194 @@ mod tests {
 
         assert_eq!(hotspots[0].complexity_trend, None);
         assert_eq!(hotspots[0].churn_trend, None);
+    }
+
+    #[test]
+    fn attach_entity_trends_sorts_history_by_timestamp_before_classifying() {
+        use crate::cache::entity_history::EntityTrendEntry;
+        use crate::scorer::HotspotFile;
+        use chrono::{Duration, Utc};
+        use std::collections::HashMap;
+
+        let mut hotspots = vec![HotspotFile {
+            path: "src/big.rs".to_string(),
+            role: crate::metrics::file_role::FileRole::Source,
+            churn_count: 10,
+            bug_commit_count: 0,
+            loc: 500,
+            total_lines: 500,
+            cyclomatic_complexity: 50,
+            public_methods: 0,
+            properties: 0,
+            hotspot_score: 90.0,
+            coupling_trend: None,
+            content_findings: 0,
+            common_findings: 0,
+            control_findings: 0,
+            inheritance_findings: 0,
+            churn_timeline: vec![],
+            complexity_trend: None,
+            churn_trend: None,
+        }];
+        let mut pairs: Vec<crate::scorer::CouplingPair> = vec![];
+
+        let now = Utc::now();
+        let older = now - Duration::days(10);
+        let newer = now;
+
+        let mut complexity_older = HashMap::new();
+        complexity_older.insert("src/big.rs".to_string(), 10u32);
+        let mut complexity_newer = HashMap::new();
+        complexity_newer.insert("src/big.rs".to_string(), 50u32);
+
+        // History vec is in REVERSE chronological order (newest first, oldest
+        // last) — exactly what `select_samples`'s `count >= len` shortcut
+        // produces, since `collect_commits` yields commits newest-first.
+        let history = vec![
+            EntityTrendEntry {
+                timestamp: newer,
+                head: "bbb".into(),
+                branch: "main".into(),
+                complexity: complexity_newer,
+                churn: HashMap::new(),
+                coupling_degree: HashMap::new(),
+                schema_version: 1,
+            },
+            EntityTrendEntry {
+                timestamp: older,
+                head: "aaa".into(),
+                branch: "main".into(),
+                complexity: complexity_older,
+                churn: HashMap::new(),
+                coupling_degree: HashMap::new(),
+                schema_version: 1,
+            },
+        ];
+
+        attach_entity_trends(&mut hotspots, &mut pairs, &history);
+
+        // Complexity genuinely grew from 10 (older) to 50 (newer). Without
+        // sorting by timestamp first, the pre-fix code would treat the vec's
+        // first entry (newer, 50) as "oldest" and the last entry (older, 10)
+        // as "newest", computing a -80% change and misclassifying this as
+        // Shrinking instead of Growing.
+        assert_eq!(
+            hotspots[0].complexity_trend,
+            Some(EntityTrendDirection::Growing),
+            "history must be sorted by timestamp before classifying, regardless of vec order"
+        );
+    }
+
+    #[test]
+    fn attach_entity_trends_classifies_coupling_pair_trend_with_key_normalization() {
+        use crate::cache::entity_history::EntityTrendEntry;
+        use chrono::{Duration, Utc};
+        use std::collections::HashMap;
+
+        let mut hotspots: Vec<crate::scorer::HotspotFile> = vec![];
+        let mut pairs = vec![crate::scorer::CouplingPair {
+            // Reversed order from the stored key ("src/a.rs|src/b.rs") to
+            // prove `entity_pair_key`'s normalization is applied at the
+            // consumption site, not just at construction.
+            file_a: "src/b.rs".to_string(),
+            file_b: "src/a.rs".to_string(),
+            co_changes: 9,
+            coupling_pct: 90.0,
+            growth_a: 0,
+            growth_b: 0,
+            cross_boundary: true,
+            is_test_pair: false,
+            coupling_trend: None,
+        }];
+
+        let now = Utc::now();
+        let older = now - Duration::days(10);
+        let newer = now;
+
+        let mut coupling_newer = HashMap::new();
+        coupling_newer.insert("src/a.rs|src/b.rs".to_string(), 9usize);
+        let mut coupling_older = HashMap::new();
+        coupling_older.insert("src/a.rs|src/b.rs".to_string(), 3usize);
+
+        // Non-chronological vec order (newest first) to also exercise the
+        // Fix 1 sort.
+        let history = vec![
+            EntityTrendEntry {
+                timestamp: newer,
+                head: "bbb".into(),
+                branch: "main".into(),
+                complexity: HashMap::new(),
+                churn: HashMap::new(),
+                coupling_degree: coupling_newer,
+                schema_version: 1,
+            },
+            EntityTrendEntry {
+                timestamp: older,
+                head: "aaa".into(),
+                branch: "main".into(),
+                complexity: HashMap::new(),
+                churn: HashMap::new(),
+                coupling_degree: coupling_older,
+                schema_version: 1,
+            },
+        ];
+
+        attach_entity_trends(&mut hotspots, &mut pairs, &history);
+
+        assert_eq!(
+            pairs[0].coupling_trend,
+            Some(EntityTrendDirection::Growing),
+            "3 -> 9 is a 200% increase; key normalization must match \
+             file_a/file_b regardless of their order vs. the stored key"
+        );
+    }
+
+    #[test]
+    fn attach_entity_trends_leaves_none_with_only_one_history_point() {
+        use crate::cache::entity_history::EntityTrendEntry;
+        use crate::scorer::HotspotFile;
+        use std::collections::HashMap;
+
+        let mut hotspots = vec![HotspotFile {
+            path: "src/big.rs".to_string(),
+            role: crate::metrics::file_role::FileRole::Source,
+            churn_count: 10,
+            bug_commit_count: 0,
+            loc: 500,
+            total_lines: 500,
+            cyclomatic_complexity: 50,
+            public_methods: 0,
+            properties: 0,
+            hotspot_score: 90.0,
+            coupling_trend: None,
+            content_findings: 0,
+            common_findings: 0,
+            control_findings: 0,
+            inheritance_findings: 0,
+            churn_timeline: vec![],
+            complexity_trend: None,
+            churn_trend: None,
+        }];
+        let mut pairs: Vec<crate::scorer::CouplingPair> = vec![];
+
+        let mut complexity = HashMap::new();
+        complexity.insert("src/big.rs".to_string(), 10u32);
+
+        let history = vec![EntityTrendEntry {
+            timestamp: chrono::Utc::now(),
+            head: "aaa".into(),
+            branch: "main".into(),
+            complexity,
+            churn: HashMap::new(),
+            coupling_degree: HashMap::new(),
+            schema_version: 1,
+        }];
+
+        attach_entity_trends(&mut hotspots, &mut pairs, &history);
+
+        assert_eq!(
+            hotspots[0].complexity_trend, None,
+            "a single history point must leave the trend as None (no signal), not Some(Stable)"
+        );
     }
 }
