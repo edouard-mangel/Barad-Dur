@@ -5,6 +5,7 @@ mod inheritance;
 mod lang_dispatch;
 mod pressman;
 mod queries;
+mod rust_calls;
 mod treesitter;
 
 use std::path::Path;
@@ -54,6 +55,7 @@ pub fn analyse_source(path: &Path, content: &str) -> SourceAnalysis {
             },
             call_edges: match lang {
                 Language::JsTs => calls::call_edges_from_tree(tree.root_node(), content),
+                Language::Rust => rust_calls::rust_call_edges_from_tree(tree.root_node(), content),
                 _ => Vec::new(),
             },
         },
@@ -134,6 +136,20 @@ mod tests {
         assert!(combined.imports.is_empty());
         assert!(combined.coupling_findings.is_empty());
         assert!(combined.class_records.is_empty());
+    }
+
+    #[test]
+    fn analyse_source_extracts_rust_call_edges() {
+        // M5: the shared-parse path must produce Rust call edges, matching
+        // the standalone extractor exactly.
+        let content = "fn helper() {}\npub fn run() { helper(); }\n";
+        let path = Path::new("src/lib.rs");
+        let combined = analyse_source(path, content);
+        assert_eq!(combined.call_edges, extract_call_edges(path, content));
+        assert!(
+            !combined.call_edges.is_empty(),
+            "the sample must exercise the Rust channel"
+        );
     }
 
     #[test]
