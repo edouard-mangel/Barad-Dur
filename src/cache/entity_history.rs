@@ -11,9 +11,6 @@ use crate::cache::storage::CACHE_DIR;
 const ENTITY_HISTORY_FILE: &str = "entity_trends.json";
 const BAK_FILE: &str = "entity_trends.json.bak";
 const CORRUPT_REASON: &str = "entity_trends.json could not be read";
-// Only consumed by tests in this task; production entry construction lands
-// in a later task (the one adding `build_entity_trend_entry`).
-#[allow(dead_code)]
 const SCHEMA_VERSION: u32 = 1;
 
 /// One backfill sample's per-entity data: a bounded (top-N hotspots,
@@ -89,6 +86,71 @@ pub fn append_entity_entry(entry: &EntityTrendEntry, repo_path: &Path) -> Result
     let json = serde_json::to_string(entry)?;
     writeln!(file, "{}", json)?;
     Ok(())
+}
+
+/// Deterministic key for an unordered file pair — the same pair always
+/// produces the same key regardless of argument order (Decision 4).
+pub(crate) fn entity_pair_key(a: &str, b: &str) -> String {
+    if a <= b {
+        format!("{a}|{b}")
+    } else {
+        format!("{b}|{a}")
+    }
+}
+
+/// The top `top_n` hotspots by `hotspot_score`, descending. Returns all of
+/// them when there are fewer than `top_n`.
+fn select_top_hotspots(
+    hotspots: &[crate::scorer::HotspotFile],
+    top_n: usize,
+) -> Vec<&crate::scorer::HotspotFile> {
+    let mut sorted: Vec<&crate::scorer::HotspotFile> = hotspots.iter().collect();
+    sorted.sort_by(|a, b| {
+        b.hotspot_score
+            .partial_cmp(&a.hotspot_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    sorted.truncate(top_n);
+    sorted
+}
+
+/// Build one backfill sample's `EntityTrendEntry` from the snapshot (for
+/// coupling-degree, via the shared `qualifying_smell_pairs` predicate) and
+/// the already-computed hotspot list (for complexity/churn), bounded to the
+/// top `top_n` hotspots by score.
+pub fn build_entity_trend_entry(
+    snapshot: &crate::snapshot::RepoSnapshot,
+    hotspots: &[crate::scorer::HotspotFile],
+    coupling: &crate::config::CouplingThresholds,
+    top_n: usize,
+    head: &str,
+    timestamp: DateTime<Utc>,
+    branch: &str,
+) -> EntityTrendEntry {
+    let top = select_top_hotspots(hotspots, top_n);
+
+    let mut complexity = HashMap::new();
+    let mut churn = HashMap::new();
+    for h in top {
+        complexity.insert(h.path.clone(), h.cyclomatic_complexity);
+        churn.insert(h.path.clone(), h.churn_count as u32);
+    }
+
+    let mut coupling_degree = HashMap::new();
+    for (a, b, co_changes) in crate::metrics::coupling::qualifying_smell_pairs(snapshot, coupling) {
+        let key = entity_pair_key(&a.display().to_string(), &b.display().to_string());
+        coupling_degree.insert(key, co_changes);
+    }
+
+    EntityTrendEntry {
+        timestamp,
+        head: head.to_string(),
+        branch: branch.to_string(),
+        complexity,
+        churn,
+        coupling_degree,
+        schema_version: SCHEMA_VERSION,
+    }
 }
 
 #[cfg(test)]
@@ -182,5 +244,145 @@ mod tests {
         let (entries, warning) = load_entity_history_checked(dir.path()).unwrap();
         assert!(entries.is_empty());
         assert!(warning.is_none(), "a zero-byte file is not corruption");
+    }
+
+    use crate::config::CouplingThresholds;
+    use crate::scorer::HotspotFile;
+    use crate::snapshot::{FileEntry, RepoSnapshot, TimeWindow};
+    use std::path::PathBuf;
+
+    fn hotspot(path: &str, score: f64, complexity: u32, churn: usize) -> HotspotFile {
+        HotspotFile {
+            path: path.to_string(),
+            role: crate::metrics::file_role::FileRole::Source,
+            churn_count: churn,
+            bug_commit_count: 0,
+            loc: 100,
+            total_lines: 100,
+            cyclomatic_complexity: complexity,
+            public_methods: 0,
+            properties: 0,
+            hotspot_score: score,
+            coupling_trend: None,
+            content_findings: 0,
+            common_findings: 0,
+            control_findings: 0,
+            inheritance_findings: 0,
+            churn_timeline: vec![],
+        }
+    }
+
+    #[test]
+    fn build_entity_trend_entry_selects_top_n_hotspots_by_score() {
+        let snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        let hotspots = vec![
+            hotspot("low.rs", 10.0, 5, 1),
+            hotspot("high.rs", 90.0, 50, 20),
+            hotspot("mid.rs", 50.0, 20, 5),
+        ];
+        let entry = build_entity_trend_entry(
+            &snapshot,
+            &hotspots,
+            &CouplingThresholds::default(),
+            2, // top_n
+            "abc123",
+            Utc::now(),
+            "main",
+        );
+        assert_eq!(entry.complexity.len(), 2, "only top 2 by hotspot_score");
+        assert_eq!(entry.complexity.get("high.rs"), Some(&50));
+        assert_eq!(entry.complexity.get("mid.rs"), Some(&20));
+        assert!(!entry.complexity.contains_key("low.rs"));
+        assert_eq!(entry.churn.get("high.rs"), Some(&20));
+    }
+
+    #[test]
+    fn build_entity_trend_entry_returns_all_hotspots_when_fewer_than_top_n() {
+        let snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        let hotspots = vec![hotspot("only.rs", 10.0, 5, 1)];
+        let entry = build_entity_trend_entry(
+            &snapshot,
+            &hotspots,
+            &CouplingThresholds::default(),
+            20,
+            "abc123",
+            Utc::now(),
+            "main",
+        );
+        assert_eq!(entry.complexity.len(), 1);
+    }
+
+    #[test]
+    fn build_entity_trend_entry_includes_qualifying_coupling_pairs() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        // Two files in different top-level components, co-changing on every
+        // commit each was touched in — clears both the cross-boundary and
+        // ratio-threshold parts of `qualifying_smell_pairs`' predicate.
+        snapshot.files = vec![
+            FileEntry {
+                path: "src/a.rs".into(),
+                size_bytes: 1,
+                is_binary: false,
+                depth: 2,
+                blob_oid: String::new(),
+            },
+            FileEntry {
+                path: "tests/b.rs".into(),
+                size_bytes: 1,
+                is_binary: false,
+                depth: 2,
+                blob_oid: String::new(),
+            },
+        ];
+        snapshot.commits_by_file.insert(
+            "src/a.rs".into(),
+            (0..5).map(crate::snapshot::CommitId).collect(),
+        );
+        snapshot.commits_by_file.insert(
+            "tests/b.rs".into(),
+            (0..5).map(crate::snapshot::CommitId).collect(),
+        );
+        snapshot.file_change_pairs = vec![(
+            PathBuf::from("src/a.rs"),
+            PathBuf::from("tests/b.rs"),
+            5, // co_changes == min_commits → ratio 1.0, clears any threshold
+        )];
+
+        let entry = build_entity_trend_entry(
+            &snapshot,
+            &[],
+            &CouplingThresholds::default(),
+            20,
+            "abc123",
+            Utc::now(),
+            "main",
+        );
+        assert_eq!(entry.coupling_degree.len(), 1);
+        assert_eq!(
+            entry.coupling_degree.get("src/a.rs|tests/b.rs"),
+            Some(&5),
+            "pair key must be lexicographically sorted"
+        );
+    }
+
+    #[test]
+    fn entity_pair_key_sorts_lexicographically_regardless_of_argument_order() {
+        assert_eq!(entity_pair_key("b.rs", "a.rs"), "a.rs|b.rs");
+        assert_eq!(entity_pair_key("a.rs", "b.rs"), "a.rs|b.rs");
     }
 }

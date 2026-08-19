@@ -125,16 +125,27 @@ struct TomlOutput {
 pub struct BackfillConfig {
     #[serde(default = "default_sample_count")]
     pub sample_count: u32,
+    /// How many top-scoring hotspots (by `hotspot_score`) get a per-file
+    /// complexity/churn trend entry at each backfill sample. Bounds
+    /// `entity_trends.json`'s growth — see the per-entity trend history
+    /// design's Decision 3.
+    #[serde(default = "default_entity_trend_top_n")]
+    pub entity_trend_top_n: usize,
 }
 
 fn default_sample_count() -> u32 {
     10
 }
 
+fn default_entity_trend_top_n() -> usize {
+    20
+}
+
 impl Default for BackfillConfig {
     fn default() -> Self {
         Self {
             sample_count: default_sample_count(),
+            entity_trend_top_n: default_entity_trend_top_n(),
         }
     }
 }
