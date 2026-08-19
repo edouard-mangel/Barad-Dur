@@ -28,7 +28,11 @@ fn live_analysis_records_finding_counts_in_history_entry() {
             &default_cfg.thresholds.health,
             &flagged_god_objects,
         ),
-        team::compute_team(&snapshot, &default_cfg.thresholds.team),
+        team::compute_team(
+            &snapshot,
+            &default_cfg.thresholds.team,
+            &default_cfg.thresholds.coupling,
+        ),
         evolution::compute_evolution(&snapshot, &default_cfg.thresholds.evolution),
         hygiene::compute_hygiene(&snapshot, &default_cfg.thresholds.hygiene),
         coupling::compute_coupling(&snapshot, &default_cfg.thresholds.coupling),
@@ -92,7 +96,11 @@ fn backfill_style_snapshot_records_no_counts_and_unscored_metrics() {
             &default_cfg.thresholds.health,
             &flagged_god_objects,
         ),
-        team::compute_team(&snapshot, &default_cfg.thresholds.team),
+        team::compute_team(
+            &snapshot,
+            &default_cfg.thresholds.team,
+            &default_cfg.thresholds.coupling,
+        ),
         evolution::compute_evolution(&snapshot, &default_cfg.thresholds.evolution),
         hygiene::compute_hygiene(&snapshot, &default_cfg.thresholds.hygiene),
     ];

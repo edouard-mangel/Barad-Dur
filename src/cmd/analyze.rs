@@ -305,7 +305,11 @@ pub fn compute_selected_metrics(
         ));
     }
     if args.should_run("team") {
-        categories.push(team::compute_team(snapshot, &cfg.thresholds.team));
+        categories.push(team::compute_team(
+            snapshot,
+            &cfg.thresholds.team,
+            &cfg.thresholds.coupling,
+        ));
     }
     if args.should_run("evolution") {
         categories.push(evolution::compute_evolution(

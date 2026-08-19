@@ -1,12 +1,15 @@
 use crate::metrics::{author_line_counts, CategoryResult, MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
-use std::collections::HashMap;
+use chrono::Datelike;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::PathBuf;
 
 const MIN_TEAM_SIZE: usize = 4;
 
 pub fn compute_team(
     snapshot: &RepoSnapshot,
     thresholds: &crate::config::TeamThresholds,
+    coupling: &crate::config::CouplingThresholds,
 ) -> CategoryResult {
     if snapshot.authors.len() < MIN_TEAM_SIZE {
         let na = |name: &str| MetricValue {
@@ -27,6 +30,7 @@ pub fn compute_team(
                 na("Ownership clarity"),
                 na("Collaboration patterns"),
                 na("Merge patterns"),
+                na("Cross-team coupling"),
             ],
         }
         .compute_score();
@@ -38,6 +42,7 @@ pub fn compute_team(
         ownership_clarity(snapshot, thresholds),
         collaboration_patterns(snapshot, thresholds),
         merge_patterns(snapshot, thresholds),
+        cross_team_coupling(snapshot, coupling),
     ];
 
     CategoryResult {
@@ -390,6 +395,159 @@ fn merge_patterns(
         description,
         raw_value: RawValue::Count(merge_count),
         score: Some(score),
+    }
+}
+
+/// The author holding a *strict* majority (> 50%) of a file's blamed lines
+/// — the "main developer" proxy from the org-coupling design (Decision 1).
+/// `None` when blame is empty or no author clears the majority (a
+/// collectively-owned file has no single owner to mismatch against).
+/// Same strict-majority rule as `bus_factor`'s `is_file_author_dominated`,
+/// but returns *which* author instead of discarding it.
+fn primary_author(lines: &[crate::snapshot::BlameLine]) -> Option<usize> {
+    let counts = author_line_counts(lines);
+    let total: usize = counts.values().sum();
+    counts
+        .into_iter()
+        .find(|&(_, count)| count * 2 > total)
+        .map(|(author, _)| author)
+}
+
+/// The (author, UTC calendar day) bucket key for a commit. Day-granularity
+/// per the org-coupling design (Decision 2): the same author touching two
+/// files in separate commits a few hours apart is still one coordination
+/// context.
+fn bucket_key(commit: &crate::snapshot::Commit) -> (usize, i32, u32) {
+    (
+        commit.author,
+        commit.timestamp.year(),
+        commit.timestamp.ordinal(),
+    )
+}
+
+/// Known-tree files touched in each (author, day) bucket. Shared core of
+/// `day_bucketed_pairs` and `day_bucket_counts` so both count the same
+/// universe.
+fn files_by_bucket(snapshot: &RepoSnapshot) -> BTreeMap<(usize, i32, u32), HashSet<&PathBuf>> {
+    let known: HashSet<&PathBuf> = snapshot.files.iter().map(|f| &f.path).collect();
+    snapshot
+        .commits
+        .iter()
+        .fold(BTreeMap::new(), |mut buckets, commit| {
+            let entry = buckets.entry(bucket_key(commit)).or_default();
+            commit
+                .files_changed
+                .iter()
+                .filter_map(|fc| known.get(&fc.path).copied())
+                .for_each(|p| {
+                    entry.insert(p);
+                });
+            buckets
+        })
+}
+
+/// Co-changed file pairs grouped by (author, UTC day) instead of exact
+/// commit — a *separate* data source from `snapshot.file_change_pairs`;
+/// existing coupling metrics are untouched (design Decision 2). Pairs are
+/// lexicographically normalized (a < b) and sorted for determinism.
+fn day_bucketed_pairs(snapshot: &RepoSnapshot) -> Vec<(PathBuf, PathBuf, usize)> {
+    let pair_counts: BTreeMap<(PathBuf, PathBuf), usize> = files_by_bucket(snapshot)
+        .into_values()
+        .flat_map(|files| {
+            let mut sorted: Vec<&PathBuf> = files.into_iter().collect();
+            sorted.sort();
+            (0..sorted.len())
+                .flat_map(move |i| {
+                    let sorted = sorted.clone();
+                    (i + 1..sorted.len()).map(move |j| (sorted[i].clone(), sorted[j].clone()))
+                })
+                .collect::<Vec<_>>()
+        })
+        .fold(BTreeMap::new(), |mut m, pair| {
+            *m.entry(pair).or_insert(0) += 1;
+            m
+        });
+    pair_counts
+        .into_iter()
+        .map(|((a, b), count)| (a, b, count))
+        .collect()
+}
+
+/// Per file: the number of distinct (author, day) buckets it appears in —
+/// the ratio denominator for day-bucketed qualification (spec's "Note on
+/// day-bucketing").
+fn day_bucket_counts(snapshot: &RepoSnapshot) -> HashMap<PathBuf, usize> {
+    files_by_bucket(snapshot)
+        .into_values()
+        .flat_map(|files| files.into_iter().cloned().collect::<Vec<_>>())
+        .fold(HashMap::new(), |mut m, path| {
+            *m.entry(path).or_insert(0) += 1;
+            m
+        })
+}
+
+/// Cross-team (Conway's-law) coupling: day-bucketed co-change pairs that
+/// meet `change_coupling_min_ratio` and whose two files have *different*
+/// primary owners — a coordination cost on top of the code coupling
+/// (Crime Scene Ch. 12; design Decision 3). Files without a strict-majority
+/// owner are skipped: collectively-owned code has no owner to mismatch.
+fn cross_team_coupling(
+    snapshot: &RepoSnapshot,
+    coupling: &crate::config::CouplingThresholds,
+) -> MetricValue {
+    let name = "Cross-team coupling".to_string();
+    if snapshot.blame_map.is_empty() {
+        return MetricValue {
+            name,
+            description: "No blame data available".to_string(),
+            raw_value: RawValue::Text("N/A".to_string()),
+            score: None,
+        };
+    }
+    let bucket_counts = day_bucket_counts(snapshot);
+    let author_name = |id: usize| {
+        snapshot
+            .authors
+            .iter()
+            .find(|a| a.id == id)
+            .map(|a| a.name.clone())
+            .unwrap_or_else(|| format!("author #{id}"))
+    };
+    let findings: Vec<String> = day_bucketed_pairs(snapshot)
+        .into_iter()
+        .filter_map(|(a, b, co_days)| {
+            let min_days = bucket_counts
+                .get(&a)
+                .copied()
+                .unwrap_or(0)
+                .min(bucket_counts.get(&b).copied().unwrap_or(0));
+            if min_days == 0
+                || (co_days as f64 / min_days as f64) < coupling.change_coupling_min_ratio
+            {
+                return None;
+            }
+            let owner_a = primary_author(snapshot.blame_map.get(&a)?)?;
+            let owner_b = primary_author(snapshot.blame_map.get(&b)?)?;
+            (owner_a != owner_b).then(|| {
+                format!(
+                    "{} ↔ {} — coupled {} day(s), primary owners: {} vs. {}",
+                    a.display(),
+                    b.display(),
+                    co_days,
+                    author_name(owner_a),
+                    author_name(owner_b),
+                )
+            })
+        })
+        .collect();
+    let count = findings.len();
+    MetricValue {
+        name,
+        description: format!(
+            "{count} cross-team coupling pair(s) — coupled files with different primary owners"
+        ),
+        raw_value: RawValue::List(findings),
+        score: Some(crate::metrics::score_count_bands(count)),
     }
 }
 
