@@ -1,8 +1,9 @@
 //! Call-edge extraction (call-graph M1): per-file aggregated caller→callee
 //! edges from one tree-sitter parse. Pure — no I/O, no specifier
 //! resolution (that happens in the collector's snapshot builder, like
-//! class records). TS/JS only by design (design doc D1; the inheritance
-//! rung set the precedent for this scoping).
+//! class records). TS/JS is handled here; Rust is dispatched to
+//! `rust_calls` (M5), which mirrors the same honesty contract. Other
+//! languages yield none, per design D1's scoping precedent.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -46,8 +47,9 @@ pub enum RawCalleeRef {
     Unresolved { name: String },
 }
 
-/// Extract aggregated call edges from one TS/JS file. Other languages
-/// yield none — call-graph extraction is TS/JS-only in M1 (design D1).
+/// Extract aggregated call edges from one file. TS/JS extraction is local
+/// to this module; Rust dispatches to `rust_calls` (M5). Other languages
+/// yield none, per design D1's scoping precedent.
 pub fn extract_call_edges(path: &Path, content: &str) -> Vec<RawCallEdge> {
     let lang = detect_language(&path.to_string_lossy());
     if !matches!(lang, Language::JsTs | Language::Rust) {
@@ -330,7 +332,7 @@ pub(super) fn aggregate(sites: impl Iterator<Item = (String, RawCalleeRef)>) -> 
     edges
 }
 
-fn text<'a>(node: Node<'_>, content: &'a str) -> &'a str {
+pub(super) fn text<'a>(node: Node<'_>, content: &'a str) -> &'a str {
     &content[node.byte_range()]
 }
 

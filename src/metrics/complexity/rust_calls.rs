@@ -9,18 +9,19 @@ use std::collections::{HashMap, HashSet};
 
 use tree_sitter::Node;
 
-use super::calls::{aggregate, RawCallEdge, RawCalleeRef};
+use super::calls::{aggregate, text, RawCallEdge, RawCalleeRef};
 use super::pressman::descendants;
 
 /// Tree-level Rust call-edge extraction, for callers that already hold a
 /// parsed Rust tree (shared-parse path).
 pub(super) fn rust_call_edges_from_tree(root: Node<'_>, content: &str) -> Vec<RawCallEdge> {
-    let declared = declared_names(root, content);
-    let uses = use_bindings(root, content);
-    let sites = descendants(root)
-        .into_iter()
+    let nodes = descendants(root);
+    let declared = declared_names(&nodes, content);
+    let uses = use_bindings(&nodes, content);
+    let sites = nodes
+        .iter()
         .filter(|n| n.kind() == "call_expression")
-        .filter_map(|n| {
+        .filter_map(|&n| {
             let callee = classify_callee(n, content, &declared, &uses)?;
             Some((enclosing_caller(n, content), callee))
         });
@@ -31,12 +32,9 @@ pub(super) fn rust_call_edges_from_tree(root: Node<'_>, content: &str) -> Vec<Ra
 /// c → "crate::a::b"). Groups and nesting flattened; globs skipped —
 /// a glob binds names we cannot enumerate, so calls through it stay
 /// `Unresolved` (under-count, never fabricate).
-fn use_bindings(root: Node<'_>, content: &str) -> HashMap<String, String> {
+fn use_bindings(nodes: &[Node<'_>], content: &str) -> HashMap<String, String> {
     let mut map = HashMap::new();
-    for ud in descendants(root)
-        .into_iter()
-        .filter(|n| n.kind() == "use_declaration")
-    {
+    for ud in nodes.iter().filter(|n| n.kind() == "use_declaration") {
         if let Some(arg) = ud.child_by_field_name("argument") {
             collect_use(arg, "", content, &mut map);
         }
@@ -96,15 +94,29 @@ fn collect_use(node: Node<'_>, prefix: &str, content: &str, out: &mut HashMap<St
 }
 
 /// Item kinds whose `name` introduces a file-local binding a bare call
-/// could target (fns anywhere incl. impl blocks, tuple-struct and enum
-/// constructors).
+/// could target (fns, tuple-struct and enum constructors).
 const DECL_KINDS: &[&str] = &["function_item", "struct_item", "enum_item"];
 
-/// Every name this file declares — the `SameFile` gate (review F1 parity).
-fn declared_names(root: Node<'_>, content: &str) -> HashSet<String> {
-    descendants(root)
-        .into_iter()
-        .filter(|n| DECL_KINDS.contains(&n.kind()))
+/// Whether `node` sits at module (top) level — no function, impl, or mod
+/// body encloses it. Rust's grammar puts top-level items directly under
+/// `source_file` with no wrapper nodes to look through.
+fn is_top_level(node: Node<'_>) -> bool {
+    node.parent().is_some_and(|p| p.kind() == "source_file")
+}
+
+/// Every name this file declares at module scope — the `SameFile` gate
+/// (review F1 parity). Restricted to top level rather than whole-file
+/// (review finding): a `fn` nested inside one function is invisible from
+/// a sibling function, and the current representation has no way to
+/// disambiguate two same-named locals in different scopes — module-level-
+/// only sidesteps both by construction (design §1.2, "under-count, never
+/// fabricate or conflate"). Impl-block methods are deliberately excluded
+/// here too; they're never bare-callable in valid Rust and are resolved
+/// separately by type in `classify_scoped`.
+fn declared_names(nodes: &[Node<'_>], content: &str) -> HashSet<String> {
+    nodes
+        .iter()
+        .filter(|n| DECL_KINDS.contains(&n.kind()) && is_top_level(**n))
         .filter_map(|n| n.child_by_field_name("name"))
         .map(|name| text(name, content).to_string())
         .collect()
@@ -169,40 +181,63 @@ fn classify_callee(
 const SCOPE_FN_KINDS: &[&str] = &["function_item", "closure_expression"];
 
 /// Whether `name` is rebound between the call site and the file scope —
-/// a parameter or a `let` binding in an enclosing scope (review F2
-/// parity). Over-approximates only toward `Unresolved` (under-count).
+/// a parameter, a `let` binding, or a pattern binding from `for`/`if
+/// let`/`while let`/`match` in an enclosing scope (review F2 parity, F6
+/// coverage). Over-approximates only toward `Unresolved` (under-count).
 fn is_shadowed(call: Node<'_>, name: &str, content: &str) -> bool {
+    let before = call.start_byte();
     std::iter::successors(call.parent(), |n| n.parent())
-        .any(|anc| params_contain(anc, name, content) || block_lets(anc, name, content))
+        .any(|anc| params_contain(anc, name, content) || scope_declares(anc, name, content, before))
 }
 
 fn params_contain(node: Node<'_>, name: &str, content: &str) -> bool {
     SCOPE_FN_KINDS.contains(&node.kind())
         && node
             .child_by_field_name("parameters")
-            .is_some_and(|params| {
-                descendants(params)
-                    .into_iter()
-                    .filter(|n| n.kind() == "identifier")
-                    .any(|n| text(n, content) == name)
-            })
+            .is_some_and(|params| binds(params, name, content))
 }
 
-fn block_lets(node: Node<'_>, name: &str, content: &str) -> bool {
-    if node.kind() != "block" {
-        return false;
+/// Whether the pattern-bearing subtree rooted at `node` binds `name`.
+/// Rust's grammar has no special leaf kind for pattern bindings the way
+/// TS/JS does for destructuring shorthand — every bound name is a plain
+/// `identifier`, so a blanket descendant scan is exact enough (it can
+/// only over-match a pattern's own type/variant path segment, e.g. `Some`
+/// in `Some(x)`, which only matters if a real callee happened to share
+/// that exact name — over-shadowing there still just under-counts).
+fn binds(node: Node<'_>, name: &str, content: &str) -> bool {
+    descendants(node)
+        .into_iter()
+        .filter(|n| n.kind() == "identifier")
+        .any(|n| text(n, content) == name)
+}
+
+/// Whether ancestor `node` introduces a binding for `name` that's in
+/// scope at byte offset `before` (the call site's start): a `let`
+/// declared earlier in the same block, or the pattern of an enclosing
+/// `for`/`if let`/`while let`/`match` arm — those always structurally
+/// precede the call (it's inside their body/arm), so no ordering check is
+/// needed for them, only for sibling `let`s in a shared block (review F6:
+/// a `let` *after* the call must not retroactively shadow it).
+fn scope_declares(node: Node<'_>, name: &str, content: &str, before: usize) -> bool {
+    match node.kind() {
+        "block" => (0..node.named_child_count())
+            .filter_map(|i| node.named_child(i as u32))
+            .filter(|c| c.kind() == "let_declaration" && c.start_byte() < before)
+            .filter_map(|l| l.child_by_field_name("pattern"))
+            .any(|pat| binds(pat, name, content)),
+        "for_expression" => node
+            .child_by_field_name("pattern")
+            .is_some_and(|pat| binds(pat, name, content)),
+        "if_expression" | "while_expression" => node
+            .child_by_field_name("condition")
+            .filter(|c| c.kind() == "let_condition")
+            .and_then(|c| c.child_by_field_name("pattern"))
+            .is_some_and(|pat| binds(pat, name, content)),
+        "match_arm" => node
+            .child_by_field_name("pattern")
+            .is_some_and(|pat| binds(pat, name, content)),
+        _ => false,
     }
-    (0..node.named_child_count())
-        .filter_map(|i| node.named_child(i as u32))
-        .filter(|c| c.kind() == "let_declaration")
-        .filter_map(|l| l.child_by_field_name("pattern"))
-        .any(|pat| {
-            pat.kind() == "identifier" && text(pat, content) == name
-                || descendants(pat)
-                    .into_iter()
-                    .filter(|n| n.kind() == "identifier")
-                    .any(|n| text(n, content) == name)
-        })
 }
 
 /// Classify a `a::b::f()` path callee: expand the head through the `use`
@@ -246,9 +281,12 @@ fn classify_scoped(
     };
     if module_end == 0 {
         // `Foo::new()` with no path left: same-file when the type is
-        // declared here, otherwise unknowable.
+        // declared here, otherwise unknowable. Qualified by type (review
+        // finding) — a bare `SameFile(name)` would collide with any other
+        // in-file type's own method of the same name (`A::new`/`B::new`
+        // are a very common pattern).
         return match type_segment {
-            Some(t) if declared.contains(t) => RawCalleeRef::SameFile(name),
+            Some(t) if declared.contains(t) => RawCalleeRef::SameFile(format!("{t}::{name}")),
             _ => RawCalleeRef::Unresolved { name },
         };
     }
@@ -271,10 +309,6 @@ fn specifier_for(full: &str) -> RawCalleeRef {
             name: full.to_string(),
         },
     }
-}
-
-fn text<'a>(node: Node<'_>, content: &'a str) -> &'a str {
-    &content[node.byte_range()]
 }
 
 #[cfg(test)]
@@ -375,13 +409,15 @@ mod tests {
 
     #[test]
     fn assoc_fn_on_in_file_type_is_same_file() {
+        // Qualified by type (review finding) — a bare "new" would collide
+        // with any other in-file type's own `new`.
         let src = "struct Foo;\nimpl Foo { fn new() -> Self { Foo } }\nfn f() { Foo::new(); }\n";
         let e = edges("src/lib.rs", src);
         assert_eq!(
             e,
             vec![RawCallEdge {
                 caller: "f".into(),
-                callee: RawCalleeRef::SameFile("new".into()),
+                callee: RawCalleeRef::SameFile("Foo::new".into()),
                 count: 1,
             }]
         );
@@ -638,6 +674,169 @@ mod tests {
                 callee: RawCalleeRef::SameFile("helper".into()),
                 count: 1,
             }]
+        );
+    }
+
+    #[test]
+    fn for_loop_variable_shadowing_a_use_binding_downgrades_to_unresolved() {
+        // Review finding: for-loop patterns were invisible to shadow
+        // detection, fabricating a resolved edge to './db' instead.
+        let src =
+            "use crate::db::save;\nfn f(tasks: Vec<fn()>) { for save in tasks { save(); } }\n";
+        let e = edges("src/lib.rs", src);
+        assert_eq!(
+            e,
+            vec![RawCallEdge {
+                caller: "f".into(),
+                callee: RawCalleeRef::Unresolved {
+                    name: "save".into()
+                },
+                count: 1,
+            }]
+        );
+    }
+
+    #[test]
+    fn if_let_binding_shadowing_a_use_binding_downgrades_to_unresolved() {
+        let src =
+            "use crate::db::save;\nfn f(x: Option<fn()>) { if let Some(save) = x { save(); } }\n";
+        let e = edges("src/lib.rs", src);
+        assert_eq!(
+            e,
+            vec![RawCallEdge {
+                caller: "f".into(),
+                callee: RawCalleeRef::Unresolved {
+                    name: "save".into()
+                },
+                count: 1,
+            }]
+        );
+    }
+
+    #[test]
+    fn while_let_binding_shadowing_a_use_binding_downgrades_to_unresolved() {
+        // `it.next()` is itself a method-call edge (Unresolved), distinct
+        // from the shadowed `save()` this test is actually about.
+        let src = "use crate::db::save;\n\
+                   fn f(mut it: std::vec::IntoIter<fn()>) { while let Some(save) = it.next() { save(); } }\n";
+        let e = edges("src/lib.rs", src);
+        assert_eq!(
+            e,
+            vec![
+                RawCallEdge {
+                    caller: "f".into(),
+                    callee: RawCalleeRef::Unresolved {
+                        name: "next".into()
+                    },
+                    count: 1,
+                },
+                RawCallEdge {
+                    caller: "f".into(),
+                    callee: RawCalleeRef::Unresolved {
+                        name: "save".into()
+                    },
+                    count: 1,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn match_arm_binding_shadowing_a_use_binding_downgrades_to_unresolved() {
+        let src =
+            "use crate::db::save;\nfn f(x: Option<fn()>) { match x { Some(save) => save(), None => {} } }\n";
+        let e = edges("src/lib.rs", src);
+        assert_eq!(
+            e,
+            vec![RawCallEdge {
+                caller: "f".into(),
+                callee: RawCalleeRef::Unresolved {
+                    name: "save".into()
+                },
+                count: 1,
+            }]
+        );
+    }
+
+    #[test]
+    fn let_binding_after_the_call_does_not_shadow_it() {
+        // Review finding: block_lets ignored source order — a `let` AFTER
+        // the call retroactively shadowed it. Rust's own scoping wouldn't
+        // allow that forward reference either.
+        let src = "use crate::db::save;\nfn f() { save(); let save = || 1; save(); }\n";
+        let e = edges("src/lib.rs", src);
+        assert_eq!(
+            e,
+            vec![
+                RawCallEdge {
+                    caller: "f".into(),
+                    callee: RawCalleeRef::Specifier {
+                        specifier: "crate::db".into(),
+                        name: "save".into(),
+                    },
+                    count: 1,
+                },
+                RawCallEdge {
+                    caller: "f".into(),
+                    callee: RawCalleeRef::Unresolved {
+                        name: "save".into()
+                    },
+                    count: 1,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn locally_declared_helper_in_an_unrelated_function_is_not_a_same_file_target() {
+        // Review finding: declared_names was whole-file, so a fn nested in
+        // one function was treated as callable from any other function.
+        let src = "fn unrelated() { fn helper() {} helper(); }\nfn caller() { helper(); }\n";
+        let e = edges("src/lib.rs", src);
+        assert_eq!(
+            e,
+            vec![
+                RawCallEdge {
+                    caller: "caller".into(),
+                    callee: RawCalleeRef::Unresolved {
+                        name: "helper".into()
+                    },
+                    count: 1,
+                },
+                RawCallEdge {
+                    caller: "unrelated".into(),
+                    callee: RawCalleeRef::Unresolved {
+                        name: "helper".into()
+                    },
+                    count: 1,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn assoc_fn_calls_on_different_types_do_not_collide_in_the_hub_key() {
+        // Review finding: Type::method() collapsed to a bare
+        // SameFile(method), merging unrelated `new()`s — a very common
+        // Rust pattern — into one hub entry regardless of type.
+        let src = "struct A;\nimpl A { fn new() -> Self { A } }\n\
+                   struct B;\nimpl B { fn new() -> Self { B } }\n\
+                   fn f() { A::new(); B::new(); }\n";
+        let e = edges("src/lib.rs", src);
+        assert_eq!(
+            e,
+            vec![
+                RawCallEdge {
+                    caller: "f".into(),
+                    callee: RawCalleeRef::SameFile("A::new".into()),
+                    count: 1,
+                },
+                RawCallEdge {
+                    caller: "f".into(),
+                    callee: RawCalleeRef::SameFile("B::new".into()),
+                    count: 1,
+                },
+            ]
         );
     }
 }

@@ -78,6 +78,13 @@ fn normalize_path(path: &Path) -> PathBuf {
 }
 
 fn resolve_rust_import(raw: &str) -> Vec<PathBuf> {
+    // A symbol declared right at the crate root (`use crate::helper;`)
+    // produces the bare specifier "crate" — no "::" left to strip into a
+    // submodule path, so it needs its own case pointing at the crate root
+    // files directly, in probe order (lib crates before binaries).
+    if raw == "crate" || raw == "self" {
+        return vec![PathBuf::from("src/lib.rs"), PathBuf::from("src/main.rs")];
+    }
     // crate::foo::bar → src/foo/bar.rs or src/foo/bar/mod.rs
     let path_part = raw
         .strip_prefix("crate::")
@@ -217,5 +224,30 @@ mod tests {
 
         let targets = &graph[&PathBuf::from("web/main.js")];
         assert_eq!(targets[0].to_string_lossy(), "web/lib/api.js");
+    }
+
+    #[test]
+    fn rust_bare_crate_specifier_resolves_to_the_crate_root() {
+        // Review finding: a symbol declared right at the crate root
+        // (`use crate::helper;`) produces the bare specifier "crate" —
+        // there's no "::" left to strip, so the general crate::-prefix
+        // path-segment logic can't map it to src/lib.rs without a
+        // dedicated case.
+        let files = vec![entry("src/lib.rs"), entry("src/other.rs")];
+        let graph = resolve_imports(&raw("src/other.rs", vec!["crate"]), &files);
+        let targets = graph
+            .get(&PathBuf::from("src/other.rs"))
+            .expect("bare crate specifier must resolve to the crate root");
+        assert_eq!(targets[0].to_string_lossy(), "src/lib.rs");
+    }
+
+    #[test]
+    fn rust_bare_crate_specifier_resolves_to_main_when_no_lib() {
+        let files = vec![entry("src/main.rs"), entry("src/other.rs")];
+        let graph = resolve_imports(&raw("src/other.rs", vec!["crate"]), &files);
+        let targets = graph
+            .get(&PathBuf::from("src/other.rs"))
+            .expect("bare crate specifier must resolve to the crate root");
+        assert_eq!(targets[0].to_string_lossy(), "src/main.rs");
     }
 }
