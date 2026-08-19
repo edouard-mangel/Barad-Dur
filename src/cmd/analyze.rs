@@ -100,7 +100,7 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<()> {
         categories,
         remote_meta,
         &weight_pairs,
-        &cfg.thresholds.coupling,
+        &cfg.thresholds,
         &flagged_god_objects,
     );
     report.dep_ecosystem_reports = dep_reports;

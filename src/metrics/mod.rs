@@ -1,3 +1,4 @@
+pub(crate) mod callgraph;
 pub mod complexity;
 pub mod coupling;
 pub mod deps;
@@ -6,6 +7,7 @@ pub mod file_role;
 pub mod health;
 pub mod hygiene;
 pub mod name_smell;
+pub(crate) mod reexport;
 pub mod team;
 #[cfg(test)]
 pub mod testutil;

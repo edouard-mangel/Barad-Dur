@@ -38,7 +38,7 @@ fn live_analysis_records_finding_counts_in_history_entry() {
         categories,
         None,
         &weight_pairs,
-        &default_cfg.thresholds.coupling,
+        &default_cfg.thresholds,
         &flagged_god_objects,
     );
 
@@ -101,7 +101,7 @@ fn backfill_style_snapshot_records_no_counts_and_unscored_metrics() {
         categories,
         None,
         &weight_pairs,
-        &default_cfg.thresholds.coupling,
+        &default_cfg.thresholds,
         &flagged_god_objects,
     );
     assert_eq!(report.coupling_finding_counts, None);

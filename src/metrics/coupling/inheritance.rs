@@ -3,15 +3,13 @@
 //! and external bases terminate a chain, cycles are cut.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 
-use crate::snapshot::{
-    BaseRef, ClassRecord, CouplingFinding, CouplingKind, ReExportKind, ReExportRecord, RepoSnapshot,
-};
+use crate::metrics::reexport::{reexport_index, resolve_symbol, ReExportIndex, SymbolKey};
+use crate::snapshot::{BaseRef, ClassRecord, CouplingFinding, CouplingKind, RepoSnapshot};
 
-type Key<'a> = (&'a PathBuf, &'a str);
+type Key<'a> = SymbolKey<'a>;
 type ByKey<'a> = HashMap<Key<'a>, &'a ClassRecord>;
-type RxIndex<'a> = HashMap<&'a PathBuf, Vec<&'a ReExportRecord>>;
+type RxIndex<'a> = ReExportIndex<'a>;
 
 /// Every class whose project-local inheritance depth reaches `min_depth`,
 /// as an Inheritance finding. `min_depth == 0` disables the rule.
@@ -27,10 +25,7 @@ pub(crate) fn inheritance_findings(
         .iter()
         .map(|r| ((&r.path, r.class_name.as_str()), r))
         .collect();
-    let rx: RxIndex<'_> = snapshot.reexports.iter().fold(HashMap::new(), |mut m, r| {
-        m.entry(&r.path).or_default().push(r);
-        m
-    });
+    let rx: RxIndex<'_> = reexport_index(&snapshot.reexports);
     let mut memo: HashMap<Key<'_>, usize> = HashMap::new();
     snapshot
         .class_records
@@ -48,36 +43,16 @@ pub(crate) fn inheritance_findings(
         .collect()
 }
 
-/// Follow barrel re-exports until `key` names an actual class record:
-/// a named re-export matching the looked-up name hops to (target, source);
-/// a star re-export hops to (target, same name). Returns `None` when no
-/// chain of hops lands on a record (cycles cut via `visited`).
+/// Follow barrel re-exports until `key` names an actual class record —
+/// the shared `metrics::reexport` chase with "declares" = "has a class
+/// record" (see design D6).
 fn resolve_key<'a>(
     key: Key<'a>,
     by_key: &ByKey<'a>,
     rx: &RxIndex<'a>,
     visited: &mut Vec<Key<'a>>,
 ) -> Option<Key<'a>> {
-    if by_key.contains_key(&key) {
-        return Some(key);
-    }
-    if visited.contains(&key) {
-        return None;
-    }
-    visited.push(key);
-    let recs = rx.get(key.0)?;
-    recs.iter()
-        .find_map(|r| match &r.kind {
-            ReExportKind::Named { exported, source } if exported.as_str() == key.1 => {
-                resolve_key((&r.target, source.as_str()), by_key, rx, visited)
-            }
-            _ => None,
-        })
-        .or_else(|| {
-            recs.iter()
-                .filter(|r| matches!(r.kind, ReExportKind::Star))
-                .find_map(|r| resolve_key((&r.target, key.1), by_key, rx, visited))
-        })
+    resolve_symbol(key, &|k| by_key.contains_key(&k), rx, visited)
 }
 
 fn parent_key<'a>(rec: &'a ClassRecord) -> Option<Key<'a>> {
@@ -154,6 +129,7 @@ fn evidence<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     fn record(path: &str, line: usize, name: &str, base: BaseRef) -> ClassRecord {
         ClassRecord {

@@ -364,6 +364,7 @@ mod tests {
             import_edges: vec![],
             import_cycles: vec![],
             coupling_finding_counts: None,
+            call_graph: None,
             score_thresholds: Default::default(),
         }
     }

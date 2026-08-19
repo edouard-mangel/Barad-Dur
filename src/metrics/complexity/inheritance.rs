@@ -230,10 +230,10 @@ fn base_expression(heritage: Node<'_>) -> Option<Node<'_>> {
         .next()
 }
 
-/// local binding → (module specifier, exported name). Default imports map
-/// to their local name (best-effort: a renamed default import terminates
-/// the chain at resolution time instead — under-count, never over-count).
-fn import_bindings(root: Node<'_>, content: &str) -> HashMap<String, (String, String)> {
+/// Each `import_statement` of the file paired with its quote-trimmed
+/// module specifier — the single walk both binding tables build on, so
+/// grammar changes to import parsing land in exactly one place.
+fn import_statements<'a>(root: Node<'a>, content: &str) -> Vec<(Node<'a>, String)> {
     descendants(root)
         .into_iter()
         .filter(|n| n.kind() == "import_statement")
@@ -244,11 +244,40 @@ fn import_bindings(root: Node<'_>, content: &str) -> HashMap<String, (String, St
                 .to_string();
             Some((stmt, specifier))
         })
+        .collect()
+}
+
+/// local binding → (module specifier, exported name). Default imports map
+/// to their local name (best-effort: a renamed default import terminates
+/// the chain at resolution time instead — under-count, never over-count).
+/// Shared with the call-edge extractor (`calls.rs`), which classifies
+/// callees against the same binding table.
+pub(super) fn import_bindings(root: Node<'_>, content: &str) -> HashMap<String, (String, String)> {
+    import_statements(root, content)
+        .into_iter()
         .flat_map(|(stmt, specifier)| {
             descendants(stmt)
                 .into_iter()
                 .filter_map(move |n| binding(n, content, &specifier))
                 .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// local namespace binding → module specifier (`import * as h from './x'`).
+/// Complements [`import_bindings`], sharing the same statement walk; used
+/// by the call-edge extractor for direct namespace receivers (design D4).
+pub(super) fn namespace_bindings(root: Node<'_>, content: &str) -> HashMap<String, String> {
+    import_statements(root, content)
+        .into_iter()
+        .filter_map(|(stmt, specifier)| {
+            let ns = descendants(stmt)
+                .into_iter()
+                .find(|n| n.kind() == "namespace_import")?;
+            let ident = descendants(ns)
+                .into_iter()
+                .find(|n| n.kind() == "identifier")?;
+            Some((text(ident, content).to_string(), specifier))
         })
         .collect()
 }

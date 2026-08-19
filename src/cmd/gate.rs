@@ -58,7 +58,7 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
         categories,
         None,
         &weight_pairs,
-        &cfg.thresholds.coupling,
+        &cfg.thresholds,
         &flagged_god_objects,
     );
 
@@ -384,6 +384,7 @@ mod tests {
             import_edges: vec![],
             import_cycles: vec![],
             coupling_finding_counts: None,
+            call_graph: None,
             score_thresholds: Default::default(),
         }
     }

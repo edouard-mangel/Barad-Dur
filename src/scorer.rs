@@ -61,9 +61,10 @@ pub fn build_report(
     categories: Vec<CategoryResult>,
     remote_meta: Option<RemoteMeta>,
     weights: &[(&str, f64)],
-    coupling: &crate::config::CouplingThresholds,
+    thresholds: &crate::config::Thresholds,
     flagged_god_objects: &[(std::path::PathBuf, String)],
 ) -> AnalysisReport {
+    let coupling = &thresholds.coupling;
     let overall_score = compute_overall_score_with_weights(&categories, weights);
     let mut top_actions = generate_top_actions(&categories);
     // "[Health] ..." refactoring actions only belong in a report that
@@ -85,6 +86,7 @@ pub fn build_report(
     let import_cycles = build_import_cycles(snapshot);
     let coupling_finding_counts =
         crate::metrics::coupling::pressman_finding_counts(snapshot, coupling);
+    let call_graph = crate::metrics::callgraph::call_graph_report(snapshot, &thresholds.health);
 
     AnalysisReport {
         repo_name: snapshot.name.clone(),
@@ -110,6 +112,7 @@ pub fn build_report(
         import_edges,
         import_cycles,
         coupling_finding_counts,
+        call_graph,
         score_thresholds: ScoreThresholds::default(),
     }
 }
@@ -157,7 +160,7 @@ mod tests {
             categories,
             None,
             WEIGHTS,
-            &crate::config::CouplingThresholds::default(),
+            &crate::config::Thresholds::default(),
             &[],
         );
 
@@ -219,7 +222,7 @@ mod tests {
             categories,
             None,
             WEIGHTS,
-            &crate::config::CouplingThresholds::default(),
+            &crate::config::Thresholds::default(),
             &flagged,
         );
         assert!(
@@ -246,7 +249,7 @@ mod tests {
             categories,
             None,
             WEIGHTS,
-            &crate::config::CouplingThresholds::default(),
+            &crate::config::Thresholds::default(),
             &[],
         );
         assert!(
@@ -402,7 +405,7 @@ mod tests {
             categories,
             None,
             WEIGHTS,
-            &crate::config::CouplingThresholds::default(),
+            &crate::config::Thresholds::default(),
             &[],
         );
         let entry = build_history_entry(&report, "abc123", None);
@@ -429,7 +432,7 @@ mod tests {
             categories,
             None,
             WEIGHTS,
-            &crate::config::CouplingThresholds::default(),
+            &crate::config::Thresholds::default(),
             &[],
         );
         assert!(report.author_cards.is_empty());
@@ -462,7 +465,7 @@ mod tests {
             categories,
             None,
             WEIGHTS,
-            &crate::config::CouplingThresholds::default(),
+            &crate::config::Thresholds::default(),
             &[],
         );
         assert!(
@@ -485,7 +488,7 @@ mod tests {
             categories,
             None,
             WEIGHTS,
-            &crate::config::CouplingThresholds::default(),
+            &crate::config::Thresholds::default(),
             &[],
         );
         assert!(
@@ -511,7 +514,7 @@ mod tests {
             vec![make_category("Health", 80)],
             None,
             WEIGHTS,
-            &crate::config::CouplingThresholds::default(),
+            &crate::config::Thresholds::default(),
             &[],
         )
     }
@@ -528,9 +531,42 @@ mod tests {
             vec![make_category("Health", 80)],
             None,
             WEIGHTS,
-            &crate::config::CouplingThresholds::default(),
+            &crate::config::Thresholds::default(),
             &[],
         )
+    }
+
+    #[test]
+    fn report_embeds_call_graph_when_call_records_exist() {
+        let mut snapshot = crate::metrics::testutil::make_snapshot();
+        snapshot
+            .file_metrics
+            .insert("a.ts".into(), crate::snapshot::FileComplexity::default());
+        snapshot.call_records = vec![crate::snapshot::CallRecord {
+            path: "a.ts".into(),
+            caller: "f".into(),
+            callee: crate::snapshot::CalleeRef::SameFile("g".into()),
+            count: 2,
+        }];
+        let report = build_report(
+            &snapshot,
+            vec![make_category("Health", 80)],
+            None,
+            WEIGHTS,
+            &crate::config::Thresholds::default(),
+            &[],
+        );
+        let cg = report.call_graph.expect("call_graph section");
+        assert!((cg.resolution_rate - 1.0).abs() < f64::EPSILON);
+        assert_eq!(cg.edges_same_file, 1);
+        assert_eq!(cg.edges_resolved, 0);
+        assert_eq!(cg.edges_unresolved, 0);
+    }
+
+    #[test]
+    fn report_call_graph_none_for_backfill_style_snapshot() {
+        let report = report_without_detection();
+        assert_eq!(report.call_graph, None);
     }
 
     #[test]

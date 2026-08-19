@@ -93,7 +93,7 @@ fn report_hotspots_carry_counts_and_multiplied_score() {
         Vec::new(),
         None,
         &cfg.weights.as_weight_pairs(),
-        &cfg.thresholds.coupling,
+        &cfg.thresholds,
         &flagged_god_objects,
     );
 
@@ -140,7 +140,7 @@ fn hotspot_json_contract_for_renderers() {
         Vec::new(),
         None,
         &cfg.weights.as_weight_pairs(),
-        &cfg.thresholds.coupling,
+        &cfg.thresholds,
         &flagged_god_objects,
     );
     let json = serde_json::to_value(&report.file_hotspots).unwrap();
