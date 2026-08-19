@@ -57,15 +57,25 @@ pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
 
         let snapshot = Collector::collect_snapshot_at(repo_path, sha, &ignore, true)?;
 
+        // Computed once, shared by the Health category's "God objects"
+        // metric and by build_report's refactoring-action generator.
+        let flagged_god_objects = health::god_object_files(&snapshot, &cfg.thresholds.health);
+
         let categories = vec![
-            health::compute_health(&snapshot, &cfg.thresholds.health),
+            health::compute_health(&snapshot, &cfg.thresholds.health, &flagged_god_objects),
             team::compute_team(&snapshot, &cfg.thresholds.team),
             evolution::compute_evolution(&snapshot, &cfg.thresholds.evolution),
             hygiene::compute_hygiene(&snapshot, &cfg.thresholds.hygiene),
         ];
 
-        let report =
-            scorer::build_report(&snapshot, categories, None, &weight_pairs, &cfg.thresholds);
+        let report = scorer::build_report(
+            &snapshot,
+            categories,
+            None,
+            &weight_pairs,
+            &cfg.thresholds,
+            &flagged_god_objects,
+        );
         let mut entry = scorer::build_history_entry(&report, sha, Some("backfill".to_string()));
 
         // Use the commit's actual timestamp instead of "now" so the trend

@@ -16,10 +16,11 @@ fn is_structural_hub(degree: usize, median_degree: f64, thresholds: &HealthThres
         && (degree as f64) > median_degree * thresholds.god_node_degree_multiplier
 }
 
-/// Why a file was flagged — LOC, method bloat, structural centrality, or a
-/// combination — so the report says what actually tripped, not just what.
-/// `None` when neither condition fires.
+/// Why a file was flagged — LOC, method bloat, structural centrality, a
+/// name-smell annotation, or a combination — so the report says what
+/// actually tripped, not just what. `None` when neither condition fires.
 fn god_reason(
+    path: &std::path::Path,
     m: &crate::snapshot::FileComplexity,
     degree: usize,
     median_degree: f64,
@@ -48,12 +49,21 @@ fn god_reason(
         };
         reasons.push(format!("structural hub — {degree} connections ({ratio})"));
     }
+    if !reasons.is_empty() && crate::metrics::name_smell::has_smelly_name(path) {
+        reasons.push("generic name suggests broad responsibility".to_string());
+    }
     (!reasons.is_empty()).then(|| reasons.join("; "))
 }
 
-/// Files that have grown too large to maintain (god objects / bloaters), or
-/// that dominate the import graph as a structural hub.
-pub(super) fn god_objects(snapshot: &RepoSnapshot, thresholds: &HealthThresholds) -> MetricValue {
+/// Files flagged as god objects, with their reason string — the single
+/// definition `god_objects()`'s display list and any downstream action
+/// generator (`generate_refactoring_actions`) share, so they never diverge
+/// on which files qualify. Callers building a full report compute this once
+/// and pass it to both `compute_health` and `build_report`.
+pub fn god_object_files(
+    snapshot: &RepoSnapshot,
+    thresholds: &HealthThresholds,
+) -> Vec<(std::path::PathBuf, String)> {
     let incoming = crate::metrics::incoming_import_counts(&snapshot.import_graph);
 
     // Computed once per file here, then looked up (never recomputed) for
@@ -72,20 +82,44 @@ pub(super) fn god_objects(snapshot: &RepoSnapshot, thresholds: &HealthThresholds
     let degree_values: Vec<usize> = degrees.values().copied().collect();
     let median_degree = median(&degree_values);
 
-    let source_total = degrees.len();
-
-    let mut gods: Vec<String> = snapshot
+    let mut flagged: Vec<(std::path::PathBuf, String)> = snapshot
         .file_metrics
         .iter()
         .filter(|(p, _)| is_source_file(p))
         .filter_map(|(p, m)| {
             let degree = degrees.get(p.as_path()).copied().unwrap_or(0);
-            god_reason(m, degree, median_degree, thresholds)
-                .map(|reason| format!("{} — {reason}", p.display()))
+            god_reason(p, m, degree, median_degree, thresholds).map(|reason| (p.clone(), reason))
         })
         .collect();
     // snapshot.file_metrics is a HashMap — sort for deterministic report output.
-    gods.sort();
+    // Sort by the display string, not PathBuf component ordering — matches
+    // the pre-extraction behavior of sorting the fully-formatted
+    // "path — reason" strings (PathBuf::cmp compares path components, which
+    // can disagree with plain byte-string comparison, e.g. for
+    // "src-utils.rs" vs "src/utils.rs").
+    flagged.sort_by(|a, b| a.0.to_string_lossy().cmp(&b.0.to_string_lossy()));
+    flagged
+}
+
+/// Files that have grown too large to maintain (god objects / bloaters), or
+/// that dominate the import graph as a structural hub. Takes the already-
+/// computed `god_object_files` result rather than recomputing it, so
+/// `compute_health` and a report's refactoring-action generator can share
+/// one pass over the snapshot instead of two.
+pub(super) fn god_objects(
+    snapshot: &RepoSnapshot,
+    flagged_god_objects: &[(std::path::PathBuf, String)],
+) -> MetricValue {
+    let source_total = snapshot
+        .file_metrics
+        .keys()
+        .filter(|p| is_source_file(p))
+        .count();
+
+    let gods: Vec<String> = flagged_god_objects
+        .iter()
+        .map(|(p, reason)| format!("{} — {reason}", p.display()))
+        .collect();
 
     let count = gods.len();
     let pct = if source_total > 0 {
@@ -158,7 +192,10 @@ mod tests {
             },
         );
         add_normal_files(&mut snapshot, 99); // 1/100 = 1% → score 75
-        let result = god_objects(&snapshot, &HealthThresholds::default());
+        let result = god_objects(
+            &snapshot,
+            &god_object_files(&snapshot, &HealthThresholds::default()),
+        );
         assert_eq!(result.score, Some(75));
         match &result.raw_value {
             RawValue::List(v) => {
@@ -193,7 +230,10 @@ mod tests {
             },
         );
         add_normal_files(&mut snapshot, 10);
-        let result = god_objects(&snapshot, &HealthThresholds::default());
+        let result = god_objects(
+            &snapshot,
+            &god_object_files(&snapshot, &HealthThresholds::default()),
+        );
         assert_eq!(result.score, Some(100));
         assert_eq!(
             result.description,
@@ -221,7 +261,10 @@ mod tests {
             },
         );
         add_normal_files(&mut snapshot, 99); // 1/100 = 1% → score 75
-        let result = god_objects(&snapshot, &HealthThresholds::default());
+        let result = god_objects(
+            &snapshot,
+            &god_object_files(&snapshot, &HealthThresholds::default()),
+        );
         assert_eq!(result.score, Some(75)); // LOC>300 AND methods>15
     }
 
@@ -244,7 +287,10 @@ mod tests {
                 ..Default::default()
             },
         );
-        let result = god_objects(&snapshot, &HealthThresholds::default());
+        let result = god_objects(
+            &snapshot,
+            &god_object_files(&snapshot, &HealthThresholds::default()),
+        );
         assert_eq!(result.score, Some(100));
     }
 
@@ -268,7 +314,10 @@ mod tests {
                 ..Default::default()
             },
         );
-        let result = god_objects(&snapshot, &HealthThresholds::default());
+        let result = god_objects(
+            &snapshot,
+            &god_object_files(&snapshot, &HealthThresholds::default()),
+        );
         assert_eq!(result.score, Some(100));
     }
 
@@ -293,7 +342,10 @@ mod tests {
             },
         );
         add_normal_files(&mut snapshot, 99); // 1/100 = 1% → score 75
-        let result = god_objects(&snapshot, &HealthThresholds::default());
+        let result = god_objects(
+            &snapshot,
+            &god_object_files(&snapshot, &HealthThresholds::default()),
+        );
         assert_eq!(result.score, Some(75));
     }
 
@@ -317,7 +369,10 @@ mod tests {
                 ..Default::default()
             },
         );
-        let result = god_objects(&snapshot, &HealthThresholds::default());
+        let result = god_objects(
+            &snapshot,
+            &god_object_files(&snapshot, &HealthThresholds::default()),
+        );
         assert_eq!(result.score, Some(100));
     }
 
@@ -344,7 +399,10 @@ mod tests {
             );
         }
         add_normal_files(&mut snapshot, 95); // 5/100 = 5% ≤ 8% → score 50
-        let result = god_objects(&snapshot, &HealthThresholds::default());
+        let result = god_objects(
+            &snapshot,
+            &god_object_files(&snapshot, &HealthThresholds::default()),
+        );
         assert_eq!(result.score, Some(50));
     }
 
@@ -371,7 +429,10 @@ mod tests {
             );
         }
         add_normal_files(&mut snapshot, 90); // 10/100 = 10% > 8% → score 25
-        let result = god_objects(&snapshot, &HealthThresholds::default());
+        let result = god_objects(
+            &snapshot,
+            &god_object_files(&snapshot, &HealthThresholds::default()),
+        );
         assert_eq!(result.score, Some(25));
     }
 
@@ -398,7 +459,10 @@ mod tests {
             );
         }
         add_normal_files(&mut snapshot, 98); // 2/100 = 2% ≤ 2% → score 75
-        let result = god_objects(&snapshot, &HealthThresholds::default());
+        let result = god_objects(
+            &snapshot,
+            &god_object_files(&snapshot, &HealthThresholds::default()),
+        );
         assert_eq!(result.score, Some(75));
     }
 
@@ -423,7 +487,10 @@ mod tests {
             },
         );
         add_normal_files(&mut snapshot, 99); // 1/100 = 1% → score 75
-        let result = god_objects(&snapshot, &HealthThresholds::default());
+        let result = god_objects(
+            &snapshot,
+            &god_object_files(&snapshot, &HealthThresholds::default()),
+        );
         assert_eq!(result.score, Some(75)); // flagged: 1/100 = 1%
     }
 
@@ -447,7 +514,10 @@ mod tests {
                 ..Default::default()
             },
         );
-        let result = god_objects(&snapshot, &HealthThresholds::default());
+        let result = god_objects(
+            &snapshot,
+            &god_object_files(&snapshot, &HealthThresholds::default()),
+        );
         assert_eq!(result.score, Some(100)); // loc=300 is not > 300
     }
 
@@ -495,7 +565,10 @@ mod tests {
                 ..Default::default()
             },
         );
-        let result = god_objects(&snapshot, &HealthThresholds::default());
+        let result = god_objects(
+            &snapshot,
+            &god_object_files(&snapshot, &HealthThresholds::default()),
+        );
         assert_eq!(result.score, Some(100));
     }
 
@@ -536,7 +609,10 @@ mod tests {
                 .import_graph
                 .insert(PathBuf::from(&name), vec![PathBuf::from("hub.rs")]);
         }
-        let result = god_objects(&snapshot, &HealthThresholds::default());
+        let result = god_objects(
+            &snapshot,
+            &god_object_files(&snapshot, &HealthThresholds::default()),
+        );
         match &result.raw_value {
             RawValue::List(v) => {
                 assert_eq!(v.len(), 1, "only the hub should be flagged");
@@ -593,7 +669,10 @@ mod tests {
                 .import_graph
                 .insert(PathBuf::from(&name), vec![PathBuf::from("index.ts")]);
         }
-        let result = god_objects(&snapshot, &HealthThresholds::default());
+        let result = god_objects(
+            &snapshot,
+            &god_object_files(&snapshot, &HealthThresholds::default()),
+        );
         match &result.raw_value {
             RawValue::List(v) => {
                 assert!(
@@ -626,7 +705,10 @@ mod tests {
                 },
             );
         }
-        let result = god_objects(&snapshot, &HealthThresholds::default());
+        let result = god_objects(
+            &snapshot,
+            &god_object_files(&snapshot, &HealthThresholds::default()),
+        );
         match &result.raw_value {
             RawValue::List(v) => {
                 let mut sorted = v.clone();
@@ -678,7 +760,154 @@ mod tests {
                 .import_graph
                 .insert(PathBuf::from(&name), vec![PathBuf::from("small.rs")]);
         }
-        let result = god_objects(&snapshot, &HealthThresholds::default());
+        let result = god_objects(
+            &snapshot,
+            &god_object_files(&snapshot, &HealthThresholds::default()),
+        );
         assert_eq!(result.score, Some(100));
+    }
+
+    #[test]
+    fn god_objects_notes_generic_name_on_flagged_file() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        snapshot.file_metrics.insert(
+            PathBuf::from("UserManager.rs"),
+            FileComplexity {
+                total_lines: 600,
+                loc: 520,
+                cyclomatic_complexity: 10,
+                public_methods: 5,
+                properties: 2,
+                ..Default::default()
+            },
+        );
+        add_normal_files(&mut snapshot, 99);
+        let result = god_objects(
+            &snapshot,
+            &god_object_files(&snapshot, &HealthThresholds::default()),
+        );
+        match &result.raw_value {
+            RawValue::List(v) => {
+                assert_eq!(v.len(), 1);
+                assert_eq!(
+                    v[0], "UserManager.rs — 520 loc; generic name suggests broad responsibility",
+                    "smelly-named flagged file must get the name-based reason appended"
+                );
+            }
+            _ => panic!("Expected List"),
+        }
+    }
+
+    #[test]
+    fn god_objects_smelly_name_alone_does_not_trigger_flag() {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        // Small, well-scoped file with a "smelly" stem — name alone must never flag it.
+        snapshot.file_metrics.insert(
+            PathBuf::from("common.rs"),
+            FileComplexity {
+                total_lines: 100,
+                loc: 80,
+                cyclomatic_complexity: 3,
+                public_methods: 2,
+                properties: 1,
+                ..Default::default()
+            },
+        );
+        let result = god_objects(
+            &snapshot,
+            &god_object_files(&snapshot, &HealthThresholds::default()),
+        );
+        assert_eq!(result.score, Some(100));
+        match &result.raw_value {
+            RawValue::List(v) => assert!(v.is_empty(), "name-smell alone must not create a flag"),
+            _ => panic!("Expected List"),
+        }
+    }
+
+    #[test]
+    fn god_object_files_matches_god_objects_flagged_set() {
+        // Regression guard for the extraction below: `god_objects()`'s display
+        // list and `god_object_files()`'s structured list must always agree on
+        // which files qualify (same "one definition, not two" rule as the M5
+        // corroboration-predicate extraction).
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        snapshot.file_metrics.insert(
+            PathBuf::from("fat.rs"),
+            FileComplexity {
+                total_lines: 600,
+                loc: 520,
+                cyclomatic_complexity: 10,
+                public_methods: 5,
+                properties: 2,
+                ..Default::default()
+            },
+        );
+        add_normal_files(&mut snapshot, 99);
+        let thresholds = HealthThresholds::default();
+        let result = god_objects(&snapshot, &god_object_files(&snapshot, &thresholds));
+        let files = god_object_files(&snapshot, &thresholds);
+        let expected: Vec<String> = files
+            .iter()
+            .map(|(p, reason)| format!("{} — {reason}", p.display()))
+            .collect();
+        match &result.raw_value {
+            RawValue::List(v) => assert_eq!(v, &expected),
+            _ => panic!("Expected List"),
+        }
+    }
+
+    #[test]
+    fn god_object_files_sorts_by_display_string_not_pathbuf_components() {
+        // Regression guard: PathBuf::cmp compares path COMPONENTS
+        // ("src-utils.rs" is one component; "src/utils.rs" is two: "src"
+        // then "utils.rs"), which reorders these two paths relative to
+        // plain byte-string comparison ('-' 0x2D < '/' 0x2F). The
+        // pre-extraction code sorted the fully-formatted "path — reason"
+        // strings, so the sort key here must be the path's display string,
+        // not the PathBuf itself, to stay behavior-identical.
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        for name in ["src/utils.rs", "src-utils.rs"] {
+            snapshot.file_metrics.insert(
+                PathBuf::from(name),
+                FileComplexity {
+                    total_lines: 600,
+                    loc: 520,
+                    cyclomatic_complexity: 10,
+                    public_methods: 5,
+                    properties: 2,
+                    ..Default::default()
+                },
+            );
+        }
+        let flagged = god_object_files(&snapshot, &HealthThresholds::default());
+        let paths: Vec<String> = flagged
+            .iter()
+            .map(|(p, _)| p.display().to_string())
+            .collect();
+        assert_eq!(
+            paths,
+            vec!["src-utils.rs".to_string(), "src/utils.rs".to_string()],
+            "must sort by display string ('-' < '/'), not PathBuf components"
+        );
     }
 }

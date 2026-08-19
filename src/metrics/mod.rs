@@ -6,6 +6,7 @@ pub mod evolution;
 pub mod file_role;
 pub mod health;
 pub mod hygiene;
+pub mod name_smell;
 pub(crate) mod reexport;
 pub mod team;
 #[cfg(test)]

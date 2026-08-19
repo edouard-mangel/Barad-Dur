@@ -3,6 +3,7 @@
 //! report and dashboard read.
 
 use barad_dur::config::RepoConfig;
+use barad_dur::metrics::health;
 use barad_dur::scorer;
 use barad_dur::snapshot::{
     Author, ChangeType, Commit, CommitId, CouplingFinding, CouplingKind, FileChange,
@@ -86,12 +87,14 @@ fn synthetic_snapshot() -> RepoSnapshot {
 fn report_hotspots_carry_counts_and_multiplied_score() {
     let snapshot = synthetic_snapshot();
     let cfg = RepoConfig::default();
+    let flagged_god_objects = health::god_object_files(&snapshot, &cfg.thresholds.health);
     let report = scorer::build_report(
         &snapshot,
         Vec::new(),
         None,
         &cfg.weights.as_weight_pairs(),
         &cfg.thresholds,
+        &flagged_god_objects,
     );
 
     let flagged = report
@@ -131,12 +134,14 @@ fn report_hotspots_carry_counts_and_multiplied_score() {
 fn hotspot_json_contract_for_renderers() {
     let snapshot = synthetic_snapshot();
     let cfg = RepoConfig::default();
+    let flagged_god_objects = health::god_object_files(&snapshot, &cfg.thresholds.health);
     let report = scorer::build_report(
         &snapshot,
         Vec::new(),
         None,
         &cfg.weights.as_weight_pairs(),
         &cfg.thresholds,
+        &flagged_god_objects,
     );
     let json = serde_json::to_value(&report.file_hotspots).unwrap();
     let flagged = json
