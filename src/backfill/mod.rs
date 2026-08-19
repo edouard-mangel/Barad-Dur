@@ -13,7 +13,11 @@ use crate::scorer;
 use crate::snapshot::TimeWindow;
 
 // `args` currently carries only `--no-blame`, which was always a no-op here:
-// ADR-005 baseline collection skips blame unconditionally.
+// ADR-005 baseline collection skips blame unconditionally. Blame is the
+// expensive part ADR-005 exists to avoid; the AST pass is NOT skipped as
+// of the per-entity trend feature (Decision 5) — it's needed for
+// per-sample complexity, and it's the same cost `analyze`/`gate` already
+// pay on every normal invocation, amortized across `sample_count` points.
 pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
     let cfg = config::load(repo_path)?;
     config::validate(&cfg)?;
@@ -62,7 +66,7 @@ pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
             continue;
         }
 
-        let snapshot = Collector::collect_snapshot_at(repo_path, sha, &ignore, true)?;
+        let snapshot = Collector::collect_snapshot_at_with_ast(repo_path, sha, &ignore, true)?;
 
         // Computed once, shared by the Health category's "God objects"
         // metric and by build_report's refactoring-action generator.
@@ -100,6 +104,18 @@ pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
         }
 
         history::append_if_new_head(&entry, repo_path)?;
+
+        let entity_entry = crate::cache::entity_history::build_entity_trend_entry(
+            &snapshot,
+            &report.file_hotspots,
+            &cfg.thresholds.coupling,
+            cfg.backfill.entity_trend_top_n,
+            sha,
+            entry.timestamp,
+            &report.branch,
+        );
+        crate::cache::entity_history::append_entity_entry(&entity_entry, repo_path)?;
+
         written += 1;
     }
 
