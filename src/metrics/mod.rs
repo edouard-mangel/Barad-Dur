@@ -5,6 +5,7 @@ pub mod evolution;
 pub mod file_role;
 pub mod health;
 pub mod hygiene;
+pub mod name_smell;
 pub mod team;
 #[cfg(test)]
 pub mod testutil;

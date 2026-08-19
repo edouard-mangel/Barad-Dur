@@ -154,6 +154,139 @@ pub(super) fn generate_coupling_actions(
         .collect()
 }
 
+// No entry may be a prefix of another — `.find()` returns the first match,
+// so overlapping entries would make grouping order-dependent.
+const GROUPING_PREFIXES: &[&str] = &[
+    "get_",
+    "set_",
+    "handle_",
+    "validate_",
+    "build_",
+    "compute_",
+    "parse_",
+    "render_",
+    "is_",
+    "has_",
+];
+
+/// True if `name` starts with `prefix_with_underscore`'s verb at a real word
+/// boundary — either the snake_case `_` itself (`get_user`) or a camelCase
+/// capital letter (`getUserData`), so both conventions cluster identically
+/// across this collector's 8 supported languages. Lookalikes with no real
+/// boundary ("getter", "geta") never match.
+fn matches_group_prefix(name: &str, prefix_with_underscore: &str) -> bool {
+    let verb = &prefix_with_underscore[..prefix_with_underscore.len() - 1];
+    // Case-insensitive on the verb itself — Go/C# capitalize exported
+    // methods (`GetUserData`, not `getUserData`), so the verb has to match
+    // regardless of case; only the boundary check below cares about case.
+    if name.len() < verb.len() || !name[..verb.len()].eq_ignore_ascii_case(verb) {
+        return false;
+    }
+    match name.as_bytes().get(verb.len()) {
+        Some(b'_') => true,
+        Some(b) => b.is_ascii_uppercase(),
+        None => false,
+    }
+}
+
+/// Group a file's function names by a known verb prefix — a cheap split-
+/// boundary suggestion for a god-object file (Appendix 1). Only groups with
+/// ≥2 members are returned; a lone `handle_x` isn't a split boundary.
+fn group_methods_by_prefix(
+    functions: &[crate::snapshot::FunctionMetrics],
+) -> Vec<(&'static str, Vec<&str>)> {
+    let groups: HashMap<&'static str, Vec<&str>> =
+        functions.iter().fold(HashMap::new(), |mut groups, f| {
+            if let Some(prefix) = GROUPING_PREFIXES
+                .iter()
+                .find(|p| matches_group_prefix(&f.name, p))
+            {
+                groups.entry(prefix).or_default().push(f.name.as_str());
+            }
+            groups
+        });
+
+    let mut result: Vec<(&'static str, Vec<&str>)> = groups
+        .into_iter()
+        .filter(|(_, names)| names.len() >= 2)
+        .map(|(prefix, mut names)| {
+            names.sort();
+            (prefix, names)
+        })
+        .collect();
+    result.sort_by_key(|(prefix, _)| *prefix);
+    result
+}
+
+/// A file's clustering groups: (shared verb prefix, sorted matching function names).
+type MethodGroups<'a> = Vec<(&'static str, Vec<&'a str>)>;
+/// A god-object file paired with its reason and its clustering groups —
+/// the raw material `generate_refactoring_actions` ranks and formats.
+type RefactorCandidate<'a> = (std::path::PathBuf, String, MethodGroups<'a>);
+
+/// Per-file method-grouping refactor suggestions for god-object files
+/// (Appendix 1) — groups function names by shared verb prefix to hint at a
+/// split boundary that already exists in the code, and folds in the
+/// god-object's own reason (LOC, hub, name-smell) so the action reads as one
+/// coherent finding instead of a bare grouping with no explanation. Advisory
+/// only: files with no qualifying group get no action. Ranked by total
+/// clustering-method count descending (more clustered methods means a
+/// clearer, larger split), path ascending as the tiebreak for determinism,
+/// then capped at 5 — this is an advisory list layered onto `top_actions`,
+/// not its own report section.
+pub(super) fn generate_refactoring_actions(
+    snapshot: &crate::snapshot::RepoSnapshot,
+    flagged_god_objects: &[(std::path::PathBuf, String)],
+) -> Vec<ActionItem> {
+    // Decorate each candidate with its total clustering-method count once,
+    // rather than recomputing it inside the sort comparator on every
+    // comparison.
+    let mut candidates: Vec<(usize, RefactorCandidate)> = flagged_god_objects
+        .iter()
+        .filter_map(|(path, reason)| {
+            let functions = &snapshot.file_metrics.get(path)?.functions;
+            let groups = group_methods_by_prefix(functions);
+            if groups.is_empty() {
+                return None;
+            }
+            let count: usize = groups.iter().map(|(_, names)| names.len()).sum();
+            Some((count, (path.clone(), reason.clone(), groups)))
+        })
+        .collect();
+
+    // Tie-break by display string, not PathBuf component ordering — matches
+    // god_object_files' own sort (PathBuf::cmp compares path components,
+    // which can disagree with plain byte-string comparison, e.g. for
+    // "src-utils.rs" vs "src/utils.rs").
+    candidates.sort_by(|(a_count, (a_path, ..)), (b_count, (b_path, ..))| {
+        b_count
+            .cmp(a_count)
+            .then_with(|| a_path.to_string_lossy().cmp(&b_path.to_string_lossy()))
+    });
+
+    candidates
+        .into_iter()
+        .take(5)
+        .map(|(_, (path, reason, groups))| {
+            let groups_text = groups
+                .iter()
+                .map(|(prefix, names)| format!("{prefix}* ({})", names.len()))
+                .collect::<Vec<_>>()
+                .join(", ");
+            ActionItem {
+                text: format!(
+                    "[Health] {} — {} — consider splitting by responsibility: {}",
+                    path.display(),
+                    reason,
+                    groups_text
+                ),
+                target_tab: Some("hotspots".to_string()),
+                sort_by: Some("complexity".to_string()),
+            }
+        })
+        .collect()
+}
+
 fn target_tab_for_metric(metric_name: &str) -> (Option<&'static str>, Option<&'static str>) {
     match metric_name {
         "Bus factor" => (Some("ownership"), Some("authors")),
@@ -533,5 +666,279 @@ mod tests {
         assert!(texts[0].contains("src/glob.rs") && texts[0].contains("worst: common"));
         assert!(texts[1].contains("src/deep.ts") && texts[1].contains("worst: inheritance"));
         assert!(texts[2].contains("src/ctrl.rs") && texts[2].contains("worst: control"));
+    }
+
+    fn fm(name: &str) -> crate::snapshot::FunctionMetrics {
+        crate::snapshot::FunctionMetrics {
+            name: name.to_string(),
+            loc: 10,
+            cyclomatic_complexity: 2,
+            max_nesting_depth: 1,
+        }
+    }
+
+    #[test]
+    fn group_methods_by_prefix_groups_shared_verbs() {
+        let functions = vec![
+            fm("handle_a"),
+            fm("handle_b"),
+            fm("handle_c"),
+            fm("validate_x"),
+            fm("validate_y"),
+            fm("parse_one"),
+        ];
+        let groups = group_methods_by_prefix(&functions);
+        assert_eq!(
+            groups,
+            vec![
+                ("handle_", vec!["handle_a", "handle_b", "handle_c"]),
+                ("validate_", vec!["validate_x", "validate_y"]),
+            ]
+        );
+    }
+
+    #[test]
+    fn group_methods_by_prefix_excludes_singleton_groups() {
+        let functions = vec![fm("parse_only_one"), fm("main")];
+        assert!(group_methods_by_prefix(&functions).is_empty());
+    }
+
+    #[test]
+    fn group_methods_by_prefix_returns_empty_for_no_matches() {
+        let functions = vec![fm("run")];
+        assert!(group_methods_by_prefix(&functions).is_empty());
+    }
+
+    #[test]
+    fn group_methods_by_prefix_matches_camel_case_boundaries() {
+        // The collector supports 8 languages via tree-sitter; camelCase
+        // methods (Java/C#/JS/TS/Kotlin/Swift) must cluster exactly like
+        // their snake_case equivalents.
+        let functions = vec![fm("getUserData"), fm("getUserProfile"), fm("handleClick")];
+        let groups = group_methods_by_prefix(&functions);
+        assert_eq!(
+            groups,
+            vec![("get_", vec!["getUserData", "getUserProfile"])]
+        );
+    }
+
+    #[test]
+    fn group_methods_by_prefix_camel_case_boundary_excludes_lookalikes() {
+        // "getter" and "geta" share the "get" letters but not a real word
+        // boundary (next char is lowercase, neither '_' nor uppercase) —
+        // must not match, same discipline as the snake_case case.
+        let functions = vec![fm("getter"), fm("geta")];
+        assert!(group_methods_by_prefix(&functions).is_empty());
+    }
+
+    #[test]
+    fn group_methods_by_prefix_mixed_snake_and_camel_case_share_a_group() {
+        let functions = vec![fm("handle_click"), fm("handleSubmit")];
+        let groups = group_methods_by_prefix(&functions);
+        assert_eq!(
+            groups,
+            vec![("handle_", vec!["handleSubmit", "handle_click"])]
+        );
+    }
+
+    #[test]
+    fn group_methods_by_prefix_matches_pascal_case_exported_methods() {
+        // Go and C# capitalize exported/public method names (GetUserData,
+        // not getUserData) — the verb itself must match case-insensitively,
+        // with the boundary check (next char uppercase) unchanged.
+        let functions = vec![fm("GetUserData"), fm("GetUserProfile"), fm("HandleClick")];
+        let groups = group_methods_by_prefix(&functions);
+        assert_eq!(
+            groups,
+            vec![("get_", vec!["GetUserData", "GetUserProfile"])]
+        );
+    }
+
+    #[test]
+    fn generate_refactoring_actions_emits_action_for_clustering_god_object() {
+        let mut snapshot = crate::snapshot::RepoSnapshot::new(
+            std::path::PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            crate::snapshot::TimeWindow::default(),
+        );
+        snapshot.file_metrics.insert(
+            std::path::PathBuf::from("god.rs"),
+            crate::snapshot::FileComplexity {
+                total_lines: 600,
+                loc: 520,
+                cyclomatic_complexity: 10,
+                public_methods: 5,
+                properties: 2,
+                functions: vec![fm("handle_a"), fm("handle_b"), fm("main")],
+                ..Default::default()
+            },
+        );
+        let thresholds = crate::config::HealthThresholds::default();
+        let actions = generate_refactoring_actions(
+            &snapshot,
+            &crate::metrics::health::god_object_files(&snapshot, &thresholds),
+        );
+        assert_eq!(actions.len(), 1);
+        assert!(actions[0].text.contains("god.rs"));
+        assert!(actions[0].text.contains("520 loc"));
+        assert!(actions[0].text.contains("handle_* (2)"));
+        assert_eq!(actions[0].target_tab, Some("hotspots".to_string()));
+    }
+
+    #[test]
+    fn generate_refactoring_actions_ranks_by_group_size_and_caps_at_five() {
+        let mut snapshot = crate::snapshot::RepoSnapshot::new(
+            std::path::PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            crate::snapshot::TimeWindow::default(),
+        );
+        // 6 god-object files, each with a distinct total clustering-method
+        // count (sum of group sizes): f0=2 (smallest), f5=7 (largest). Only
+        // the top 5 by count should survive, in descending order; f0 (count
+        // 2, the smallest) must be dropped.
+        let counts = [
+            ("f0.rs", 2),
+            ("f1.rs", 3),
+            ("f2.rs", 4),
+            ("f3.rs", 5),
+            ("f4.rs", 6),
+            ("f5.rs", 7),
+        ];
+        for (name, count) in counts {
+            let functions: Vec<_> = (0..count).map(|i| fm(&format!("handle_{i}"))).collect();
+            snapshot.file_metrics.insert(
+                std::path::PathBuf::from(name),
+                crate::snapshot::FileComplexity {
+                    total_lines: 600,
+                    loc: 520,
+                    cyclomatic_complexity: 10,
+                    public_methods: 5,
+                    properties: 2,
+                    functions,
+                    ..Default::default()
+                },
+            );
+        }
+        let thresholds = crate::config::HealthThresholds::default();
+        let actions = generate_refactoring_actions(
+            &snapshot,
+            &crate::metrics::health::god_object_files(&snapshot, &thresholds),
+        );
+        assert_eq!(actions.len(), 5, "must be capped at 5: {actions:#?}");
+        let expected_order = ["f5.rs", "f4.rs", "f3.rs", "f2.rs", "f1.rs"];
+        for (action, expected) in actions.iter().zip(expected_order.iter()) {
+            assert!(
+                action.text.contains(expected),
+                "expected {expected} next, got: {}",
+                action.text
+            );
+        }
+        assert!(
+            actions.iter().all(|a| !a.text.contains("f0.rs")),
+            "smallest group (f0.rs) must be dropped by the cap"
+        );
+    }
+
+    #[test]
+    fn generate_refactoring_actions_tie_break_sorts_by_display_string_not_pathbuf() {
+        // Regression guard mirroring god_object_files' own fix: PathBuf::cmp
+        // compares path COMPONENTS, which disagrees with plain byte-string
+        // comparison for a pair like "src-utils.rs" (one component) vs
+        // "src/utils.rs" (two components) — '-' (0x2D) < '/' (0x2F) as
+        // bytes, but "src" < "src-utils.rs" as path components. Both
+        // candidates here have the same clustering-method count (2), so the
+        // tie-break alone decides the order.
+        let mut snapshot = crate::snapshot::RepoSnapshot::new(
+            std::path::PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            crate::snapshot::TimeWindow::default(),
+        );
+        for name in ["src/utils.rs", "src-utils.rs"] {
+            snapshot.file_metrics.insert(
+                std::path::PathBuf::from(name),
+                crate::snapshot::FileComplexity {
+                    total_lines: 600,
+                    loc: 520,
+                    cyclomatic_complexity: 10,
+                    public_methods: 5,
+                    properties: 2,
+                    functions: vec![fm("handle_a"), fm("handle_b")],
+                    ..Default::default()
+                },
+            );
+        }
+        let thresholds = crate::config::HealthThresholds::default();
+        let actions = generate_refactoring_actions(
+            &snapshot,
+            &crate::metrics::health::god_object_files(&snapshot, &thresholds),
+        );
+        assert_eq!(actions.len(), 2);
+        assert!(
+            actions[0].text.contains("src-utils.rs"),
+            "tie-break must sort by display string ('-' < '/'), got: {:#?}",
+            actions
+        );
+        assert!(actions[1].text.contains("src/utils.rs"));
+    }
+
+    #[test]
+    fn generate_refactoring_actions_skips_god_object_with_no_clustering() {
+        let mut snapshot = crate::snapshot::RepoSnapshot::new(
+            std::path::PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            crate::snapshot::TimeWindow::default(),
+        );
+        snapshot.file_metrics.insert(
+            std::path::PathBuf::from("god.rs"),
+            crate::snapshot::FileComplexity {
+                total_lines: 600,
+                loc: 520,
+                cyclomatic_complexity: 10,
+                public_methods: 5,
+                properties: 2,
+                functions: vec![fm("run")],
+                ..Default::default()
+            },
+        );
+        let thresholds = crate::config::HealthThresholds::default();
+        assert!(generate_refactoring_actions(
+            &snapshot,
+            &crate::metrics::health::god_object_files(&snapshot, &thresholds)
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn generate_refactoring_actions_skips_non_god_object_with_clustering_names() {
+        let mut snapshot = crate::snapshot::RepoSnapshot::new(
+            std::path::PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            crate::snapshot::TimeWindow::default(),
+        );
+        // Small file (not flagged as a god object) with clustering method names —
+        // proves the shared-selection-function gate (decision 6 in the spec).
+        snapshot.file_metrics.insert(
+            std::path::PathBuf::from("small.rs"),
+            crate::snapshot::FileComplexity {
+                total_lines: 50,
+                loc: 40,
+                cyclomatic_complexity: 3,
+                public_methods: 2,
+                properties: 1,
+                functions: vec![fm("handle_a"), fm("handle_b")],
+                ..Default::default()
+            },
+        );
+        let thresholds = crate::config::HealthThresholds::default();
+        assert!(generate_refactoring_actions(
+            &snapshot,
+            &crate::metrics::health::god_object_files(&snapshot, &thresholds)
+        )
+        .is_empty());
     }
 }

@@ -6,7 +6,7 @@ mod types;
 pub use actions::compute_overall_score_with_weights;
 pub use types::*;
 
-use actions::{generate_coupling_actions, generate_top_actions};
+use actions::{generate_coupling_actions, generate_refactoring_actions, generate_top_actions};
 use builders::{
     build_author_cards, build_author_ownership, build_coupling_pairs, build_file_ages,
     build_hotspots, build_import_cycles, build_import_edges, build_per_file_coupling,
@@ -62,9 +62,16 @@ pub fn build_report(
     remote_meta: Option<RemoteMeta>,
     weights: &[(&str, f64)],
     coupling: &crate::config::CouplingThresholds,
+    flagged_god_objects: &[(std::path::PathBuf, String)],
 ) -> AnalysisReport {
     let overall_score = compute_overall_score_with_weights(&categories, weights);
-    let top_actions = generate_top_actions(&categories);
+    let mut top_actions = generate_top_actions(&categories);
+    // "[Health] ..." refactoring actions only belong in a report that
+    // actually includes the Health category — a category-filtered run
+    // (e.g. `--team`) must not surface advice for a score that isn't shown.
+    if categories.iter().any(|c| c.name == "Health") {
+        top_actions.extend(generate_refactoring_actions(snapshot, flagged_god_objects));
+    }
     let coupling_actions = generate_coupling_actions(snapshot, coupling);
     let file_hotspots = build_hotspots(snapshot, coupling);
     let coupling_pairs = build_coupling_pairs(snapshot, coupling.component_depth);
@@ -151,6 +158,7 @@ mod tests {
             None,
             WEIGHTS,
             &crate::config::CouplingThresholds::default(),
+            &[],
         );
 
         assert_eq!(report.repo_name, "test-repo");
@@ -162,6 +170,66 @@ mod tests {
         assert!(report.coupling_pairs.is_empty());
         assert!(report.author_ownership.is_empty());
         assert!(report.file_ages.is_empty());
+    }
+
+    #[test]
+    fn build_report_omits_refactoring_actions_when_health_category_excluded() {
+        // A report built with `--team`-style category selection has no
+        // "Health" category at all — "[Health] ..." refactoring actions
+        // must not appear in a report with no Health score to back them.
+        let mut snapshot = RepoSnapshot::new(
+            std::path::PathBuf::from("/tmp"),
+            "test-repo".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        snapshot.file_metrics.insert(
+            std::path::PathBuf::from("god.rs"),
+            crate::snapshot::FileComplexity {
+                total_lines: 600,
+                loc: 520,
+                cyclomatic_complexity: 10,
+                public_methods: 5,
+                properties: 2,
+                functions: vec![
+                    crate::snapshot::FunctionMetrics {
+                        name: "handle_a".into(),
+                        loc: 10,
+                        cyclomatic_complexity: 2,
+                        max_nesting_depth: 1,
+                    },
+                    crate::snapshot::FunctionMetrics {
+                        name: "handle_b".into(),
+                        loc: 10,
+                        cyclomatic_complexity: 2,
+                        max_nesting_depth: 1,
+                    },
+                ],
+                ..Default::default()
+            },
+        );
+        // Category selection excludes Health — only "Team" is present.
+        let categories = vec![make_category("Team", 80)];
+        let flagged = crate::metrics::health::god_object_files(
+            &snapshot,
+            &crate::config::HealthThresholds::default(),
+        );
+        let report = build_report(
+            &snapshot,
+            categories,
+            None,
+            WEIGHTS,
+            &crate::config::CouplingThresholds::default(),
+            &flagged,
+        );
+        assert!(
+            report
+                .top_actions
+                .iter()
+                .all(|a| !a.text.starts_with("[Health]")),
+            "no Health category in the report means no [Health] actions either, got: {:#?}",
+            report.top_actions
+        );
     }
 
     #[test]
@@ -179,6 +247,7 @@ mod tests {
             None,
             WEIGHTS,
             &crate::config::CouplingThresholds::default(),
+            &[],
         );
         assert!(
             report.audit.is_some(),
@@ -334,6 +403,7 @@ mod tests {
             None,
             WEIGHTS,
             &crate::config::CouplingThresholds::default(),
+            &[],
         );
         let entry = build_history_entry(&report, "abc123", None);
 
@@ -360,6 +430,7 @@ mod tests {
             None,
             WEIGHTS,
             &crate::config::CouplingThresholds::default(),
+            &[],
         );
         assert!(report.author_cards.is_empty());
     }
@@ -392,6 +463,7 @@ mod tests {
             None,
             WEIGHTS,
             &crate::config::CouplingThresholds::default(),
+            &[],
         );
         assert!(
             report.per_file_coupling.is_empty(),
@@ -414,6 +486,7 @@ mod tests {
             None,
             WEIGHTS,
             &crate::config::CouplingThresholds::default(),
+            &[],
         );
         assert!(
             report.import_edges.is_empty(),
@@ -439,6 +512,7 @@ mod tests {
             None,
             WEIGHTS,
             &crate::config::CouplingThresholds::default(),
+            &[],
         )
     }
 
@@ -455,6 +529,7 @@ mod tests {
             None,
             WEIGHTS,
             &crate::config::CouplingThresholds::default(),
+            &[],
         )
     }
 

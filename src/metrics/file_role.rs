@@ -67,7 +67,7 @@ const CONFIG_FILE_NAMES: &[&str] = &["dockerfile", "makefile", "justfile"];
 
 /// File name minus its last extension, lowercased — compound suffixes like
 /// `.test.tsx` keep their `.test` part.
-fn stem_lower(path: &Path) -> String {
+pub(crate) fn stem_lower(path: &Path) -> String {
     let name = path
         .file_name()
         .and_then(|n| n.to_str())

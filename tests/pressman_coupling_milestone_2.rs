@@ -21,8 +21,13 @@ fn live_analysis_records_finding_counts_in_history_entry() {
     let snapshot = collector.collect_snapshot().expect("snapshot");
     let default_cfg = RepoConfig::default();
     let weight_pairs = default_cfg.weights.as_weight_pairs();
+    let flagged_god_objects = health::god_object_files(&snapshot, &default_cfg.thresholds.health);
     let categories = vec![
-        health::compute_health(&snapshot, &default_cfg.thresholds.health),
+        health::compute_health(
+            &snapshot,
+            &default_cfg.thresholds.health,
+            &flagged_god_objects,
+        ),
         team::compute_team(&snapshot, &default_cfg.thresholds.team),
         evolution::compute_evolution(&snapshot, &default_cfg.thresholds.evolution),
         hygiene::compute_hygiene(&snapshot, &default_cfg.thresholds.hygiene),
@@ -34,6 +39,7 @@ fn live_analysis_records_finding_counts_in_history_entry() {
         None,
         &weight_pairs,
         &default_cfg.thresholds.coupling,
+        &flagged_god_objects,
     );
 
     let counts = report
@@ -79,8 +85,13 @@ fn backfill_style_snapshot_records_no_counts_and_unscored_metrics() {
 
     // …and the report/history carry no counts (mirroring backfill's category list).
     let weight_pairs = default_cfg.weights.as_weight_pairs();
+    let flagged_god_objects = health::god_object_files(&snapshot, &default_cfg.thresholds.health);
     let categories = vec![
-        health::compute_health(&snapshot, &default_cfg.thresholds.health),
+        health::compute_health(
+            &snapshot,
+            &default_cfg.thresholds.health,
+            &flagged_god_objects,
+        ),
         team::compute_team(&snapshot, &default_cfg.thresholds.team),
         evolution::compute_evolution(&snapshot, &default_cfg.thresholds.evolution),
         hygiene::compute_hygiene(&snapshot, &default_cfg.thresholds.hygiene),
@@ -91,6 +102,7 @@ fn backfill_style_snapshot_records_no_counts_and_unscored_metrics() {
         None,
         &weight_pairs,
         &default_cfg.thresholds.coupling,
+        &flagged_god_objects,
     );
     assert_eq!(report.coupling_finding_counts, None);
     let entry = scorer::build_history_entry(&report, &head, Some("backfill".into()));
