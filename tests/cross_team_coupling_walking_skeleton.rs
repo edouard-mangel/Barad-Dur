@@ -2,6 +2,7 @@
 //! different author, co-changing across same-day separate commits,
 //! surface a Team-category finding naming both owners.
 
+use chrono::{Duration, Utc};
 use std::path::Path;
 use std::process::{Command, Output};
 
@@ -45,23 +46,66 @@ fn fixture_repo() -> tempfile::TempDir {
     git(d, &[], &["config", "user.email", "t@t"]);
     git(d, &[], &["config", "user.name", "T"]);
 
+    // Dates are derived relative to "now" (rather than hardcoded) so this
+    // fixture never ages out of `analyze`'s default 180-day window.
+    let carol_date = (Utc::now() - Duration::days(20))
+        .format("%Y-%m-%d")
+        .to_string();
+    let dave_date = (Utc::now() - Duration::days(19))
+        .format("%Y-%m-%d")
+        .to_string();
+    let alice_owns_date = (Utc::now() - Duration::days(18))
+        .format("%Y-%m-%d")
+        .to_string();
+    let bob_owns_date = (Utc::now() - Duration::days(17))
+        .format("%Y-%m-%d")
+        .to_string();
+    // The two coupling days must each be a single derived UTC calendar date
+    // (same day-offset, hours 09:00/15:00) to preserve same-day semantics.
+    let coupling_day_1 = (Utc::now() - Duration::days(16))
+        .format("%Y-%m-%d")
+        .to_string();
+    let coupling_day_2 = (Utc::now() - Duration::days(15))
+        .format("%Y-%m-%d")
+        .to_string();
+
     // Four authors total so the Team category is applicable (MIN_TEAM_SIZE).
     std::fs::write(d.join("c.rs"), "// carol\n").unwrap();
-    commit_as(d, "carol", "2026-08-01T10:00:00 +0000", "carol file");
+    commit_as(
+        d,
+        "carol",
+        &format!("{carol_date}T10:00:00 +0000"),
+        "carol file",
+    );
     std::fs::write(d.join("d.rs"), "// dave\n").unwrap();
-    commit_as(d, "dave", "2026-08-02T10:00:00 +0000", "dave file");
+    commit_as(
+        d,
+        "dave",
+        &format!("{dave_date}T10:00:00 +0000"),
+        "dave file",
+    );
 
     // alice authors and owns a.rs (10 lines).
     std::fs::write(d.join("a.rs"), "fn a() {}\n".repeat(10)).unwrap();
-    commit_as(d, "alice", "2026-08-03T10:00:00 +0000", "alice owns a");
+    commit_as(
+        d,
+        "alice",
+        &format!("{alice_owns_date}T10:00:00 +0000"),
+        "alice owns a",
+    );
     // bob authors and owns b.rs (10 lines).
     std::fs::write(d.join("b.rs"), "fn b() {}\n".repeat(10)).unwrap();
-    commit_as(d, "bob", "2026-08-04T10:00:00 +0000", "bob owns b");
+    commit_as(
+        d,
+        "bob",
+        &format!("{bob_owns_date}T10:00:00 +0000"),
+        "bob owns b",
+    );
 
     // Same-day, separate commits by alice touching a.rs then b.rs (small
     // edit — bob keeps blame majority on b.rs). Repeat on a second day so
     // the pair count is 2 and the ratio comfortably clears 0.30.
-    for (i, day) in ["2026-08-05", "2026-08-06"].iter().enumerate() {
+    for (i, day) in [coupling_day_1, coupling_day_2].iter().enumerate() {
         std::fs::write(
             d.join("a.rs"),
             format!("{}// churn {i}\n", "fn a() {}\n".repeat(10)),

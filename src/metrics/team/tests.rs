@@ -628,6 +628,50 @@ mod cross_team_coupling_tests {
     }
 
     #[test]
+    fn at_threshold_ratio_with_asymmetric_bucket_counts_qualifies_via_min() {
+        // a.rs appears in 3 distinct (author, day) buckets, b.rs in 9;
+        // they co-change in exactly 1 bucket -> ratio = 1 / min(3, 9) =
+        // 1/3 ~= 0.333 >= 0.30 default, so the pair qualifies. If `max`
+        // were used instead of `min` the ratio would be 1/9 ~= 0.111 <
+        // 0.30 and there would be no finding — that's the discrimination
+        // this test targets.
+        let mut s = make_snapshot();
+        s.files = vec![make_file("a.rs"), make_file("b.rs")];
+        s.authors = vec![author(0, "alice"), author(1, "bob")];
+        s.commits = vec![
+            // The one co-change bucket: (alice, day 19).
+            commit(0, 0, 19, 9, &["a.rs", "b.rs"]),
+            // Two more a.rs-only buckets for alice -> a.rs total = 3.
+            commit(1, 0, 20, 9, &["a.rs"]),
+            commit(2, 0, 21, 9, &["a.rs"]),
+            // Eight more b.rs-only buckets for bob -> b.rs total = 9.
+            commit(3, 1, 22, 9, &["b.rs"]),
+            commit(4, 1, 23, 9, &["b.rs"]),
+            commit(5, 1, 24, 9, &["b.rs"]),
+            commit(6, 1, 25, 9, &["b.rs"]),
+            commit(7, 1, 26, 9, &["b.rs"]),
+            commit(8, 1, 27, 9, &["b.rs"]),
+            commit(9, 1, 28, 9, &["b.rs"]),
+            commit(10, 1, 29, 9, &["b.rs"]),
+        ];
+        s.blame_map.insert("a.rs".into(), owned_lines(0));
+        s.blame_map.insert("b.rs".into(), owned_lines(1));
+        let m = cross_team_coupling(&s, &CouplingThresholds::default());
+        assert_eq!(
+            m.score,
+            Some(75),
+            "ratio 1/min(3,9) = 1/3 ~= 0.333 >= 0.30 default must qualify"
+        );
+        match &m.raw_value {
+            RawValue::List(v) => assert_eq!(
+                v,
+                &vec!["a.rs ↔ b.rs — coupled 1 day(s), primary owners: alice vs. bob".to_string()]
+            ),
+            other => panic!("expected List, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn no_blame_data_is_not_applicable() {
         let mut s = cross_owned_snapshot();
         s.blame_map.clear();
