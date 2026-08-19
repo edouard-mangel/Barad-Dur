@@ -177,17 +177,13 @@ lines) and **temporal coupling across organizational boundaries**
 authors commit independently) to reason about cross-team communication
 cost via Conway's law.
 
-**Verdict:** 🟡 `src/metrics/health/bus_factor.rs` and
+**Verdict:** ✅ `src/metrics/health/bus_factor.rs` and
 `churn_ownership.rs` both compute single-author-dominance and flag
 high-churn single-owner files — the "many/one authors touching a hotspot"
 signal is there — and `src/metrics/team/mod.rs::knowledge_distribution`
-computes a Gini coefficient of ownership. What's missing: the book's
-specific "main developer of each coupled module, compared across an org
-boundary" analysis and the day-granularity coupling window for
-cross-team commits — barad-dûr's coupling window is exact-commit only
-(`src/coupling/temporal.rs` uses a configurable time window for
-*multi-repo* coupling, but the *intra-repo* file coupling in
-`metrics/coupling` has no day-bucketing option).
+computes a Gini coefficient of ownership. Closed 2026-08-19 by the
+Cross-team coupling Team metric (day-bucketed pairs × primary-author
+mismatch); explicit team-mapping config remains deferred future work.
 
 ### Chapter 13: Build a Knowledge Map of Your System
 Visualizes the **main developer per module** as a color-coded map over the
@@ -267,7 +263,7 @@ flagged hotspot file.
 | 9 | Code/test coupling safety net | ⬜ | No Source↔Test coupling metric or growth-ratio trend |
 | 10 | Architecture-pattern conformance | ⬜ | No user-declared component boundaries / pattern-violation check |
 | 11 | Commit-message social signal | 🟡 | Firefighting/quality heuristics exist; no word-cloud/vocabulary view |
-| 12 | Organizational metrics (Conway) | 🟡 | No main-dev-per-coupled-module cross-team analysis; no day-bucketed coupling window |
+| 12 | Organizational metrics (Conway) | ✅ | team-mapping config deferred |
 | 13 | Knowledge map | ✅ | No dedicated "ex-developer knowledge loss" view |
 | 14 | Code churn deep dive | 🟡 | No lines-added/deleted churn timeline; no churn-based coupling prioritization |
 | 15 | Future directions | ⬜ | Non-code artifacts, method-level coupling, developer social graph — none in scope |

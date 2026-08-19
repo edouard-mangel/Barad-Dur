@@ -1,7 +1,7 @@
 # Organizational (Conway's-Law) Coupling — Design
 
 **Date:** 2026-08-18
-**Status:** Proposed design
+**Status:** Implemented 2026-08-19 (see docs/superpowers/plans/2026-08-19-organizational-coupling.md)
 **Closes:** Ch. 12 gap in `docs/crime-scene-book-notes.md` ("no main-dev-per-coupled-module
 cross-team analysis; no day-bucketed coupling window")
 
