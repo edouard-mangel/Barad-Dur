@@ -1,6 +1,8 @@
 use crate::metrics::{author_line_counts, CategoryResult, MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
-use std::collections::HashMap;
+use chrono::Datelike;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::PathBuf;
 
 const MIN_TEAM_SIZE: usize = 4;
 
@@ -406,6 +408,80 @@ fn primary_author(lines: &[crate::snapshot::BlameLine]) -> Option<usize> {
         .into_iter()
         .find(|&(_, count)| count * 2 > total)
         .map(|(author, _)| author)
+}
+
+/// The (author, UTC calendar day) bucket key for a commit. Day-granularity
+/// per the org-coupling design (Decision 2): the same author touching two
+/// files in separate commits a few hours apart is still one coordination
+/// context.
+fn bucket_key(commit: &crate::snapshot::Commit) -> (usize, i32, u32) {
+    (
+        commit.author,
+        commit.timestamp.year(),
+        commit.timestamp.ordinal(),
+    )
+}
+
+/// Known-tree files touched in each (author, day) bucket. Shared core of
+/// `day_bucketed_pairs` and `day_bucket_counts` so both count the same
+/// universe.
+fn files_by_bucket(snapshot: &RepoSnapshot) -> BTreeMap<(usize, i32, u32), HashSet<&PathBuf>> {
+    let known: HashSet<&PathBuf> = snapshot.files.iter().map(|f| &f.path).collect();
+    snapshot
+        .commits
+        .iter()
+        .fold(BTreeMap::new(), |mut buckets, commit| {
+            let entry = buckets.entry(bucket_key(commit)).or_default();
+            commit
+                .files_changed
+                .iter()
+                .filter_map(|fc| known.get(&fc.path).copied())
+                .for_each(|p| {
+                    entry.insert(p);
+                });
+            buckets
+        })
+}
+
+/// Co-changed file pairs grouped by (author, UTC day) instead of exact
+/// commit — a *separate* data source from `snapshot.file_change_pairs`;
+/// existing coupling metrics are untouched (design Decision 2). Pairs are
+/// lexicographically normalized (a < b) and sorted for determinism.
+pub fn day_bucketed_pairs(snapshot: &RepoSnapshot) -> Vec<(PathBuf, PathBuf, usize)> {
+    let pair_counts: BTreeMap<(PathBuf, PathBuf), usize> = files_by_bucket(snapshot)
+        .into_values()
+        .flat_map(|files| {
+            let mut sorted: Vec<&PathBuf> = files.into_iter().collect();
+            sorted.sort();
+            (0..sorted.len())
+                .flat_map(move |i| {
+                    let sorted = sorted.clone();
+                    (i + 1..sorted.len())
+                        .map(move |j| (sorted[i].clone(), sorted[j].clone()))
+                })
+                .collect::<Vec<_>>()
+        })
+        .fold(BTreeMap::new(), |mut m, pair| {
+            *m.entry(pair).or_insert(0) += 1;
+            m
+        });
+    pair_counts
+        .into_iter()
+        .map(|((a, b), count)| (a, b, count))
+        .collect()
+}
+
+/// Per file: the number of distinct (author, day) buckets it appears in —
+/// the ratio denominator for day-bucketed qualification (spec's "Note on
+/// day-bucketing").
+pub fn day_bucket_counts(snapshot: &RepoSnapshot) -> HashMap<PathBuf, usize> {
+    files_by_bucket(snapshot)
+        .into_values()
+        .flat_map(|files| files.into_iter().cloned().collect::<Vec<_>>())
+        .fold(HashMap::new(), |mut m, path| {
+            *m.entry(path).or_insert(0) += 1;
+            m
+        })
 }
 
 #[cfg(test)]

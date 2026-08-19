@@ -343,3 +343,146 @@ mod primary_author_tests {
         assert_eq!(primary_author(&lines(&[(3, 10)])), Some(3));
     }
 }
+
+mod day_bucketed_pairs_tests {
+    use super::*;
+    use crate::metrics::testutil::{make_file, make_snapshot};
+    use crate::snapshot::{ChangeType, Commit, CommitId, FileChange, RepoSnapshot};
+    use chrono::{TimeZone, Utc};
+    use std::path::PathBuf;
+
+    fn commit(id: u32, author: usize, day: u32, hour: u32, paths: &[&str]) -> Commit {
+        Commit {
+            id: CommitId(id),
+            author,
+            timestamp: Utc.with_ymd_and_hms(2026, 8, day, hour, 0, 0).unwrap(),
+            message: String::new(),
+            files_changed: paths
+                .iter()
+                .map(|p| FileChange {
+                    path: PathBuf::from(p),
+                    additions: 1,
+                    deletions: 0,
+                    change_type: ChangeType::Modified,
+                })
+                .collect(),
+            is_merge: false,
+            parent_count: 1,
+        }
+    }
+
+    fn snap(commits: Vec<Commit>, files: &[&str]) -> RepoSnapshot {
+        let mut s = make_snapshot();
+        s.files = files.iter().map(|f| make_file(f)).collect();
+        s.commits = commits;
+        s
+    }
+
+    #[test]
+    fn same_author_same_day_separate_commits_pair() {
+        // The whole point of day-bucketing: two commits, same author, same
+        // UTC day — exact-commit pairing would miss this.
+        let s = snap(
+            vec![
+                commit(0, 1, 19, 9, &["a.rs"]),
+                commit(1, 1, 19, 14, &["b.rs"]),
+            ],
+            &["a.rs", "b.rs"],
+        );
+        assert_eq!(
+            day_bucketed_pairs(&s),
+            vec![(PathBuf::from("a.rs"), PathBuf::from("b.rs"), 1)]
+        );
+    }
+
+    #[test]
+    fn same_author_different_days_do_not_pair() {
+        let s = snap(
+            vec![
+                commit(0, 1, 19, 9, &["a.rs"]),
+                commit(1, 1, 20, 9, &["b.rs"]),
+            ],
+            &["a.rs", "b.rs"],
+        );
+        assert_eq!(day_bucketed_pairs(&s), vec![]);
+    }
+
+    #[test]
+    fn different_authors_same_day_do_not_pair() {
+        // Pairing is per-(author, day) — repo-wide same-day coincidence is
+        // not a coupling signal (spec Risks section).
+        let s = snap(
+            vec![
+                commit(0, 1, 19, 9, &["a.rs"]),
+                commit(1, 2, 19, 9, &["b.rs"]),
+            ],
+            &["a.rs", "b.rs"],
+        );
+        assert_eq!(day_bucketed_pairs(&s), vec![]);
+    }
+
+    #[test]
+    fn bucket_count_is_distinct_author_days_not_commit_count() {
+        // Author 1 touches the pair on two days (three commits total) —
+        // count is 2 buckets, not 3 commits. Kills += / counting mutants.
+        let s = snap(
+            vec![
+                commit(0, 1, 19, 9, &["a.rs", "b.rs"]),
+                commit(1, 1, 19, 15, &["a.rs", "b.rs"]),
+                commit(2, 1, 20, 9, &["a.rs", "b.rs"]),
+            ],
+            &["a.rs", "b.rs"],
+        );
+        assert_eq!(
+            day_bucketed_pairs(&s),
+            vec![(PathBuf::from("a.rs"), PathBuf::from("b.rs"), 2)]
+        );
+    }
+
+    #[test]
+    fn files_outside_the_known_tree_are_ignored() {
+        // Excluded files (not in snapshot.files) never form pairs —
+        // mirrors count_co_changed_pairs's known-files filter.
+        let s = snap(
+            vec![commit(0, 1, 19, 9, &["a.rs", "vendor/x.rs"])],
+            &["a.rs"],
+        );
+        assert_eq!(day_bucketed_pairs(&s), vec![]);
+    }
+
+    #[test]
+    fn pairs_are_lexicographic_and_sorted() {
+        // Input order z-before-a; output must normalize (a < z within the
+        // pair) and sort across pairs — determinism for report output.
+        let s = snap(
+            vec![
+                commit(0, 1, 19, 9, &["z.rs", "a.rs"]),
+                commit(1, 1, 20, 9, &["b.rs", "a.rs"]),
+            ],
+            &["a.rs", "b.rs", "z.rs"],
+        );
+        assert_eq!(
+            day_bucketed_pairs(&s),
+            vec![
+                (PathBuf::from("a.rs"), PathBuf::from("b.rs"), 1),
+                (PathBuf::from("a.rs"), PathBuf::from("z.rs"), 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn day_bucket_counts_count_distinct_author_days_per_file() {
+        // a.rs: author 1 on day 19 + day 20, author 2 on day 19 → 3 buckets.
+        let s = snap(
+            vec![
+                commit(0, 1, 19, 9, &["a.rs"]),
+                commit(1, 1, 19, 15, &["a.rs"]), // same bucket as commit 0
+                commit(2, 1, 20, 9, &["a.rs"]),
+                commit(3, 2, 19, 9, &["a.rs"]),
+            ],
+            &["a.rs"],
+        );
+        let counts = day_bucket_counts(&s);
+        assert_eq!(counts.get(&PathBuf::from("a.rs")), Some(&3));
+    }
+}
