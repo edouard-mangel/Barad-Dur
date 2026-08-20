@@ -301,6 +301,7 @@ fn target_tab_for_metric(metric_name: &str) -> (Option<&'static str>, Option<&'s
         "Knowledge distribution" => (Some("ownership"), None),
         "Ownership clarity" => (Some("ownership"), None),
         "Collaboration patterns" => (Some("ownership"), None),
+        "Code/test growth balance" => (Some("trends"), None),
         "Cross-team coupling" => (Some("ownership"), None),
         "Code age" => (Some("age"), None),
         "Growth trend" => (Some("trends"), None),
@@ -337,6 +338,9 @@ fn suggest_action(metric_name: &str) -> &'static str {
         "Contributor activity" => "Onboard more active contributors or check team health",
         "Ownership clarity" => "Assign clear code owners via CODEOWNERS file",
         "Collaboration patterns" => "Break directory silos through cross-functional reviews",
+        "Code/test growth balance" => {
+            "Pair recent source growth with tests — start with the listed untested second-half files"
+        }
         "Cross-team coupling" => {
             "Align ownership with change patterns — co-owning coupled files or splitting them along owner boundaries"
         }
@@ -402,6 +406,18 @@ pub(super) fn score_commit_message(msg: &str) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn growth_balance_action_arms_are_pinned() {
+        assert_eq!(
+            target_tab_for_metric("Code/test growth balance"),
+            (Some("trends"), None)
+        );
+        assert_eq!(
+            suggest_action("Code/test growth balance"),
+            "Pair recent source growth with tests — start with the listed untested second-half files"
+        );
+    }
 
     #[test]
     fn target_tab_for_metric_pins_representative_arms() {

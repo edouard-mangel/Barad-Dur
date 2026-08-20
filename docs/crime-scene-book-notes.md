@@ -260,12 +260,12 @@ flagged hotspot file.
 | 6 | Per-file complexity trend | ⬜ | No historical complexity-over-time series per file/hotspot |
 | 7 | Temporal coupling | ✅ | — |
 | 8 | Architectural decay (coupling trend) | 🟡 | No per-module coupling-degree trend across time windows |
-| 9 | Code/test coupling safety net | ⬜ | No Source↔Test coupling metric or growth-ratio trend |
+| 9 | Code/test coupling safety net | 🟡 | Growth-ratio metric shipped 2026-08-20 (trends M2); point-in-time coupling-degree signal specced (`2026-08-18-source-test-coupling-design.md`), not yet implemented |
 | 10 | Architecture-pattern conformance | ⬜ | No user-declared component boundaries / pattern-violation check |
 | 11 | Commit-message social signal | 🟡 | Firefighting/quality heuristics exist; no word-cloud/vocabulary view |
 | 12 | Organizational metrics (Conway) | ✅ | team-mapping config deferred |
 | 13 | Knowledge map | ✅ | No dedicated "ex-developer knowledge loss" view |
-| 14 | Code churn deep dive | 🟡 | No lines-added/deleted churn timeline; no churn-based coupling prioritization |
+| 14 | Code churn deep dive | ✅ | — (day-bucketed churn timeline + per-pair growth shipped 2026-08-20, trends M1) |
 | 15 | Future directions | ⬜ | Non-code artifacts, method-level coupling, developer social graph — none in scope |
 | A1 | Refactoring hotspots by name grouping | 🟡 | Generic advice exists; no method-grouping-by-task analysis |
 

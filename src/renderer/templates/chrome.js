@@ -123,6 +123,7 @@
     'Ownership clarity':       'Percentage of files with a clear owner (one author > 50% of blame lines). Clear ownership improves accountability and review quality.',
     'Collaboration patterns':  'How many pairs of authors co-modify the same files. Isolated contributors indicate knowledge silos and single points of failure.',
     'Merge patterns':          'Ratio of merge commits and history irregularities. Excessive merges obscure history; very few may mean force-pushes that hide context.',
+    'Code/test growth balance': 'Lines added to source vs test-code files per window half; unscored by design (informational). Inline unit tests inside source files count as source, and renames appear as new-file additions.',
     'Cross-team coupling':     'File pairs that repeatedly change on the same author-day but are majority-owned by different people. Coupled code with split ownership carries a coordination cost on top of the code coupling (Tornhill, Ch. 12).',
     // Evolution
     'Growth trend':      'Net file and line additions in the analysis window. Rapid unchecked growth can outpace review capacity and increase maintenance burden.',
