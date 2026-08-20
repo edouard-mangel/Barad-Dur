@@ -141,7 +141,7 @@ impl<'a> BlameParserState<'a> {
                     .get(email.as_str())
                     .or_else(|| self.raw_email_to_id.get(email.as_str()))
                     .copied()
-                    .unwrap_or(0);
+                    .unwrap_or(crate::snapshot::UNKNOWN_AUTHOR);
                 self.lines.push(BlameLine {
                     author_id,
                     timestamp: *timestamp,
@@ -208,7 +208,7 @@ abc1234567890123456789012345678901234567890 1 1 1\nauthor Alice\nauthor-mail <al
     }
 
     #[test]
-    fn parse_porcelain_blame_unknown_email_falls_back_to_author_zero() {
+    fn parse_porcelain_blame_unknown_email_maps_to_unknown_author_sentinel() {
         let porcelain = "\
 abc1234567890123456789012345678901234567 1 1 1
 author Unknown
@@ -223,12 +223,14 @@ summary msg
 filename f.rs
 \tcode line
 ";
-        // email_to_id is empty — unknown email should fall back to id 0
+        // email_to_id is empty — an unmatched email must map to the
+        // UNKNOWN_AUTHOR sentinel, never collapse onto a real author id
+        // (id 0 is whichever in-window author happened to intern first).
         let email_to_id: HashMap<&str, AuthorId> = HashMap::new();
         let raw_email_to_id: HashMap<String, AuthorId> = HashMap::new();
         let lines = parse_porcelain_blame(porcelain, &email_to_id, &raw_email_to_id).unwrap();
         assert_eq!(lines.len(), 1);
-        assert_eq!(lines[0].author_id, 0);
+        assert_eq!(lines[0].author_id, crate::snapshot::UNKNOWN_AUTHOR);
     }
 
     #[test]

@@ -310,6 +310,44 @@ fn merge_patterns_counts_merges() {
     }
 }
 
+mod knowledge_distribution_sentinel_tests {
+    use super::*;
+    use crate::snapshot::{BlameLine, UNKNOWN_AUTHOR};
+    use chrono::Utc;
+
+    #[test]
+    fn unknown_author_lines_do_not_skew_the_gini() {
+        // Two known authors with equal shares plus a large unattributable
+        // legacy mass: distribution over *people* is perfectly equal, so
+        // the metric must score as balanced, not as a three-way skew.
+        let mut s = crate::metrics::testutil::make_snapshot();
+        s.authors = (0..4)
+            .map(|id| crate::snapshot::Author {
+                id,
+                name: format!("dev{id}"),
+                email: format!("d{id}@t"),
+            })
+            .collect();
+        let line = |author, n| {
+            let mut l = BlameLine::new(author, Utc::now());
+            l.line_count = n;
+            l
+        };
+        s.blame_map.insert(
+            "a.rs".into(),
+            vec![line(0, 100), line(1, 100), line(UNKNOWN_AUTHOR, 500)],
+        );
+        let with_unknown = knowledge_distribution(&s, &crate::config::TeamThresholds::default());
+        s.blame_map
+            .insert("a.rs".into(), vec![line(0, 100), line(1, 100)]);
+        let without = knowledge_distribution(&s, &crate::config::TeamThresholds::default());
+        assert_eq!(
+            with_unknown.score, without.score,
+            "sentinel mass must not change the knowledge-distribution score"
+        );
+    }
+}
+
 mod primary_author_tests {
     use super::*;
     use crate::snapshot::BlameLine;
@@ -562,7 +600,10 @@ mod cross_team_coupling_tests {
         match &m.raw_value {
             RawValue::List(v) => assert_eq!(
                 v,
-                &vec!["a.rs ↔ b.rs — coupled 2 day(s), primary owners: alice vs. bob".to_string()]
+                &vec![
+                    "a.rs ↔ b.rs — co-changed on 2 author-day(s), primary owners: alice vs. bob"
+                        .to_string()
+                ]
             ),
             other => panic!("expected List, got {other:?}"),
         }
@@ -629,46 +670,99 @@ mod cross_team_coupling_tests {
 
     #[test]
     fn at_threshold_ratio_with_asymmetric_bucket_counts_qualifies_via_min() {
-        // a.rs appears in 3 distinct (author, day) buckets, b.rs in 9;
-        // they co-change in exactly 1 bucket -> ratio = 1 / min(3, 9) =
-        // 1/3 ~= 0.333 >= 0.30 default, so the pair qualifies. If `max`
-        // were used instead of `min` the ratio would be 1/9 ~= 0.111 <
-        // 0.30 and there would be no finding — that's the discrimination
-        // this test targets.
+        // a.rs appears in 10 distinct (author, day) buckets, b.rs in 20;
+        // they co-change in exactly 3 buckets -> ratio = 3 / min(10, 20)
+        // = 0.30 exactly, the default threshold: >= semantics keep the
+        // finding (kills a `<` -> `<=` mutant on the ratio gate). If `max`
+        // were used the ratio would be 3/20 = 0.15 < 0.30 and there would
+        // be no finding — the min-vs-max discrimination. co_days = 3 also
+        // clears the MIN_CO_DAYS floor.
         let mut s = make_snapshot();
         s.files = vec![make_file("a.rs"), make_file("b.rs")];
         s.authors = vec![author(0, "alice"), author(1, "bob")];
-        s.commits = vec![
-            // The one co-change bucket: (alice, day 19).
+        let mut commits = vec![
+            // Three co-change buckets: (alice, days 19-21).
             commit(0, 0, 19, 9, &["a.rs", "b.rs"]),
-            // Two more a.rs-only buckets for alice -> a.rs total = 3.
-            commit(1, 0, 20, 9, &["a.rs"]),
-            commit(2, 0, 21, 9, &["a.rs"]),
-            // Eight more b.rs-only buckets for bob -> b.rs total = 9.
-            commit(3, 1, 22, 9, &["b.rs"]),
-            commit(4, 1, 23, 9, &["b.rs"]),
-            commit(5, 1, 24, 9, &["b.rs"]),
-            commit(6, 1, 25, 9, &["b.rs"]),
-            commit(7, 1, 26, 9, &["b.rs"]),
-            commit(8, 1, 27, 9, &["b.rs"]),
-            commit(9, 1, 28, 9, &["b.rs"]),
-            commit(10, 1, 29, 9, &["b.rs"]),
+            commit(1, 0, 20, 9, &["a.rs", "b.rs"]),
+            commit(2, 0, 21, 9, &["a.rs", "b.rs"]),
         ];
+        // Seven more a.rs-only buckets for alice -> a.rs total = 10.
+        for (i, day) in (22..=28).enumerate() {
+            commits.push(commit(3 + i as u32, 0, day, 9, &["a.rs"]));
+        }
+        // Seventeen more b.rs-only buckets for bob -> b.rs total = 20.
+        for (i, day) in (1..=17).enumerate() {
+            commits.push(commit(10 + i as u32, 1, day, 9, &["b.rs"]));
+        }
+        s.commits = commits;
         s.blame_map.insert("a.rs".into(), owned_lines(0));
         s.blame_map.insert("b.rs".into(), owned_lines(1));
         let m = cross_team_coupling(&s, &CouplingThresholds::default());
         assert_eq!(
             m.score,
             Some(75),
-            "ratio 1/min(3,9) = 1/3 ~= 0.333 >= 0.30 default must qualify"
+            "ratio 3/min(10,20) = 0.30 exactly must qualify (>= semantics)"
         );
         match &m.raw_value {
             RawValue::List(v) => assert_eq!(
                 v,
-                &vec!["a.rs ↔ b.rs — coupled 1 day(s), primary owners: alice vs. bob".to_string()]
+                &vec![
+                    "a.rs ↔ b.rs — co-changed on 3 author-day(s), primary owners: alice vs. bob"
+                        .to_string()
+                ]
             ),
             other => panic!("expected List, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn single_co_day_is_below_the_support_floor() {
+        // One-off same-day co-change (ratio 1.0 but co_days = 1): the
+        // MIN_CO_DAYS floor rejects it — scaffolding noise, not coupling.
+        let mut s = make_snapshot();
+        s.files = vec![make_file("a.rs"), make_file("b.rs")];
+        s.authors = vec![author(0, "alice"), author(1, "bob")];
+        s.commits = vec![commit(0, 0, 19, 9, &["a.rs", "b.rs"])];
+        s.blame_map.insert("a.rs".into(), owned_lines(0));
+        s.blame_map.insert("b.rs".into(), owned_lines(1));
+        let m = cross_team_coupling(&s, &CouplingThresholds::default());
+        assert_eq!(
+            m.score,
+            Some(100),
+            "co_days = 1 must not qualify despite ratio 1.0"
+        );
+    }
+
+    #[test]
+    fn merge_commits_do_not_qualify_pairs() {
+        // An integrator's merge diffs as the full first-parent changeset —
+        // bucketing it would pair files across unrelated MRs.
+        let mut s = cross_owned_snapshot();
+        for c in &mut s.commits {
+            c.is_merge = true;
+        }
+        let m = cross_team_coupling(&s, &CouplingThresholds::default());
+        assert_eq!(
+            m.score,
+            Some(100),
+            "merge commits must not create day buckets"
+        );
+    }
+
+    #[test]
+    fn qualifying_pair_without_blame_entry_is_counted_not_silent() {
+        // b.rs never got blamed (binary / blame failure) but blame_map is
+        // not empty — the qualifying pair is skipped, and the description
+        // must say so instead of reporting a confident clean 100.
+        let mut s = cross_owned_snapshot();
+        s.blame_map.remove(&PathBuf::from("b.rs"));
+        let m = cross_team_coupling(&s, &CouplingThresholds::default());
+        assert_eq!(m.score, Some(100));
+        assert_eq!(
+            m.description,
+            "0 cross-team coupling pair(s) — coupled files with different primary owners; \
+             1 qualifying pair(s) lacked blame data"
+        );
     }
 
     #[test]

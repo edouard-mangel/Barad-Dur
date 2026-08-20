@@ -165,12 +165,13 @@ fn qualifying_smell_pairs<'a>(
             }
             let commits_a = snapshot.commits_by_file.get(path_a).map_or(0, |v| v.len());
             let commits_b = snapshot.commits_by_file.get(path_b).map_or(0, |v| v.len());
-            let min_commits = commits_a.min(commits_b);
-            if min_commits == 0 {
-                return None;
-            }
-            ((*co_changes as f64 / min_commits as f64) >= thresholds.change_coupling_min_ratio)
-                .then_some((path_a, path_b))
+            crate::metrics::meets_coupling_ratio(
+                *co_changes,
+                commits_a,
+                commits_b,
+                thresholds.change_coupling_min_ratio,
+            )
+            .then_some((path_a, path_b))
         })
 }
 

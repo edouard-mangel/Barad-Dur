@@ -1,4 +1,4 @@
-use crate::metrics::{author_line_counts, score_count_bands, MetricValue, RawValue};
+use crate::metrics::{score_count_bands, MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
 
 /// Files in top-quartile churn that are also dominated by a single author.
@@ -71,14 +71,9 @@ fn percentile_75(mut values: Vec<usize>) -> usize {
 }
 
 fn is_single_author_dominated(lines: &[crate::snapshot::BlameLine]) -> bool {
-    if lines.is_empty() {
-        return false;
-    }
-    let counts = author_line_counts(lines);
-    let total: usize = counts.values().sum();
-    let max: usize = counts.values().copied().max().unwrap_or(0);
-    // Single-author: top author owns >50% of lines.
-    max * 2 > total
+    // Single-author: one *nameable* author owns >50% of lines — the shared
+    // strict-majority rule (unknown-author majorities are not a person).
+    crate::metrics::primary_author(lines).is_some()
 }
 
 #[cfg(test)]

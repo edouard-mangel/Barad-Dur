@@ -151,8 +151,9 @@ fn blame_lines_have_valid_author_ids() {
     for lines in blame_map.values() {
         for line in lines {
             assert!(
-                line.author_id < max_author_id,
-                "Blame line author_id {} should be < {}",
+                line.author_id < max_author_id
+                    || line.author_id == barad_dur::snapshot::UNKNOWN_AUTHOR,
+                "Blame line author_id {} should be < {} or the UNKNOWN_AUTHOR sentinel",
                 line.author_id,
                 max_author_id
             );

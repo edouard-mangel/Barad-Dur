@@ -269,3 +269,34 @@ wired into `compute_team`'s existing metrics vec, ~8–10 unit tests plus one in
 fixture test. The only real complexity is the day-bucketing pass, which is a
 straightforward variant of `count_co_changed_pairs`'s existing per-commit grouping logic
 grouped by `(author, day)` instead of by commit.
+
+## Post-merge review addendum (2026-08-20)
+
+A deep review of the merged MR !90 drove these amendments:
+
+- **Merge commits are excluded from day buckets.** A merge's `files_changed`
+  is the full first-parent diff; bucketing it paired files across unrelated
+  MRs under the integrator's name. Same exclusion evolution/hygiene apply.
+- **Support floor `MIN_CO_DAYS = 2`.** Decision 3 said "same ratio rule as
+  the existing smell predicate" but that predicate inherits a `count >= 3`
+  floor from `count_co_changed_pairs`; the day-bucketed path had none, so a
+  single one-off co-change day qualified at ratio 1.0. Two (not three)
+  keeps the day signal more sensitive than the commit one.
+- **Shared ratio helper.** `meets_coupling_ratio` in `metrics/mod.rs` is now
+  the single definition consumed by both `qualifying_smell_pairs` and
+  `cross_team_coupling`.
+- **Unknown-author sentinel.** Blame lines whose email matches no in-window
+  author previously collapsed onto author id 0, and this metric was the
+  first to *print* blame-derived names — misattributing legacy code to an
+  arbitrary current author. `UNKNOWN_AUTHOR` (usize::MAX) now marks such
+  lines; `primary_author` never names it (the unknown mass still counts
+  toward majority totals), ownership views render "(unattributed)", and
+  the knowledge-distribution Gini ignores it. `CACHE_VERSION` 5 → 6.
+- **Evidence label** corrected from "coupled N day(s)" to "co-changed on N
+  author-day(s)" — the count is (author, day) buckets, not calendar days.
+- **Partial blame coverage is disclosed**: qualifying pairs whose files
+  lack blame data are counted in the metric description instead of
+  silently dropped.
+- Context-paragraph nit acknowledged: cross-author same-day pairing is
+  promised in the Context prose but excluded by Decision 2; the Decisions
+  are binding.

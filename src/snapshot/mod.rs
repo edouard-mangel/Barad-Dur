@@ -5,6 +5,13 @@ use std::path::PathBuf;
 
 pub type AuthorId = usize;
 
+/// Sentinel author id for blame lines whose author cannot be matched to
+/// any author in the analysis window (departed contributors, content older
+/// than the window). Kept in line counts so ownership math stays honest,
+/// but never a nameable owner. Collapsing these onto id 0 (the previous
+/// behavior) misattributed legacy code to an arbitrary current author.
+pub const UNKNOWN_AUTHOR: AuthorId = AuthorId::MAX;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CommitId(pub u32);
 
