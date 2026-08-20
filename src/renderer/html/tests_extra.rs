@@ -42,6 +42,7 @@ fn make_report() -> AnalysisReport {
         import_cycles: vec![],
         coupling_finding_counts: None,
         call_graph: None,
+        churn_timeline: None,
         score_thresholds: Default::default(),
     }
 }
@@ -251,6 +252,8 @@ fn html_full_report_with_all_data_renders_ok() {
         coupling_pct: 75.5,
         cross_boundary: true,
         is_test_pair: false,
+        growth_a: 0,
+        growth_b: 0,
     }];
     report.file_hotspots = vec![HotspotFile {
         path: "src/big.rs".into(),
@@ -495,6 +498,8 @@ fn coupling_tab_shows_test_pair_badge_when_is_test_pair() {
         coupling_pct: 80.0,
         cross_boundary: false,
         is_test_pair: true,
+        growth_a: 0,
+        growth_b: 0,
     }];
     let html = render(&report).unwrap();
     // The emoji appears in the JS template; window.R carrying is_test_pair:true is what
@@ -523,6 +528,8 @@ fn coupling_tab_no_test_pair_badge_for_regular_pairs() {
         coupling_pct: 60.0,
         cross_boundary: false,
         is_test_pair: false,
+        growth_a: 0,
+        growth_b: 0,
     }];
     let html = render(&report).unwrap();
     assert!(
