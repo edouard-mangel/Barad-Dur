@@ -39,6 +39,10 @@ pub struct CouplingPair {
     pub coupling_pct: f64,
     pub cross_boundary: bool,
     pub is_test_pair: bool,
+    /// Net in-window lines (added − deleted) per side, non-merge commits
+    /// only — Ch. 14's "which coupled member actually grew" (trends M1).
+    pub growth_a: i64,
+    pub growth_b: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -179,7 +183,29 @@ pub struct AnalysisReport {
     /// Call-graph summary (design D7); `None` = no call data collected.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub call_graph: Option<CallGraphReport>,
+    /// Day-bucketed churn shape (trends M1); `None` = no data.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub churn_timeline: Option<ChurnTimelineReport>,
     pub score_thresholds: ScoreThresholds,
+}
+
+/// Repo-level day-bucketed churn shape (Crime Scene Ch. 14, trends M1).
+/// `None` on the report = no non-merge commits in the window.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ChurnTimelineReport {
+    /// Bucket width in days (always 1 in v1; field future-proofs wider buckets).
+    pub bucket_days: u32,
+    pub merge_commits_excluded: bool,
+    /// One entry per UTC day from first to last active day, zero-filled.
+    pub buckets: Vec<ChurnBucket>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ChurnBucket {
+    /// UTC day, `YYYY-MM-DD`.
+    pub date: String,
+    pub added: u64,
+    pub deleted: u64,
 }
 
 /// Call-graph summary for one analysis run (design D7). `None` on the

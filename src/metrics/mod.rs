@@ -1,4 +1,5 @@
 pub(crate) mod callgraph;
+pub(crate) mod churn;
 pub mod complexity;
 pub mod coupling;
 pub mod deps;
