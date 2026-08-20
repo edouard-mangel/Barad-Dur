@@ -402,6 +402,41 @@ pub(super) fn score_commit_message(msg: &str) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn target_tab_for_metric_pins_representative_arms() {
+        // These two functions had no direct tests — every whole-function
+        // mutant survived the MR gate. Pin one arm per behavior class.
+        assert_eq!(
+            target_tab_for_metric("Cross-team coupling"),
+            (Some("ownership"), None)
+        );
+        assert_eq!(
+            target_tab_for_metric("Code biomarkers"),
+            (Some("hotspots"), Some("complexity"))
+        );
+        assert_eq!(
+            target_tab_for_metric("Afferent coupling"),
+            (Some("coupling"), None)
+        );
+        assert_eq!(target_tab_for_metric("not a metric"), (None, None));
+    }
+
+    #[test]
+    fn suggest_action_pins_representative_arms() {
+        assert_eq!(
+            suggest_action("Cross-team coupling"),
+            "Align ownership with change patterns — co-owning coupled files or splitting them along owner boundaries"
+        );
+        assert_eq!(
+            suggest_action("Bus factor"),
+            "Increase code review coverage and pair programming to spread knowledge"
+        );
+        assert!(
+            !suggest_action("not a metric").is_empty(),
+            "the fallback suggestion must be non-empty"
+        );
+    }
     use crate::metrics::{CategoryResult, MetricValue, RawValue};
 
     const WEIGHTS: &[(&str, f64)] = &[
