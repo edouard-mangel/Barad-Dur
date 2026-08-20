@@ -87,6 +87,7 @@ pub fn build_report(
     let coupling_finding_counts =
         crate::metrics::coupling::pressman_finding_counts(snapshot, coupling);
     let call_graph = crate::metrics::callgraph::call_graph_report(snapshot, &thresholds.health);
+    let churn_timeline = crate::metrics::churn::churn_timeline_report(snapshot);
 
     AnalysisReport {
         repo_name: snapshot.name.clone(),
@@ -113,6 +114,7 @@ pub fn build_report(
         import_cycles,
         coupling_finding_counts,
         call_graph,
+        churn_timeline,
         score_thresholds: ScoreThresholds::default(),
     }
 }

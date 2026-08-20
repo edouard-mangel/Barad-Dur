@@ -126,6 +126,7 @@ mod tests {
             import_cycles: vec![],
             coupling_finding_counts: None,
             call_graph: None,
+            churn_timeline: None,
             score_thresholds: Default::default(),
         }
     }

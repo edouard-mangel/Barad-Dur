@@ -33,10 +33,27 @@ fn is_test_pair(a: &str, b: &str) -> bool {
     is_test_of(&sa, &sb) || is_test_of(&sb, &sa)
 }
 
+/// Net in-window (added − deleted) lines per file across non-merge
+/// commits — Ch. 14's "which coupled member actually grew" (trends M1).
+fn net_growth_by_file(
+    snapshot: &RepoSnapshot,
+) -> std::collections::HashMap<&std::path::PathBuf, i64> {
+    snapshot
+        .commits
+        .iter()
+        .filter(|c| !c.is_merge)
+        .flat_map(|c| c.files_changed.iter())
+        .fold(std::collections::HashMap::new(), |mut m, fc| {
+            *m.entry(&fc.path).or_insert(0) += i64::from(fc.additions) - i64::from(fc.deletions);
+            m
+        })
+}
+
 pub(crate) fn build_coupling_pairs(
     snapshot: &RepoSnapshot,
     component_depth: usize,
 ) -> Vec<CouplingPair> {
+    let growth = net_growth_by_file(snapshot);
     snapshot
         .file_change_pairs
         .iter()
@@ -62,6 +79,8 @@ pub(crate) fn build_coupling_pairs(
                 coupling_pct,
                 cross_boundary,
                 is_test_pair: is_test_pair(&a.to_string_lossy(), &b.to_string_lossy()),
+                growth_a: growth.get(a).copied().unwrap_or(0),
+                growth_b: growth.get(b).copied().unwrap_or(0),
             }
         })
         .collect()
@@ -168,6 +187,52 @@ mod tests {
     use super::*;
     use crate::snapshot::{CommitId, TimeWindow};
     use std::path::PathBuf;
+
+    #[test]
+    fn coupling_pairs_carry_net_growth_per_side() {
+        use crate::snapshot::{ChangeType, Commit, FileChange};
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp/test"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        snapshot.files = vec![make_file_entry("a.rs"), make_file_entry("b.rs")];
+        snapshot.file_change_pairs = vec![(PathBuf::from("a.rs"), PathBuf::from("b.rs"), 3)];
+        let change = |p: &str, add, del| FileChange {
+            path: p.into(),
+            additions: add,
+            deletions: del,
+            change_type: ChangeType::Modified,
+        };
+        let commit = |id, files: Vec<FileChange>, is_merge| Commit {
+            id: CommitId(id),
+            author: 0,
+            timestamp: chrono::Utc::now(),
+            message: String::new(),
+            files_changed: files,
+            is_merge,
+            parent_count: if is_merge { 2 } else { 1 },
+        };
+        snapshot.commits = vec![
+            // a.rs grows (+40 −10 = +30); b.rs shrinks (+5 −25 = −20).
+            commit(
+                0,
+                vec![change("a.rs", 40, 10), change("b.rs", 5, 25)],
+                false,
+            ),
+            // Merge churn must not count toward growth.
+            commit(
+                1,
+                vec![change("a.rs", 900, 0), change("b.rs", 900, 0)],
+                true,
+            ),
+        ];
+        let pairs = build_coupling_pairs(&snapshot, 2);
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].growth_a, 30, "a.rs net growth");
+        assert_eq!(pairs[0].growth_b, -20, "b.rs net shrink");
+    }
 
     fn make_snapshot_with_imports(
         files: Vec<&str>,
