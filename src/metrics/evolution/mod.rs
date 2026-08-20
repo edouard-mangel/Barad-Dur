@@ -14,6 +14,7 @@ pub fn compute_evolution(
         refactoring_ratio(snapshot, thresholds),
         code_age(snapshot, thresholds),
         commit_cadence(snapshot, thresholds),
+        growth_balance(snapshot),
     ];
 
     CategoryResult {
@@ -334,6 +335,118 @@ fn commit_cadence(
         description: format!("{:.1} commits/day, {} pattern", commits_per_day, regularity),
         raw_value: RawValue::Float(commits_per_day),
         score: Some(score),
+    }
+}
+
+/// Code/test growth balance (Crime Scene Ch. 9, trends design M2): lines
+/// added per `file_role` partition (Source vs Test) across the window,
+/// split into two halves by timestamp so a test partition falling behind
+/// *recently* is visible. Annotation-first: never scored in v1 — a growth
+/// ratio has no defensible universal band, and `score: None` metrics stay
+/// out of the category average. Merge commits excluded (first-parent
+/// diffs double-count merged MRs); a commit exactly at the midpoint
+/// belongs to the second half.
+fn growth_balance(snapshot: &RepoSnapshot) -> MetricValue {
+    use crate::metrics::file_role::{classify, FileRole};
+    let name = "Code/test growth balance".to_string();
+    let na = |description: &str| MetricValue {
+        name: name.clone(),
+        description: description.to_string(),
+        raw_value: RawValue::Text("N/A".to_string()),
+        score: None,
+    };
+    let role_of: std::collections::HashMap<&std::path::PathBuf, FileRole> = snapshot
+        .files
+        .iter()
+        .map(|f| (&f.path, classify(&f.path)))
+        .collect();
+    if !role_of.values().any(|r| *r == FileRole::Test) {
+        return na("No test files detected — not applicable");
+    }
+    if !role_of.values().any(|r| *r == FileRole::Source) {
+        return na("No source files detected — not applicable");
+    }
+    let commits: Vec<&crate::snapshot::Commit> =
+        snapshot.commits.iter().filter(|c| !c.is_merge).collect();
+    let (Some(min_ts), Some(max_ts)) = (
+        commits.iter().map(|c| c.timestamp).min(),
+        commits.iter().map(|c| c.timestamp).max(),
+    ) else {
+        return na("No commits in window");
+    };
+    let midpoint = min_ts + (max_ts - min_ts) / 2;
+
+    // Per half: (source additions, test additions).
+    let mut halves = [(0u64, 0u64); 2];
+    // Source files' second-half additions, and whether each source file
+    // ever co-changed with a Test-role file in the window.
+    let mut second_half_source: std::collections::HashMap<&std::path::PathBuf, u64> =
+        std::collections::HashMap::new();
+    let mut has_test_partner: std::collections::HashSet<&std::path::PathBuf> =
+        std::collections::HashSet::new();
+    for c in &commits {
+        let half = usize::from(c.timestamp >= midpoint);
+        let touches_test = c
+            .files_changed
+            .iter()
+            .any(|fc| role_of.get(&fc.path) == Some(&FileRole::Test));
+        for fc in &c.files_changed {
+            match role_of.get(&fc.path) {
+                Some(FileRole::Source) => {
+                    halves[half].0 += u64::from(fc.additions);
+                    if half == 1 && fc.additions > 0 {
+                        *second_half_source.entry(&fc.path).or_insert(0) += u64::from(fc.additions);
+                    }
+                    if touches_test {
+                        has_test_partner.insert(&fc.path);
+                    }
+                }
+                Some(FileRole::Test) => halves[half].1 += u64::from(fc.additions),
+                _ => {}
+            }
+        }
+    }
+    // Bare ratio ("4.0:1") or the zero-test wording; the word "ratio"
+    // is prefixed only on the second-half slot, matching the design's
+    // pinned description format.
+    let bare = |(src, test): (u64, u64)| {
+        if test == 0 {
+            "no test growth".to_string()
+        } else {
+            format!("{:.1}:1", src as f64 / test as f64)
+        }
+    };
+    let second = if halves[1].1 == 0 {
+        bare(halves[1])
+    } else {
+        format!("ratio {}", bare(halves[1]))
+    };
+    let source_total = halves[0].0 + halves[1].0;
+    let test_total = halves[0].1 + halves[1].1;
+    let mut untested: Vec<(&std::path::PathBuf, u64)> = second_half_source
+        .into_iter()
+        .filter(|(path, _)| !has_test_partner.contains(*path))
+        .collect();
+    untested.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+    let list: Vec<String> = untested
+        .into_iter()
+        .take(10)
+        .map(|(path, added)| {
+            format!(
+                "{} — +{added} lines (2nd half), no test co-change",
+                path.display()
+            )
+        })
+        .collect();
+    MetricValue {
+        name,
+        description: format!(
+            "source +{source_total} / test +{test_total} lines this window; second half {} (first half {})",
+            second,
+            bare(halves[0]),
+        ),
+        raw_value: RawValue::List(list),
+        score: None,
     }
 }
 
