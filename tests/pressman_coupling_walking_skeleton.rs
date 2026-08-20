@@ -23,7 +23,11 @@ fn analysis_reports_three_pressman_metrics() {
         .collect_snapshot()
         .expect("snapshot collection must succeed");
 
-    let result = compute_coupling(&snapshot, &CouplingThresholds::default());
+    let result = compute_coupling(
+        &snapshot,
+        &CouplingThresholds::default(),
+        &barad_dur::config::HealthThresholds::default(),
+    );
 
     for name in ["Content coupling", "Common coupling", "Control coupling"] {
         let metric = result

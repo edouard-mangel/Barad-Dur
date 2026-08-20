@@ -74,7 +74,7 @@ pub fn build_report(
         top_actions.extend(generate_refactoring_actions(snapshot, flagged_god_objects));
     }
     let coupling_actions = generate_coupling_actions(snapshot, coupling);
-    let file_hotspots = build_hotspots(snapshot, coupling);
+    let file_hotspots = build_hotspots(snapshot, coupling, &thresholds.health);
     let coupling_pairs = build_coupling_pairs(snapshot, coupling.component_depth);
     let author_ownership = build_author_ownership(snapshot);
     let file_ages = build_file_ages(snapshot);
@@ -292,7 +292,11 @@ mod tests {
         snapshot
             .commits_by_file
             .insert("cold.rs".into(), vec![CommitId(0)]);
-        let hotspots = build_hotspots(&snapshot, &crate::config::CouplingThresholds::default());
+        let hotspots = build_hotspots(
+            &snapshot,
+            &crate::config::CouplingThresholds::default(),
+            &crate::config::HealthThresholds::default(),
+        );
         assert_eq!(hotspots[0].path, "hot.rs");
         assert!(hotspots[0].hotspot_score > hotspots[1].hotspot_score);
     }

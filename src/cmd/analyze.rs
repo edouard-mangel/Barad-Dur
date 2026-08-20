@@ -324,6 +324,7 @@ pub fn compute_selected_metrics(
         categories.push(coupling::compute_coupling(
             snapshot,
             &cfg.thresholds.coupling,
+            &cfg.thresholds.health,
         ));
     }
 
