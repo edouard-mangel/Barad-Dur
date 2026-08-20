@@ -4,33 +4,49 @@
 //! double-counts every merged MR); zero-filled between the first and last
 //! active day so spike/silence shapes survive serialization.
 
-use std::collections::{BTreeMap, HashSet};
-use std::path::PathBuf;
-
 use chrono::NaiveDate;
+use std::collections::BTreeMap;
 
 use crate::scorer::{ChurnBucket, ChurnTimelineReport};
 use crate::snapshot::RepoSnapshot;
 
 /// Build the report's `churn_timeline` section. `None` when the window
 /// holds no non-merge commits — no shape to report.
+/// Zero-fill is bounded to the most recent year of active days: one
+/// misdated ancient commit under `--all` must not serialize decades of
+/// empty buckets into every report (post-merge review of MR !96).
+const MAX_CHURN_BUCKETS: u64 = 365;
+
 pub(crate) fn churn_timeline_report(snapshot: &RepoSnapshot) -> Option<ChurnTimelineReport> {
-    let known: HashSet<&PathBuf> = snapshot.files.iter().map(|f| &f.path).collect();
+    let known = snapshot.known_paths();
     // Per UTC day: (added, deleted) over known files, non-merge commits.
+    // Days are created only by commits that actually touch known files —
+    // an excluded-only commit (lockfile bump) must not anchor the range.
     let per_day: BTreeMap<NaiveDate, (u64, u64)> = snapshot
         .commits
         .iter()
         .filter(|c| !c.is_merge)
         .fold(BTreeMap::new(), |mut days, c| {
-            let entry = days.entry(c.timestamp.date_naive()).or_insert((0, 0));
-            for fc in c.files_changed.iter().filter(|fc| known.contains(&fc.path)) {
-                entry.0 += u64::from(fc.additions);
-                entry.1 += u64::from(fc.deletions);
+            let mut changes = c
+                .files_changed
+                .iter()
+                .filter(|fc| known.contains(&fc.path))
+                .peekable();
+            if changes.peek().is_some() {
+                let entry = days.entry(c.timestamp.date_naive()).or_insert((0, 0));
+                for fc in changes {
+                    entry.0 += u64::from(fc.additions);
+                    entry.1 += u64::from(fc.deletions);
+                }
             }
             days
         });
     let (&first, _) = per_day.first_key_value()?;
     let (&last, _) = per_day.last_key_value()?;
+    let first = first.max(
+        last.checked_sub_days(chrono::Days::new(MAX_CHURN_BUCKETS - 1))
+            .unwrap_or(first),
+    );
     let buckets = first
         .iter_days()
         .take_while(|d| *d <= last)
@@ -166,6 +182,51 @@ mod tests {
                 added: 3,
                 deleted: 0,
             }]
+        );
+    }
+
+    #[test]
+    fn excluded_only_commits_do_not_anchor_the_timeline() {
+        // An early lockfile-only commit must not stretch the zero-filled
+        // range back five months — days exist only where known files moved.
+        let s = snap(vec![
+            commit(0, 1, 9, &[("vendor.lock", 100, 0)], false),
+            commit(1, 19, 9, &[("a.rs", 3, 0)], false),
+            commit(2, 20, 9, &[("a.rs", 4, 0)], false),
+        ]);
+        let t = churn_timeline_report(&s).expect("report");
+        assert_eq!(t.buckets.len(), 2, "19th and 20th only: {:?}", t.buckets);
+        assert_eq!(t.buckets[0].date, "2026-08-19");
+    }
+
+    #[test]
+    fn all_excluded_commits_yield_none() {
+        let s = snap(vec![commit(0, 19, 9, &[("vendor.lock", 100, 0)], false)]);
+        assert!(
+            churn_timeline_report(&s).is_none(),
+            "no known-file churn means no shape to report"
+        );
+    }
+
+    #[test]
+    fn zero_fill_is_capped_to_the_most_recent_year() {
+        // One misdated ancient commit under a full-history window must not
+        // emit years of empty buckets: keep the most recent 365 days.
+        let mut s = snap(vec![commit(1, 19, 9, &[("a.rs", 4, 0)], false)]);
+        let mut ancient = commit(0, 1, 9, &[("a.rs", 1, 0)], false);
+        ancient.timestamp = Utc.with_ymd_and_hms(1980, 1, 1, 0, 0, 0).unwrap();
+        s.commits.insert(0, ancient);
+        s.time_window = crate::snapshot::TimeWindow::full_history();
+        let t = churn_timeline_report(&s).expect("report");
+        assert!(
+            t.buckets.len() <= 365,
+            "bucket vector must be capped: {}",
+            t.buckets.len()
+        );
+        assert_eq!(
+            t.buckets.last().unwrap().date,
+            "2026-08-19",
+            "the most recent activity must be kept"
         );
     }
 

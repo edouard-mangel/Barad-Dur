@@ -417,7 +417,7 @@ fn bucket_key(commit: &crate::snapshot::Commit) -> (usize, i32, u32) {
 /// `day_bucketed_pairs` and `day_bucket_counts` so both count the same
 /// universe.
 fn files_by_bucket(snapshot: &RepoSnapshot) -> BTreeMap<(usize, i32, u32), HashSet<&PathBuf>> {
-    let known: HashSet<&PathBuf> = snapshot.files.iter().map(|f| &f.path).collect();
+    let known = snapshot.known_paths();
     snapshot
         .commits
         .iter()

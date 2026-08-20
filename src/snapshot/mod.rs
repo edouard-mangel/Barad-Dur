@@ -385,18 +385,31 @@ impl RepoSnapshot {
     }
 
     fn build_file_change_pairs(&mut self) {
-        use std::collections::HashSet;
-
         // Only consider files present in the (already filtered) file tree.
         // This ensures excluded paths (translations, config, lockfiles) don't
         // appear in coupling pairs.
-        let known_files: HashSet<&PathBuf> = self.files.iter().map(|f| &f.path).collect();
+        let known_files = self.known_paths();
 
         let mut pairs = count_co_changed_pairs(&self.commits, &known_files);
 
         // Sort by count descending for easy access
         pairs.sort_by_key(|p| std::cmp::Reverse(p.2));
         self.file_change_pairs = pairs;
+    }
+}
+
+/// The set of tracked, exclusion-surviving file paths — THE membership
+/// universe every metric-time computation filters historical paths
+/// against. One definition (post-merge review of MR !96): five verbatim
+/// copies had grown, two of them with comments insisting they must agree.
+pub fn known_paths(files: &[FileEntry]) -> std::collections::HashSet<&PathBuf> {
+    files.iter().map(|f| &f.path).collect()
+}
+
+impl RepoSnapshot {
+    /// [`known_paths`] over this snapshot's file tree.
+    pub fn known_paths(&self) -> std::collections::HashSet<&PathBuf> {
+        known_paths(&self.files)
     }
 }
 
