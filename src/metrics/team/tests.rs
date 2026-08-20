@@ -366,6 +366,40 @@ mod knowledge_loss_tests {
     }
 
     #[test]
+    fn blame_entries_with_zero_lines_score_clean_not_nan() {
+        // blame_map non-empty but every entry holds no lines: total == 0
+        // must take the 0.0% path, not divide 0/0 into NaN (which would
+        // fall through every score band to 25).
+        let mut s = make_snapshot();
+        s.blame_map.insert("empty.rs".into(), vec![]);
+        let m = knowledge_loss(&s);
+        assert_eq!(m.score, Some(100));
+        assert_eq!(
+            m.description,
+            "0.0% of blamed lines lack an active author (0 of 0)"
+        );
+    }
+
+    #[test]
+    fn fully_attributed_files_never_enter_the_evidence_list() {
+        // One clean file alongside one affected file — small enough that
+        // the top-10 cap cannot mask a wrongly-included clean entry (the
+        // `u > 0` filter is the only thing keeping it out).
+        let mut s = make_snapshot();
+        s.blame_map
+            .insert("old.rs".into(), vec![line(0, 50), line(UNKNOWN_AUTHOR, 50)]);
+        s.blame_map.insert("clean.rs".into(), vec![line(0, 100)]);
+        let m = knowledge_loss(&s);
+        match &m.raw_value {
+            RawValue::List(v) => {
+                assert_eq!(v.len(), 1, "only the affected file: {v:?}");
+                assert_eq!(v[0], "old.rs — 50.0% unattributed (50 of 100 lines)");
+            }
+            other => panic!("expected List, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn empty_blame_is_not_applicable() {
         let s = make_snapshot();
         let m = knowledge_loss(&s);

@@ -440,6 +440,10 @@ mod tests {
             (Some("coupling"), None)
         );
         assert_eq!(target_tab_for_metric("not a metric"), (None, None));
+        assert_eq!(
+            target_tab_for_metric("Knowledge loss"),
+            (Some("ownership"), None)
+        );
     }
 
     #[test]
@@ -455,6 +459,10 @@ mod tests {
         assert!(
             !suggest_action("not a metric").is_empty(),
             "the fallback suggestion must be non-empty"
+        );
+        assert_eq!(
+            suggest_action("Knowledge loss"),
+            "Schedule knowledge-transfer or documentation passes over the most unattributed files"
         );
     }
     use crate::metrics::{CategoryResult, MetricValue, RawValue};
