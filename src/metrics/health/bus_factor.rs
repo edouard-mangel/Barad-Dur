@@ -1,15 +1,12 @@
 use crate::config::HealthThresholds;
-use crate::metrics::{author_line_counts, MetricValue, RawValue};
+use crate::metrics::{MetricValue, RawValue};
 use crate::snapshot::{BlameLine, RepoSnapshot};
 
 fn is_file_author_dominated(lines: &[BlameLine]) -> bool {
-    if lines.is_empty() {
-        return false;
-    }
-    let author_lines = author_line_counts(lines);
-    let total: usize = author_lines.values().sum();
-    let max: usize = author_lines.values().copied().max().unwrap_or(0);
-    max * 2 > total
+    // The strict-majority rule lives in one place: a file dominated only
+    // by unattributable legacy lines has no current owner to concentrate
+    // knowledge in, so it does not count as dominated.
+    crate::metrics::primary_author(lines).is_some()
 }
 
 pub(super) fn bus_factor(snapshot: &RepoSnapshot, _thresholds: &HealthThresholds) -> MetricValue {

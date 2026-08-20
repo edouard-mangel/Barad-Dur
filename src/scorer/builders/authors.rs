@@ -21,11 +21,15 @@ pub(crate) fn build_author_ownership(snapshot: &RepoSnapshot) -> Vec<FileOwnersh
             let mut authors: Vec<AuthorShare> = author_counts
                 .into_iter()
                 .map(|(id, count)| {
-                    let name = snapshot
-                        .authors
-                        .get(id)
-                        .map(|a| a.name.clone())
-                        .unwrap_or_else(|| format!("author-{}", id));
+                    let name = if id == crate::snapshot::UNKNOWN_AUTHOR {
+                        "(unattributed)".to_string()
+                    } else {
+                        snapshot
+                            .authors
+                            .get(id)
+                            .map(|a| a.name.clone())
+                            .unwrap_or_else(|| format!("author-{}", id))
+                    };
                     AuthorShare {
                         name,
                         pct: count as f64 / total as f64 * 100.0,
@@ -247,6 +251,36 @@ mod tests {
             assert_eq!(r.name, f.name);
             assert!((r.pct - f.pct).abs() < f64::EPSILON);
         }
+    }
+
+    #[test]
+    fn ownership_labels_unknown_author_lines_as_unattributed() {
+        let mut snapshot = crate::metrics::testutil::make_snapshot();
+        let mut legacy =
+            crate::snapshot::BlameLine::new(crate::snapshot::UNKNOWN_AUTHOR, chrono::Utc::now());
+        legacy.line_count = 60;
+        let mut known = crate::snapshot::BlameLine::new(0, chrono::Utc::now());
+        known.line_count = 40;
+        snapshot.authors = vec![crate::snapshot::Author {
+            id: 0,
+            name: "alice".into(),
+            email: "a@t".into(),
+        }];
+        snapshot
+            .blame_map
+            .insert("legacy.rs".into(), vec![legacy, known]);
+        let ownership = build_author_ownership(&snapshot);
+        assert_eq!(ownership.len(), 1);
+        let names: Vec<&str> = ownership[0]
+            .authors
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            vec!["(unattributed)", "alice"],
+            "sentinel lines must render as (unattributed), sorted by share"
+        );
     }
 
     #[test]

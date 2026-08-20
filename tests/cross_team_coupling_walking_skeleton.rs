@@ -161,7 +161,7 @@ fn cross_owner_day_coupling_surfaces_a_team_finding() {
         "finding must name both primary owners: {entry}"
     );
     assert!(
-        entry.contains("coupled 2 day(s)"),
-        "finding must carry the day-bucket count: {entry}"
+        entry.contains("co-changed on 2 author-day(s)"),
+        "finding must carry the author-day bucket count: {entry}"
     );
 }

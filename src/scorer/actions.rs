@@ -301,6 +301,7 @@ fn target_tab_for_metric(metric_name: &str) -> (Option<&'static str>, Option<&'s
         "Knowledge distribution" => (Some("ownership"), None),
         "Ownership clarity" => (Some("ownership"), None),
         "Collaboration patterns" => (Some("ownership"), None),
+        "Cross-team coupling" => (Some("ownership"), None),
         "Code age" => (Some("age"), None),
         "Growth trend" => (Some("trends"), None),
         "Refactoring ratio" => (Some("hotspots"), None),
@@ -336,6 +337,9 @@ fn suggest_action(metric_name: &str) -> &'static str {
         "Contributor activity" => "Onboard more active contributors or check team health",
         "Ownership clarity" => "Assign clear code owners via CODEOWNERS file",
         "Collaboration patterns" => "Break directory silos through cross-functional reviews",
+        "Cross-team coupling" => {
+            "Align ownership with change patterns — co-owning coupled files or splitting them along owner boundaries"
+        }
         "Merge patterns" => "Review branching strategy for healthier merge patterns",
         "Growth trend" => "Monitor growth rate and plan for sustainable development",
         "Refactoring ratio" => "Balance new feature work with refactoring of existing code",

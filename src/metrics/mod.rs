@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::snapshot::{AuthorId, BlameLine};
+use crate::snapshot::{AuthorId, BlameLine, UNKNOWN_AUTHOR};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct MetricValue {
@@ -110,6 +110,40 @@ pub(crate) fn outgoing_degree(import_graph: &HashMap<PathBuf, Vec<PathBuf>>, pat
     import_graph.get(path).map(|v| v.len()).unwrap_or(0)
 }
 
+/// The author holding a *strict* majority (> 50%) of a file's blamed
+/// lines — the "main developer" proxy (org-coupling design, Decision 1).
+/// `None` when blame is empty, no author clears the majority, or the
+/// majority belongs to [`UNKNOWN_AUTHOR`] (out-of-window/departed authors
+/// are not a nameable owner; the unknown mass still counts toward the
+/// total, so a current author cannot inherit a majority they don't have).
+/// Single source of the dominance rule — `bus_factor` and
+/// `churn_ownership` wrap this instead of re-deriving it.
+pub(crate) fn primary_author(lines: &[BlameLine]) -> Option<AuthorId> {
+    let counts = author_line_counts(lines);
+    let total: usize = counts.values().sum();
+    counts
+        .into_iter()
+        .find(|&(_, count)| count * 2 > total)
+        .map(|(author, _)| author)
+        .filter(|&author| author != UNKNOWN_AUTHOR)
+}
+
+/// Whether a co-change count clears `min_ratio` against the smaller of
+/// the two per-entity activity counts — the single definition of "these
+/// two move together often enough, relative to how often each moves at
+/// all", shared by the Coupling category's change-coupling smells and
+/// Team's cross-team coupling so one `change_coupling_min_ratio` knob
+/// cannot mean two different things.
+pub(crate) fn meets_coupling_ratio(
+    co: usize,
+    denom_a: usize,
+    denom_b: usize,
+    min_ratio: f64,
+) -> bool {
+    let denom = denom_a.min(denom_b);
+    denom > 0 && (co as f64 / denom as f64) >= min_ratio
+}
+
 /// Accumulate blame line counts per author from a slice of blame lines.
 pub(crate) fn author_line_counts(lines: &[BlameLine]) -> HashMap<AuthorId, usize> {
     let mut counts: HashMap<AuthorId, usize> = HashMap::new();
@@ -135,6 +169,80 @@ impl CategoryResult {
             scored.iter().sum::<u32>() / scored.len() as u32
         };
         self
+    }
+}
+
+#[cfg(test)]
+mod primary_author_sentinel_tests {
+    use super::{primary_author, UNKNOWN_AUTHOR};
+    use crate::snapshot::BlameLine;
+    use chrono::Utc;
+
+    fn lines(counts: &[(usize, usize)]) -> Vec<BlameLine> {
+        counts
+            .iter()
+            .map(|&(author_id, line_count)| {
+                let mut l = BlameLine::new(author_id, Utc::now());
+                l.line_count = line_count;
+                l
+            })
+            .collect()
+    }
+
+    #[test]
+    fn unknown_author_majority_is_not_a_primary_author() {
+        // 80 legacy lines + 20 alice lines: the majority is unknown —
+        // no one nameable owns this file.
+        assert_eq!(
+            primary_author(&lines(&[(UNKNOWN_AUTHOR, 80), (1, 20)])),
+            None
+        );
+    }
+
+    #[test]
+    fn known_majority_over_unknown_minority_is_kept() {
+        assert_eq!(
+            primary_author(&lines(&[(UNKNOWN_AUTHOR, 20), (1, 80)])),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn unknown_mass_still_counts_toward_the_total() {
+        // alice has 40 of 100 lines — a majority of the *known* lines but
+        // not of the file; unknown mass must not be excluded from totals.
+        assert_eq!(
+            primary_author(&lines(&[(UNKNOWN_AUTHOR, 60), (1, 40)])),
+            None
+        );
+    }
+}
+
+#[cfg(test)]
+mod meets_coupling_ratio_tests {
+    use super::meets_coupling_ratio;
+
+    #[test]
+    fn zero_denominator_never_qualifies() {
+        assert!(!meets_coupling_ratio(1, 0, 5, 0.30));
+        assert!(!meets_coupling_ratio(1, 5, 0, 0.30));
+    }
+
+    #[test]
+    fn ratio_exactly_at_threshold_qualifies() {
+        // 3 / min(10, 20) = 0.30 == threshold -> >= keeps it.
+        assert!(meets_coupling_ratio(3, 10, 20, 0.30));
+    }
+
+    #[test]
+    fn ratio_below_threshold_does_not_qualify() {
+        assert!(!meets_coupling_ratio(1, 4, 4, 0.30));
+    }
+
+    #[test]
+    fn smaller_denominator_side_is_used() {
+        // min(3, 9) = 3 -> 1/3 qualifies; max would give 1/9 and fail.
+        assert!(meets_coupling_ratio(1, 9, 3, 0.30));
     }
 }
 

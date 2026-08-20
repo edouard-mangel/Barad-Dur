@@ -1,4 +1,4 @@
-use crate::metrics::{author_line_counts, CategoryResult, MetricValue, RawValue};
+use crate::metrics::{author_line_counts, primary_author, CategoryResult, MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
 use chrono::Datelike;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -81,7 +81,10 @@ fn knowledge_distribution(
     let mut lines_per_author: HashMap<usize, usize> = HashMap::new();
     for blame_lines in snapshot.blame_map.values() {
         for line in blame_lines {
-            *lines_per_author.entry(line.author_id).or_insert(0) += line.line_count;
+            // Unattributable legacy lines are no one's knowledge share.
+            if line.author_id != crate::snapshot::UNKNOWN_AUTHOR {
+                *lines_per_author.entry(line.author_id).or_insert(0) += line.line_count;
+            }
         }
     }
 
@@ -398,21 +401,6 @@ fn merge_patterns(
     }
 }
 
-/// The author holding a *strict* majority (> 50%) of a file's blamed lines
-/// — the "main developer" proxy from the org-coupling design (Decision 1).
-/// `None` when blame is empty or no author clears the majority (a
-/// collectively-owned file has no single owner to mismatch against).
-/// Same strict-majority rule as `bus_factor`'s `is_file_author_dominated`,
-/// but returns *which* author instead of discarding it.
-fn primary_author(lines: &[crate::snapshot::BlameLine]) -> Option<usize> {
-    let counts = author_line_counts(lines);
-    let total: usize = counts.values().sum();
-    counts
-        .into_iter()
-        .find(|&(_, count)| count * 2 > total)
-        .map(|(author, _)| author)
-}
-
 /// The (author, UTC calendar day) bucket key for a commit. Day-granularity
 /// per the org-coupling design (Decision 2): the same author touching two
 /// files in separate commits a few hours apart is still one coordination
@@ -433,6 +421,10 @@ fn files_by_bucket(snapshot: &RepoSnapshot) -> BTreeMap<(usize, i32, u32), HashS
     snapshot
         .commits
         .iter()
+        // A merge's files_changed is the full first-parent diff — bucketing
+        // it would pair files across unrelated MRs under the integrator's
+        // name (post-merge review). Same exclusion evolution/hygiene apply.
+        .filter(|commit| !commit.is_merge)
         .fold(BTreeMap::new(), |mut buckets, commit| {
             let entry = buckets.entry(bucket_key(commit)).or_default();
             commit
@@ -450,23 +442,30 @@ fn files_by_bucket(snapshot: &RepoSnapshot) -> BTreeMap<(usize, i32, u32), HashS
 /// commit — a *separate* data source from `snapshot.file_change_pairs`;
 /// existing coupling metrics are untouched (design Decision 2). Pairs are
 /// lexicographically normalized (a < b) and sorted for determinism.
+#[cfg(test)] // production path uses pairs_from_buckets over one shared bucket map
 fn day_bucketed_pairs(snapshot: &RepoSnapshot) -> Vec<(PathBuf, PathBuf, usize)> {
-    let pair_counts: BTreeMap<(PathBuf, PathBuf), usize> = files_by_bucket(snapshot)
-        .into_values()
-        .flat_map(|files| {
-            let mut sorted: Vec<&PathBuf> = files.into_iter().collect();
-            sorted.sort();
-            (0..sorted.len())
-                .flat_map(move |i| {
-                    let sorted = sorted.clone();
-                    (i + 1..sorted.len()).map(move |j| (sorted[i].clone(), sorted[j].clone()))
-                })
-                .collect::<Vec<_>>()
-        })
-        .fold(BTreeMap::new(), |mut m, pair| {
-            *m.entry(pair).or_insert(0) += 1;
-            m
-        });
+    pairs_from_buckets(&files_by_bucket(snapshot))
+        .into_iter()
+        .map(|(a, b, count)| (a.clone(), b.clone(), count))
+        .collect()
+}
+
+/// Core of [`day_bucketed_pairs`], borrowing paths from one shared bucket
+/// map so the metric computes `files_by_bucket` exactly once (and pair
+/// keys allocate nothing until the caller clones what survives).
+fn pairs_from_buckets<'a>(
+    buckets: &BTreeMap<(usize, i32, u32), HashSet<&'a PathBuf>>,
+) -> Vec<(&'a PathBuf, &'a PathBuf, usize)> {
+    let mut pair_counts: BTreeMap<(&PathBuf, &PathBuf), usize> = BTreeMap::new();
+    for files in buckets.values() {
+        let mut sorted: Vec<&PathBuf> = files.iter().copied().collect();
+        sorted.sort();
+        for i in 0..sorted.len() {
+            for j in i + 1..sorted.len() {
+                *pair_counts.entry((sorted[i], sorted[j])).or_insert(0) += 1;
+            }
+        }
+    }
     pair_counts
         .into_iter()
         .map(|((a, b), count)| (a, b, count))
@@ -476,15 +475,34 @@ fn day_bucketed_pairs(snapshot: &RepoSnapshot) -> Vec<(PathBuf, PathBuf, usize)>
 /// Per file: the number of distinct (author, day) buckets it appears in —
 /// the ratio denominator for day-bucketed qualification (spec's "Note on
 /// day-bucketing").
+#[cfg(test)] // production path uses counts_from_buckets over one shared bucket map
 fn day_bucket_counts(snapshot: &RepoSnapshot) -> HashMap<PathBuf, usize> {
-    files_by_bucket(snapshot)
-        .into_values()
-        .flat_map(|files| files.into_iter().cloned().collect::<Vec<_>>())
+    counts_from_buckets(&files_by_bucket(snapshot))
+        .into_iter()
+        .map(|(path, count)| (path.clone(), count))
+        .collect()
+}
+
+/// Core of [`day_bucket_counts`], borrowing from the same shared bucket
+/// map as [`pairs_from_buckets`] — one universe, computed once.
+fn counts_from_buckets<'a>(
+    buckets: &BTreeMap<(usize, i32, u32), HashSet<&'a PathBuf>>,
+) -> HashMap<&'a PathBuf, usize> {
+    buckets
+        .values()
+        .flat_map(|files| files.iter().copied())
         .fold(HashMap::new(), |mut m, path| {
             *m.entry(path).or_insert(0) += 1;
             m
         })
 }
+
+/// Minimum distinct author-day buckets a pair must co-change in before it
+/// can qualify — a single one-off co-change day (scaffolding, a sweep) is
+/// noise, not coupling. The exact-commit sibling pipeline has the same
+/// idea as its `count >= 3` floor in `count_co_changed_pairs`; two keeps
+/// the day-granularity signal more sensitive than the commit one.
+const MIN_CO_DAYS: usize = 2;
 
 /// Cross-team (Conway's-law) coupling: day-bucketed co-change pairs that
 /// meet `change_coupling_min_ratio` and whose two files have *different*
@@ -504,7 +522,8 @@ fn cross_team_coupling(
             score: None,
         };
     }
-    let bucket_counts = day_bucket_counts(snapshot);
+    let buckets = files_by_bucket(snapshot);
+    let bucket_counts = counts_from_buckets(&buckets);
     let author_name = |id: usize| {
         snapshot
             .authors
@@ -513,38 +532,55 @@ fn cross_team_coupling(
             .map(|a| a.name.clone())
             .unwrap_or_else(|| format!("author #{id}"))
     };
-    let findings: Vec<String> = day_bucketed_pairs(snapshot)
+    // Qualifying pairs whose files never got blamed (binary, blame failure)
+    // are counted, not silently dropped — a clean 100 must be
+    // distinguishable from "we could not check" (post-merge review).
+    let (findings, skipped_no_blame) = pairs_from_buckets(&buckets)
         .into_iter()
-        .filter_map(|(a, b, co_days)| {
-            let min_days = bucket_counts
-                .get(&a)
-                .copied()
-                .unwrap_or(0)
-                .min(bucket_counts.get(&b).copied().unwrap_or(0));
-            if min_days == 0
-                || (co_days as f64 / min_days as f64) < coupling.change_coupling_min_ratio
-            {
-                return None;
-            }
-            let owner_a = primary_author(snapshot.blame_map.get(&a)?)?;
-            let owner_b = primary_author(snapshot.blame_map.get(&b)?)?;
-            (owner_a != owner_b).then(|| {
-                format!(
-                    "{} ↔ {} — coupled {} day(s), primary owners: {} vs. {}",
-                    a.display(),
-                    b.display(),
-                    co_days,
-                    author_name(owner_a),
-                    author_name(owner_b),
-                )
-            })
+        .filter(|&(_, _, co_days)| co_days >= MIN_CO_DAYS)
+        .filter(|(a, b, co_days)| {
+            crate::metrics::meets_coupling_ratio(
+                *co_days,
+                bucket_counts.get(*a).copied().unwrap_or(0),
+                bucket_counts.get(*b).copied().unwrap_or(0),
+                coupling.change_coupling_min_ratio,
+            )
         })
-        .collect();
+        .fold(
+            (Vec::new(), 0usize),
+            |(mut findings, skipped), (a, b, co_days)| {
+                let (Some(lines_a), Some(lines_b)) =
+                    (snapshot.blame_map.get(a), snapshot.blame_map.get(b))
+                else {
+                    return (findings, skipped + 1);
+                };
+                if let (Some(owner_a), Some(owner_b)) =
+                    (primary_author(lines_a), primary_author(lines_b))
+                {
+                    if owner_a != owner_b {
+                        findings.push(format!(
+                            "{} ↔ {} — co-changed on {} author-day(s), primary owners: {} vs. {}",
+                            a.display(),
+                            b.display(),
+                            co_days,
+                            author_name(owner_a),
+                            author_name(owner_b),
+                        ));
+                    }
+                }
+                (findings, skipped)
+            },
+        );
     let count = findings.len();
+    let blame_note = if skipped_no_blame > 0 {
+        format!("; {skipped_no_blame} qualifying pair(s) lacked blame data")
+    } else {
+        String::new()
+    };
     MetricValue {
         name,
         description: format!(
-            "{count} cross-team coupling pair(s) — coupled files with different primary owners"
+            "{count} cross-team coupling pair(s) — coupled files with different primary owners{blame_note}"
         ),
         raw_value: RawValue::List(findings),
         score: Some(crate::metrics::score_count_bands(count)),
