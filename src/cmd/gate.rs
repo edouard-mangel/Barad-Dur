@@ -49,7 +49,7 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
         team::compute_team(&snapshot, &cfg.thresholds.team, &cfg.thresholds.coupling),
         evolution::compute_evolution(&snapshot, &cfg.thresholds.evolution),
         hygiene::compute_hygiene(&snapshot, &cfg.thresholds.hygiene),
-        coupling::compute_coupling(&snapshot, &cfg.thresholds.coupling),
+        coupling::compute_coupling(&snapshot, &cfg.thresholds.coupling, &cfg.thresholds.health),
     ];
 
     let weight_pairs = cfg.weights.as_weight_pairs();

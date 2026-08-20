@@ -19,6 +19,11 @@ pub struct HotspotFile {
     pub public_methods: u32,
     pub properties: u32,
     pub hotspot_score: f64,
+    /// Ch. 8 decay annotation (trends M3): present when this file's
+    /// distinct co-change partner count at least doubled half-over-half
+    /// and cleared the god-node floor — e.g. "partners 3 → 9 (half-over-half)".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coupling_trend: Option<String>,
     /// Pressman coupling findings in this file, per kind. Content includes
     /// barrel-bypass findings when `content_barrel_rule` is on — the same
     /// gating as `pressman_finding_counts`, so the two views never disagree.

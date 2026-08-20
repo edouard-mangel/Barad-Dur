@@ -35,7 +35,11 @@ fn live_analysis_records_finding_counts_in_history_entry() {
         ),
         evolution::compute_evolution(&snapshot, &default_cfg.thresholds.evolution),
         hygiene::compute_hygiene(&snapshot, &default_cfg.thresholds.hygiene),
-        coupling::compute_coupling(&snapshot, &default_cfg.thresholds.coupling),
+        coupling::compute_coupling(
+            &snapshot,
+            &default_cfg.thresholds.coupling,
+            &default_cfg.thresholds.health,
+        ),
     ];
     let report = scorer::build_report(
         &snapshot,
@@ -78,7 +82,11 @@ fn backfill_style_snapshot_records_no_counts_and_unscored_metrics() {
 
     // Pressman metrics must be unscored (detection didn't run)…
     let default_cfg = RepoConfig::default();
-    let cat = coupling::compute_coupling(&snapshot, &default_cfg.thresholds.coupling);
+    let cat = coupling::compute_coupling(
+        &snapshot,
+        &default_cfg.thresholds.coupling,
+        &default_cfg.thresholds.health,
+    );
     for name in ["Content coupling", "Common coupling", "Control coupling"] {
         let m = cat.metrics.iter().find(|m| m.name == name).unwrap();
         assert_eq!(

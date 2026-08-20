@@ -266,6 +266,7 @@ fn html_full_report_with_all_data_renders_ok() {
         public_methods: 10,
         properties: 5,
         hotspot_score: 8.5,
+        coupling_trend: None,
         content_findings: 0,
         common_findings: 2,
         control_findings: 1,
