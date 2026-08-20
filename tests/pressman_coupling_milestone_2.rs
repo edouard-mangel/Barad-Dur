@@ -38,7 +38,7 @@ fn live_analysis_records_finding_counts_in_history_entry() {
         coupling::compute_coupling(
             &snapshot,
             &default_cfg.thresholds.coupling,
-            &default_cfg.thresholds.health,
+            &Default::default(),
         ),
     ];
     let report = scorer::build_report(
@@ -48,6 +48,7 @@ fn live_analysis_records_finding_counts_in_history_entry() {
         &weight_pairs,
         &default_cfg.thresholds,
         &flagged_god_objects,
+        &Default::default(),
     );
 
     let counts = report
@@ -85,7 +86,7 @@ fn backfill_style_snapshot_records_no_counts_and_unscored_metrics() {
     let cat = coupling::compute_coupling(
         &snapshot,
         &default_cfg.thresholds.coupling,
-        &default_cfg.thresholds.health,
+        &Default::default(),
     );
     for name in ["Content coupling", "Common coupling", "Control coupling"] {
         let m = cat.metrics.iter().find(|m| m.name == name).unwrap();
@@ -119,6 +120,7 @@ fn backfill_style_snapshot_records_no_counts_and_unscored_metrics() {
         &weight_pairs,
         &default_cfg.thresholds,
         &flagged_god_objects,
+        &Default::default(),
     );
     assert_eq!(report.coupling_finding_counts, None);
     let entry = scorer::build_history_entry(&report, &head, Some("backfill".into()));

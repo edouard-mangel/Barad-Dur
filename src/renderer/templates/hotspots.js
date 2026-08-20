@@ -220,7 +220,9 @@
       + '(decision points such as if/match/loops), measured by tree-sitter AST analysis.',
     Churn: 'Number of commits that touched this file within the analysis window.',
     Trend: 'Commits touching this file per 1/12 of the analysis window, oldest on the left. '
-      + 'All rows share the same time axis, so shapes are comparable.',
+      + 'All rows share the same time axis, so shapes are comparable. A red badge like 3\u21929 '
+      + 'means the file\u2019s distinct co-change partner count grew from 3 to 9 half-over-half '
+      + '(growing co-change reach).',
     Bugs: 'Commits touching this file whose message contains fix, bug, broken, crash or regression '
       + '(case-insensitive substring match). A heuristic for how often the file needs fixing — '
       + 'displayed for context, not part of the Score.',
@@ -287,6 +289,17 @@
 
     var trendCell = el('td');
     trendCell.append(hsSparkline(f.churn_timeline || []));
+    if (f.coupling_trend) {
+      var ct = f.coupling_trend;
+      var reachBadge = el('span', {
+        className: 'hs-reach-badge',
+        style: { color: '#dc2626', 'font-size': '11px', 'margin-left': '4px', 'white-space': 'nowrap' },
+        title: 'Growing co-change reach: ' + ct.first_half_partners + ' \u2192 '
+          + ct.second_half_partners + ' distinct co-change partners (first half \u2192 second half)'
+      });
+      reachBadge.append(txt(ct.first_half_partners + '\u2192' + ct.second_half_partners));
+      trendCell.append(reachBadge);
+    }
 
     var bugsCell = el('td');
     bugsCell.append(txt(String(f.bug_commit_count)));

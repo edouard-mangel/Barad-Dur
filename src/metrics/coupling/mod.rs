@@ -10,25 +10,31 @@ use crate::metrics::{median, score_count_bands, CategoryResult, MetricValue, Raw
 use crate::scorer::CouplingFindingCounts;
 use crate::snapshot::{CouplingFinding, CouplingKind, RepoSnapshot};
 
+/// path → (first-half partners, second-half partners) for files whose
+/// co-change reach grew — computed once per run by the caller (the
+/// `flagged_god_objects` precedent) and shared between the Coupling
+/// category and the hotspot rows.
+pub type CouplingReach = std::collections::BTreeMap<PathBuf, (usize, usize)>;
+
 pub fn compute_coupling(
     snapshot: &RepoSnapshot,
     thresholds: &CouplingThresholds,
-    health: &crate::config::HealthThresholds,
+    reach: &CouplingReach,
 ) -> CategoryResult {
-    let growing_reach = growing_coupling_reach(snapshot, health.god_node_min_degree).len();
     let barrel = gated_barrel_findings(snapshot, thresholds);
     let inh = inheritance_findings(snapshot, thresholds.inheritance_min_depth);
     let corr = corroboration_degree(snapshot, thresholds);
     let weight = thresholds.corroboration_weight;
     let metrics = vec![
-        afferent_coupling(snapshot, growing_reach),
-        efferent_coupling(snapshot, growing_reach),
+        afferent_coupling(snapshot),
+        efferent_coupling(snapshot),
         circular_dependencies(snapshot),
         change_coupling_smells(snapshot, thresholds),
         pressman_metric(snapshot, CouplingKind::Content, barrel, &corr, weight),
         pressman_metric(snapshot, CouplingKind::Common, Vec::new(), &corr, weight),
         pressman_metric(snapshot, CouplingKind::Inheritance, inh, &corr, weight),
         pressman_metric(snapshot, CouplingKind::Control, Vec::new(), &corr, weight),
+        coupling_reach_trend(reach),
     ];
     apply_severity_cap(
         CategoryResult {
@@ -50,13 +56,34 @@ pub(crate) fn extract_component(path: &Path, depth: usize) -> String {
         .join("/")
 }
 
-/// Additive decay note for the afferent/efferent descriptions — evidence
-/// only, never folded into a score (the M5-corroboration precedent).
-fn reach_note(growing_reach: usize) -> String {
-    if growing_reach == 0 {
-        String::new()
+/// Unscored evidence row for the growing-reach decay signal (Ch. 8,
+/// trends M3) — never folded into the category score (the
+/// M5-corroboration precedent), and independent of the import graph, so
+/// it survives snapshots with no parsed imports. Lists the widest-reach
+/// offenders so the aggregate count is actionable.
+fn coupling_reach_trend(reach: &CouplingReach) -> MetricValue {
+    const TOP_N: usize = 3;
+    let description = if reach.is_empty() {
+        "No files with growing co-change reach".to_string()
     } else {
-        format!(", {growing_reach} file(s) with growing co-change reach")
+        let mut worst: Vec<(&PathBuf, &(usize, usize))> = reach.iter().collect();
+        worst.sort_by_key(|(path, (_, second))| (std::cmp::Reverse(*second), (*path).clone()));
+        let top = worst
+            .iter()
+            .take(TOP_N)
+            .map(|(path, (first, second))| format!("{} ({first} → {second})", path.display()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "{} file(s) whose co-change partner count at least doubled half-over-half — {top}",
+            reach.len()
+        )
+    };
+    MetricValue {
+        name: "Co-change reach trend".to_string(),
+        description,
+        raw_value: RawValue::Count(reach.len()),
+        score: None,
     }
 }
 
@@ -71,14 +98,21 @@ const DECAY_GROWTH_FACTOR: f64 = 2.0;
 const MAX_CHANGESET_SIZE: usize = 30;
 
 /// Files whose distinct co-change partner count at least doubled from the
-/// first to the second half of the window AND reaches `min_degree`
-/// (reusing the god-node floor) in the second half — Tornhill's
-/// "architectural decay in progress" (Ch. 8, trends M3). Returns
-/// path → (first-half partners, second-half partners), deterministic.
-/// Merge commits are excluded and the split is computed at metric time —
-/// `snapshot.file_change_pairs` (whole-window, exact-commit) is untouched.
-/// Empty when either half holds no commits: a one-burst history has no
-/// halves to compare, and claiming decay from it would fabricate signal.
+/// first to the second half of the window AND reaches `min_partners`
+/// (`thresholds.coupling.decay_min_partners`) in the second half —
+/// Tornhill's "architectural decay in progress" (Ch. 8, trends M3).
+/// Returns path → (first-half partners, second-half partners),
+/// deterministic. Merge commits are excluded and the split is computed at
+/// metric time — `snapshot.file_change_pairs` (whole-window, exact-commit)
+/// is untouched. Empty when either half forms no pairs: a one-burst
+/// history has no halves to compare, and claiming decay against a
+/// pair-less baseline would fabricate signal. Files with zero first-half
+/// partners are never flagged — new reach is not decay.
+///
+/// The halves split on the wall-clock midpoint of observed activity, not
+/// commit volume, so a lopsided history (one early commit, then a sprint)
+/// yields a thin baseline half — a calibration candidate (median-commit
+/// split) if that proves noisy in practice.
 ///
 /// Calibration note (dogfood 2026-08-20): on a window whose second half is
 /// an active feature sprint, many files legitimately grow reach at once
@@ -86,10 +120,7 @@ const MAX_CHANGESET_SIZE: usize = 30;
 /// factual about window shape and carries no score weight; a
 /// median-relative outlier gate (the `is_structural_hub` pattern) is the
 /// candidate calibration if per-file decay alarms are wanted later.
-pub(crate) fn growing_coupling_reach(
-    snapshot: &RepoSnapshot,
-    min_degree: usize,
-) -> std::collections::BTreeMap<PathBuf, (usize, usize)> {
+pub fn growing_coupling_reach(snapshot: &RepoSnapshot, min_partners: usize) -> CouplingReach {
     let known = snapshot.known_paths();
     let commits: Vec<&crate::snapshot::Commit> = snapshot
         .commits
@@ -104,10 +135,8 @@ pub(crate) fn growing_coupling_reach(
     };
     let midpoint = min_ts + (max_ts - min_ts) / 2;
     let mut partners: [HashMap<&PathBuf, HashSet<&PathBuf>>; 2] = [HashMap::new(), HashMap::new()];
-    let mut commits_per_half = [0usize; 2];
     for c in &commits {
         let half = usize::from(c.timestamp >= midpoint);
-        commits_per_half[half] += 1;
         let files: Vec<&PathBuf> = c
             .files_changed
             .iter()
@@ -123,7 +152,10 @@ pub(crate) fn growing_coupling_reach(
             }
         }
     }
-    if commits_per_half[0] == 0 || commits_per_half[1] == 0 {
+    // A half without pair-forming activity is no baseline: raw commit
+    // counts don't qualify (a half of only bulk sweeps or excluded-path
+    // commits would fabricate a tree-wide 0 → N signal).
+    if partners[0].is_empty() || partners[1].is_empty() {
         return std::collections::BTreeMap::new();
     }
     partners[1]
@@ -131,9 +163,12 @@ pub(crate) fn growing_coupling_reach(
         .filter_map(|(path, second_set)| {
             let first = partners[0].get(*path).map_or(0, |set| set.len());
             let second = second_set.len();
-            (second >= min_degree
-                && second as f64 >= first as f64 * DECAY_GROWTH_FACTOR
-                && second > first)
+            // `first >= 1`: a file with no first-half partners has no
+            // baseline to have decayed from — new reach is not decay.
+            // With that, `second >= first * 2` alone implies growth.
+            (first >= 1
+                && second >= min_partners
+                && second as f64 >= first as f64 * DECAY_GROWTH_FACTOR)
                 .then(|| ((*path).clone(), (first, second)))
         })
         .collect()
@@ -143,7 +178,7 @@ pub(crate) fn growing_coupling_reach(
 ///
 /// Scored on the median Ca rather than the max. A single hub (core data model)
 /// is normal — what matters is whether *most* files have excessive incoming deps.
-fn afferent_coupling(snapshot: &RepoSnapshot, growing_reach: usize) -> MetricValue {
+fn afferent_coupling(snapshot: &RepoSnapshot) -> MetricValue {
     let incoming = crate::metrics::incoming_import_counts(&snapshot.import_graph);
 
     if incoming.is_empty() {
@@ -181,11 +216,7 @@ fn afferent_coupling(snapshot: &RepoSnapshot, growing_reach: usize) -> MetricVal
     MetricValue {
         name: "Afferent coupling".to_string(),
         description: format!(
-            "Incoming deps — median: {:.1}, mean: {:.1}, max: {}{}",
-            median_ca,
-            mean_ca,
-            max_ca,
-            reach_note(growing_reach)
+            "Incoming deps — median: {median_ca:.1}, mean: {mean_ca:.1}, max: {max_ca}"
         ),
         raw_value: RawValue::Float(median_ca),
         score: Some(score),
@@ -196,7 +227,7 @@ fn afferent_coupling(snapshot: &RepoSnapshot, growing_reach: usize) -> MetricVal
 ///
 /// Scored on the median Ce. A few orchestrator files with many imports are
 /// expected — the score reflects whether the typical file is well-scoped.
-fn efferent_coupling(snapshot: &RepoSnapshot, growing_reach: usize) -> MetricValue {
+fn efferent_coupling(snapshot: &RepoSnapshot) -> MetricValue {
     if snapshot.import_graph.is_empty() {
         return MetricValue {
             name: "Efferent coupling".to_string(),
@@ -231,11 +262,7 @@ fn efferent_coupling(snapshot: &RepoSnapshot, growing_reach: usize) -> MetricVal
     MetricValue {
         name: "Efferent coupling".to_string(),
         description: format!(
-            "Outgoing deps — median: {:.1}, mean: {:.1}, max: {}{}",
-            median_ce,
-            mean_ce,
-            max_ce,
-            reach_note(growing_reach)
+            "Outgoing deps — median: {median_ce:.1}, mean: {mean_ce:.1}, max: {max_ce}"
         ),
         raw_value: RawValue::Float(median_ce),
         score: Some(score),

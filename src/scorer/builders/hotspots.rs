@@ -42,10 +42,8 @@ fn churn_timeline(
 pub(crate) fn build_hotspots(
     snapshot: &RepoSnapshot,
     coupling: &CouplingThresholds,
-    health: &crate::config::HealthThresholds,
+    reach: &crate::metrics::coupling::CouplingReach,
 ) -> Vec<HotspotFile> {
-    let reach =
-        crate::metrics::coupling::growing_coupling_reach(snapshot, health.god_node_min_degree);
     // Pre-classify bug-fix commits by ID to avoid O(files × commits) message scanning.
     let bug_commit_ids: HashSet<crate::snapshot::CommitId> = snapshot
         .commits
@@ -115,9 +113,12 @@ pub(crate) fn build_hotspots(
                 control_findings,
                 inheritance_findings,
                 churn_timeline: churn_timeline(commit_ids, &ts_by_id, min_ts, max_ts),
-                coupling_trend: reach
-                    .get(&f.path)
-                    .map(|(first, second)| format!("partners {first} → {second} (half-over-half)")),
+                coupling_trend: reach.get(&f.path).map(|&(first, second)| {
+                    crate::scorer::CouplingTrend {
+                        first_half_partners: first,
+                        second_half_partners: second,
+                    }
+                }),
             }
         })
         .collect();
@@ -184,7 +185,7 @@ mod tests {
         let hotspots = build_hotspots(
             &snapshot,
             &crate::config::CouplingThresholds::default(),
-            &crate::config::HealthThresholds::default(),
+            &Default::default(),
         );
         let role_of = |path: &str| {
             hotspots
@@ -218,7 +219,7 @@ mod tests {
         let hotspots = build_hotspots(
             &snapshot,
             &crate::config::CouplingThresholds::default(),
-            &crate::config::HealthThresholds::default(),
+            &Default::default(),
         );
         let timeline = &hotspots[0].churn_timeline;
         assert_eq!(timeline.len(), 12);
@@ -244,7 +245,7 @@ mod tests {
         let hotspots = build_hotspots(
             &snapshot,
             &crate::config::CouplingThresholds::default(),
-            &crate::config::HealthThresholds::default(),
+            &Default::default(),
         );
         let timeline = &hotspots[0].churn_timeline;
         assert_eq!(timeline.len(), 12);
@@ -269,7 +270,7 @@ mod tests {
         let hotspots = build_hotspots(
             &snapshot,
             &crate::config::CouplingThresholds::default(),
-            &crate::config::HealthThresholds::default(),
+            &Default::default(),
         );
         let timeline = &hotspots[0].churn_timeline;
         assert_eq!(timeline.len(), 12);
@@ -297,7 +298,7 @@ mod tests {
         let hotspots = build_hotspots(
             &snapshot,
             &crate::config::CouplingThresholds::default(),
-            &crate::config::HealthThresholds::default(),
+            &Default::default(),
         );
         assert_eq!(hotspots.len(), 1);
         assert_eq!(hotspots[0].bug_commit_count, 0);
@@ -326,7 +327,7 @@ mod tests {
             let hotspots = build_hotspots(
                 &snapshot,
                 &crate::config::CouplingThresholds::default(),
-                &crate::config::HealthThresholds::default(),
+                &Default::default(),
             );
             assert_eq!(
                 hotspots[0].bug_commit_count, 1,
@@ -352,7 +353,7 @@ mod tests {
         let hotspots = build_hotspots(
             &snapshot,
             &crate::config::CouplingThresholds::default(),
-            &crate::config::HealthThresholds::default(),
+            &Default::default(),
         );
         assert_eq!(hotspots[0].bug_commit_count, 1);
     }
@@ -380,7 +381,7 @@ mod tests {
         let hotspots = build_hotspots(
             &snapshot,
             &crate::config::CouplingThresholds::default(),
-            &crate::config::HealthThresholds::default(),
+            &Default::default(),
         );
         let a = hotspots.iter().find(|f| f.path == "src/a.rs").unwrap();
         let b = hotspots.iter().find(|f| f.path == "src/b.rs").unwrap();
@@ -403,7 +404,7 @@ mod tests {
         let hotspots = build_hotspots(
             &snapshot,
             &crate::config::CouplingThresholds::default(),
-            &crate::config::HealthThresholds::default(),
+            &Default::default(),
         );
         assert_eq!(hotspots[0].bug_commit_count, 0);
     }
@@ -430,7 +431,7 @@ mod tests {
             },
         ];
         let cfg = crate::config::CouplingThresholds::default();
-        let hotspots = build_hotspots(&snapshot, &cfg, &crate::config::HealthThresholds::default());
+        let hotspots = build_hotspots(&snapshot, &cfg, &Default::default());
         let dirty = hotspots.iter().find(|h| h.path == "src/dirty.rs").unwrap();
         assert_eq!(
             (
@@ -466,7 +467,7 @@ mod tests {
             evidence: "class C extends B → A (depth 2)".into(),
         }];
         let cfg = crate::config::CouplingThresholds::default();
-        let hotspots = build_hotspots(&snapshot, &cfg, &crate::config::HealthThresholds::default());
+        let hotspots = build_hotspots(&snapshot, &cfg, &Default::default());
         let deep = hotspots.iter().find(|h| h.path == "src/deep.ts").unwrap();
         let clean = hotspots.iter().find(|h| h.path == "src/clean.ts").unwrap();
         assert_eq!(deep.inheritance_findings, 1);
@@ -491,7 +492,7 @@ mod tests {
             .insert("src/b/user.ts".into(), vec!["src/a/impl.ts".into()]);
         let cfg = crate::config::CouplingThresholds::default();
         assert!(cfg.content_barrel_rule, "default toggle must be on");
-        let on = build_hotspots(&snapshot, &cfg, &crate::config::HealthThresholds::default());
+        let on = build_hotspots(&snapshot, &cfg, &Default::default());
         let user_on = on.iter().find(|h| h.path == "src/b/user.ts").unwrap();
         assert_eq!(
             user_on.content_findings, 1,
@@ -502,11 +503,7 @@ mod tests {
             content_barrel_rule: false,
             ..crate::config::CouplingThresholds::default()
         };
-        let off = build_hotspots(
-            &snapshot,
-            &cfg_off,
-            &crate::config::HealthThresholds::default(),
-        );
+        let off = build_hotspots(&snapshot, &cfg_off, &Default::default());
         let user_off = off.iter().find(|h| h.path == "src/b/user.ts").unwrap();
         assert_eq!(
             user_off.content_findings, 0,
@@ -547,7 +544,7 @@ mod tests {
     fn common_finding_multiplies_hotspot_score() {
         let snapshot = twin_snapshot(crate::snapshot::CouplingKind::Common);
         let cfg = crate::config::CouplingThresholds::default();
-        let hotspots = build_hotspots(&snapshot, &cfg, &crate::config::HealthThresholds::default());
+        let hotspots = build_hotspots(&snapshot, &cfg, &Default::default());
         let flagged = hotspots
             .iter()
             .find(|h| h.path == "src/flagged.rs")
@@ -565,7 +562,7 @@ mod tests {
     fn control_finding_does_not_multiply_hotspot_score() {
         let snapshot = twin_snapshot(crate::snapshot::CouplingKind::Control);
         let cfg = crate::config::CouplingThresholds::default();
-        let hotspots = build_hotspots(&snapshot, &cfg, &crate::config::HealthThresholds::default());
+        let hotspots = build_hotspots(&snapshot, &cfg, &Default::default());
         let flagged = hotspots
             .iter()
             .find(|h| h.path == "src/flagged.rs")
@@ -586,7 +583,7 @@ mod tests {
             hotspot_multiplier: 10.0,
             ..crate::config::CouplingThresholds::default()
         };
-        let hotspots = build_hotspots(&snapshot, &cfg, &crate::config::HealthThresholds::default());
+        let hotspots = build_hotspots(&snapshot, &cfg, &Default::default());
         let flagged = hotspots
             .iter()
             .find(|h| h.path == "src/flagged.rs")
@@ -600,55 +597,32 @@ mod tests {
 
     #[test]
     fn hotspot_rows_carry_coupling_trend_when_reach_grows() {
-        use crate::snapshot::{ChangeType, Commit, CommitId, FileChange};
-        use chrono::{Duration, Utc};
+        // The reach map is computed once by the caller (cmd layer) and
+        // handed in — rows must mirror it structurally, not re-derive it.
         let mut snapshot = crate::metrics::testutil::make_snapshot();
         snapshot.files = (0..8)
             .map(|i| crate::metrics::testutil::make_file(&format!("p{i}.rs")))
             .chain([crate::metrics::testutil::make_file("hub.rs")])
             .collect();
-        let commit = |id: u32, hours_ago: i64, paths: Vec<String>| Commit {
-            id: CommitId(id),
-            author: 0,
-            timestamp: Utc::now() - Duration::hours(hours_ago),
-            message: String::new(),
-            files_changed: paths
+        let reach: crate::metrics::coupling::CouplingReach =
+            [(std::path::PathBuf::from("hub.rs"), (4, 8))]
                 .into_iter()
-                .map(|p| FileChange {
-                    path: p.into(),
-                    additions: 1,
-                    deletions: 0,
-                    change_type: ChangeType::Modified,
-                })
-                .collect(),
-            is_merge: false,
-            parent_count: 1,
-        };
-        // First half: hub pairs with 4 files; second half: with 8.
-        let mut commits = Vec::new();
-        for i in 0..4 {
-            commits.push(commit(i, 10, vec!["hub.rs".into(), format!("p{i}.rs")]));
-        }
-        for i in 0..8 {
-            commits.push(commit(
-                100 + i,
-                1,
-                vec!["hub.rs".into(), format!("p{i}.rs")],
-            ));
-        }
-        snapshot.commits = commits;
+                .collect();
         let hotspots = build_hotspots(
             &snapshot,
             &crate::config::CouplingThresholds::default(),
-            &crate::config::HealthThresholds::default(),
+            &reach,
         );
         let hub = hotspots
             .iter()
             .find(|h| h.path == "hub.rs")
             .expect("hub row");
         assert_eq!(
-            hub.coupling_trend.as_deref(),
-            Some("partners 4 → 8 (half-over-half)")
+            hub.coupling_trend,
+            Some(crate::scorer::CouplingTrend {
+                first_half_partners: 4,
+                second_half_partners: 8,
+            })
         );
         let leaf = hotspots
             .iter()

@@ -68,6 +68,8 @@ pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
             hygiene::compute_hygiene(&snapshot, &cfg.thresholds.hygiene),
         ];
 
+        // Backfill keeps only scores from the report — skip the coupling
+        // reach computation whose hotspot annotations it would discard.
         let report = scorer::build_report(
             &snapshot,
             categories,
@@ -75,6 +77,7 @@ pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
             &weight_pairs,
             &cfg.thresholds,
             &flagged_god_objects,
+            &Default::default(),
         );
         let mut entry = scorer::build_history_entry(&report, sha, Some("backfill".to_string()));
 

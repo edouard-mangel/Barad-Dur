@@ -74,9 +74,22 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<()> {
     // the O(files) god-object detection pass twice per analysis.
     let flagged_god_objects = metrics::health::god_object_files(&snapshot, &cfg.thresholds.health);
 
+    // Computed once, shared by the Coupling category's reach-trend metric
+    // and by build_report's hotspot rows (same pattern as above).
+    let coupling_reach = metrics::coupling::growing_coupling_reach(
+        &snapshot,
+        cfg.thresholds.coupling.decay_min_partners,
+    );
+
     // Compute selected metrics
     let t = std::time::Instant::now();
-    let mut categories = compute_selected_metrics(&snapshot, &args, &cfg, &flagged_god_objects);
+    let mut categories = compute_selected_metrics(
+        &snapshot,
+        &args,
+        &cfg,
+        &flagged_god_objects,
+        &coupling_reach,
+    );
     if args.verbose > 0 {
         eprintln!("  Metrics: {}ms", t.elapsed().as_millis());
     }
@@ -102,6 +115,7 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<()> {
         &weight_pairs,
         &cfg.thresholds,
         &flagged_god_objects,
+        &coupling_reach,
     );
     report.dep_ecosystem_reports = dep_reports;
     if args.verbose > 0 {
@@ -292,6 +306,7 @@ pub fn compute_selected_metrics(
     args: &AnalyzeArgs,
     cfg: &RepoConfig,
     flagged_god_objects: &[(std::path::PathBuf, String)],
+    coupling_reach: &crate::metrics::coupling::CouplingReach,
 ) -> Vec<CategoryResult> {
     use crate::metrics::{coupling, evolution, health, hygiene, team};
 
@@ -324,7 +339,7 @@ pub fn compute_selected_metrics(
         categories.push(coupling::compute_coupling(
             snapshot,
             &cfg.thresholds.coupling,
-            &cfg.thresholds.health,
+            coupling_reach,
         ));
     }
 
