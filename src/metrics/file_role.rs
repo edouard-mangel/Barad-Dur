@@ -21,7 +21,7 @@ pub enum FileRole {
 
 /// Extensions treated as program source code (mirrors the languages the
 /// AST collector understands, plus common ones we only count lines for).
-fn has_source_extension(path: &Path) -> bool {
+pub(crate) fn has_source_extension(path: &Path) -> bool {
     matches!(
         path.extension().and_then(|e| e.to_str()).unwrap_or(""),
         "rs" | "py"

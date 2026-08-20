@@ -339,13 +339,21 @@ fn commit_cadence(
 }
 
 /// Code/test growth balance (Crime Scene Ch. 9, trends design M2): lines
-/// added per `file_role` partition (Source vs Test) across the window,
-/// split into two halves by timestamp so a test partition falling behind
-/// *recently* is visible. Annotation-first: never scored in v1 — a growth
-/// ratio has no defensible universal band, and `score: None` metrics stay
-/// out of the category average. Merge commits excluded (first-parent
-/// diffs double-count merged MRs); a commit exactly at the midpoint
-/// belongs to the second half.
+/// added to Source files vs *test code files* across the window, split
+/// into halves by timestamp so tests falling behind recently are visible.
+/// Annotation-first: never scored in v1 (`score: None` stays out of the
+/// category average).
+///
+/// Documented limitations (post-merge review of MR !97):
+/// - Inline unit tests (`#[cfg(test)]` modules and the like) live in
+///   Source files and are counted as source growth — the test side counts
+///   *test files* only, hence the "test-file" wording.
+/// - The test side requires a code extension, so regenerated fixtures/
+///   data under `tests/` never inflate it.
+/// - Only files in the analyzed tree count (same known-files rule as
+///   `count_co_changed_pairs`); renames surface as new-file additions
+///   because the collector does not do rename detection.
+/// - Merge commits are excluded (first-parent diffs double-count MRs).
 fn growth_balance(snapshot: &RepoSnapshot) -> MetricValue {
     use crate::metrics::file_role::{classify, FileRole};
     let name = "Code/test growth balance".to_string();
@@ -355,19 +363,26 @@ fn growth_balance(snapshot: &RepoSnapshot) -> MetricValue {
         raw_value: RawValue::Text("N/A".to_string()),
         score: None,
     };
-    let role_of: std::collections::HashMap<&std::path::PathBuf, FileRole> = snapshot
+    // Role per known file; the test side additionally requires a code
+    // extension so `tests/fixtures/data.json` is neither source nor test.
+    let role_of: HashMap<&std::path::PathBuf, FileRole> = snapshot
         .files
         .iter()
         .map(|f| (&f.path, classify(&f.path)))
         .collect();
-    if !role_of.values().any(|r| *r == FileRole::Test) {
+    let is_test_code =
+        |p: &std::path::PathBuf| role_of.get(p) == Some(&FileRole::Test) && is_code_file(p);
+    if !snapshot.files.iter().any(|f| is_test_code(&f.path)) {
         return na("No test files detected — not applicable");
     }
     if !role_of.values().any(|r| *r == FileRole::Source) {
         return na("No source files detected — not applicable");
     }
-    let commits: Vec<&crate::snapshot::Commit> =
-        snapshot.commits.iter().filter(|c| !c.is_merge).collect();
+    let commits: Vec<&crate::snapshot::Commit> = snapshot
+        .commits
+        .iter()
+        .filter(|c| snapshot.time_window.contains(&c.timestamp) && !c.is_merge)
+        .collect();
     let (Some(min_ts), Some(max_ts)) = (
         commits.iter().map(|c| c.timestamp).min(),
         commits.iter().map(|c| c.timestamp).max(),
@@ -376,58 +391,46 @@ fn growth_balance(snapshot: &RepoSnapshot) -> MetricValue {
     };
     let midpoint = min_ts + (max_ts - min_ts) / 2;
 
-    // Per half: (source additions, test additions).
-    let mut halves = [(0u64, 0u64); 2];
-    // Source files' second-half additions, and whether each source file
-    // ever co-changed with a Test-role file in the window.
-    let mut second_half_source: std::collections::HashMap<&std::path::PathBuf, u64> =
-        std::collections::HashMap::new();
-    let mut has_test_partner: std::collections::HashSet<&std::path::PathBuf> =
-        std::collections::HashSet::new();
+    #[derive(Default, Clone, Copy)]
+    struct HalfAdds {
+        source: u64,
+        test: u64,
+    }
+    let mut first = HalfAdds::default();
+    let mut second = HalfAdds::default();
+    let mut commits_per_half = [0usize; 2];
+    // Source files' second-half additions and whether a *second-half*
+    // commit paired them with test code — a test touched months ago must
+    // not mask recently untested growth.
+    let mut second_half_source: HashMap<&std::path::PathBuf, (u64, bool)> = HashMap::new();
     for c in &commits {
-        let half = usize::from(c.timestamp >= midpoint);
-        let touches_test = c
-            .files_changed
-            .iter()
-            .any(|fc| role_of.get(&fc.path) == Some(&FileRole::Test));
+        let in_second = c.timestamp >= midpoint;
+        commits_per_half[usize::from(in_second)] += 1;
+        let half = if in_second { &mut second } else { &mut first };
+        let touches_test = c.files_changed.iter().any(|fc| is_test_code(&fc.path));
         for fc in &c.files_changed {
-            match role_of.get(&fc.path) {
-                Some(FileRole::Source) => {
-                    halves[half].0 += u64::from(fc.additions);
-                    if half == 1 && fc.additions > 0 {
-                        *second_half_source.entry(&fc.path).or_insert(0) += u64::from(fc.additions);
-                    }
-                    if touches_test {
-                        has_test_partner.insert(&fc.path);
-                    }
+            if is_test_code(&fc.path) {
+                half.test += u64::from(fc.additions);
+            } else if role_of.get(&fc.path) == Some(&FileRole::Source) {
+                half.source += u64::from(fc.additions);
+                if in_second {
+                    let entry = second_half_source.entry(&fc.path).or_insert((0, false));
+                    entry.0 += u64::from(fc.additions);
+                    entry.1 |= touches_test;
                 }
-                Some(FileRole::Test) => halves[half].1 += u64::from(fc.additions),
-                _ => {}
             }
         }
     }
-    // Bare ratio ("4.0:1") or the zero-test wording; the word "ratio"
-    // is prefixed only on the second-half slot, matching the design's
-    // pinned description format.
-    let bare = |(src, test): (u64, u64)| {
-        if test == 0 {
-            "no test growth".to_string()
-        } else {
-            format!("{:.1}:1", src as f64 / test as f64)
-        }
-    };
-    let second = if halves[1].1 == 0 {
-        bare(halves[1])
-    } else {
-        format!("ratio {}", bare(halves[1]))
-    };
-    let source_total = halves[0].0 + halves[1].0;
-    let test_total = halves[0].1 + halves[1].1;
+    let source_total = first.source + second.source;
+    let test_total = first.test + second.test;
+
     let mut untested: Vec<(&std::path::PathBuf, u64)> = second_half_source
         .into_iter()
-        .filter(|(path, _)| !has_test_partner.contains(*path))
+        .filter(|&(_, (added, partnered))| added > 0 && !partnered)
+        .map(|(path, (added, _))| (path, added))
         .collect();
     untested.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+    let untested_total = untested.len();
     let list: Vec<String> = untested
         .into_iter()
         .take(10)
@@ -438,15 +441,56 @@ fn growth_balance(snapshot: &RepoSnapshot) -> MetricValue {
             )
         })
         .collect();
+
+    let halves_clause = if commits_per_half[0] == 0 || commits_per_half[1] == 0 {
+        "too few active moments for a half-window comparison".to_string()
+    } else {
+        format!(
+            "second half {} (first half {})",
+            ratio_text(second.source, second.test, true),
+            ratio_text(first.source, first.test, false),
+        )
+    };
+    let untested_clause = if untested_total > 0 {
+        format!("; {untested_total} recently-grown file(s) lack test co-change")
+    } else {
+        String::new()
+    };
     MetricValue {
         name,
         description: format!(
-            "source +{source_total} / test +{test_total} lines this window; second half {} (first half {})",
-            second,
-            bare(halves[0]),
+            "source +{source_total} / test-file +{test_total} lines this window; {halves_clause}{untested_clause}"
         ),
         raw_value: RawValue::List(list),
         score: None,
+    }
+}
+
+/// Whether a path has a recognized program-source extension — used to keep
+/// non-code files (fixtures, data dumps) out of the test-growth side.
+fn is_code_file(path: &std::path::Path) -> bool {
+    crate::metrics::file_role::has_source_extension(path)
+}
+
+/// One half's source:test ratio, bounded for display; `labelled` prefixes
+/// the word "ratio" (the pinned description carries it once, on the
+/// second-half slot).
+fn ratio_text(src: u64, test: u64, labelled: bool) -> String {
+    if test == 0 {
+        return "no test growth".to_string();
+    }
+    let r = src as f64 / test as f64;
+    let body = if r > 999.9 {
+        ">999.9:1".to_string()
+    } else if src > 0 && r < 0.05 {
+        "<0.1:1".to_string()
+    } else {
+        format!("{r:.1}:1")
+    };
+    if labelled {
+        format!("ratio {body}")
+    } else {
+        body
     }
 }
 

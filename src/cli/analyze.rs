@@ -13,7 +13,8 @@ use std::path::PathBuf;
 METRICS:\n\
   Health (35%)      Bus factor, churn hotspots, stale code, file complexity\n\
   Coupling (20%)    Afferent/efferent coupling, circular deps, change coupling smells\n\
-  Evolution (20%)   Growth trend, refactoring ratio, code age, commit cadence\n\
+  Evolution (20%)   Growth trend, refactoring ratio, code age, commit cadence,\n\
+                    code/test growth balance\n\
   Git Hygiene (15%) Commit message quality, history cleanliness, gitignore coverage\n\
   Team (10%)        Knowledge distribution (Gini), contributor activity, ownership, silos, merges\n\
   Dependencies (0%) Dependency drift and vulnerabilities — enable with --deps\n\

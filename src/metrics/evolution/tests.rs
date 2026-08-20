@@ -255,7 +255,7 @@ fn commit_cadence_detects_regularity() {
 mod growth_balance_tests {
     use super::*;
     use crate::metrics::testutil::{make_file, make_snapshot};
-    use chrono::{TimeZone, Utc};
+    use chrono::{Duration, Utc};
 
     fn change(p: &str, add: u32) -> FileChange {
         FileChange {
@@ -266,11 +266,13 @@ mod growth_balance_tests {
         }
     }
 
-    fn commit_at(id: u32, hour: u32, files: Vec<FileChange>, is_merge: bool) -> Commit {
+    /// Commit `hours_ago` relative to now — inside TimeWindow::default()
+    /// and safe against the window filter at any wall-clock time.
+    fn commit_ago(id: u32, hours_ago: i64, files: Vec<FileChange>, is_merge: bool) -> Commit {
         Commit {
             id: CommitId(id),
             author: 0,
-            timestamp: Utc.with_ymd_and_hms(2026, 8, 20, hour, 0, 0).unwrap(),
+            timestamp: Utc::now() - Duration::hours(hours_ago),
             message: String::new(),
             files_changed: files,
             is_merge,
@@ -278,7 +280,6 @@ mod growth_balance_tests {
         }
     }
 
-    /// Snapshot with one source and one test file known to the tree.
     fn snap(commits: Vec<Commit>) -> RepoSnapshot {
         let mut s = make_snapshot();
         s.files = vec![
@@ -286,6 +287,7 @@ mod growth_balance_tests {
             make_file("src/covered.rs"),
             make_file("src/smaller.rs"),
             make_file("tests/x_test.rs"),
+            make_file("tests/fixtures/data.json"),
         ];
         s.commits = commits;
         s
@@ -293,107 +295,196 @@ mod growth_balance_tests {
 
     #[test]
     fn description_carries_totals_and_per_half_ratios() {
-        // Window 10:00..14:00, midpoint 12:00. First half: source 210,
-        // test 100 -> 2.1:1. Second half: source 400, test 100 -> 4.0:1.
+        // Window span 8h..0h ago, midpoint 4h. First half: source 210,
+        // test-file 100 -> 2.1:1. Second half: source 400, test 100 -> 4.0:1.
         let s = snap(vec![
-            commit_at(
+            commit_ago(
                 0,
-                10,
+                8,
                 vec![change("src/big.rs", 210), change("tests/x_test.rs", 100)],
                 false,
             ),
-            commit_at(
+            commit_ago(
                 1,
-                13,
+                2,
                 vec![change("src/big.rs", 400), change("tests/x_test.rs", 100)],
                 false,
             ),
-            commit_at(2, 14, vec![], false),
+            commit_ago(2, 0, vec![], false),
         ]);
         let m = growth_balance(&s);
         assert_eq!(m.name, "Code/test growth balance");
         assert_eq!(m.score, None, "annotation-first: never scored in v1");
         assert_eq!(
             m.description,
-            "source +610 / test +200 lines this window; second half ratio 4.0:1 (first half 2.1:1)"
+            "source +610 / test-file +200 lines this window; second half ratio 4.0:1 (first half 2.1:1)"
         );
     }
 
     #[test]
     fn commit_exactly_at_the_midpoint_counts_toward_the_second_half() {
-        // Window 10:00..12:00, midpoint 11:00. The 11:00 commit's source
-        // lines must land in the second half: 30/10 -> 3.0:1 there, and
-        // no test growth in the first.
+        // Span 8h..0h ago, midpoint 4h: the 4h commit's source lines land
+        // in the second half -> 3.0:1 there, no test growth in the first.
         let s = snap(vec![
-            commit_at(0, 10, vec![change("src/big.rs", 10)], false),
-            commit_at(1, 11, vec![change("src/big.rs", 30)], false),
-            commit_at(2, 12, vec![change("tests/x_test.rs", 10)], false),
+            commit_ago(0, 8, vec![change("src/big.rs", 10)], false),
+            commit_ago(1, 4, vec![change("src/big.rs", 30)], false),
+            commit_ago(2, 0, vec![change("tests/x_test.rs", 10)], false),
         ]);
         let m = growth_balance(&s);
         assert_eq!(
             m.description,
-            "source +40 / test +10 lines this window; second half ratio 3.0:1 (first half no test growth)"
+            "source +40 / test-file +10 lines this window; second half ratio 3.0:1 (first half no test growth); 1 recently-grown file(s) lack test co-change"
         );
     }
 
     #[test]
     fn zero_test_growth_wording_in_both_halves() {
         let s = snap(vec![
-            commit_at(0, 10, vec![change("src/big.rs", 20)], false),
-            commit_at(1, 14, vec![change("src/big.rs", 30)], false),
+            commit_ago(0, 8, vec![change("src/big.rs", 20)], false),
+            commit_ago(1, 1, vec![change("src/big.rs", 30)], false),
         ]);
         let m = growth_balance(&s);
-        assert_eq!(
-            m.description,
-            "source +50 / test +0 lines this window; second half no test growth (first half no test growth)"
+        assert!(
+            m.description.starts_with(
+                "source +50 / test-file +0 lines this window; second half no test growth (first half no test growth)"
+            ),
+            "got: {}",
+            m.description
         );
     }
 
     #[test]
     fn merge_commits_do_not_count() {
         let s = snap(vec![
-            commit_at(0, 10, vec![change("src/big.rs", 20)], false),
-            commit_at(1, 14, vec![change("src/big.rs", 30)], false),
-            commit_at(
+            commit_ago(0, 8, vec![change("src/big.rs", 20)], false),
+            commit_ago(1, 1, vec![change("src/big.rs", 30)], false),
+            commit_ago(
                 2,
-                12,
+                4,
                 vec![change("src/big.rs", 9000), change("tests/x_test.rs", 9000)],
                 true,
             ),
         ]);
         let m = growth_balance(&s);
-        assert_eq!(
-            m.description,
-            "source +50 / test +0 lines this window; second half no test growth (first half no test growth)"
+        assert!(
+            m.description
+                .starts_with("source +50 / test-file +0 lines this window"),
+            "merge churn must not count: {}",
+            m.description
         );
     }
 
     #[test]
-    fn evidence_lists_untested_second_half_source_files() {
-        // big.rs and smaller.rs grow in the second half with no test-role
-        // co-change; covered.rs grows but shares a commit with a test file.
+    fn out_of_window_commits_do_not_count() {
+        // 200 days ago is outside TimeWindow::default() (180d) — the
+        // sibling-metric window filter must apply here too.
         let s = snap(vec![
-            commit_at(0, 10, vec![change("tests/x_test.rs", 5)], false),
-            commit_at(1, 13, vec![change("src/big.rs", 234)], false),
-            commit_at(2, 13, vec![change("src/smaller.rs", 10)], false),
-            commit_at(
-                3,
-                14,
+            commit_ago(0, 200 * 24, vec![change("src/big.rs", 9000)], false),
+            commit_ago(1, 8, vec![change("src/big.rs", 20)], false),
+            commit_ago(2, 1, vec![change("src/big.rs", 30)], false),
+        ]);
+        let m = growth_balance(&s);
+        assert!(
+            m.description
+                .starts_with("source +50 / test-file +0 lines this window"),
+            "out-of-window churn must not count: {}",
+            m.description
+        );
+    }
+
+    #[test]
+    fn single_active_moment_skips_the_half_comparison() {
+        // One commit: both halves cannot be populated — no fabricated
+        // "first half no test growth" claim.
+        let s = snap(vec![commit_ago(
+            0,
+            4,
+            vec![change("src/big.rs", 40), change("tests/x_test.rs", 10)],
+            false,
+        )]);
+        let m = growth_balance(&s);
+        assert_eq!(
+            m.description,
+            "source +40 / test-file +10 lines this window; too few active moments for a half-window comparison"
+        );
+    }
+
+    #[test]
+    fn fixture_files_under_tests_do_not_count_as_test_growth() {
+        // tests/fixtures/data.json is Test-role by directory but not a
+        // code file — regenerated fixtures must not inflate the ratio.
+        let s = snap(vec![
+            commit_ago(
+                0,
+                8,
+                vec![change("src/big.rs", 100), change("tests/x_test.rs", 50)],
+                false,
+            ),
+            commit_ago(
+                1,
+                1,
+                vec![
+                    change("src/big.rs", 100),
+                    change("tests/fixtures/data.json", 40000),
+                ],
+                false,
+            ),
+        ]);
+        let m = growth_balance(&s);
+        assert!(
+            m.description
+                .starts_with("source +200 / test-file +50 lines this window"),
+            "fixture data must not count as test growth: {}",
+            m.description
+        );
+    }
+
+    #[test]
+    fn first_half_test_co_change_does_not_mask_recent_untested_growth() {
+        // src/covered.rs co-changed with a test in the FIRST half only,
+        // then grew +900 untested in the second half — it must be listed.
+        let s = snap(vec![
+            commit_ago(
+                0,
+                8,
+                vec![change("src/covered.rs", 10), change("tests/x_test.rs", 5)],
+                false,
+            ),
+            commit_ago(1, 1, vec![change("src/covered.rs", 900)], false),
+        ]);
+        let m = growth_balance(&s);
+        match &m.raw_value {
+            RawValue::List(v) => assert_eq!(
+                v,
+                &vec!["src/covered.rs — +900 lines (2nd half), no test co-change".to_string()]
+            ),
+            other => panic!("expected List, got {other:?}"),
+        }
+        assert!(
+            m.description
+                .ends_with("; 1 recently-grown file(s) lack test co-change"),
+            "description must carry the full untested count: {}",
+            m.description
+        );
+    }
+
+    #[test]
+    fn second_half_test_co_change_exempts_a_file() {
+        let s = snap(vec![
+            commit_ago(0, 8, vec![change("src/big.rs", 10)], false),
+            commit_ago(
+                1,
+                1,
                 vec![change("src/covered.rs", 500), change("tests/x_test.rs", 20)],
                 false,
             ),
         ]);
         let m = growth_balance(&s);
         match &m.raw_value {
-            RawValue::List(v) => {
-                assert_eq!(
-                    v,
-                    &vec![
-                        "src/big.rs — +234 lines (2nd half), no test co-change".to_string(),
-                        "src/smaller.rs — +10 lines (2nd half), no test co-change".to_string(),
-                    ]
-                );
-            }
+            RawValue::List(v) => assert!(
+                v.iter().all(|e| !e.starts_with("src/covered.rs")),
+                "second-half test co-change must exempt: {v:?}"
+            ),
             other => panic!("expected List, got {other:?}"),
         }
     }
@@ -405,14 +496,14 @@ mod growth_balance_tests {
         assert_eq!(m.score, None);
         assert_eq!(m.description, "No commits in window");
 
-        let mut no_tests = snap(vec![commit_at(0, 10, vec![change("src/big.rs", 5)], false)]);
+        let mut no_tests = snap(vec![commit_ago(0, 8, vec![change("src/big.rs", 5)], false)]);
         no_tests.files.retain(|f| !f.path.starts_with("tests"));
         let m = growth_balance(&no_tests);
         assert_eq!(m.description, "No test files detected — not applicable");
 
-        let mut no_source = snap(vec![commit_at(
+        let mut no_source = snap(vec![commit_ago(
             0,
-            10,
+            8,
             vec![change("tests/x_test.rs", 5)],
             false,
         )]);
