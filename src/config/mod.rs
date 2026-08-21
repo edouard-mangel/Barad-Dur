@@ -792,4 +792,13 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn validate_test_safety_net_ratio_bounds_are_valid() {
+        for ok in [0.0_f64, 1.0] {
+            let mut cfg = RepoConfig::default();
+            cfg.thresholds.coupling.test_safety_net_min_ratio = ok;
+            assert!(validate(&cfg).is_ok(), "{ok} must be accepted");
+        }
+    }
 }
