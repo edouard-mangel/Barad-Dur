@@ -90,7 +90,7 @@ pub(crate) fn growing_coupling_reach(
     snapshot: &RepoSnapshot,
     min_degree: usize,
 ) -> std::collections::BTreeMap<PathBuf, (usize, usize)> {
-    let known: HashSet<&PathBuf> = snapshot.files.iter().map(|f| &f.path).collect();
+    let known = snapshot.known_paths();
     let commits: Vec<&crate::snapshot::Commit> = snapshot
         .commits
         .iter()

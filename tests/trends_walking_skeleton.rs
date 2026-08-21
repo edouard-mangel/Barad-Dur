@@ -10,6 +10,9 @@ use chrono::{Duration, Utc};
 fn git(dir: &Path, date: &str, args: &[&str]) -> Output {
     let mut c = Command::new("git");
     c.current_dir(dir).args(args);
+    // Isolate from the developer's global config (gpg signing, hooks).
+    c.env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null");
     if !date.is_empty() {
         c.env("GIT_AUTHOR_DATE", date)
             .env("GIT_COMMITTER_DATE", date);
@@ -44,12 +47,21 @@ fn churn_timeline_and_pair_growth_flow_end_to_end() {
     git(d, "", &["config", "user.email", "t@t"]);
     git(d, "", &["config", "user.name", "T"]);
 
+    // One captured instant, one hour in the past: every stamp AND every
+    // expected date derives from it, so the test cannot fail from a fixed
+    // future-dated hour (pre-10:00-UTC runs) or a midnight crossing
+    // between commit stamping and assertion.
+    let base = Utc::now() - Duration::hours(1);
     let day = |offset: i64| {
-        (Utc::now() - Duration::days(offset))
+        (base - Duration::days(offset))
             .format("%Y-%m-%d")
             .to_string()
     };
-    let stamp = |offset: i64| format!("{}T10:00:00 +0000", day(offset));
+    let stamp = |offset: i64| {
+        (base - Duration::days(offset))
+            .format("%Y-%m-%dT%H:%M:%S +0000")
+            .to_string()
+    };
 
     // Day −3: a.rs +5 and b.rs +3 (their first co-change).
     append_lines(d, "a.rs", 5, "d3a");

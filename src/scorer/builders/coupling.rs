@@ -38,11 +38,15 @@ fn is_test_pair(a: &str, b: &str) -> bool {
 fn net_growth_by_file(
     snapshot: &RepoSnapshot,
 ) -> std::collections::HashMap<&std::path::PathBuf, i64> {
+    let known = snapshot.known_paths();
     snapshot
         .commits
         .iter()
         .filter(|c| !c.is_merge)
         .flat_map(|c| c.files_changed.iter())
+        // Same membership universe as the churn timeline — excluded paths
+        // never enter the map (they could not be looked up anyway).
+        .filter(move |fc| known.contains(&fc.path))
         .fold(std::collections::HashMap::new(), |mut m, fc| {
             *m.entry(&fc.path).or_insert(0) += i64::from(fc.additions) - i64::from(fc.deletions);
             m
