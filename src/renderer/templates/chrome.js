@@ -125,6 +125,7 @@
     'Merge patterns':          'Ratio of merge commits and history irregularities. Excessive merges obscure history; very few may mean force-pushes that hide context.',
     'Code/test growth balance': 'Lines added to source vs test-code files per window half; unscored by design (informational). Inline unit tests inside source files count as source, and renames appear as new-file additions.',
     'Cross-team coupling':     'File pairs that repeatedly change on the same author-day but are majority-owned by different people. Coupled code with split ownership carries a coordination cost on top of the code coupling (Tornhill, Ch. 12).',
+    'Knowledge loss':          'Share of blamed lines written by authors not active in the analysis window — code nobody currently on the project can answer questions about (Tornhill, Ch. 13).',
     // Evolution
     'Growth trend':      'Net file and line additions in the analysis window. Rapid unchecked growth can outpace review capacity and increase maintenance burden.',
     'Refactoring ratio': 'Percentage of commits that invest in structure (refactor / clean / improve keywords). A low ratio means technical debt is accumulating without dedicated paydown.',

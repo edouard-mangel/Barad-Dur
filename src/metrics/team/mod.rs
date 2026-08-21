@@ -31,6 +31,7 @@ pub fn compute_team(
                 na("Collaboration patterns"),
                 na("Merge patterns"),
                 na("Cross-team coupling"),
+                na("Knowledge loss"),
             ],
         }
         .compute_score();
@@ -43,6 +44,7 @@ pub fn compute_team(
         collaboration_patterns(snapshot, thresholds),
         merge_patterns(snapshot, thresholds),
         cross_team_coupling(snapshot, coupling),
+        knowledge_loss(snapshot),
     ];
 
     CategoryResult {
@@ -397,6 +399,82 @@ fn merge_patterns(
         name: "Merge patterns".to_string(),
         description,
         raw_value: RawValue::Count(merge_count),
+        score: Some(score),
+    }
+}
+
+/// Knowledge loss (Crime Scene Ch. 13): the share of blamed lines whose
+/// author is not active in the analysis window (`UNKNOWN_AUTHOR` sentinel
+/// lines) — code nobody currently on the project can answer questions
+/// about. "Departed" is proxied by window-inactivity; naming specific
+/// ex-developers is deferred (see the knowledge-loss design doc).
+fn knowledge_loss(snapshot: &RepoSnapshot) -> MetricValue {
+    let name = "Knowledge loss".to_string();
+    if snapshot.blame_map.is_empty() {
+        return MetricValue {
+            name,
+            description: "No blame data available".to_string(),
+            raw_value: RawValue::Text("N/A".to_string()),
+            score: None,
+        };
+    }
+    let per_file: Vec<(&std::path::PathBuf, usize, usize)> = snapshot
+        .blame_map
+        .iter()
+        .map(|(path, lines)| {
+            let (unknown, total) = lines.iter().fold((0usize, 0usize), |(u, t), l| {
+                let is_unknown = l.author_id == crate::snapshot::UNKNOWN_AUTHOR;
+                (
+                    u + if is_unknown { l.line_count } else { 0 },
+                    t + l.line_count,
+                )
+            });
+            (path, unknown, total)
+        })
+        .collect();
+    let unknown: usize = per_file.iter().map(|&(_, u, _)| u).sum();
+    let total: usize = per_file.iter().map(|&(_, _, t)| t).sum();
+    let pct = if total > 0 {
+        unknown as f64 / total as f64 * 100.0
+    } else {
+        0.0
+    };
+    // Maintainer-authored bands, mirroring bus_factor's percentage scale.
+    let score = if pct < 10.0 {
+        100
+    } else if pct < 25.0 {
+        75
+    } else if pct < 50.0 {
+        50
+    } else {
+        25
+    };
+    let mut affected: Vec<(&std::path::PathBuf, usize, usize, f64)> = per_file
+        .into_iter()
+        .filter(|&(_, u, _)| u > 0)
+        .map(|(p, u, t)| (p, u, t, u as f64 / t.max(1) as f64 * 100.0))
+        .collect();
+    affected.sort_by(|a, b| {
+        b.3.partial_cmp(&a.3)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(b.0))
+    });
+    let list: Vec<String> = affected
+        .into_iter()
+        .take(10)
+        .map(|(p, u, t, share)| {
+            format!(
+                "{} — {share:.1}% unattributed ({u} of {t} lines)",
+                p.display()
+            )
+        })
+        .collect();
+    MetricValue {
+        name,
+        description: format!(
+            "{pct:.1}% of blamed lines lack an active author ({unknown} of {total})"
+        ),
+        raw_value: RawValue::List(list),
         score: Some(score),
     }
 }

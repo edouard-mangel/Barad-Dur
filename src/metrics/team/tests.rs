@@ -310,6 +310,139 @@ fn merge_patterns_counts_merges() {
     }
 }
 
+mod knowledge_loss_tests {
+    use super::*;
+    use crate::metrics::testutil::make_snapshot;
+    use crate::snapshot::{BlameLine, RepoSnapshot, UNKNOWN_AUTHOR};
+    use chrono::Utc;
+
+    fn line(author: usize, n: usize) -> BlameLine {
+        let mut l = BlameLine::new(author, Utc::now());
+        l.line_count = n;
+        l
+    }
+
+    /// One file holding `unknown` unattributed lines and `known` lines by
+    /// author 0, so repo-wide share is unknown / (unknown + known).
+    fn snap(unknown: usize, known: usize) -> RepoSnapshot {
+        let mut s = make_snapshot();
+        let mut lines = vec![line(0, known)];
+        if unknown > 0 {
+            lines.push(line(UNKNOWN_AUTHOR, unknown));
+        }
+        s.blame_map.insert("a.rs".into(), lines);
+        s
+    }
+
+    #[test]
+    fn boundary_scores_track_the_bus_factor_style_bands() {
+        // Both sides of every band edge: <10 -> 100, <25 -> 75, <50 -> 50.
+        assert_eq!(knowledge_loss(&snap(99, 901)).score, Some(100)); // 9.9%
+        assert_eq!(knowledge_loss(&snap(100, 900)).score, Some(75)); // 10.0%
+        assert_eq!(knowledge_loss(&snap(249, 751)).score, Some(75)); // 24.9%
+        assert_eq!(knowledge_loss(&snap(250, 750)).score, Some(50)); // 25.0%
+        assert_eq!(knowledge_loss(&snap(499, 501)).score, Some(50)); // 49.9%
+        assert_eq!(knowledge_loss(&snap(500, 500)).score, Some(25)); // 50.0%
+    }
+
+    #[test]
+    fn description_carries_exact_share_and_counts() {
+        let m = knowledge_loss(&snap(120, 880));
+        assert_eq!(m.name, "Knowledge loss");
+        assert_eq!(
+            m.description,
+            "12.0% of blamed lines lack an active author (120 of 1000)"
+        );
+    }
+
+    #[test]
+    fn zero_unattributed_lines_score_clean() {
+        let m = knowledge_loss(&snap(0, 500));
+        assert_eq!(m.score, Some(100));
+        assert_eq!(
+            m.description,
+            "0.0% of blamed lines lack an active author (0 of 500)"
+        );
+    }
+
+    #[test]
+    fn blame_entries_with_zero_lines_score_clean_not_nan() {
+        // blame_map non-empty but every entry holds no lines: total == 0
+        // must take the 0.0% path, not divide 0/0 into NaN (which would
+        // fall through every score band to 25).
+        let mut s = make_snapshot();
+        s.blame_map.insert("empty.rs".into(), vec![]);
+        let m = knowledge_loss(&s);
+        assert_eq!(m.score, Some(100));
+        assert_eq!(
+            m.description,
+            "0.0% of blamed lines lack an active author (0 of 0)"
+        );
+    }
+
+    #[test]
+    fn fully_attributed_files_never_enter_the_evidence_list() {
+        // One clean file alongside one affected file — small enough that
+        // the top-10 cap cannot mask a wrongly-included clean entry (the
+        // `u > 0` filter is the only thing keeping it out).
+        let mut s = make_snapshot();
+        s.blame_map
+            .insert("old.rs".into(), vec![line(0, 50), line(UNKNOWN_AUTHOR, 50)]);
+        s.blame_map.insert("clean.rs".into(), vec![line(0, 100)]);
+        let m = knowledge_loss(&s);
+        match &m.raw_value {
+            RawValue::List(v) => {
+                assert_eq!(v.len(), 1, "only the affected file: {v:?}");
+                assert_eq!(v[0], "old.rs — 50.0% unattributed (50 of 100 lines)");
+            }
+            other => panic!("expected List, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn empty_blame_is_not_applicable() {
+        let s = make_snapshot();
+        let m = knowledge_loss(&s);
+        assert_eq!(m.score, None);
+        assert_eq!(m.description, "No blame data available");
+    }
+
+    #[test]
+    fn evidence_lists_affected_files_by_share_then_path_capped_at_ten() {
+        let mut s = make_snapshot();
+        // legacy.rs 83.0% (410/494), old.rs 50.0% (50/100) — descending.
+        s.blame_map.insert(
+            "legacy.rs".into(),
+            vec![line(0, 84), line(UNKNOWN_AUTHOR, 410)],
+        );
+        s.blame_map
+            .insert("old.rs".into(), vec![line(0, 50), line(UNKNOWN_AUTHOR, 50)]);
+        // A clean file must not appear at all.
+        s.blame_map.insert("clean.rs".into(), vec![line(0, 100)]);
+        // Eleven more small ones to prove the cap.
+        for i in 0..11 {
+            s.blame_map.insert(
+                format!("f{i:02}.rs").into(),
+                vec![line(0, 99), line(UNKNOWN_AUTHOR, 1)],
+            );
+        }
+        let m = knowledge_loss(&s);
+        match &m.raw_value {
+            RawValue::List(v) => {
+                assert_eq!(v.len(), 10, "top-10 cap");
+                assert_eq!(v[0], "legacy.rs — 83.0% unattributed (410 of 494 lines)");
+                assert_eq!(v[1], "old.rs — 50.0% unattributed (50 of 100 lines)");
+                assert_eq!(
+                    v[2], "f00.rs — 1.0% unattributed (1 of 100 lines)",
+                    "equal shares must tie-break by path"
+                );
+                assert!(v.iter().all(|e| !e.starts_with("clean.rs")));
+            }
+            other => panic!("expected List, got {other:?}"),
+        }
+    }
+}
+
 mod knowledge_distribution_sentinel_tests {
     use super::*;
     use crate::snapshot::{BlameLine, UNKNOWN_AUTHOR};

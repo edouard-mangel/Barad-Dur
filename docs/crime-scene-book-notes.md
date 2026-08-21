@@ -195,9 +195,12 @@ behind.
 **Verdict:** ✅ `renderer/templates/ownership.js` renders exactly this: a
 per-file author-ownership visualization (percentage of lines by
 contributor, colored per author, `ownership.js:22-29`), driven by
-`snapshot.blame_map` via `author_line_counts`. No dedicated "ex-developer
-knowledge loss" view, but the underlying ownership-by-author data needed
-to build one is already computed.
+`snapshot.blame_map` via `author_line_counts`. Knowledge loss closed
+2026-08-20: the `Knowledge loss` Team metric scores the share of blamed
+lines carrying the `UNKNOWN_AUTHOR` sentinel (authors inactive in the
+window — the departed-developer proxy) and lists the most-unattributed
+files; ownership views render those shares as "(unattributed)". Naming a
+specific ex-developer remains deferred (see the knowledge-loss design).
 
 ### Chapter 14: Dive Deeper with Code Churn
 Absolute code churn (lines added/deleted per commit/day) as a process
@@ -264,7 +267,7 @@ flagged hotspot file.
 | 10 | Architecture-pattern conformance | ⬜ | No user-declared component boundaries / pattern-violation check |
 | 11 | Commit-message social signal | 🟡 | Firefighting/quality heuristics exist; no word-cloud/vocabulary view |
 | 12 | Organizational metrics (Conway) | ✅ | team-mapping config deferred |
-| 13 | Knowledge map | ✅ | No dedicated "ex-developer knowledge loss" view |
+| 13 | Knowledge map | ✅ | — (knowledge-loss metric shipped 2026-08-20; named-ex-developer input deferred) |
 | 14 | Code churn deep dive | ✅ | — (day-bucketed churn timeline + per-pair growth shipped 2026-08-20, trends M1) |
 | 15 | Future directions | ⬜ | Non-code artifacts, method-level coupling, developer social graph — none in scope |
 | A1 | Refactoring hotspots by name grouping | 🟡 | Generic advice exists; no method-grouping-by-task analysis |

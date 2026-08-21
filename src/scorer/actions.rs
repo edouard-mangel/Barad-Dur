@@ -303,6 +303,7 @@ fn target_tab_for_metric(metric_name: &str) -> (Option<&'static str>, Option<&'s
         "Collaboration patterns" => (Some("ownership"), None),
         "Code/test growth balance" => (Some("trends"), None),
         "Cross-team coupling" => (Some("ownership"), None),
+        "Knowledge loss" => (Some("ownership"), None),
         "Code age" => (Some("age"), None),
         "Growth trend" => (Some("trends"), None),
         "Refactoring ratio" => (Some("hotspots"), None),
@@ -343,6 +344,9 @@ fn suggest_action(metric_name: &str) -> &'static str {
         }
         "Cross-team coupling" => {
             "Align ownership with change patterns — co-owning coupled files or splitting them along owner boundaries"
+        }
+        "Knowledge loss" => {
+            "Schedule knowledge-transfer or documentation passes over the most unattributed files"
         }
         "Merge patterns" => "Review branching strategy for healthier merge patterns",
         "Growth trend" => "Monitor growth rate and plan for sustainable development",
@@ -436,6 +440,10 @@ mod tests {
             (Some("coupling"), None)
         );
         assert_eq!(target_tab_for_metric("not a metric"), (None, None));
+        assert_eq!(
+            target_tab_for_metric("Knowledge loss"),
+            (Some("ownership"), None)
+        );
     }
 
     #[test]
@@ -451,6 +459,10 @@ mod tests {
         assert!(
             !suggest_action("not a metric").is_empty(),
             "the fallback suggestion must be non-empty"
+        );
+        assert_eq!(
+            suggest_action("Knowledge loss"),
+            "Schedule knowledge-transfer or documentation passes over the most unattributed files"
         );
     }
     use crate::metrics::{CategoryResult, MetricValue, RawValue};
