@@ -8,7 +8,7 @@ use std::path::PathBuf;
 #[test]
 fn afferent_coupling_empty_graph() {
     let snapshot = make_snapshot();
-    let result = afferent_coupling(&snapshot, 0);
+    let result = afferent_coupling(&snapshot);
     assert_eq!(result.score, None);
 }
 
@@ -25,7 +25,7 @@ fn afferent_coupling_single_hub_scores_well() {
             .import_graph
             .insert(PathBuf::from(&name), vec![PathBuf::from("core.rs")]);
     }
-    let result = afferent_coupling(&snapshot, 0);
+    let result = afferent_coupling(&snapshot);
     assert_eq!(result.score, Some(100)); // median Ca=0, single hub is fine
 }
 
@@ -50,7 +50,7 @@ fn afferent_coupling_widespread_deps_scores_lower() {
             .import_graph
             .insert(PathBuf::from(format!("f{}.rs", i)), targets);
     }
-    let result = afferent_coupling(&snapshot, 0);
+    let result = afferent_coupling(&snapshot);
     assert!(
         result.score.unwrap() <= 50,
         "score={:?}, expected <=50",
@@ -69,7 +69,7 @@ fn afferent_coupling_description_shows_distribution() {
             .import_graph
             .insert(PathBuf::from(&name), vec![PathBuf::from("core.rs")]);
     }
-    let result = afferent_coupling(&snapshot, 0);
+    let result = afferent_coupling(&snapshot);
     assert!(result.description.contains("median:"));
     assert!(result.description.contains("mean:"));
     assert!(result.description.contains("max:"));
@@ -78,7 +78,7 @@ fn afferent_coupling_description_shows_distribution() {
 #[test]
 fn efferent_coupling_empty_graph() {
     let snapshot = make_snapshot();
-    let result = efferent_coupling(&snapshot, 0);
+    let result = efferent_coupling(&snapshot);
     assert_eq!(result.score, None);
 }
 
@@ -104,7 +104,7 @@ fn efferent_coupling_single_heavy_file_scores_well() {
             .import_graph
             .insert(PathBuf::from(&name), vec![PathBuf::from("util.rs")]);
     }
-    let result = efferent_coupling(&snapshot, 0);
+    let result = efferent_coupling(&snapshot);
     assert_eq!(result.score, Some(100)); // median Ce ≈ 0
 }
 
@@ -123,7 +123,7 @@ fn efferent_coupling_all_heavy_scores_low() {
                 .collect(),
         );
     }
-    let result = efferent_coupling(&snapshot, 0);
+    let result = efferent_coupling(&snapshot);
     assert_eq!(result.score, Some(25));
 }
 
@@ -137,7 +137,7 @@ fn efferent_coupling_description_shows_distribution() {
         PathBuf::from("a.rs"),
         vec![PathBuf::from("b.rs"), PathBuf::from("c.rs")],
     );
-    let result = efferent_coupling(&snapshot, 0);
+    let result = efferent_coupling(&snapshot);
     assert!(result.description.contains("median:"));
     assert!(result.description.contains("mean:"));
     assert!(result.description.contains("max:"));
@@ -536,14 +536,14 @@ fn change_coupling_depth3_different_component() {
 }
 
 #[test]
-fn compute_coupling_returns_eight_metrics() {
+fn compute_coupling_returns_nine_metrics() {
     let snapshot = make_snapshot();
     let result = compute_coupling(
         &snapshot,
         &CouplingThresholds::default(),
-        &crate::config::HealthThresholds::default(),
+        &Default::default(),
     );
-    assert_eq!(result.metrics.len(), 8);
+    assert_eq!(result.metrics.len(), 9);
     assert_eq!(result.name, "Coupling");
 }
 
@@ -685,7 +685,7 @@ fn pressman_metrics_appear_in_category() {
     let result = compute_coupling(
         &snapshot,
         &CouplingThresholds::default(),
-        &crate::config::HealthThresholds::default(),
+        &Default::default(),
     );
     for name in ["Content coupling", "Common coupling", "Control coupling"] {
         assert!(
@@ -701,7 +701,7 @@ fn clean_snapshot_scores_100_on_all_pressman_metrics() {
     let result = compute_coupling(
         &snapshot,
         &CouplingThresholds::default(),
-        &crate::config::HealthThresholds::default(),
+        &Default::default(),
     );
     let m = result
         .metrics
@@ -717,7 +717,7 @@ fn one_content_finding_scores_at_most_50() {
     let result = compute_coupling(
         &snapshot,
         &CouplingThresholds::default(),
-        &crate::config::HealthThresholds::default(),
+        &Default::default(),
     );
     let m = result
         .metrics
@@ -778,7 +778,7 @@ fn pressman_metrics_unscored_when_detection_did_not_run() {
     let result = compute_coupling(
         &snapshot,
         &CouplingThresholds::default(),
-        &crate::config::HealthThresholds::default(),
+        &Default::default(),
     );
     for name in ["Content coupling", "Common coupling", "Control coupling"] {
         let m = result.metrics.iter().find(|m| m.name == name).unwrap();
@@ -800,7 +800,7 @@ fn pressman_metrics_unscored_without_detectable_files() {
     let result = compute_coupling(
         &snapshot,
         &CouplingThresholds::default(),
-        &crate::config::HealthThresholds::default(),
+        &Default::default(),
     );
     let m = result
         .metrics
@@ -830,11 +830,7 @@ fn content_metric_includes_barrel_findings_when_enabled() {
         component_depth: 1,
         ..Default::default()
     };
-    let result = compute_coupling(
-        &snapshot,
-        &thresholds,
-        &crate::config::HealthThresholds::default(),
-    );
+    let result = compute_coupling(&snapshot, &thresholds, &Default::default());
     let m = result
         .metrics
         .iter()
@@ -847,7 +843,7 @@ fn content_metric_includes_barrel_findings_when_enabled() {
         content_barrel_rule: false,
         ..Default::default()
     };
-    let result_off = compute_coupling(&snapshot, &off, &crate::config::HealthThresholds::default());
+    let result_off = compute_coupling(&snapshot, &off, &Default::default());
     let m_off = result_off
         .metrics
         .iter()
@@ -869,7 +865,7 @@ fn control_findings_are_scored_leniently() {
     let result = compute_coupling(
         &snapshot,
         &CouplingThresholds::default(),
-        &crate::config::HealthThresholds::default(),
+        &Default::default(),
     );
     let m = result
         .metrics
@@ -890,7 +886,7 @@ fn severity_cap_limits_category_when_content_coupling_found() {
     let result = compute_coupling(
         &snapshot,
         &CouplingThresholds::default(),
-        &crate::config::HealthThresholds::default(),
+        &Default::default(),
     );
     assert!(
         result.score <= 70,
@@ -914,7 +910,7 @@ fn severity_cap_not_applied_when_clean() {
     let result = compute_coupling(
         &snapshot,
         &CouplingThresholds::default(),
-        &crate::config::HealthThresholds::default(),
+        &Default::default(),
     );
     let m = result
         .metrics
@@ -931,7 +927,7 @@ fn severity_cap_triggers_on_many_common_findings() {
     let result = compute_coupling(
         &snapshot,
         &CouplingThresholds::default(),
-        &crate::config::HealthThresholds::default(),
+        &Default::default(),
     );
     assert!(result.score <= 70, "got {}", result.score);
 }
@@ -948,7 +944,7 @@ fn severity_cap_is_derived_from_score_good_min_not_a_bare_literal() {
     let result = compute_coupling(
         &snapshot,
         &CouplingThresholds::default(),
-        &crate::config::HealthThresholds::default(),
+        &Default::default(),
     );
     assert_eq!(result.score, expected_cap);
     let m = result
@@ -1054,11 +1050,7 @@ fn finding_counts_agree_with_metric_finding_lists() {
     };
 
     let counts = pressman_finding_counts(&snapshot, &thresholds).expect("detection ran");
-    let category = compute_coupling(
-        &snapshot,
-        &thresholds,
-        &crate::config::HealthThresholds::default(),
-    );
+    let category = compute_coupling(&snapshot, &thresholds, &Default::default());
     let list_len = |name: &str| -> usize {
         let m = category.metrics.iter().find(|m| m.name == name).unwrap();
         match &m.raw_value {
@@ -1096,7 +1088,7 @@ fn severity_cap_does_not_raise_already_low_scores() {
     let result = compute_coupling(
         &snapshot,
         &CouplingThresholds::default(),
-        &crate::config::HealthThresholds::default(),
+        &Default::default(),
     );
     let flat_average_would_be = result.metrics.iter().filter_map(|m| m.score).sum::<u32>()
         / result.metrics.iter().filter(|m| m.score.is_some()).count() as u32;
@@ -1199,7 +1191,7 @@ fn corroborated_common_finding_scores_one_band_worse() {
     let d = compute_coupling(
         &dormant,
         &CouplingThresholds::default(),
-        &crate::config::HealthThresholds::default(),
+        &Default::default(),
     );
     let d_common = d
         .metrics
@@ -1210,11 +1202,7 @@ fn corroborated_common_finding_scores_one_band_worse() {
 
     // 1 corroborated Common finding -> effective 2 (weight 2.0) -> 40.
     let corr = snapshot_with_corroborated(vec![make_finding(CouplingKind::Common)]);
-    let c = compute_coupling(
-        &corr,
-        &CouplingThresholds::default(),
-        &crate::config::HealthThresholds::default(),
-    );
+    let c = compute_coupling(&corr, &CouplingThresholds::default(), &Default::default());
     let c_common = c
         .metrics
         .iter()
@@ -1230,11 +1218,7 @@ fn weight_one_reproduces_dormant_scores() {
         corroboration_weight: 1.0,
         ..CouplingThresholds::default()
     };
-    let c = compute_coupling(
-        &corr,
-        &thresholds,
-        &crate::config::HealthThresholds::default(),
-    );
+    let c = compute_coupling(&corr, &thresholds, &Default::default());
     let common = c
         .metrics
         .iter()
@@ -1265,11 +1249,7 @@ fn corroboration_can_trip_the_severity_cap() {
             evidence: "static mut B".into(),
         },
     ]);
-    let c = compute_coupling(
-        &corr,
-        &CouplingThresholds::default(),
-        &crate::config::HealthThresholds::default(),
-    );
+    let c = compute_coupling(&corr, &CouplingThresholds::default(), &Default::default());
     let common = c
         .metrics
         .iter()
@@ -1285,11 +1265,7 @@ fn corroboration_can_trip_the_severity_cap() {
 #[test]
 fn corroborated_finding_is_annotated_in_evidence_and_description() {
     let corr = snapshot_with_corroborated(vec![make_finding(CouplingKind::Common)]);
-    let c = compute_coupling(
-        &corr,
-        &CouplingThresholds::default(),
-        &crate::config::HealthThresholds::default(),
-    );
+    let c = compute_coupling(&corr, &CouplingThresholds::default(), &Default::default());
     let common = c
         .metrics
         .iter()
@@ -1425,7 +1401,7 @@ fn inheritance_metric_row_uses_bands() {
     let metrics = compute_coupling(
         &snapshot,
         &CouplingThresholds::default(),
-        &crate::config::HealthThresholds::default(),
+        &Default::default(),
     );
     let m = metrics
         .metrics
@@ -1450,27 +1426,61 @@ mod reach_annotation_tests {
     }
 
     #[test]
-    fn descriptions_note_growing_reach_only_when_present() {
+    fn afferent_and_efferent_descriptions_carry_no_reach_note() {
+        // The decay signal lives on its own metric row — bolting it onto
+        // import-graph metrics hid it behind their early returns
+        // (post-merge review of MR !98).
         let s = import_snapshot();
-        let with = afferent_coupling(&s, 2);
+        for m in [afferent_coupling(&s), efferent_coupling(&s)] {
+            assert!(
+                !m.description.contains("growing co-change reach"),
+                "{}: {}",
+                m.name,
+                m.description
+            );
+        }
+    }
+}
+
+mod coupling_reach_trend_tests {
+    use super::super::{coupling_reach_trend, CouplingReach};
+    use crate::metrics::RawValue;
+    use std::path::PathBuf;
+
+    #[test]
+    fn empty_reach_reports_a_calm_unscored_row() {
+        let m = coupling_reach_trend(&CouplingReach::new());
+        assert_eq!(m.name, "Co-change reach trend");
+        assert_eq!(m.score, None, "evidence only — never scored");
         assert!(
-            with.description
-                .ends_with(", 2 file(s) with growing co-change reach"),
-            "got: {}",
-            with.description
+            matches!(m.raw_value, RawValue::Count(0)),
+            "{:?}",
+            m.raw_value
         );
-        let without = afferent_coupling(&s, 0);
+        assert_eq!(m.description, "No files with growing co-change reach");
+    }
+
+    #[test]
+    fn description_counts_flags_and_lists_widest_reach_first() {
+        let reach: CouplingReach = [
+            (PathBuf::from("a.rs"), (2, 5)),
+            (PathBuf::from("b.rs"), (4, 9)),
+            (PathBuf::from("c.rs"), (3, 7)),
+            (PathBuf::from("d.rs"), (1, 4)),
+        ]
+        .into_iter()
+        .collect();
+        let m = coupling_reach_trend(&reach);
+        assert_eq!(m.score, None);
         assert!(
-            !without.description.contains("growing co-change reach"),
-            "zero must add nothing: {}",
-            without.description
+            matches!(m.raw_value, RawValue::Count(4)),
+            "{:?}",
+            m.raw_value
         );
-        let eff = efferent_coupling(&s, 1);
-        assert!(
-            eff.description
-                .ends_with(", 1 file(s) with growing co-change reach"),
-            "got: {}",
-            eff.description
+        assert_eq!(
+            m.description,
+            "4 file(s) whose co-change partner count at least doubled half-over-half — \
+             b.rs (4 → 9), c.rs (3 → 7), a.rs (2 → 5)"
         );
     }
 }
@@ -1613,6 +1623,57 @@ mod growing_coupling_reach_tests {
             Some((4, true)),
             "a changeset exactly at the cap still counts: {m:?}"
         );
+    }
+
+    #[test]
+    fn files_absent_from_the_first_half_are_not_flagged() {
+        // A brand-new module whose 9 files co-change only in the second
+        // half: the first-half partner count is 0, so "doubling" would be
+        // vacuously true. New reach is not decay — there is no baseline
+        // to have decayed from (post-merge review of MR !98).
+        let new_files: Vec<String> = (0..9).map(|i| format!("new{i}.rs")).collect();
+        let mut paths: Vec<&str> = new_files.iter().map(|s| s.as_str()).collect();
+        paths.sort();
+        let commits = vec![
+            commit_ago(200, 10, &["other.rs"], false), // anchors the first half
+            commit_ago(201, 1, &paths, false),
+        ];
+        let mut s = snap(commits, 0);
+        for f in &new_files {
+            s.files.push(make_file(f));
+        }
+        let m = growing_coupling_reach(&s, 8);
+        assert!(
+            m.is_empty(),
+            "new files have no baseline to decay from: {m:?}"
+        );
+    }
+
+    #[test]
+    fn a_first_half_of_only_bulk_commits_yields_no_flags() {
+        // The first half holds activity, but only a 31-file sweep that the
+        // changeset cap discards: it forms no pairs, so every second-half
+        // file would compare against a fabricated empty baseline. The
+        // halves guard must key on pair-forming activity, not raw commit
+        // counts (post-merge review of MR !98).
+        let bulk: Vec<String> = (0..31).map(|i| format!("bulk{i:02}.rs")).collect();
+        let mut bulk_paths: Vec<&str> = bulk.iter().map(|s| s.as_str()).collect();
+        bulk_paths.sort();
+        let mut commits = vec![commit_ago(300, 10, &bulk_paths, false)];
+        for i in 0..9 {
+            commits.push(commit_ago(
+                (100 + i) as u32,
+                1,
+                &["hub.rs", &format!("p{i:02}.rs")],
+                false,
+            ));
+        }
+        let mut s = snap(commits, 9);
+        for f in &bulk {
+            s.files.push(make_file(f));
+        }
+        let m = growing_coupling_reach(&s, 8);
+        assert!(m.is_empty(), "a pair-less first half is no baseline: {m:?}");
     }
 
     #[test]

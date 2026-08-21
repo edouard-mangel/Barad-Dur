@@ -193,6 +193,12 @@ pub struct CouplingThresholds {
     /// find it noisy can turn it off.
     #[serde(default = "default_community_corroboration")]
     pub community_corroboration: bool,
+    /// Minimum distinct co-change partners a file must reach in the second
+    /// half of the window before half-over-half growth counts as growing
+    /// reach (trends M3). Keeps small absolute jumps (1 → 2) from flagging.
+    /// Must be >= 1 (`validate()`). Default 8.
+    #[serde(default = "default_decay_min_partners")]
+    pub decay_min_partners: usize,
 }
 
 fn default_component_depth() -> usize {
@@ -213,6 +219,9 @@ fn default_corroboration_weight() -> f64 {
 fn default_inheritance_min_depth() -> usize {
     2
 }
+fn default_decay_min_partners() -> usize {
+    8
+}
 fn default_community_corroboration() -> bool {
     true
 }
@@ -227,6 +236,7 @@ impl Default for CouplingThresholds {
             corroboration_weight: default_corroboration_weight(),
             inheritance_min_depth: default_inheritance_min_depth(),
             community_corroboration: default_community_corroboration(),
+            decay_min_partners: default_decay_min_partners(),
         }
     }
 }

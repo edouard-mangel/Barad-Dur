@@ -63,6 +63,7 @@ pub fn build_report(
     weights: &[(&str, f64)],
     thresholds: &crate::config::Thresholds,
     flagged_god_objects: &[(std::path::PathBuf, String)],
+    coupling_reach: &crate::metrics::coupling::CouplingReach,
 ) -> AnalysisReport {
     let coupling = &thresholds.coupling;
     let overall_score = compute_overall_score_with_weights(&categories, weights);
@@ -74,7 +75,7 @@ pub fn build_report(
         top_actions.extend(generate_refactoring_actions(snapshot, flagged_god_objects));
     }
     let coupling_actions = generate_coupling_actions(snapshot, coupling);
-    let file_hotspots = build_hotspots(snapshot, coupling, &thresholds.health);
+    let file_hotspots = build_hotspots(snapshot, coupling, coupling_reach);
     let coupling_pairs = build_coupling_pairs(snapshot, coupling.component_depth);
     let author_ownership = build_author_ownership(snapshot);
     let file_ages = build_file_ages(snapshot);
@@ -164,6 +165,7 @@ mod tests {
             WEIGHTS,
             &crate::config::Thresholds::default(),
             &[],
+            &Default::default(),
         );
 
         assert_eq!(report.repo_name, "test-repo");
@@ -215,10 +217,7 @@ mod tests {
         );
         // Category selection excludes Health — only "Team" is present.
         let categories = vec![make_category("Team", 80)];
-        let flagged = crate::metrics::health::god_object_files(
-            &snapshot,
-            &crate::config::HealthThresholds::default(),
-        );
+        let flagged = crate::metrics::health::god_object_files(&snapshot, &Default::default());
         let report = build_report(
             &snapshot,
             categories,
@@ -226,6 +225,7 @@ mod tests {
             WEIGHTS,
             &crate::config::Thresholds::default(),
             &flagged,
+            &Default::default(),
         );
         assert!(
             report
@@ -253,6 +253,7 @@ mod tests {
             WEIGHTS,
             &crate::config::Thresholds::default(),
             &[],
+            &Default::default(),
         );
         assert!(
             report.audit.is_some(),
@@ -295,7 +296,7 @@ mod tests {
         let hotspots = build_hotspots(
             &snapshot,
             &crate::config::CouplingThresholds::default(),
-            &crate::config::HealthThresholds::default(),
+            &Default::default(),
         );
         assert_eq!(hotspots[0].path, "hot.rs");
         assert!(hotspots[0].hotspot_score > hotspots[1].hotspot_score);
@@ -413,6 +414,7 @@ mod tests {
             WEIGHTS,
             &crate::config::Thresholds::default(),
             &[],
+            &Default::default(),
         );
         let entry = build_history_entry(&report, "abc123", None);
 
@@ -440,6 +442,7 @@ mod tests {
             WEIGHTS,
             &crate::config::Thresholds::default(),
             &[],
+            &Default::default(),
         );
         assert!(report.author_cards.is_empty());
     }
@@ -473,6 +476,7 @@ mod tests {
             WEIGHTS,
             &crate::config::Thresholds::default(),
             &[],
+            &Default::default(),
         );
         assert!(
             report.per_file_coupling.is_empty(),
@@ -496,6 +500,7 @@ mod tests {
             WEIGHTS,
             &crate::config::Thresholds::default(),
             &[],
+            &Default::default(),
         );
         assert!(
             report.import_edges.is_empty(),
@@ -522,6 +527,7 @@ mod tests {
             WEIGHTS,
             &crate::config::Thresholds::default(),
             &[],
+            &Default::default(),
         )
     }
 
@@ -539,6 +545,7 @@ mod tests {
             WEIGHTS,
             &crate::config::Thresholds::default(),
             &[],
+            &Default::default(),
         )
     }
 
@@ -561,6 +568,7 @@ mod tests {
             WEIGHTS,
             &crate::config::Thresholds::default(),
             &[],
+            &Default::default(),
         );
         let cg = report.call_graph.expect("call_graph section");
         assert!((cg.resolution_rate - 1.0).abs() < f64::EPSILON);

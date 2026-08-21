@@ -44,12 +44,17 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
     // and by build_report's refactoring-action generator.
     let flagged_god_objects = health::god_object_files(&snapshot, &cfg.thresholds.health);
 
+    // Computed once, shared by the Coupling category's reach-trend metric
+    // and by build_report's hotspot rows (the flagged_god_objects pattern).
+    let coupling_reach =
+        coupling::growing_coupling_reach(&snapshot, cfg.thresholds.coupling.decay_min_partners);
+
     let categories = vec![
         health::compute_health(&snapshot, &cfg.thresholds.health, &flagged_god_objects),
         team::compute_team(&snapshot, &cfg.thresholds.team, &cfg.thresholds.coupling),
         evolution::compute_evolution(&snapshot, &cfg.thresholds.evolution),
         hygiene::compute_hygiene(&snapshot, &cfg.thresholds.hygiene),
-        coupling::compute_coupling(&snapshot, &cfg.thresholds.coupling, &cfg.thresholds.health),
+        coupling::compute_coupling(&snapshot, &cfg.thresholds.coupling, &coupling_reach),
     ];
 
     let weight_pairs = cfg.weights.as_weight_pairs();
@@ -60,6 +65,7 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
         &weight_pairs,
         &cfg.thresholds,
         &flagged_god_objects,
+        &coupling_reach,
     );
 
     let threshold = args.min_score;

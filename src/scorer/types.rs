@@ -21,9 +21,10 @@ pub struct HotspotFile {
     pub hotspot_score: f64,
     /// Ch. 8 decay annotation (trends M3): present when this file's
     /// distinct co-change partner count at least doubled half-over-half
-    /// and cleared the god-node floor — e.g. "partners 3 → 9 (half-over-half)".
+    /// and cleared `decay_min_partners`. Structured so renderers own the
+    /// wording (e.g. "3 → 9").
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub coupling_trend: Option<String>,
+    pub coupling_trend: Option<CouplingTrend>,
     /// Pressman coupling findings in this file, per kind. Content includes
     /// barrel-bypass findings when `content_barrel_rule` is on — the same
     /// gating as `pressman_finding_counts`, so the two views never disagree.
@@ -33,6 +34,14 @@ pub struct HotspotFile {
     pub inheritance_findings: usize,
     /// Commits touching the file per 1/12 of the analysis window (oldest first).
     pub churn_timeline: Vec<u32>,
+}
+
+/// Half-over-half distinct co-change partner counts for a file flagged as
+/// growing reach (Ch. 8 decay, trends M3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct CouplingTrend {
+    pub first_half_partners: usize,
+    pub second_half_partners: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]

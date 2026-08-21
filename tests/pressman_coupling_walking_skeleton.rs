@@ -26,7 +26,7 @@ fn analysis_reports_three_pressman_metrics() {
     let result = compute_coupling(
         &snapshot,
         &CouplingThresholds::default(),
-        &barad_dur::config::HealthThresholds::default(),
+        &Default::default(),
     );
 
     for name in ["Content coupling", "Common coupling", "Control coupling"] {

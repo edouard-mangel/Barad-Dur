@@ -88,16 +88,24 @@ first vs second window half (partner = shares a qualifying non-merge commit;
 reuses the exact-commit pairing notion, computed windowed at metric time —
 `snapshot.file_change_pairs` itself is whole-window and stays untouched).
 
-- Files whose partner count at least doubles half-over-half (and reaches the
-  existing `god_node_min_degree` floor to suppress 1→2 noise) get an
-  annotation appended to surfaces that already exist:
-  - `HotspotFile` gains `coupling_trend: Option<String>` — e.g.
-    `"partners 3 → 9 (half-over-half)"`.
-  - The Coupling category's afferent/efferent descriptions gain
-    `", N file(s) with growing co-change reach"` — additive text, no score
-    change (the M5-corroboration precedent verbatim).
-- Thresholds: reuse `god_node_min_degree`; the doubling factor is a named
-  constant (`DECAY_GROWTH_FACTOR: f64 = 2.0`), not config, until someone
+- Files whose partner count at least doubles half-over-half (and reaches a
+  floor to suppress 1→2 noise) surface on two report surfaces:
+  - `HotspotFile` gains `coupling_trend: Option<CouplingTrend>` — structured
+    first/second-half partner counts; renderers own the wording (a `3→9`
+    badge on the Hotspots tab).
+  - The Coupling category gains a dedicated **unscored** metric row,
+    "Co-change reach trend" (count + top offenders) — no score change (the
+    M5-corroboration precedent). *(Revised per the MR !98 post-merge
+    review: the original afferent/efferent description note died behind
+    those metrics' import-graph early returns; a git-derived signal now
+    lives on its own row. Files with zero first-half partners are never
+    flagged — new reach is not decay — and a half qualifies as a baseline
+    only if it formed pairs.)*
+- Thresholds: `thresholds.coupling.decay_min_partners` (default 8, was a
+  borrow of `god_node_min_degree` — revised per the same review: an
+  import-graph knob must not silently govern a co-change signal); the
+  doubling factor is a named constant
+  (`DECAY_GROWTH_FACTOR: f64 = 2.0`), not config, until someone
   needs to tune it.
 
 ### M4 — Ch. 6: per-hotspot complexity trend (`backfill --with-complexity`)

@@ -128,6 +128,45 @@ fn html_css_uses_custom_properties() {
 }
 
 #[test]
+fn html_hotspots_embed_structured_coupling_trend() {
+    // The decay badge renders from structured data (first/second half
+    // partner counts) so the wording lives in the template, not the model.
+    use crate::metrics::file_role::FileRole;
+    use crate::scorer::{CouplingTrend, HotspotFile};
+    let mut report = make_report();
+    report.file_hotspots = vec![HotspotFile {
+        path: "src/hub.rs".into(),
+        role: FileRole::Source,
+        churn_count: 12,
+        bug_commit_count: 0,
+        loc: 200,
+        total_lines: 210,
+        cyclomatic_complexity: 15,
+        public_methods: 3,
+        properties: 1,
+        hotspot_score: 72.0,
+        coupling_trend: Some(CouplingTrend {
+            first_half_partners: 3,
+            second_half_partners: 9,
+        }),
+        content_findings: 0,
+        common_findings: 0,
+        control_findings: 0,
+        inheritance_findings: 0,
+        churn_timeline: vec![],
+    }];
+    let html = render(&report).unwrap();
+    assert!(
+        html.contains("first_half_partners") && html.contains("second_half_partners"),
+        "structured trend must reach the embedded report JSON"
+    );
+    assert!(
+        html.contains("hs-reach-badge"),
+        "hotspots template must render the reach badge"
+    );
+}
+
+#[test]
 fn html_hotspots_has_dismiss_controls() {
     // AC-D6: the hotspots view ships a per-row dismiss control and a reset control,
     // mirroring the coupling-pair dismissal. Behavior (click → hide row) is client-side

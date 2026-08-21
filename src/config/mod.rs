@@ -258,6 +258,9 @@ pub fn validate(config: &RepoConfig) -> Result<()> {
             corroboration_weight
         );
     }
+    if config.thresholds.coupling.decay_min_partners == 0 {
+        bail!("thresholds.coupling.decay_min_partners must be >= 1, got 0");
+    }
     if config.thresholds.coupling.inheritance_min_depth == 1 {
         bail!("thresholds.coupling.inheritance_min_depth must be 0 (disabled) or >= 2, got 1");
     }
@@ -519,6 +522,30 @@ mod tests {
         let cfg = load(dir.path()).unwrap();
         assert_eq!(cfg.thresholds.coupling.component_depth, 3);
         assert!((cfg.thresholds.coupling.change_coupling_min_ratio - 0.50).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn decay_min_partners_defaults_and_loads() {
+        let dir = TempDir::new().unwrap();
+        let cfg = load(dir.path()).unwrap();
+        assert_eq!(cfg.thresholds.coupling.decay_min_partners, 8);
+        let cache_dir = dir.path().join(".repository-analysis");
+        fs::create_dir_all(&cache_dir).unwrap();
+        fs::write(
+            cache_dir.join("barad-dur.toml"),
+            "[thresholds.coupling]\ndecay_min_partners = 12\n",
+        )
+        .unwrap();
+        let cfg = load(dir.path()).unwrap();
+        assert_eq!(cfg.thresholds.coupling.decay_min_partners, 12);
+    }
+
+    #[test]
+    fn validate_decay_min_partners_zero_errors() {
+        let mut cfg = RepoConfig::default();
+        cfg.thresholds.coupling.decay_min_partners = 0;
+        let err = validate(&cfg).unwrap_err();
+        assert!(err.to_string().contains("decay_min_partners"));
     }
 
     #[test]
