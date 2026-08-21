@@ -5,19 +5,42 @@
 //! uses) and the co-change ratio formula `qualifying_smell_pairs` already
 //! uses, so no new derivation of "what counts as a meaningful pairing".
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use crate::config::CouplingThresholds;
 use crate::metrics::file_role::{classify, is_test_pair, FileRole};
 use crate::metrics::{score_count_bands, MetricValue, RawValue};
-use crate::snapshot::RepoSnapshot;
+use crate::snapshot::{CommitId, RepoSnapshot};
 
 /// The strongest (highest co-change ratio) test-file candidate found for a
 /// Source file.
 struct TestPairing {
     test_path: PathBuf,
     co_change_ratio: f64,
+}
+
+/// Exact co-change count between two files: the size of the intersection of
+/// their `commits_by_file` commit-id lists (built from the shorter list for
+/// a cheap membership test). Deliberately NOT sourced from
+/// `snapshot.file_change_pairs` — that table only retains pairs whose count
+/// already reaches `count_co_changed_pairs`'s built-in floor of 3 (the
+/// change-coupling-smell threshold), so a real, healthy pair sitting at 1 or
+/// 2 co-changes is silently absent from it. This metric's "absent" already
+/// means "no naming-convention candidate at all"; treating the floored
+/// table's absence as "zero co-changes" too would falsely read a healthy,
+/// under-the-floor pair as a fully eroded safety net — the floor is
+/// false-positive-biased for exactly this metric. Counts include merge
+/// commits, the same inclusion semantics `commits_by_file` (and the floored
+/// pair table) already have — neither index filters merges out.
+fn co_change_count(commits_a: &[CommitId], commits_b: &[CommitId]) -> usize {
+    let (shorter, longer) = if commits_a.len() <= commits_b.len() {
+        (commits_a, commits_b)
+    } else {
+        (commits_b, commits_a)
+    };
+    let shorter_set: HashSet<CommitId> = shorter.iter().copied().collect();
+    longer.iter().filter(|c| shorter_set.contains(c)).count()
 }
 
 /// For every Source-role file with a nonzero commit count and a
@@ -29,14 +52,6 @@ struct TestPairing {
 /// co-changes is still present, with ratio `0.0` — it's *checked*, just
 /// failing.
 fn strongest_test_pairing(snapshot: &RepoSnapshot) -> HashMap<PathBuf, TestPairing> {
-    // Co-change counts, indexed once: `file_change_pairs` stores each pair a
-    // single time in lexicographic order, so the lookup key must match that.
-    let co_changes: HashMap<(&PathBuf, &PathBuf), usize> = snapshot
-        .file_change_pairs
-        .iter()
-        .map(|(a, b, count)| ((a, b), *count))
-        .collect();
-
     let test_files: Vec<PathBuf> = snapshot
         .files
         .iter()
@@ -50,22 +65,25 @@ fn strongest_test_pairing(snapshot: &RepoSnapshot) -> HashMap<PathBuf, TestPairi
         .filter(|f| classify(&f.path) == FileRole::Source)
         .filter_map(|source_file| {
             let source = &source_file.path;
-            let commits_a = snapshot.commits_by_file.get(source).map_or(0, Vec::len);
-            if commits_a == 0 {
+            let commits_a = snapshot
+                .commits_by_file
+                .get(source)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            if commits_a.is_empty() {
                 return None;
             }
             test_files
                 .iter()
                 .filter(|test| is_test_pair(source, test))
                 .map(|test| {
-                    let commits_b = snapshot.commits_by_file.get(test).map_or(0, Vec::len);
-                    let (first, second) = if source < test {
-                        (source, test)
-                    } else {
-                        (test, source)
-                    };
-                    let co = co_changes.get(&(first, second)).copied().unwrap_or(0);
-                    let ratio = co as f64 / commits_a.min(commits_b).max(1) as f64;
+                    let commits_b = snapshot
+                        .commits_by_file
+                        .get(test)
+                        .map(Vec::as_slice)
+                        .unwrap_or(&[]);
+                    let co = co_change_count(commits_a, commits_b);
+                    let ratio = co as f64 / commits_a.len().min(commits_b.len()).max(1) as f64;
                     TestPairing {
                         test_path: test.clone(),
                         co_change_ratio: ratio,
@@ -144,22 +162,46 @@ pub(crate) fn test_safety_net(
 mod tests {
     use super::*;
     use crate::metrics::testutil::{make_file, make_snapshot};
-    use crate::snapshot::CommitId;
 
-    fn commits(n: u32) -> Vec<CommitId> {
-        (0..n).map(CommitId).collect()
+    fn ids(values: &[u32]) -> Vec<CommitId> {
+        values.iter().copied().map(CommitId).collect()
     }
 
+    /// A single file's raw commit count, with arbitrary (non-overlapping
+    /// with anything) commit ids — used when the exact co-change count
+    /// with a partner doesn't matter, only "has commits" or "has none".
     fn set_commits(snapshot: &mut RepoSnapshot, path: &str, n: u32) {
+        let commit_ids: Vec<u32> = (9_000_000..9_000_000 + n).collect();
         snapshot
             .commits_by_file
-            .insert(PathBuf::from(path), commits(n));
+            .insert(PathBuf::from(path), ids(&commit_ids));
     }
 
-    fn set_pair(snapshot: &mut RepoSnapshot, a: &str, b: &str, co_changes: usize) {
-        let (a, b) = (PathBuf::from(a), PathBuf::from(b));
-        let (first, second) = if a < b { (a, b) } else { (b, a) };
-        snapshot.file_change_pairs.push((first, second, co_changes));
+    /// Sets both files' full `commits_by_file` entries so that exactly
+    /// `shared` commit ids are common to both, out of `commits_a` and
+    /// `commits_b` total commits respectively — the co-change count the
+    /// production code will recompute via set intersection.
+    /// `snapshot.file_change_pairs` is deliberately never touched by any
+    /// fixture in this module, to prove the metric doesn't read it.
+    fn set_shared_commits(
+        snapshot: &mut RepoSnapshot,
+        source: &str,
+        test: &str,
+        commits_a: u32,
+        commits_b: u32,
+        shared: u32,
+    ) {
+        assert!(shared <= commits_a && shared <= commits_b);
+        let mut a_ids: Vec<u32> = (0..shared).collect();
+        a_ids.extend(1_000_000..1_000_000 + (commits_a - shared));
+        let mut b_ids: Vec<u32> = (0..shared).collect();
+        b_ids.extend(2_000_000..2_000_000 + (commits_b - shared));
+        snapshot
+            .commits_by_file
+            .insert(PathBuf::from(source), ids(&a_ids));
+        snapshot
+            .commits_by_file
+            .insert(PathBuf::from(test), ids(&b_ids));
     }
 
     fn source_test_snapshot(
@@ -167,13 +209,11 @@ mod tests {
         test: &str,
         commits_a: u32,
         commits_b: u32,
-        co_changes: usize,
+        shared: u32,
     ) -> RepoSnapshot {
         let mut snapshot = make_snapshot();
         snapshot.files = vec![make_file(source), make_file(test)];
-        set_commits(&mut snapshot, source, commits_a);
-        set_commits(&mut snapshot, test, commits_b);
-        set_pair(&mut snapshot, source, test, co_changes);
+        set_shared_commits(&mut snapshot, source, test, commits_a, commits_b, shared);
         snapshot
     }
 
@@ -221,14 +261,24 @@ mod tests {
             make_file("src/foo.test.ts"),
             make_file("src/foo.spec.ts"),
         ];
-        set_commits(&mut snapshot, "src/foo.ts", 10);
-        set_commits(&mut snapshot, "src/foo.test.ts", 10);
-        set_commits(&mut snapshot, "src/foo.spec.ts", 10);
-        // foo.test.ts drifted (ratio 0.1, would erode alone)...
-        set_pair(&mut snapshot, "src/foo.ts", "src/foo.test.ts", 1);
-        // ...but foo.spec.ts stayed tight (ratio 0.9) — the best candidate,
-        // so the pairing is scored against it, not the drifted one.
-        set_pair(&mut snapshot, "src/foo.ts", "src/foo.spec.ts", 9);
+        // foo.ts's 10 commits split exactly: 1 shared only with
+        // foo.test.ts, 9 shared only with foo.spec.ts.
+        snapshot.commits_by_file.insert(
+            PathBuf::from("src/foo.ts"),
+            ids(&[100, 200, 201, 202, 203, 204, 205, 206, 207, 208]),
+        );
+        // foo.test.ts drifted (ratio 0.1, would erode alone): the 1 shared
+        // commit plus 9 unrelated ones.
+        snapshot.commits_by_file.insert(
+            PathBuf::from("src/foo.test.ts"),
+            ids(&[100, 300, 301, 302, 303, 304, 305, 306, 307, 308]),
+        );
+        // foo.spec.ts stayed tight (ratio 0.9) — the best candidate, so
+        // the pairing is scored against it, not the drifted one.
+        snapshot.commits_by_file.insert(
+            PathBuf::from("src/foo.spec.ts"),
+            ids(&[200, 201, 202, 203, 204, 205, 206, 207, 208, 400]),
+        );
 
         let result = test_safety_net(&snapshot, &CouplingThresholds::default());
         assert_eq!(result.score, Some(100));
@@ -240,11 +290,7 @@ mod tests {
 
     #[test]
     fn zero_co_changes_still_present_with_ratio_zero() {
-        let mut snapshot = make_snapshot();
-        snapshot.files = vec![make_file("src/b.rs"), make_file("src/b_test.rs")];
-        set_commits(&mut snapshot, "src/b.rs", 5);
-        set_commits(&mut snapshot, "src/b_test.rs", 5);
-        // No entry pushed into file_change_pairs at all: zero observed co-changes.
+        let snapshot = source_test_snapshot("src/b.rs", "src/b_test.rs", 5, 5, 0);
 
         let pairing = strongest_test_pairing(&snapshot);
         let entry = pairing.get(&PathBuf::from("src/b.rs")).unwrap();
@@ -261,16 +307,9 @@ mod tests {
 
     #[test]
     fn source_with_no_candidate_is_absent() {
-        let mut snapshot = make_snapshot();
-        snapshot.files = vec![
-            make_file("src/a.rs"),
-            make_file("src/a_test.rs"),
-            make_file("src/lonely.rs"),
-        ];
-        set_commits(&mut snapshot, "src/a.rs", 10);
-        set_commits(&mut snapshot, "src/a_test.rs", 10);
+        let mut snapshot = source_test_snapshot("src/a.rs", "src/a_test.rs", 10, 10, 5);
+        snapshot.files.push(make_file("src/lonely.rs"));
         set_commits(&mut snapshot, "src/lonely.rs", 10);
-        set_pair(&mut snapshot, "src/a.rs", "src/a_test.rs", 5);
 
         let pairing = strongest_test_pairing(&snapshot);
         assert_eq!(pairing.len(), 1);
@@ -306,14 +345,14 @@ mod tests {
                 let test = format!("src/f{i:02}_test.rs");
                 files.push(make_file(&source));
                 files.push(make_file(&test));
-                set_commits(&mut snapshot, &source, 10);
-                set_commits(&mut snapshot, &test, 10);
-                if i >= flagged {
+                let shared = if i < flagged {
+                    0 // ratio 0.0, below threshold, eroding
+                } else {
                     // Only reached when flagged == 0: the one healthy pair
                     // that keeps this snapshot at "checked, not eroding".
-                    set_pair(&mut snapshot, &source, &test, 9);
-                }
-                // else: no pair pushed — ratio 0.0, below threshold, eroding.
+                    9
+                };
+                set_shared_commits(&mut snapshot, &source, &test, 10, 10, shared);
             }
             snapshot.files = files;
             let result = test_safety_net(&snapshot, &CouplingThresholds::default());
@@ -351,19 +390,17 @@ mod tests {
     fn evidence_sorted_ascending_by_ratio() {
         let mut snapshot = make_snapshot();
         let mut files = Vec::new();
-        // Distinct ratios pushed out of order (0.2, 0.0, 0.1) to prove the
+        // Distinct ratios set up out of order (0.2, 0.0, 0.1) to prove the
         // metric sorts the evidence rather than preserving insertion order.
         let specs = [
-            ("src/c.rs", "src/c_test.rs", 2usize),
-            ("src/a.rs", "src/a_test.rs", 0),
-            ("src/b.rs", "src/b_test.rs", 1),
+            ("src/c.rs", "src/c_test.rs", 2u32),
+            ("src/a.rs", "src/a_test.rs", 0u32),
+            ("src/b.rs", "src/b_test.rs", 1u32),
         ];
-        for (source, test, co_changes) in specs {
+        for (source, test, shared) in specs {
             files.push(make_file(source));
             files.push(make_file(test));
-            set_commits(&mut snapshot, source, 10);
-            set_commits(&mut snapshot, test, 10);
-            set_pair(&mut snapshot, source, test, co_changes);
+            set_shared_commits(&mut snapshot, source, test, 10, 10, shared);
         }
         snapshot.files = files;
 
@@ -384,8 +421,7 @@ mod tests {
         for (source, test) in [("src/z.rs", "src/z_test.rs"), ("src/a.rs", "src/a_test.rs")] {
             files.push(make_file(source));
             files.push(make_file(test));
-            set_commits(&mut snapshot, source, 10);
-            set_commits(&mut snapshot, test, 10);
+            set_shared_commits(&mut snapshot, source, test, 10, 10, 0);
         }
         snapshot.files = files;
 
@@ -406,9 +442,7 @@ mod tests {
             let test = format!("src/f{i:02}_test.rs");
             files.push(make_file(&source));
             files.push(make_file(&test));
-            set_commits(&mut snapshot, &source, 100);
-            set_commits(&mut snapshot, &test, 100);
-            set_pair(&mut snapshot, &source, &test, i as usize); // ratio i/100, all < 0.30
+            set_shared_commits(&mut snapshot, &source, &test, 100, 100, i); // ratio i/100, all < 0.30
         }
         snapshot.files = files;
 
@@ -442,5 +476,32 @@ mod tests {
         };
         let loosened_result = test_safety_net(&snapshot, &loosened);
         assert_eq!(loosened_result.score, Some(100));
+    }
+
+    #[test]
+    fn co_change_count_uses_exact_intersection_not_floored_pair_table() {
+        // Regression (coordinator finding): `file_change_pairs` only keeps
+        // pairs whose count reaches `count_co_changed_pairs`'s built-in
+        // floor of 3. 3 commits per file, 2 shared: true ratio 2/3 ≈ 0.667,
+        // comfortably above the 0.30 default threshold — must NOT be
+        // flagged. Below the floor, `file_change_pairs` would never contain
+        // this pair at all, so a lookup sourced from that table reads it as
+        // zero co-changes and falsely flags a healthy pair.
+        let snapshot = source_test_snapshot("src/a.rs", "src/a_test.rs", 3, 3, 2);
+        assert!(
+            snapshot.file_change_pairs.is_empty(),
+            "fixture must never populate file_change_pairs — proves the metric doesn't read it"
+        );
+
+        let pairing = strongest_test_pairing(&snapshot);
+        let entry = pairing.get(&PathBuf::from("src/a.rs")).unwrap();
+        assert!((entry.co_change_ratio - 2.0 / 3.0).abs() < 1e-9);
+
+        let result = test_safety_net(&snapshot, &CouplingThresholds::default());
+        assert_eq!(result.score, Some(100));
+        assert_eq!(
+            result.description,
+            "0 of 1 source/test pairs below 30% co-change"
+        );
     }
 }
