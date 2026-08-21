@@ -135,7 +135,7 @@ pub fn classify(path: &Path) -> FileRole {
     }
 }
 
-fn pair_stem(path: &str) -> String {
+pub(crate) fn pair_stem(path: &str) -> String {
     let name = path.rsplit('/').next().unwrap_or(path);
     // Strip only the last extension so compound extensions like .test.ts are preserved
     match name.rfind('.') {

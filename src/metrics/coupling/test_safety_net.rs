@@ -6,10 +6,10 @@
 //! uses, so no new derivation of "what counts as a meaningful pairing".
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::config::CouplingThresholds;
-use crate::metrics::file_role::{classify, is_test_pair, FileRole};
+use crate::metrics::file_role::{classify, is_test_pair, pair_stem, FileRole};
 use crate::metrics::{score_count_bands, MetricValue, RawValue};
 use crate::snapshot::{CommitId, RepoSnapshot};
 
@@ -21,8 +21,7 @@ struct TestPairing {
 }
 
 /// Exact co-change count between two files: the size of the intersection of
-/// their `commits_by_file` commit-id lists (built from the shorter list for
-/// a cheap membership test). Deliberately NOT sourced from
+/// their `commits_by_file` commit-id lists. Deliberately NOT sourced from
 /// `snapshot.file_change_pairs` — that table only retains pairs whose count
 /// already reaches `count_co_changed_pairs`'s built-in floor of 3 (the
 /// change-coupling-smell threshold), so a real, healthy pair sitting at 1 or
@@ -34,13 +33,63 @@ struct TestPairing {
 /// commits, the same inclusion semantics `commits_by_file` (and the floored
 /// pair table) already have — neither index filters merges out.
 fn co_change_count(commits_a: &[CommitId], commits_b: &[CommitId]) -> usize {
-    let (shorter, longer) = if commits_a.len() <= commits_b.len() {
-        (commits_a, commits_b)
-    } else {
-        (commits_b, commits_a)
-    };
-    let shorter_set: HashSet<CommitId> = shorter.iter().copied().collect();
-    longer.iter().filter(|c| shorter_set.contains(c)).count()
+    // Always hash `a` and probe with `b` — the previous shorter/longer
+    // selection was a provably output-equivalent branch (the intersection
+    // size is the same either way), which makes it an equivalent-mutant
+    // magnet: nothing observable distinguishes "hash the shorter side" from
+    // "hash `a`", so a mutant flipping the comparison can never be killed.
+    // Dropped post-final-review; the extra allocation is negligible here.
+    let a_set: HashSet<CommitId> = commits_a.iter().copied().collect();
+    commits_b.iter().filter(|c| a_set.contains(c)).count()
+}
+
+/// The 7 stem forms `is_test_of(source_stem, _)` recognizes as "this is a
+/// test of `source_stem`" — kept in lockstep with `file_role::is_test_of`
+/// (private to that module, so duplicated here rather than exposed just for
+/// this one caller). Deriving these and probing a stem index is the
+/// candidate-discovery half of `is_test_pair(source, test)`'s
+/// `is_test_of(sa, sb)` branch: `sb` (the candidate's stem) must be exactly
+/// one of these forms of `sa` (the source's stem).
+///
+/// The predicate's other branch, `is_test_of(sb, sa)` — the source's own
+/// stem being a test-form of the candidate's stem — is not derivable this
+/// way in general, but is a non-issue for real inputs here: every one of
+/// these 7 forms except bare `{s}test`/`{s}tests` concatenation ends with a
+/// separator (`_test`, `_spec`, `.test`, `.spec`) or starts with `test_`,
+/// which `file_role::classify` already recognizes as a test name — so a
+/// source-role file (by construction, not classified `Test`) essentially
+/// never has a stem shaped like the candidate's-stem-plus-suffix. The
+/// debug-only cross-check below guards this assumption against fixtures.
+fn candidate_stems(source_stem: &str) -> [String; 7] {
+    [
+        format!("{source_stem}test"),
+        format!("{source_stem}tests"),
+        format!("{source_stem}.test"),
+        format!("{source_stem}.spec"),
+        format!("{source_stem}_test"),
+        format!("{source_stem}_spec"),
+        format!("test_{source_stem}"),
+    ]
+}
+
+/// Cross-check helper for the `debug_assert!` below: the stem-index lookup
+/// must find exactly the same candidates a naive `is_test_pair` scan over
+/// every Test-role file would find. Only ever *evaluated* under
+/// `debug_assert!` (a no-op in release builds), so this O(test files) scan
+/// never runs in production — it exists purely so a fixture that breaks the
+/// index/scan parity fails loudly under `cargo test`.
+fn indexed_candidates_match_scan(
+    source: &Path,
+    indexed: &[&PathBuf],
+    test_files: &[&PathBuf],
+) -> bool {
+    let indexed_set: HashSet<&PathBuf> = indexed.iter().copied().collect();
+    let scanned_set: HashSet<&PathBuf> = test_files
+        .iter()
+        .copied()
+        .filter(|test| is_test_pair(source, test))
+        .collect();
+    indexed_set == scanned_set
 }
 
 /// For every Source-role file with a nonzero commit count and a
@@ -51,13 +100,30 @@ fn co_change_count(commits_a: &[CommitId], commits_b: &[CommitId]) -> usize {
 /// (spec decision 3). A source file with a candidate but zero observed
 /// co-changes is still present, with ratio `0.0` — it's *checked*, just
 /// failing.
+///
+/// Candidate discovery is index-based rather than an O(sources × test
+/// files) scan through `is_test_pair` (which itself does ~16 heap
+/// allocations per probe): Test-role files are indexed once by lowercase
+/// pair-stem, then each source derives its 7 candidate stems
+/// (`candidate_stems`) and does 7 direct map lookups — O(sources × 7)
+/// lookups total, regardless of repo size.
 fn strongest_test_pairing(snapshot: &RepoSnapshot) -> HashMap<PathBuf, TestPairing> {
-    let test_files: Vec<PathBuf> = snapshot
+    let test_files: Vec<&PathBuf> = snapshot
         .files
         .iter()
         .filter(|f| classify(&f.path) == FileRole::Test)
-        .map(|f| f.path.clone())
+        .map(|f| &f.path)
         .collect();
+
+    let mut test_index: HashMap<String, Vec<&PathBuf>> = HashMap::new();
+    for path in &test_files {
+        if let Some(name) = path.to_str() {
+            test_index
+                .entry(pair_stem(name).to_lowercase())
+                .or_default()
+                .push(path);
+        }
+    }
 
     snapshot
         .files
@@ -73,19 +139,32 @@ fn strongest_test_pairing(snapshot: &RepoSnapshot) -> HashMap<PathBuf, TestPairi
             if commits_a.is_empty() {
                 return None;
             }
-            test_files
+            let source_stem = pair_stem(source.to_str()?).to_lowercase();
+
+            let candidates: Vec<&PathBuf> = candidate_stems(&source_stem)
                 .iter()
-                .filter(|test| is_test_pair(source, test))
+                .filter_map(|stem| test_index.get(stem))
+                .flatten()
+                .copied()
+                .collect();
+
+            debug_assert!(
+                indexed_candidates_match_scan(source, &candidates, &test_files),
+                "stem-index candidates diverge from is_test_pair scan for {source:?}"
+            );
+
+            candidates
+                .iter()
                 .map(|test| {
                     let commits_b = snapshot
                         .commits_by_file
-                        .get(test)
+                        .get(*test)
                         .map(Vec::as_slice)
                         .unwrap_or(&[]);
                     let co = co_change_count(commits_a, commits_b);
                     let ratio = co as f64 / commits_a.len().min(commits_b.len()).max(1) as f64;
                     TestPairing {
-                        test_path: test.clone(),
+                        test_path: (*test).clone(),
                         co_change_ratio: ratio,
                     }
                 })
@@ -503,5 +582,43 @@ mod tests {
             result.description,
             "0 of 1 source/test pairs below 30% co-change"
         );
+    }
+
+    #[test]
+    fn ratio_uses_min_commit_count_as_denominator_regardless_of_which_side_is_larger() {
+        // 1 shared commit, source has 10, test has 4: the ratio must divide
+        // by the SMALLER count (4), giving 1/4 == 0.25 — below the 0.30
+        // threshold, flagged. A min→max mutant would divide by 10 instead
+        // (1/10 == 0.10), which the "25% co-change" assertion below catches.
+        let snapshot = source_test_snapshot("src/a.rs", "src/a_test.rs", 10, 4, 1);
+        let result = test_safety_net(&snapshot, &CouplingThresholds::default());
+        assert_eq!(result.score, Some(75));
+        assert_eq!(
+            result.description,
+            "1 of 1 source/test pairs below 30% co-change — safety net eroding"
+        );
+        let RawValue::List(list) = &result.raw_value else {
+            panic!("expected RawValue::List");
+        };
+        assert_eq!(
+            list,
+            &vec!["src/a.rs ↔ src/a_test.rs — 25% co-change".to_string()]
+        );
+
+        // Swap which file has more commits (source 4, test 10, still 1
+        // shared): `min` is symmetric, so the ratio must land on the exact
+        // same 25% — a mutant that instead always divides by whichever
+        // argument the code happens to name (e.g. always `commits_a.len()`
+        // rather than the true min) would produce a different value here
+        // (1/4 in the first case, 1/4 again — same — vs. a mutant using the
+        // *other* argument, which would show 10% here instead), so this
+        // second direction kills mutants the first direction alone can't.
+        let swapped = source_test_snapshot("src/a.rs", "src/a_test.rs", 4, 10, 1);
+        let swapped_result = test_safety_net(&swapped, &CouplingThresholds::default());
+        assert_eq!(swapped_result.score, Some(75));
+        let RawValue::List(swapped_list) = &swapped_result.raw_value else {
+            panic!("expected RawValue::List");
+        };
+        assert_eq!(swapped_list, list);
     }
 }
