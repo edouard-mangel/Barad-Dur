@@ -536,14 +536,14 @@ fn change_coupling_depth3_different_component() {
 }
 
 #[test]
-fn compute_coupling_returns_nine_metrics() {
+fn compute_coupling_returns_ten_metrics() {
     let snapshot = make_snapshot();
     let result = compute_coupling(
         &snapshot,
         &CouplingThresholds::default(),
         &Default::default(),
     );
-    assert_eq!(result.metrics.len(), 9);
+    assert_eq!(result.metrics.len(), 10);
     assert_eq!(result.name, "Coupling");
 }
 

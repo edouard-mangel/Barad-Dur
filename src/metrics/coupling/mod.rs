@@ -1,6 +1,8 @@
 mod community;
 mod inheritance;
+mod test_safety_net;
 pub(crate) use inheritance::inheritance_findings;
+pub(crate) use test_safety_net::test_safety_net;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -35,6 +37,7 @@ pub fn compute_coupling(
         pressman_metric(snapshot, CouplingKind::Inheritance, inh, &corr, weight),
         pressman_metric(snapshot, CouplingKind::Control, Vec::new(), &corr, weight),
         coupling_reach_trend(reach),
+        test_safety_net(snapshot, thresholds),
     ];
     apply_severity_cap(
         CategoryResult {

@@ -264,6 +264,13 @@ pub fn validate(config: &RepoConfig) -> Result<()> {
     if config.thresholds.coupling.inheritance_min_depth == 1 {
         bail!("thresholds.coupling.inheritance_min_depth must be 0 (disabled) or >= 2, got 1");
     }
+    let test_safety_net_ratio = config.thresholds.coupling.test_safety_net_min_ratio;
+    if !(0.0..=1.0).contains(&test_safety_net_ratio) {
+        bail!(
+            "thresholds.coupling.test_safety_net_min_ratio must be in [0.0, 1.0], got {}",
+            test_safety_net_ratio
+        );
+    }
     // No realistic import-graph degree needs a multiplier anywhere near this;
     // above it, `median_degree * multiplier` risks overflowing to +inf, which
     // silently disables the hub check the same way a literal Infinity would.
@@ -755,5 +762,43 @@ mod tests {
         assert!(validate(&cfg).is_ok(), "0 disables the rule");
         cfg.thresholds.coupling.inheritance_min_depth = 2;
         assert!(validate(&cfg).is_ok());
+    }
+
+    #[test]
+    fn test_safety_net_min_ratio_defaults_and_loads() {
+        let dir = TempDir::new().unwrap();
+        let cfg = load(dir.path()).unwrap();
+        assert!((cfg.thresholds.coupling.test_safety_net_min_ratio - 0.30).abs() < f64::EPSILON);
+        let cache_dir = dir.path().join(".repository-analysis");
+        fs::create_dir_all(&cache_dir).unwrap();
+        fs::write(
+            cache_dir.join("barad-dur.toml"),
+            "[thresholds.coupling]\ntest_safety_net_min_ratio = 0.5\n",
+        )
+        .unwrap();
+        let cfg = load(dir.path()).unwrap();
+        assert!((cfg.thresholds.coupling.test_safety_net_min_ratio - 0.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn validate_test_safety_net_ratio_out_of_range_errors() {
+        for bad in [-0.1_f64, 1.1, f64::NAN] {
+            let mut cfg = RepoConfig::default();
+            cfg.thresholds.coupling.test_safety_net_min_ratio = bad;
+            let err = validate(&cfg).unwrap_err();
+            assert!(
+                err.to_string().contains("test_safety_net_min_ratio"),
+                "{bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_test_safety_net_ratio_bounds_are_valid() {
+        for ok in [0.0_f64, 1.0] {
+            let mut cfg = RepoConfig::default();
+            cfg.thresholds.coupling.test_safety_net_min_ratio = ok;
+            assert!(validate(&cfg).is_ok(), "{ok} must be accepted");
+        }
     }
 }

@@ -130,11 +130,16 @@ mapping physical directories to logical "Code" and "Test" components,
 measure their coupling degree, and track code-growth vs. test-growth ratio
 over iterations to catch a runaway "automated-test death march."
 
-**Verdict:** ⬜ Not implemented as a standalone code/test coupling or
-growth-ratio metric. `file_role.rs` classifies files into
-Source/Test/Config/Docs roles and most metrics filter tests out
-(`is_source_file`), but nothing measures the *coupling between* the Source
-and Test partitions, nor tracks their relative growth trend over time.
+**Verdict:** ✅ `src/metrics/coupling/test_safety_net.rs` measures the
+point-in-time coupling-degree signal directly: for every naming-convention
+source/test pair it computes the co-change ratio (shared commits /
+min(commit counts)) and flags pairs below 30% as an eroding safety net,
+surfaced as the Coupling category's "Test safety net" metric (shipped
+2026-08-21). The growth-ratio half of the chapter's technique (code-growth
+vs. test-growth trend over iterations) is covered separately by
+`evolution::growth_balance` ("Code/test growth balance", trends M2,
+2026-08-20) — together the two metrics close both halves of the chapter's
+aggregation.
 
 ### Chapter 10: Use Beauty as a Guiding Principle
 Generalizes Ch. 8–9's technique to arbitrary architectural boundaries: pick
@@ -263,7 +268,7 @@ flagged hotspot file.
 | 6 | Per-file complexity trend | ⬜ | No historical complexity-over-time series per file/hotspot |
 | 7 | Temporal coupling | ✅ | — |
 | 8 | Architectural decay (coupling trend) | 🟡 | No per-module coupling-degree trend across time windows |
-| 9 | Code/test coupling safety net | 🟡 | Growth-ratio metric shipped 2026-08-20 (trends M2); point-in-time coupling-degree signal specced (`2026-08-18-source-test-coupling-design.md`), not yet implemented |
+| 9 | Code/test coupling safety net | ✅ | — (safety-net metric shipped 2026-08-21; growth-ratio trend covered by evolution's growth balance) |
 | 10 | Architecture-pattern conformance | ⬜ | No user-declared component boundaries / pattern-violation check |
 | 11 | Commit-message social signal | 🟡 | Firefighting/quality heuristics exist; no word-cloud/vocabulary view |
 | 12 | Organizational metrics (Conway) | ✅ | team-mapping config deferred |
