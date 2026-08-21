@@ -199,6 +199,13 @@ pub struct CouplingThresholds {
     /// Must be >= 1 (`validate()`). Default 8.
     #[serde(default = "default_decay_min_partners")]
     pub decay_min_partners: usize,
+    /// Expected-tight source↔test co-change floor; the minimum ratio of
+    /// test files co-changed within the source pair's coupling window.
+    /// Distinct from `change_coupling_min_ratio` — the two measure different
+    /// relationships (expected-tight test safety net vs arbitrary cross-component smell).
+    /// Must be in [0.0, 1.0]. Default 0.30.
+    #[serde(default = "default_test_safety_net_min_ratio")]
+    pub test_safety_net_min_ratio: f64,
 }
 
 fn default_component_depth() -> usize {
@@ -222,6 +229,9 @@ fn default_inheritance_min_depth() -> usize {
 fn default_decay_min_partners() -> usize {
     8
 }
+fn default_test_safety_net_min_ratio() -> f64 {
+    0.30
+}
 fn default_community_corroboration() -> bool {
     true
 }
@@ -237,6 +247,7 @@ impl Default for CouplingThresholds {
             inheritance_min_depth: default_inheritance_min_depth(),
             community_corroboration: default_community_corroboration(),
             decay_min_partners: default_decay_min_partners(),
+            test_safety_net_min_ratio: default_test_safety_net_min_ratio(),
         }
     }
 }
