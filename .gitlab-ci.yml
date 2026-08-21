@@ -662,7 +662,17 @@ github-sync:
     - ssh-keyscan -H github.com >> ~/.ssh/known_hosts
   script:
     - git remote add github git@github.com:edouard-mangel/Barad-Dur.git 2>/dev/null || true
-    - git push github HEAD:main
+    # Two merges landing close together run their sync jobs out of order;
+    # a rejected push is fine when the mirror already contains this commit.
+    - |
+      if ! git push github HEAD:main; then
+        git fetch github main
+        if git merge-base --is-ancestor HEAD FETCH_HEAD; then
+          echo "Mirror already ahead (contains $CI_COMMIT_SHA) — nothing to sync"
+        else
+          echo "Mirror diverged from $CI_COMMIT_SHA" && exit 1
+        fi
+      fi
     - if [ -n "$CI_COMMIT_TAG" ]; then git push github --tags; fi
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule" && $CI_PIPELINE_SOURCE != "trigger"
