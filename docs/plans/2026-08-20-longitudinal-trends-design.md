@@ -51,7 +51,12 @@ never touch `backfill/`; M4 never touches the metric-time slicers.
   every merged MR — the exact failure the org-coupling hardening fixed;
   reuse or mirror `team::files_by_bucket`'s exclusion, not a third policy).
   Empty days are emitted with zeros so the shape (spikes, silences) is
-  visible without client-side gap-filling.
+  visible without client-side gap-filling. *(Revised per the MR !96
+  post-merge review: zero-fill is capped to the most recent 365 active
+  days so one misdated ancient commit cannot serialize decades of empty
+  buckets; days exist only where in-tree files moved, so excluded-only
+  commits — lockfile bumps — never anchor the range; the known-files
+  membership test is the shared `RepoSnapshot::known_paths` helper.)*
 - **Ch. 14's prioritization half**: `CouplingPair` rows gain
   `growth_a`/`growth_b` (net lines added−deleted in-window per side) so a
   user can see *which* member of a temporally-coupled pair actually grew.
@@ -70,9 +75,17 @@ New Evolution metric `"Code/test growth balance"`:
   per **window half** (first half vs second half by timestamp — two slices,
   a constant `GROWTH_SLICES: usize = 2`, no config).
 - Description (exact, tested):
-  `source +1240 / test +310 lines this window; second half ratio 4.0:1 (first half 2.1:1)`
+  `source +1240 / test-file +310 lines this window; second half ratio 4.0:1 (first half 2.1:1)`
 - Evidence list: the top source files added-to in the second half that have
   no test-role co-change partner in the window (the "death march" tell).
+- *(Revised per the MR !97 post-ship review: the test side counts test
+  **files** with a code extension only — inline `#[cfg(test)]` modules
+  count as source and regenerated fixtures under `tests/` count as
+  neither, hence the "test-file" wording; the partner exemption is scoped
+  to second-half commits so a test touched months ago cannot mask recent
+  untested growth; a window where either half holds no commits reports
+  "too few active moments for a half-window comparison" instead of a
+  fabricated ratio; and displayed ratios are bounded to <0.1:1 / >999.9:1.)*
 - **`score: None` permanently in v1** (risk 5): a growth ratio has no
   defensible universal band; `score: None` metrics are excluded from the
   category average by `compute_score` (established semantics), so this adds
