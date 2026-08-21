@@ -43,25 +43,38 @@ fn co_change_count(commits_a: &[CommitId], commits_b: &[CommitId]) -> usize {
     commits_b.iter().filter(|c| a_set.contains(c)).count()
 }
 
-/// The 7 stem forms `is_test_of(source_stem, _)` recognizes as "this is a
-/// test of `source_stem`" — kept in lockstep with `file_role::is_test_of`
-/// (private to that module, so duplicated here rather than exposed just for
-/// this one caller). Deriving these and probing a stem index is the
-/// candidate-discovery half of `is_test_pair(source, test)`'s
-/// `is_test_of(sa, sb)` branch: `sb` (the candidate's stem) must be exactly
-/// one of these forms of `sa` (the source's stem).
+/// The 6 bare suffix forms `is_test_of(_, source_stem)` can hold under —
+/// i.e. `source_stem` itself equals `{base}{suffix}` for one of these — used
+/// by the reverse-direction half of `candidate_stems` below. Kept in
+/// lockstep with `file_role::is_test_of`'s test-argument forms (`test`,
+/// `tests`, `.test`, `.spec`, `_test`, `_spec`); the 7th form, the `test_`
+/// prefix, is handled separately since it strips from the front.
+const REVERSE_STRIP_SUFFIXES: &[&str] = &["tests", "test", ".test", ".spec", "_test", "_spec"];
+const REVERSE_STRIP_PREFIX: &str = "test_";
+
+/// Every stem `is_test_pair(source, candidate)` can match against, for a
+/// source whose lowercase pair-stem is `source_stem` — the full, provably
+/// symmetric closure of `is_test_of(sa, sb) || is_test_of(sb, sa)` restricted
+/// to `sa = source_stem`, split into its two directions:
 ///
-/// The predicate's other branch, `is_test_of(sb, sa)` — the source's own
-/// stem being a test-form of the candidate's stem — is not derivable this
-/// way in general, but is a non-issue for real inputs here: every one of
-/// these 7 forms except bare `{s}test`/`{s}tests` concatenation ends with a
-/// separator (`_test`, `_spec`, `.test`, `.spec`) or starts with `test_`,
-/// which `file_role::classify` already recognizes as a test name — so a
-/// source-role file (by construction, not classified `Test`) essentially
-/// never has a stem shaped like the candidate's-stem-plus-suffix. The
-/// debug-only cross-check below guards this assumption against fixtures.
-fn candidate_stems(source_stem: &str) -> [String; 7] {
-    [
+/// - Forward (`is_test_of(sa, sb)`, `sb` unknown): the candidate's stem must
+///   be exactly one of the 7 forms of `source_stem` — `{s}test`, `{s}tests`,
+///   `{s}.test`, `{s}.spec`, `{s}_test`, `{s}_spec`, `test_{s}`. These are
+///   looked up directly.
+/// - Reverse (`is_test_of(sb, sa)`, `sb` unknown): `source_stem` itself must
+///   equal one of those same 7 forms applied to the (unknown) candidate
+///   stem `sb` — so `sb` is recovered by *stripping* each form's
+///   suffix/prefix from `source_stem` wherever it's actually present.
+///   Each successful strip yields one more candidate stem to look up (up to
+///   7 extra, one per form); a form that doesn't match `source_stem`
+///   contributes nothing.
+///
+/// Together these two directions cover exactly what a naive `is_test_pair`
+/// scan over every Test-role file would find — proven per-call by the
+/// `debug_assert!` cross-check in `strongest_test_pairing` — while staying
+/// O(1) lookups per source instead of an O(test files) scan.
+fn candidate_stems(source_stem: &str) -> Vec<String> {
+    let mut stems = vec![
         format!("{source_stem}test"),
         format!("{source_stem}tests"),
         format!("{source_stem}.test"),
@@ -69,27 +82,52 @@ fn candidate_stems(source_stem: &str) -> [String; 7] {
         format!("{source_stem}_test"),
         format!("{source_stem}_spec"),
         format!("test_{source_stem}"),
-    ]
+    ];
+
+    for suffix in REVERSE_STRIP_SUFFIXES {
+        if let Some(base) = source_stem.strip_suffix(suffix) {
+            stems.push(base.to_string());
+        }
+    }
+    if let Some(base) = source_stem.strip_prefix(REVERSE_STRIP_PREFIX) {
+        stems.push(base.to_string());
+    }
+
+    stems
 }
 
-/// Cross-check helper for the `debug_assert!` below: the stem-index lookup
-/// must find exactly the same candidates a naive `is_test_pair` scan over
-/// every Test-role file would find. Only ever *evaluated* under
-/// `debug_assert!` (a no-op in release builds), so this O(test files) scan
-/// never runs in production — it exists purely so a fixture that breaks the
-/// index/scan parity fails loudly under `cargo test`.
-fn indexed_candidates_match_scan(
+/// Cross-check for the debug-only guard in `strongest_test_pairing`: the
+/// stem-index lookup must find exactly the same candidates a naive
+/// `is_test_pair` scan over every Test-role file would find. Returns `None`
+/// when they match, otherwise a diagnostic naming the symmetric difference
+/// — candidates the index found that the scan didn't (should never happen;
+/// would mean a false-positive form) and candidates the scan found that the
+/// index missed (the class of bug this guard exists to catch). Only ever
+/// called from behind `cfg!(debug_assertions)` (a no-op in release builds),
+/// so this O(test files) scan never runs in production.
+fn indexed_candidates_diff(
     source: &Path,
     indexed: &[&PathBuf],
     test_files: &[&PathBuf],
-) -> bool {
+) -> Option<String> {
     let indexed_set: HashSet<&PathBuf> = indexed.iter().copied().collect();
     let scanned_set: HashSet<&PathBuf> = test_files
         .iter()
         .copied()
         .filter(|test| is_test_pair(source, test))
         .collect();
-    indexed_set == scanned_set
+
+    if indexed_set == scanned_set {
+        return None;
+    }
+
+    let index_only: Vec<&PathBuf> = indexed_set.difference(&scanned_set).copied().collect();
+    let scan_only: Vec<&PathBuf> = scanned_set.difference(&indexed_set).copied().collect();
+    Some(format!(
+        "stem-index candidates diverge from is_test_pair scan for {source:?}: \
+         index-only (unexpected — a false-positive form) = {index_only:?}, \
+         scan-only (missed by the index) = {scan_only:?}"
+    ))
 }
 
 /// For every Source-role file with a nonzero commit count and a
@@ -104,9 +142,10 @@ fn indexed_candidates_match_scan(
 /// Candidate discovery is index-based rather than an O(sources × test
 /// files) scan through `is_test_pair` (which itself does ~16 heap
 /// allocations per probe): Test-role files are indexed once by lowercase
-/// pair-stem, then each source derives its 7 candidate stems
-/// (`candidate_stems`) and does 7 direct map lookups — O(sources × 7)
-/// lookups total, regardless of repo size.
+/// pair-stem, then each source derives up to 14 candidate stems
+/// (`candidate_stems`: 7 forward forms plus up to 7 reverse strips) and does
+/// that many direct map lookups — O(sources) lookups total (a small,
+/// bounded constant per source), regardless of repo size.
 fn strongest_test_pairing(snapshot: &RepoSnapshot) -> HashMap<PathBuf, TestPairing> {
     let test_files: Vec<&PathBuf> = snapshot
         .files
@@ -148,10 +187,15 @@ fn strongest_test_pairing(snapshot: &RepoSnapshot) -> HashMap<PathBuf, TestPairi
                 .copied()
                 .collect();
 
-            debug_assert!(
-                indexed_candidates_match_scan(source, &candidates, &test_files),
-                "stem-index candidates diverge from is_test_pair scan for {source:?}"
-            );
+            // Manually gated on the same flag `debug_assert!` uses (rather
+            // than `debug_assert!(indexed_candidates_diff(..).is_none())`)
+            // so the diff — and the format work to render it — is computed
+            // at most once, only on divergence, only in debug builds.
+            if cfg!(debug_assertions) {
+                if let Some(diff) = indexed_candidates_diff(source, &candidates, &test_files) {
+                    panic!("{diff}");
+                }
+            }
 
             candidates
                 .iter()
@@ -620,5 +664,31 @@ mod tests {
             panic!("expected RawValue::List");
         };
         assert_eq!(swapped_list, list);
+    }
+
+    #[test]
+    fn reverse_direction_bare_concatenation_pairs_via_test_dir_candidate() {
+        // Regression (scoped re-review counterexample): source stem
+        // "usertest" is a bare-concatenation test-form of "user"
+        // (`is_test_of("user", "usertest")` is true) but has no separator,
+        // so `has_test_name` does not classify "usertest.rs" as Test — it
+        // stays Source. Its candidate, "user.rs", is Test-role only
+        // because it lives in a `tests/` directory, not because of its own
+        // stem. The naive `is_test_pair` scan finds this pair via its
+        // `is_test_of(sb, sa)` branch; the stem index must find it too via
+        // the reverse-strip derivation, not just the forward 7 forms.
+        let snapshot = source_test_snapshot("src/usertest.rs", "tests/user.rs", 10, 10, 5);
+
+        let pairing = strongest_test_pairing(&snapshot);
+        let entry = pairing
+            .get(&PathBuf::from("src/usertest.rs"))
+            .expect("reverse-direction pairing must be found");
+        assert_eq!(entry.test_path, PathBuf::from("tests/user.rs"));
+
+        let result = test_safety_net(&snapshot, &CouplingThresholds::default());
+        assert_eq!(
+            result.description,
+            "0 of 1 source/test pairs below 30% co-change"
+        );
     }
 }
