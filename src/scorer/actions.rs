@@ -298,6 +298,7 @@ fn target_tab_for_metric(metric_name: &str) -> (Option<&'static str>, Option<&'s
         "Efferent coupling" => (Some("coupling"), None),
         "Circular dependencies" => (Some("coupling"), None),
         "Change coupling smells" => (Some("coupling"), None),
+        "Test safety net" => (Some("coupling"), None),
         "Knowledge distribution" => (Some("ownership"), None),
         "Ownership clarity" => (Some("ownership"), None),
         "Collaboration patterns" => (Some("ownership"), None),
@@ -334,6 +335,9 @@ fn suggest_action(metric_name: &str) -> &'static str {
         }
         "Change coupling smells" => {
             "Decouple cross-boundary co-changing files by introducing interfaces or shared abstractions"
+        }
+        "Test safety net" => {
+            "Revive the paired tests of recently-changed source files — start with the lowest co-change pairs"
         }
         "Knowledge distribution" => "Encourage cross-team contributions and rotate ownership",
         "Contributor activity" => "Onboard more active contributors or check team health",
@@ -444,6 +448,10 @@ mod tests {
             target_tab_for_metric("Knowledge loss"),
             (Some("ownership"), None)
         );
+        assert_eq!(
+            target_tab_for_metric("Test safety net"),
+            (Some("coupling"), None)
+        );
     }
 
     #[test]
@@ -463,6 +471,10 @@ mod tests {
         assert_eq!(
             suggest_action("Knowledge loss"),
             "Schedule knowledge-transfer or documentation passes over the most unattributed files"
+        );
+        assert_eq!(
+            suggest_action("Test safety net"),
+            "Revive the paired tests of recently-changed source files — start with the lowest co-change pairs"
         );
     }
     use crate::metrics::{CategoryResult, MetricValue, RawValue};
