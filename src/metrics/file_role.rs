@@ -135,6 +135,38 @@ pub fn classify(path: &Path) -> FileRole {
     }
 }
 
+fn pair_stem(path: &str) -> String {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    // Strip only the last extension so compound extensions like .test.ts are preserved
+    match name.rfind('.') {
+        Some(pos) => name[..pos].to_string(),
+        None => name.to_string(),
+    }
+}
+
+fn is_test_of(prod: &str, test: &str) -> bool {
+    test == format!("{}test", prod)
+        || test == format!("{}tests", prod)
+        || test == format!("{}.test", prod)
+        || test == format!("{}.spec", prod)
+        || test == format!("{}_test", prod)
+        || test == format!("{}_spec", prod)
+        || test == format!("test_{}", prod)
+}
+
+/// Stem-based source↔test pairing (user.go ↔ user_test.go, parser.ts ↔
+/// parser.spec.ts, …). Single source of truth shared by the coupling-pair
+/// badge and the safety-net metric — extracted per the M5 precedent so two
+/// call sites can't drift on what "a test pair" means.
+pub fn is_test_pair(a: &Path, b: &Path) -> bool {
+    let (Some(a), Some(b)) = (a.to_str(), b.to_str()) else {
+        return false;
+    };
+    let sa = pair_stem(a).to_lowercase();
+    let sb = pair_stem(b).to_lowercase();
+    is_test_of(&sa, &sb) || is_test_of(&sb, &sa)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,6 +174,118 @@ mod tests {
 
     fn role(p: &str) -> FileRole {
         classify(&PathBuf::from(p))
+    }
+
+    #[test]
+    fn is_test_pair_parity_with_scorer_builder_cases() {
+        assert!(is_test_pair(
+            &PathBuf::from("user.go"),
+            &PathBuf::from("user_test.go")
+        ));
+        assert!(is_test_pair(
+            &PathBuf::from("parser.ts"),
+            &PathBuf::from("parser.spec.ts")
+        ));
+        assert!(is_test_pair(
+            &PathBuf::from("api.py"),
+            &PathBuf::from("test_api.py")
+        ));
+        assert!(is_test_pair(
+            &PathBuf::from("Widget.cs"),
+            &PathBuf::from("WidgetTests.cs")
+        ));
+        assert!(is_test_pair(
+            &PathBuf::from("a/b/mod.rs"),
+            &PathBuf::from("a/b/mod_test.rs")
+        ));
+        assert!(!is_test_pair(
+            &PathBuf::from("user.go"),
+            &PathBuf::from("order_test.go")
+        ));
+        assert!(!is_test_pair(
+            &PathBuf::from("a.rs"),
+            &PathBuf::from("b.rs")
+        ));
+    }
+
+    #[test]
+    fn is_test_pair_detects_suffix_test() {
+        assert!(is_test_pair(
+            &PathBuf::from("src/UserService.java"),
+            &PathBuf::from("tests/UserServiceTest.java")
+        ));
+        assert!(is_test_pair(
+            &PathBuf::from("src/UserService.java"),
+            &PathBuf::from("tests/UserServiceTests.java")
+        ));
+        assert!(is_test_pair(
+            &PathBuf::from("tests/UserServiceTest.java"),
+            &PathBuf::from("src/UserService.java")
+        )); // symmetric
+    }
+
+    #[test]
+    fn is_test_pair_detects_dot_test_spec() {
+        assert!(is_test_pair(
+            &PathBuf::from("src/parser.ts"),
+            &PathBuf::from("src/parser.test.ts")
+        ));
+        assert!(is_test_pair(
+            &PathBuf::from("src/parser.ts"),
+            &PathBuf::from("src/parser.spec.ts")
+        ));
+        assert!(is_test_pair(
+            &PathBuf::from("src/parser.test.ts"),
+            &PathBuf::from("src/parser.ts")
+        ));
+    }
+
+    #[test]
+    fn is_test_pair_detects_underscore_test_spec() {
+        assert!(is_test_pair(
+            &PathBuf::from("user.go"),
+            &PathBuf::from("user_test.go")
+        ));
+        assert!(is_test_pair(
+            &PathBuf::from("user.go"),
+            &PathBuf::from("user_spec.go")
+        ));
+        assert!(is_test_pair(
+            &PathBuf::from("user_test.go"),
+            &PathBuf::from("user.go")
+        ));
+    }
+
+    #[test]
+    fn is_test_pair_detects_test_prefix() {
+        assert!(is_test_pair(
+            &PathBuf::from("user.py"),
+            &PathBuf::from("test_user.py")
+        ));
+        assert!(is_test_pair(
+            &PathBuf::from("test_user.py"),
+            &PathBuf::from("user.py")
+        ));
+    }
+
+    #[test]
+    fn is_test_pair_case_insensitive() {
+        assert!(is_test_pair(
+            &PathBuf::from("UserService.cs"),
+            &PathBuf::from("USERSERVICETEST.cs")
+        ));
+    }
+
+    #[test]
+    fn is_test_pair_rejects_unrelated_pairs() {
+        assert!(!is_test_pair(
+            &PathBuf::from("src/user.rs"),
+            &PathBuf::from("src/order.rs")
+        ));
+        assert!(!is_test_pair(
+            &PathBuf::from("src/user.rs"),
+            &PathBuf::from("src/user_handler.rs")
+        ));
     }
 
     #[test]
