@@ -80,6 +80,15 @@ fn html_is_valid_document() {
 }
 
 #[test]
+fn html_explains_context_aware_scoring() {
+    let html = render(&make_report()).unwrap();
+    assert!(html.contains("contributors required to cover 80%"));
+    assert!(html.contains("Advisory until real team boundaries are configured"));
+    assert!(html.contains("Informational and unscored"));
+    assert!(html.contains("affected-file prevalence"));
+}
+
+#[test]
 fn html_has_cbf_css_tokens() {
     let html = render(&make_report()).unwrap();
     assert!(html.contains("--c-good:"), "--c-good token must be in CSS");

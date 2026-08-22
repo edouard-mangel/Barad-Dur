@@ -22,7 +22,11 @@ Barad-dur analyzes git metadata (commits, blame, file tree) and source code comp
 | **Team** | Knowledge distribution (Gini), contributor activity, ownership clarity, silos, merge patterns | 10% |
 | **Dependencies** *(optional)* | Dependency drift (libyear), vulnerability detection via OSV | 0% by default |
 
-Each metric scores 0-100. Category scores are averages. The overall score is a weighted average. The report includes **Top Actions** — concrete suggestions from the lowest-scoring metrics.
+Scored metrics use a 0-100 scale. Category scores average only the metrics with a numeric score, and the overall score is a weighted average of those categories. Contextual signals whose interpretation depends on repository structure or team configuration are marked **advisory** and do not lower the score.
+
+For repositories with at least 100 production-source files, finding-based metrics are normalized by prevalence: no affected files scores 100, up to 1% scores 90, up to 5% scores 75, up to 20% scores 50, and above 20% scores 25. Smaller repositories retain count bands so a tiny denominator does not hide a meaningful finding. Tests, documentation, configuration, and generated files are excluded where a metric is specifically about production maintainability.
+
+The report includes **Top Actions** — concrete suggestions from the lowest-scoring metrics.
 
 ### File-level analysis
 
@@ -57,9 +61,9 @@ This produces per-file metrics: **LOC** (excluding blanks/comments), **cyclomati
   ▸ Git Hygiene   ███████████░ 93/100
 
   Top Actions:
-  1. [Health] Bus factor (score: 20) — Increase code review coverage
-  2. [Team] Collaboration patterns (score: 25) — Break directory silos
-  3. [Evolution] Growth trend (score: 40) — Monitor growth rate
+  1. [Health] Bus factor (score: 25) — Increase code review coverage
+  2. [Health] Complex hotspots (score: 50) — Prioritize risky refactors
+  3. [Coupling] Circular dependencies (score: 50) — Break dependency cycles
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
