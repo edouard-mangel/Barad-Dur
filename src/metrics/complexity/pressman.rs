@@ -340,7 +340,13 @@ fn js_global_write(node: Node<'_>, content: &str, path: &Path) -> Option<Couplin
     let root = member_chain_root(left)?;
     let is_global =
         root.kind() == "identifier" && matches!(text(root, content), "globalThis" | "window");
-    is_global.then(|| finding(path, node, CouplingKind::Common, content))
+    // Assigning browser navigation is an external side effect, not shared
+    // mutable application state. Treating logout redirects as Common
+    // coupling made ordinary web applications hit the severity cap.
+    let target = text(left, content);
+    let is_navigation =
+        target.starts_with("window.location") || target.starts_with("globalThis.location");
+    (is_global && !is_navigation).then(|| finding(path, node, CouplingKind::Common, content))
 }
 
 /// Class with a static `instance` field or static `getInstance()` → Common.
@@ -762,6 +768,12 @@ mod tests {
             findings_for("src/boot.js", "window.cache = new Map();\n").len(),
             1
         );
+    }
+
+    #[test]
+    fn js_navigation_assignment_is_not_common_coupling() {
+        assert!(findings_for("src/logout.ts", "window.location.href = logoutUrl;\n").is_empty());
+        assert!(findings_for("src/nav.ts", "globalThis.location.href = url;\n").is_empty());
     }
 
     #[test]

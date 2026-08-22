@@ -214,6 +214,17 @@ fn circular_deps_direct() {
 }
 
 #[test]
+fn circular_deps_ignore_self_edges() {
+    let mut snapshot = make_snapshot();
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("a.rs"), vec![PathBuf::from("a.rs")]);
+    let result = circular_dependencies(&snapshot);
+    assert_eq!(result.score, Some(100));
+    assert!(matches!(result.raw_value, RawValue::List(ref cycles) if cycles.is_empty()));
+}
+
+#[test]
 fn circular_deps_transitive_depth2() {
     let mut snapshot = make_snapshot();
     // A→B→C→A
@@ -309,7 +320,7 @@ fn change_coupling_cross_component_above_threshold_counted() {
         (0u32..10).map(CommitId).collect::<Vec<_>>(),
     );
     let result = change_coupling_smells(&snapshot, &default_thresholds());
-    assert_eq!(result.score, Some(75)); // 1 smell
+    assert_eq!(result.score, Some(100)); // uncorroborated co-change is advisory
 }
 
 #[test]
@@ -365,15 +376,15 @@ fn change_coupling_scoring_bands() {
     );
     assert_eq!(
         change_coupling_smells(&make_cross_boundary_snapshot(2), &default_thresholds()).score,
-        Some(75)
+        Some(100)
     );
     assert_eq!(
         change_coupling_smells(&make_cross_boundary_snapshot(4), &default_thresholds()).score,
-        Some(50)
+        Some(100)
     );
     assert_eq!(
         change_coupling_smells(&make_cross_boundary_snapshot(6), &default_thresholds()).score,
-        Some(25)
+        Some(100)
     );
 }
 
@@ -441,7 +452,7 @@ fn change_coupling_smells_same_community_not_counted() {
         .insert(PathBuf::from("tests/b.rs"), vec![PathBuf::from("src/a.rs")]);
 
     let result = change_coupling_smells(&snapshot, &default_thresholds());
-    assert_eq!(result.score, Some(75));
+    assert_eq!(result.score, Some(100));
     assert!(
         result.description.contains("0 also cross-community"),
         "description was: {}",
@@ -532,7 +543,7 @@ fn change_coupling_depth3_different_component() {
         (0u32..10).map(CommitId).collect::<Vec<_>>(),
     );
     let result = change_coupling_smells(&snapshot, &thresholds_with_depth(3));
-    assert_eq!(result.score, Some(75)); // 1 smell
+    assert_eq!(result.score, Some(100)); // no structural corroboration
 }
 
 #[test]
@@ -1119,8 +1130,8 @@ fn qualifying_smell_pairs_matches_change_coupling_count() {
     );
     assert_eq!(
         change_coupling_smells(&snapshot, &default_thresholds()).score,
-        Some(50),
-        "refactored smell metric must keep its score"
+        Some(100),
+        "uncorroborated co-change pairs must not lower the score"
     );
 }
 

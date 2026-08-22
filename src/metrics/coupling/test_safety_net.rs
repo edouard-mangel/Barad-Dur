@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use crate::config::CouplingThresholds;
 use crate::metrics::file_role::{classify, is_test_pair, pair_stem, FileRole};
-use crate::metrics::{score_count_bands, MetricValue, RawValue};
+use crate::metrics::{score_prevalence, MetricValue, RawValue};
 use crate::snapshot::{CommitId, RepoSnapshot};
 
 /// The strongest (highest co-change ratio) test-file candidate found for a
@@ -18,6 +18,61 @@ use crate::snapshot::{CommitId, RepoSnapshot};
 struct TestPairing {
     test_path: PathBuf,
     co_change_ratio: f64,
+}
+
+fn language_family(path: &Path) -> &str {
+    match path.extension().and_then(|ext| ext.to_str()).unwrap_or("") {
+        "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" => "js",
+        other => other,
+    }
+}
+
+fn first_component(path: &Path) -> Option<&std::ffi::OsStr> {
+    path.components().next().map(|part| part.as_os_str())
+}
+
+fn project_scope(path: &Path) -> String {
+    let parts: Vec<_> = path
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy())
+        .collect();
+    if parts.len() <= 1 {
+        return ".".to_string();
+    }
+    if let Some(src) = parts.iter().position(|part| part == "src") {
+        return if src == 0 {
+            ".".to_string()
+        } else {
+            parts[..src].join("/")
+        };
+    }
+    if parts.len() >= 3 && matches!(parts[1].as_ref(), "packages" | "frontends") {
+        return parts[..3].join("/");
+    }
+    parts
+        .first()
+        .map_or_else(|| ".".to_string(), ToString::to_string)
+}
+
+fn same_project_scope(source: &Path, test: &Path) -> bool {
+    let common_root_dir = |name: &std::ffi::OsStr| {
+        matches!(
+            name.to_str().unwrap_or_default(),
+            "src" | "test" | "tests" | "spec" | "specs"
+        )
+    };
+    match (first_component(source), first_component(test)) {
+        (Some(a), Some(b)) if common_root_dir(a) && common_root_dir(b) => true,
+        (Some(a), Some(b)) => {
+            (a == b || (project_scope(source) == "." && project_scope(test) == "."))
+                && project_scope(source) == project_scope(test)
+        }
+        _ => true,
+    }
+}
+
+fn compatible_pair(source: &Path, test: &Path) -> bool {
+    language_family(source) == language_family(test) && same_project_scope(source, test)
 }
 
 /// Exact co-change count between two files: the size of the intersection of
@@ -114,7 +169,7 @@ fn indexed_candidates_diff(
     let scanned_set: HashSet<&PathBuf> = test_files
         .iter()
         .copied()
-        .filter(|test| is_test_pair(source, test))
+        .filter(|test| is_test_pair(source, test) && compatible_pair(source, test))
         .collect();
 
     if indexed_set == scanned_set {
@@ -185,6 +240,7 @@ fn strongest_test_pairing(snapshot: &RepoSnapshot) -> HashMap<PathBuf, TestPairi
                 .filter_map(|stem| test_index.get(stem))
                 .flatten()
                 .copied()
+                .filter(|test| compatible_pair(source, test))
                 .collect();
 
             // Manually gated on the same flag `debug_assert!` uses (rather
@@ -277,7 +333,7 @@ pub(crate) fn test_safety_net(
             "{flagged} of {checked} source/test pairs below {threshold_pct:.0}% co-change{erosion_note}"
         ),
         raw_value: RawValue::List(evidence),
-        score: Some(score_count_bands(flagged)),
+        score: Some(score_prevalence(flagged, checked)),
     }
 }
 
@@ -285,6 +341,30 @@ pub(crate) fn test_safety_net(
 mod tests {
     use super::*;
     use crate::metrics::testutil::{make_file, make_snapshot};
+
+    #[test]
+    fn compatibility_rejects_cross_project_and_cross_language_matches() {
+        assert!(!compatible_pair(
+            Path::new("api/app/Formatters.php"),
+            Path::new("front/tests/Formatters.spec.tsx")
+        ));
+        assert!(!compatible_pair(
+            Path::new("api/app/User.php"),
+            Path::new("template/api/tests/UserTest.php")
+        ));
+        assert!(compatible_pair(
+            Path::new("api/app/User.php"),
+            Path::new("api/tests/UserTest.php")
+        ));
+        assert!(compatible_pair(
+            Path::new("src/parser.ts"),
+            Path::new("tests/parser.spec.tsx")
+        ));
+        assert!(!compatible_pair(
+            Path::new("front/packages/arc/src/components/index.ts"),
+            Path::new("front/packages/auth/src/index.spec.ts")
+        ));
+    }
 
     fn ids(values: &[u32]) -> Vec<CommitId> {
         values.iter().copied().map(CommitId).collect()

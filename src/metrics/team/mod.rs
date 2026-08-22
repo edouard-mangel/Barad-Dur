@@ -316,26 +316,13 @@ fn collaboration_patterns(
     let count = silos.len();
     let total_dirs = dir_author_lines.len();
 
-    let score = if total_dirs == 0 {
-        50
-    } else {
-        let silo_pct = (count as f64 / total_dirs as f64) * 100.0;
-        if silo_pct > 60.0 {
-            25
-        } else if silo_pct > 30.0 {
-            50
-        } else if silo_pct > 10.0 {
-            75
-        } else {
-            100
-        }
-    };
-
     MetricValue {
         name: "Collaboration patterns".to_string(),
-        description: format!("{} directory silos detected out of {}", count, total_dirs),
+        description: format!(
+            "{count}/{total_dirs} top-level directories have >80% line ownership by one author — advisory; directories are not team boundaries"
+        ),
         raw_value: RawValue::Count(count),
-        score: Some(score),
+        score: None,
     }
 }
 
@@ -658,10 +645,10 @@ fn cross_team_coupling(
     MetricValue {
         name,
         description: format!(
-            "{count} cross-team coupling pair(s) — coupled files with different primary owners{blame_note}"
+            "{count} cross-owner coupling pair(s){blame_note} — advisory; configure real team boundaries before treating this as cross-team risk"
         ),
         raw_value: RawValue::List(findings),
-        score: Some(crate::metrics::score_count_bands(count)),
+        score: None,
     }
 }
 
