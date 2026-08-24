@@ -23,6 +23,8 @@ struct TestPairing {
 fn language_family(path: &Path) -> &str {
     match path.extension().and_then(|ext| ext.to_str()).unwrap_or("") {
         "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" => "js",
+        "c" | "h" | "cc" | "cpp" | "cxx" | "hh" | "hpp" | "hxx" => "c",
+        "java" | "kt" => "jvm",
         other => other,
     }
 }
@@ -46,8 +48,19 @@ fn project_scope(path: &Path) -> String {
             parts[..src].join("/")
         };
     }
-    if parts.len() >= 3 && matches!(parts[1].as_ref(), "packages" | "frontends") {
-        return parts[..3].join("/");
+    // A workspace marker dir scopes to the member right after it, wherever
+    // the marker sits — at the repo root (packages/arc/…) or nested
+    // (front/packages/arc/…).
+    let is_marker = |part: &str| {
+        matches!(
+            part,
+            "packages" | "frontends" | "apps" | "services" | "libs"
+        )
+    };
+    if let Some(pos) = parts.iter().position(|part| is_marker(part)) {
+        if parts.len() > pos + 2 {
+            return parts[..pos + 2].join("/");
+        }
     }
     parts
         .first()
@@ -61,8 +74,18 @@ fn same_project_scope(source: &Path, test: &Path) -> bool {
             "src" | "test" | "tests" | "spec" | "specs"
         )
     };
+    let test_root_dir = |name: &std::ffi::OsStr| {
+        matches!(
+            name.to_str().unwrap_or_default(),
+            "test" | "tests" | "spec" | "specs"
+        )
+    };
     match (first_component(source), first_component(test)) {
         (Some(a), Some(b)) if common_root_dir(a) && common_root_dir(b) => true,
+        // A test tree at the repository root (tests/, spec/, …) serves the
+        // whole repo: any root package dir (app/, lib/, internal/, …)
+        // pairs with it.
+        (Some(_), Some(b)) if test_root_dir(b) => true,
         (Some(a), Some(b)) => {
             (a == b || (project_scope(source) == "." && project_scope(test) == "."))
                 && project_scope(source) == project_scope(test)
@@ -366,6 +389,76 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn compatibility_accepts_root_level_package_and_test_dirs() {
+        // The standard single-project layouts: a package dir at the root
+        // paired with a root-level test tree (Django app/ + tests/, Ruby
+        // lib/ + spec/, Go internal/ + tests/).
+        assert!(compatible_pair(
+            Path::new("app/models.py"),
+            Path::new("tests/test_models.py")
+        ));
+        assert!(compatible_pair(
+            Path::new("lib/user.rb"),
+            Path::new("spec/user_spec.rb")
+        ));
+        assert!(compatible_pair(
+            Path::new("internal/parser.go"),
+            Path::new("tests/parser_test.go")
+        ));
+    }
+
+    #[test]
+    fn compatibility_accepts_root_level_monorepo_workspace_pairs() {
+        // Root-level workspace markers (the default pnpm/yarn layout) must
+        // scope to the workspace member, same as the nested front/packages
+        // form already does.
+        assert!(compatible_pair(
+            Path::new("packages/arc/src/Button.tsx"),
+            Path::new("packages/arc/tests/Button.spec.tsx")
+        ));
+        assert!(!compatible_pair(
+            Path::new("packages/arc/src/Button.tsx"),
+            Path::new("packages/auth/tests/Button.spec.tsx")
+        ));
+        assert!(compatible_pair(
+            Path::new("services/auth/src/session.go"),
+            Path::new("services/auth/tests/session_test.go")
+        ));
+        assert!(compatible_pair(
+            Path::new("apps/web/src/router.ts"),
+            Path::new("apps/web/tests/router.spec.ts")
+        ));
+        // A marker dir holding files directly (no member dir after it) must
+        // not consume the filename as a workspace member.
+        assert!(compatible_pair(
+            Path::new("packages/util.ts"),
+            Path::new("packages/util.spec.ts")
+        ));
+    }
+
+    #[test]
+    fn compatibility_accepts_cross_extension_pairs_within_language_family() {
+        // C/C++ headers tested by .cpp files and Java code tested in Kotlin
+        // are the same language family; unrelated languages still reject.
+        assert!(compatible_pair(
+            Path::new("include/foo.hpp"),
+            Path::new("tests/foo_test.cpp")
+        ));
+        assert!(compatible_pair(
+            Path::new("src/foo.h"),
+            Path::new("tests/foo_test.c")
+        ));
+        assert!(compatible_pair(
+            Path::new("src/User.java"),
+            Path::new("test/UserTest.kt")
+        ));
+        assert!(!compatible_pair(
+            Path::new("src/user.py"),
+            Path::new("tests/user_test.rb")
+        ));
+    }
+
     fn ids(values: &[u32]) -> Vec<CommitId> {
         values.iter().copied().map(CommitId).collect()
     }
@@ -418,6 +511,19 @@ mod tests {
         snapshot.files = vec![make_file(source), make_file(test)];
         set_shared_commits(&mut snapshot, source, test, commits_a, commits_b, shared);
         snapshot
+    }
+
+    #[test]
+    fn app_plus_tests_layout_is_checked_not_dark() {
+        // Regression: the app/ + tests/ layout must produce a checked (and
+        // here eroding) pairing, not "No source/test pairs detected".
+        let snapshot = source_test_snapshot("app/models.py", "tests/test_models.py", 10, 10, 0);
+        let result = test_safety_net(&snapshot, &CouplingThresholds::default());
+        assert_eq!(result.score, Some(75));
+        assert_eq!(
+            result.description,
+            "1 of 1 source/test pairs below 30% co-change — safety net eroding"
+        );
     }
 
     #[test]

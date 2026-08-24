@@ -283,6 +283,24 @@ fn js_score_color_reads_embedded_thresholds() {
 }
 
 #[test]
+fn js_trends_skips_entries_missing_the_selected_metric() {
+    // A metric absent from a history entry (e.g. one this release made
+    // advisory) must render as a gap, never as a fake drop to score 0.
+    assert!(
+        super::JS_TRENDS.contains("return null"),
+        "trGetScore must return null, not 0, for a metric absent from an entry"
+    );
+    assert!(
+        super::JS_TRENDS.contains("score === null ? 'n/a' : score"),
+        "the tooltip must show n/a for entries with no recorded score"
+    );
+    assert!(
+        super::JS_TRENDS.contains("scores[i] === null"),
+        "the chart must skip dots/points for entries with no recorded score"
+    );
+}
+
+#[test]
 fn js_score_color_is_defined_exactly_once() {
     let js = super::build_js(&make_report());
     assert_eq!(

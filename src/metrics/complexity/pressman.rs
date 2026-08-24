@@ -343,9 +343,16 @@ fn js_global_write(node: Node<'_>, content: &str, path: &Path) -> Option<Couplin
     // Assigning browser navigation is an external side effect, not shared
     // mutable application state. Treating logout redirects as Common
     // coupling made ordinary web applications hit the severity cap.
+    // Exempt window.location itself and member paths under it — not
+    // unrelated globals sharing the prefix (window.locationService).
     let target = text(left, content);
-    let is_navigation =
-        target.starts_with("window.location") || target.starts_with("globalThis.location");
+    let rooted_at = |root: &str| {
+        target == root
+            || target
+                .strip_prefix(root)
+                .is_some_and(|rest| rest.starts_with('.') || rest.starts_with('['))
+    };
+    let is_navigation = rooted_at("window.location") || rooted_at("globalThis.location");
     (is_global && !is_navigation).then(|| finding(path, node, CouplingKind::Common, content))
 }
 
@@ -774,6 +781,25 @@ mod tests {
     fn js_navigation_assignment_is_not_common_coupling() {
         assert!(findings_for("src/logout.ts", "window.location.href = logoutUrl;\n").is_empty());
         assert!(findings_for("src/nav.ts", "globalThis.location.href = url;\n").is_empty());
+        assert!(findings_for("src/nav.ts", "window.location = url;\n").is_empty());
+    }
+
+    #[test]
+    fn js_location_prefixed_globals_are_still_common_coupling() {
+        // The navigation exemption is for window.location itself, not for
+        // unrelated globals that merely share the prefix.
+        assert_eq!(
+            findings_for(
+                "src/boot.ts",
+                "window.locationService = new LocationService();\n"
+            )
+            .len(),
+            1
+        );
+        assert_eq!(
+            findings_for("src/boot.ts", "window.locations = [];\n").len(),
+            1
+        );
     }
 
     #[test]

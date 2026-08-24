@@ -340,7 +340,11 @@ fn change_coupling_smells(snapshot: &RepoSnapshot, thresholds: &CouplingThreshol
     } else {
         smell_pairs.iter().collect()
     };
-    let affected: HashSet<&PathBuf> = scored_pairs.iter().flat_map(|(a, b)| [*a, *b]).collect();
+    let affected: HashSet<&PathBuf> = scored_pairs
+        .iter()
+        .flat_map(|(a, b)| [*a, *b])
+        .filter(|path| classify(path) == FileRole::Source)
+        .collect();
     let source_total = source_population(snapshot).len();
     let score = score_prevalence(affected.len(), source_total);
 
@@ -447,28 +451,46 @@ fn circular_dependencies(snapshot: &RepoSnapshot) -> MetricValue {
         .flat_map(|(a, targets)| targets.iter().map(move |b| (a, b)))
         .filter(|(a, b)| a != b);
 
-    let cycles: HashSet<(PathBuf, PathBuf)> = edges
+    // Keyed by dedup key, valued by the full (sorted) member list: the key
+    // collapses the same loop found from any entry point, while prevalence
+    // and evidence must still see every member.
+    let cycles: HashMap<(PathBuf, PathBuf), Vec<PathBuf>> = edges
         .flat_map(|(a, b)| {
-            let direct = has_edge(graph, b, a).then(|| pair_key(a, b));
+            let direct =
+                has_edge(graph, b, a).then(|| (pair_key(a, b), vec![a.clone(), b.clone()]));
             let depth_two = graph
                 .get(b)
                 .into_iter()
                 .flatten()
                 .filter(move |c| *c != a && *c != b && has_edge(graph, c, a))
-                .map(move |c| trio_key(a, b, c));
+                .map(move |c| {
+                    let mut members = vec![a.clone(), b.clone(), c.clone()];
+                    members.sort();
+                    (trio_key(a, b, c), members)
+                });
             direct.into_iter().chain(depth_two)
         })
         .collect();
 
     let count = cycles.len();
-    let affected: HashSet<&PathBuf> = cycles.iter().flat_map(|(a, b)| [a, b]).collect();
+    let affected: HashSet<&PathBuf> = cycles
+        .values()
+        .flatten()
+        .filter(|path| classify(path) == FileRole::Source)
+        .collect();
     let source_total = source_population(snapshot).len();
     let score = score_prevalence(affected.len(), source_total);
 
     let cycle_list: Vec<String> = cycles
-        .iter()
+        .values()
         .take(10)
-        .map(|(a, b)| format!("{} <-> {}", a.display(), b.display()))
+        .map(|members| {
+            members
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(" <-> ")
+        })
         .collect();
 
     MetricValue {
@@ -676,13 +698,16 @@ pub(crate) fn all_coupling_findings(
     snapshot
         .coupling_findings
         .iter()
-        .filter(|finding| classify(&finding.path) == FileRole::Source)
         .cloned()
         .chain(gated_barrel_findings(snapshot, thresholds))
         .chain(inheritance_findings(
             snapshot,
             thresholds.inheritance_min_depth,
         ))
+        // One filter over AST findings AND the chained extras, mirroring
+        // pressman_metric — the gate/hotspot/counts consumers must agree
+        // with the three Pressman metrics.
+        .filter(|finding| classify(&finding.path) == FileRole::Source)
         .collect()
 }
 

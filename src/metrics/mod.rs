@@ -75,9 +75,11 @@ pub(crate) fn score_count_bands(count: usize) -> u32 {
 /// Absolute-count bands make every sufficiently large repository fail even
 /// when only a tiny fraction of its code is affected.
 pub(crate) fn score_prevalence(flagged: usize, total: usize) -> u32 {
-    if flagged == 0 || total == 0 {
+    if flagged == 0 {
         return 100;
     }
+    // total == 0 (no recognized source population) falls through to the
+    // count bands: findings are real even when the denominator is unknown.
     if total < 100 {
         return score_count_bands(flagged);
     }
@@ -259,6 +261,15 @@ mod prevalence_score_tests {
         assert_eq!(score_prevalence(0, 0), 100);
         assert_eq!(score_prevalence(1, 20), 75);
         assert_eq!(score_prevalence(3, 20), 50);
+    }
+
+    #[test]
+    fn findings_without_a_recognized_source_population_score_by_count() {
+        // A repo whose language has no entry in has_source_extension (Vue,
+        // Elixir, …) has an empty source population; real findings must
+        // fall back to the count bands, not score a perfect 100.
+        assert_eq!(score_prevalence(12, 0), 25);
+        assert_eq!(score_prevalence(1, 0), 75);
     }
 }
 
