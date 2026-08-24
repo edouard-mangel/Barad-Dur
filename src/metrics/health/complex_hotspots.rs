@@ -156,6 +156,10 @@ mod tests {
             RawValue::List(v) => assert_eq!(v.len(), 1),
             _ => panic!("Expected List"),
         }
+        assert_eq!(
+            result.description,
+            "1/4 source files with high complexity and high churn (25.0%)"
+        );
     }
 
     #[test]

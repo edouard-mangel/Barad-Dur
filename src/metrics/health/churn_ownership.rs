@@ -86,7 +86,7 @@ fn is_single_author_dominated(lines: &[crate::snapshot::BlameLine]) -> bool {
     counts
         .into_iter()
         .filter(|(author, _)| *author != crate::metrics::UNKNOWN_AUTHOR)
-        .any(|(_, count)| total > 0 && count as f64 / total as f64 > 0.8)
+        .any(|(_, count)| count * 5 > total * 4) // count / total > 0.8, without the float zero-guard
 }
 
 #[cfg(test)]
@@ -200,6 +200,10 @@ mod tests {
             RawValue::List(v) => assert_eq!(v.len(), 1),
             _ => panic!("expected List"),
         }
+        assert_eq!(
+            m.description,
+            "1/4 source files combine high churn with >80% ownership by one author (25.0%) — advisory; clear ownership alone is not continuity risk"
+        );
     }
 
     #[test]
@@ -223,6 +227,51 @@ mod tests {
         }
         let m = churn_ownership_risk(&s);
         assert_eq!(m.score, None, "ownership concentration is advisory");
+        match &m.raw_value {
+            RawValue::List(v) => assert!(v.is_empty(), "shared file must not be listed as risky"),
+            _ => panic!("expected List"),
+        }
+    }
+
+    #[test]
+    fn exactly_80pct_ownership_not_dominated() {
+        // Dominance requires strictly more than 80% of blame lines; a file
+        // owned at exactly 80/20 must not be flagged even with high churn.
+        let now = Utc::now();
+        let mut s = make_snapshot();
+        add_authors(&mut s, &["Alice", "Bob"]);
+        s.blame_map.insert(
+            PathBuf::from("boundary.rs"),
+            vec![
+                BlameLine {
+                    author_id: 0,
+                    timestamp: now,
+                    line_count: 80,
+                },
+                BlameLine {
+                    author_id: 1,
+                    timestamp: now,
+                    line_count: 20,
+                },
+            ],
+        );
+        s.commits_by_file.insert(
+            PathBuf::from("boundary.rs"),
+            (0..10u32).map(CommitId).collect(),
+        );
+        for i in 1..4usize {
+            s.blame_map
+                .insert(PathBuf::from(format!("ok{}.rs", i)), blame_shared(50));
+            s.commits_by_file.insert(
+                PathBuf::from(format!("ok{}.rs", i)),
+                (0..i as u32).map(CommitId).collect(),
+            );
+        }
+        let m = churn_ownership_risk(&s);
+        match &m.raw_value {
+            RawValue::List(v) => assert!(v.is_empty(), "exactly 80% ownership is not dominance"),
+            _ => panic!("expected List"),
+        }
     }
 
     #[test]

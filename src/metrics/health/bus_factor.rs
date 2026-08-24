@@ -219,6 +219,39 @@ mod tests {
     }
 
     #[test]
+    fn bus_factor_three_contributors_scores_75() {
+        // Three authors at 40/30/30: the top two cover only 70% (< 80%),
+        // all three cover 100% → bus factor 3 → score 75.
+        let mut snapshot = make_snapshot();
+        snapshot.authors = two_authors();
+        snapshot.authors.push(Author {
+            id: 2,
+            name: "Carol".into(),
+            email: "carol@test.com".into(),
+        });
+        let now = Utc::now();
+        let lines: Vec<BlameLine> = (0..100)
+            .map(|i| {
+                let author = if i < 40 {
+                    0
+                } else if i < 70 {
+                    1
+                } else {
+                    2
+                };
+                BlameLine::new(author, now)
+            })
+            .collect();
+        snapshot.blame_map.insert(PathBuf::from("file.rs"), lines);
+        let result = bus_factor(&snapshot, &HealthThresholds::default());
+        assert_eq!(result.score, Some(75));
+        match result.raw_value {
+            RawValue::Count(3) => {}
+            _ => panic!("Expected bus factor of 3"),
+        }
+    }
+
+    #[test]
     fn bus_factor_exact_50pct_not_dominated() {
         // A file where author 0 owns exactly 50% of lines is NOT dominated
         // because dominance requires max * 2 > total (strict majority)
