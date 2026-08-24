@@ -103,7 +103,7 @@ Weights are user-configurable via `.repository-analysis/barad-dur.toml` `[weight
 ### Health (5 metrics)
 | Metric | Algorithm | Score Mapping |
 |--------|-----------|---------------|
-| Bus factor | Min authors for 50% file blame coverage | 1→20, 2→50, 3→75, 4+→100 |
+| Bus factor | Contributors required to cover 80% of attributable lines | 1→25, 2→50, 3→75, 4+→100 |
 | Churn hotspots | Top 5% files by commit frequency | >60% concentration→30, >40%→60, else→90 |
 | Temporal coupling | File pairs with >70% co-change ratio | 0→100, 1-3→75, 4-8→50, 9+→25 |
 | Stale code | Files with zero commits in window | >50%→25, >30%→50, >10%→75, else→100 |
@@ -115,13 +115,13 @@ Weights are user-configurable via `.repository-analysis/barad-dur.toml` `[weight
 | Knowledge distribution | Gini coefficient of blame lines per author | >0.7→20, >0.5→50, >0.3→75, else→100 |
 | Contributor activity | % of authors with commits in window | <30%→25, <50%→50, <70%→75, else→100 |
 | Ownership clarity | % of files with >50% blame to one author | >80%→90, >60%→75, >40%→60, else→40 |
-| Collaboration patterns | Directories where >80% blame is one author | Silo % thresholds |
+| Collaboration patterns | Directories where >80% blame is one author | Advisory; directories are not team boundaries |
 | Merge patterns | Merge commit count and frequency | Context-dependent |
 
 ### Evolution (4 metrics)
 | Metric | Algorithm | Score Mapping |
 |--------|-----------|---------------|
-| Growth trend | Net file count change in window | >50% change→40, >20%→65, else→90 |
+| Growth trend | Net file and line change in window | Advisory; growth is context, not maintainability debt |
 | Refactoring ratio | Modification vs addition-only commits | Healthy balance→90 |
 | Code age | Median blame line timestamp | 3-12 months→90 (sweet spot) |
 | Commit cadence | Daily commit variance (coefficient of variation) | Regular→90, irregular→50 |

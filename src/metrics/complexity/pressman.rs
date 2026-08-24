@@ -340,7 +340,20 @@ fn js_global_write(node: Node<'_>, content: &str, path: &Path) -> Option<Couplin
     let root = member_chain_root(left)?;
     let is_global =
         root.kind() == "identifier" && matches!(text(root, content), "globalThis" | "window");
-    is_global.then(|| finding(path, node, CouplingKind::Common, content))
+    // Assigning browser navigation is an external side effect, not shared
+    // mutable application state. Treating logout redirects as Common
+    // coupling made ordinary web applications hit the severity cap.
+    // Exempt window.location itself and member paths under it — not
+    // unrelated globals sharing the prefix (window.locationService).
+    let target = text(left, content);
+    let rooted_at = |root: &str| {
+        target == root
+            || target
+                .strip_prefix(root)
+                .is_some_and(|rest| rest.starts_with('.') || rest.starts_with('['))
+    };
+    let is_navigation = rooted_at("window.location") || rooted_at("globalThis.location");
+    (is_global && !is_navigation).then(|| finding(path, node, CouplingKind::Common, content))
 }
 
 /// Class with a static `instance` field or static `getInstance()` → Common.
@@ -760,6 +773,31 @@ mod tests {
     fn js_window_write_is_common_coupling() {
         assert_eq!(
             findings_for("src/boot.js", "window.cache = new Map();\n").len(),
+            1
+        );
+    }
+
+    #[test]
+    fn js_navigation_assignment_is_not_common_coupling() {
+        assert!(findings_for("src/logout.ts", "window.location.href = logoutUrl;\n").is_empty());
+        assert!(findings_for("src/nav.ts", "globalThis.location.href = url;\n").is_empty());
+        assert!(findings_for("src/nav.ts", "window.location = url;\n").is_empty());
+    }
+
+    #[test]
+    fn js_location_prefixed_globals_are_still_common_coupling() {
+        // The navigation exemption is for window.location itself, not for
+        // unrelated globals that merely share the prefix.
+        assert_eq!(
+            findings_for(
+                "src/boot.ts",
+                "window.locationService = new LocationService();\n"
+            )
+            .len(),
+            1
+        );
+        assert_eq!(
+            findings_for("src/boot.ts", "window.locations = [];\n").len(),
             1
         );
     }

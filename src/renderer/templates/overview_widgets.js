@@ -251,16 +251,16 @@
   function buildHealthMethodology() {
     return buildMethodologyDetails([
       { name: 'Bus Factor',
-        what: 'Percentage of files where a single author owns >50% of lines.',
-        scoring: '<10% → 100 | <25% → 75 | <50% → 50 | >50% → 25',
+        what: 'Number of active contributors required to cover 80% of attributable lines.',
+        scoring: '1 → 25 | 2 → 50 | 3 → 75 | 4+ → 100',
         why: 'Low bus factor means critical knowledge is concentrated in too few people.' },
       { name: 'God Objects',
         what: 'Files with LOC > 500, or LOC > 300 with >15 public methods, or that structurally dominate the import graph as a connectivity hub.',
-        scoring: '0% → 100 | ≤2% → 75 | ≤8% → 50 | >8% → 25',
+        scoring: 'Large repos: 0% → 100 | ≤1% → 90 | ≤5% → 75 | ≤20% → 50 | >20% → 25',
         why: 'Large or overly central files are hard to understand and change (Fowler: Large Class).' },
       { name: 'Complex Hotspots',
         what: 'Files above the 75th percentile in both cyclomatic complexity and churn.',
-        scoring: '0 → 100 | 1–2 → 75 | 3–5 → 50 | >5 → 25',
+        scoring: 'Large repos: 0% → 100 | ≤1% → 90 | ≤5% → 75 | ≤20% → 50 | >20% → 25',
         why: 'Code that is both complex and frequently changed is the highest-risk area for bugs (Tornhill).' },
       { name: 'Long Methods',
         what: 'Functions with LOC > 40 or cyclomatic complexity > 10.',
@@ -284,12 +284,12 @@
         scoring: 'Scored on median Ce across all files: ≤3 → 100 | ≤6 → 75 | ≤12 → 50 | >12 → 25',
         why: 'Most files in a well-structured codebase are leaf nodes that import few others. A 0.00 median is expected and correct.' },
       { name: 'Circular dependencies',
-        what: 'File pairs that form import cycles: A→B and B→A (depth 1), or A→B→C→A (depth 2).',
-        scoring: '0 → 100 | 1–2 → 75 | 3–5 → 50 | >5 → 25',
+        what: 'Production-source files that form import cycles: A→B and B→A (depth 1), or A→B→C→A (depth 2). Self-imports are ignored.',
+        scoring: 'Large repos: affected-file prevalence — 0% → 100 | ≤1% → 90 | ≤5% → 75 | ≤20% → 50 | >20% → 25',
         why: 'Cycles prevent independent compilation, testing, and deployment. They also make mental models of the codebase harder to build.' },
       { name: 'Change coupling smells',
-        what: 'File pairs that co-change in ≥ 50% of their commits AND live in different top-level components (detected by directory depth).',
-        scoring: '0 → 100 | 1–2 → 75 | 3–5 → 50 | >5 → 25',
+        what: 'Cross-boundary file pairs that co-change above the configured ratio; import-graph communities provide structural corroboration.',
+        scoring: 'Large repos: prevalence of source files in corroborated pairs — 0% → 100 | ≤1% → 90 | ≤5% → 75 | ≤20% → 50 | >20% → 25',
         why: 'Cross-boundary co-change is a structural red flag: two files that always change together but belong to different modules suggest a hidden dependency that should be made explicit.' }
     ]);
   }

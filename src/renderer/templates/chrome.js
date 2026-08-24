@@ -111,23 +111,23 @@
 
   var METRIC_TIPS = {
     // Health
-    'Bus factor':           'Percentage of files where a single author owns >50% of blame lines. A low score means critical knowledge is concentrated in too few people.',
-    'God objects':          'Files with LOC > 500, or LOC > 300 with >15 public methods, or that structurally dominate the import graph as a connectivity hub. Large or overly central files are hard to understand and change (Fowler: Large Class).',
-    'Complex hotspots':     'Files above the 75th percentile in both cyclomatic complexity and churn. Code that is both complex and frequently changed is the highest-risk area for bugs (Tornhill).',
+    'Bus factor':           'Number of active contributors needed to cover 80% of attributable lines. A low score means critical knowledge is concentrated in too few people. Scoring: 1 → 25, 2 → 50, 3 → 75, 4+ → 100.',
+    'God objects':          'Production-source files with LOC > 500, or LOC > 300 with >15 public methods, or that structurally dominate the import graph as a connectivity hub. Large repositories are scored by affected-file prevalence.',
+    'Complex hotspots':     'Production-source files above the 75th percentile in both cyclomatic complexity and churn. Large repositories are scored by affected-file prevalence.',
     'Long methods':         'Functions with LOC > 40 or cyclomatic complexity > 10. Long or complex functions are harder to test, understand, and maintain (Fowler: Long Method).',
     'Code biomarkers':      'Files with nesting depth > 4 or nesting variance > 2.0. Deeply nested code signals accumulated complexity; high variance indicates erratic structure (Tornhill: Code Biomarkers).',
-    'Churn-ownership risk': 'Frequently changed files that are also solo-owned. A single person responsible for high-churn code is both a knowledge risk and a review bottleneck.',
+    'Churn-ownership risk': 'Production-source files that are both above the churn quartile and >80% owned by one author. Advisory only: clear ownership is useful evidence, but is not continuity risk without team context.',
     // Team
     'Knowledge distribution':  'How evenly commit knowledge is spread across contributors. Concentration in one or two people is a bus-factor risk for the whole team.',
     'Contributor activity':    'Percentage of contributors who committed in the last 3 months. High churn means accumulated context is regularly lost.',
     'Ownership clarity':       'Percentage of files with a clear owner (one author > 50% of blame lines). Clear ownership improves accountability and review quality.',
-    'Collaboration patterns':  'How many pairs of authors co-modify the same files. Isolated contributors indicate knowledge silos and single points of failure.',
+    'Collaboration patterns':  'Top-level directories with >80% line ownership by one author. Advisory only because directory boundaries do not necessarily represent teams or knowledge silos.',
     'Merge patterns':          'Ratio of merge commits and history irregularities. Excessive merges obscure history; very few may mean force-pushes that hide context.',
     'Code/test growth balance': 'Lines added to source vs test-code files per window half; unscored by design (informational). Inline unit tests inside source files count as source, and renames appear as new-file additions.',
-    'Cross-team coupling':     'File pairs that repeatedly change on the same author-day but are majority-owned by different people. Coupled code with split ownership carries a coordination cost on top of the code coupling (Tornhill, Ch. 12).',
+    'Cross-team coupling':     'File pairs that repeatedly change on the same author-day but have different primary owners. Advisory until real team boundaries are configured; different authors do not necessarily mean different teams.',
     'Knowledge loss':          'Share of blamed lines written by authors not active in the analysis window — code nobody currently on the project can answer questions about (Tornhill, Ch. 13).',
     // Evolution
-    'Growth trend':      'Net file and line additions in the analysis window. Rapid unchecked growth can outpace review capacity and increase maintenance burden.',
+    'Growth trend':      'Net file and line additions in the analysis window. Informational and unscored: growth can reflect healthy product activity and is not maintainability debt by itself.',
     'Refactoring ratio': 'Percentage of commits that invest in structure (refactor / clean / improve keywords). A low ratio means technical debt is accumulating without dedicated paydown.',
     'Code age':          'Median age of code weighted by lines. Very old untouched code may be stale or dangerously stable \u2014 worth verifying it is still intentional.',
     'Commit cadence':    'Average commits per day. Irregular cadence (bursts then silence) can signal integration problems or batch-and-dump workflows.',
@@ -140,8 +140,8 @@
     // Coupling
     'Afferent coupling':      'Incoming dependencies (Ca) — how many files import this one. Detected via import graph built from use/import/require statements. Scored on the median Ca across ALL files, including the majority that have zero incoming deps. A value of 0.00 is normal and healthy for most repos. Scoring: median \u22642 \u2192 100, \u22645 \u2192 75, \u226410 \u2192 50, >10 \u2192 25.',
     'Efferent coupling':      'Outgoing dependencies (Ce) — how many files this one imports. Scored on the median Ce across ALL files. Most healthy codebases have median Ce near 0 because most files are leaf nodes that import few others. Scoring: median \u22643 \u2192 100, \u22646 \u2192 75, \u226412 \u2192 50, >12 \u2192 25.',
-    'Circular dependencies':  'Files that mutually depend on each other: A\u2192B and B\u2192A (depth 1), or A\u2192B\u2192C\u2192A (depth 2). Cycles break independent deployment, testing, and understanding of component boundaries. Scoring: 0 \u2192 100, 1\u20132 \u2192 75, 3\u20135 \u2192 50, >5 \u2192 25.',
-    'Change coupling smells': 'File pairs that co-change in \u2265 threshold% of commits AND live in different top-level components. Signals hidden cross-module dependencies that violate component boundaries. Scoring: 0 \u2192 100, 1\u20132 \u2192 75, 3\u20135 \u2192 50, >5 \u2192 25.',
+    'Circular dependencies':  'Production-source files that mutually depend on each other: A\u2192B and B\u2192A (depth 1), or A\u2192B\u2192C\u2192A (depth 2). Self-imports are ignored. Large repositories are scored by the prevalence of affected files.',
+    'Change coupling smells': 'Cross-boundary file pairs that co-change above the configured ratio. When community corroboration is enabled, only affected production-source files in cross-community pairs influence the prevalence score; raw pair counts remain evidence.',
     'Co-change reach trend':  'Files whose distinct co-change partner count at least doubled from the first to the second half of the window and reached decay_min_partners (default 8) \u2014 Tornhill\u2019s "architectural decay in progress". Evidence only, never scored; flagged files carry a partner badge in the Hotspots tab.',
-    'Test safety net': 'Source files whose naming-convention-paired test file has stopped co-changing with them (co-change ratio below test_safety_net_min_ratio, default 30%). An eroding safety net: the code moves, its tests don\u2019t (Tornhill, Ch. 9). Scoring: 0 \u2192 100, 1\u20132 \u2192 75, 3\u20135 \u2192 50, >5 \u2192 25.'
+    'Test safety net': 'Source files whose compatible same-project, same-language naming-convention-paired test has stopped co-changing with them. Large repositories are scored by the prevalence of eroding checked pairs.'
   };

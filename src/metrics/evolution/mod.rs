@@ -80,13 +80,13 @@ fn growth_trend(
         0.0
     };
 
-    let score = growth_score(growth_pct);
+    let _context_band = growth_score(growth_pct);
 
     MetricValue {
         name: "Growth trend".to_string(),
         description: format!("{:+} files, {:+} lines in window", net_files, net_lines),
         raw_value: RawValue::Integer(net_files),
-        score: Some(score),
+        score: None,
     }
 }
 

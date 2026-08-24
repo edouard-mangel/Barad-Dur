@@ -71,6 +71,30 @@ pub(crate) fn score_count_bands(count: usize) -> u32 {
     }
 }
 
+/// Score findings by their prevalence in the population being assessed.
+/// Absolute-count bands make every sufficiently large repository fail even
+/// when only a tiny fraction of its code is affected.
+pub(crate) fn score_prevalence(flagged: usize, total: usize) -> u32 {
+    if flagged == 0 {
+        return 100;
+    }
+    // total == 0 (no recognized source population) falls through to the
+    // count bands: findings are real even when the denominator is unknown.
+    if total < 100 {
+        return score_count_bands(flagged);
+    }
+    let pct = flagged as f64 / total as f64 * 100.0;
+    if pct <= 1.0 {
+        90
+    } else if pct <= 5.0 {
+        75
+    } else if pct <= 20.0 {
+        50
+    } else {
+        25
+    }
+}
+
 /// Median of a slice; 0.0 for an empty slice. Does not mutate the input —
 /// sorts an internal copy.
 pub(crate) fn median(values: &[usize]) -> f64 {
@@ -216,6 +240,36 @@ mod primary_author_sentinel_tests {
             primary_author(&lines(&[(UNKNOWN_AUTHOR, 60), (1, 40)])),
             None
         );
+    }
+}
+
+#[cfg(test)]
+mod prevalence_score_tests {
+    use super::score_prevalence;
+
+    #[test]
+    fn large_repositories_are_scored_by_rate_not_raw_count() {
+        assert_eq!(score_prevalence(1, 1_000), 90);
+        assert_eq!(score_prevalence(40, 1_000), 75);
+        assert_eq!(score_prevalence(100, 1_000), 50);
+        assert_eq!(score_prevalence(200, 1_000), 50);
+        assert_eq!(score_prevalence(201, 1_000), 25);
+    }
+
+    #[test]
+    fn small_repositories_keep_minimum_support_bands() {
+        assert_eq!(score_prevalence(0, 0), 100);
+        assert_eq!(score_prevalence(1, 20), 75);
+        assert_eq!(score_prevalence(3, 20), 50);
+    }
+
+    #[test]
+    fn findings_without_a_recognized_source_population_score_by_count() {
+        // A repo whose language has no entry in has_source_extension (Vue,
+        // Elixir, …) has an empty source population; real findings must
+        // fall back to the count bands, not score a perfect 100.
+        assert_eq!(score_prevalence(12, 0), 25);
+        assert_eq!(score_prevalence(1, 0), 75);
     }
 }
 

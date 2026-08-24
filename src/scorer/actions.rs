@@ -48,7 +48,7 @@ pub(super) fn generate_top_actions(categories: &[CategoryResult]) -> Vec<ActionI
 
     low_metrics.sort_by_key(|m| m.2);
 
-    low_metrics
+    let scored = low_metrics
         .iter()
         .take(3)
         .filter(|m| m.2 < 80)
@@ -65,8 +65,42 @@ pub(super) fn generate_top_actions(categories: &[CategoryResult]) -> Vec<ActionI
                 target_tab: target_tab.map(String::from),
                 sort_by: sort_by.map(String::from),
             }
-        })
-        .collect()
+        });
+
+    // Advisory metrics don't score, but ones carrying concrete findings
+    // still deserve their curated advice — appended after the scored
+    // actions so they never displace a real score problem.
+    let advisory = categories
+        .iter()
+        .flat_map(|cat| cat.metrics.iter().map(move |metric| (cat, metric)))
+        .filter(|(_, metric)| metric.score.is_none() && advisory_has_findings(&metric.raw_value))
+        .take(2)
+        .map(|(cat, metric)| {
+            let (target_tab, sort_by) = target_tab_for_metric(&metric.name);
+            ActionItem {
+                text: format!(
+                    "[{}] {} (advisory) — {}",
+                    cat.name,
+                    metric.name,
+                    suggest_action(&metric.name)
+                ),
+                target_tab: target_tab.map(String::from),
+                sort_by: sort_by.map(String::from),
+            }
+        });
+
+    scored.chain(advisory).collect()
+}
+
+/// Whether an unscored metric's raw value carries concrete findings worth an
+/// advisory action. Annotations (Integer/Float/Percentage) and N/A text are
+/// not findings.
+fn advisory_has_findings(raw_value: &crate::metrics::RawValue) -> bool {
+    match raw_value {
+        crate::metrics::RawValue::List(items) => !items.is_empty(),
+        crate::metrics::RawValue::Count(count) => *count > 0,
+        _ => false,
+    }
 }
 
 const CONTENT_ADVICE: &str =
@@ -300,6 +334,7 @@ fn target_tab_for_metric(metric_name: &str) -> (Option<&'static str>, Option<&'s
         "Change coupling smells" => (Some("coupling"), None),
         "Test safety net" => (Some("coupling"), None),
         "Knowledge distribution" => (Some("ownership"), None),
+        "Churn-ownership risk" => (Some("ownership"), None),
         "Ownership clarity" => (Some("ownership"), None),
         "Collaboration patterns" => (Some("ownership"), None),
         "Code/test growth balance" => (Some("trends"), None),
@@ -340,6 +375,9 @@ fn suggest_action(metric_name: &str) -> &'static str {
             "Revive the paired tests of recently-changed source files — start with the lowest co-change pairs"
         }
         "Knowledge distribution" => "Encourage cross-team contributions and rotate ownership",
+        "Churn-ownership risk" => {
+            "Pair a second maintainer on the flagged high-churn single-owner files"
+        }
         "Contributor activity" => "Onboard more active contributors or check team health",
         "Ownership clarity" => "Assign clear code owners via CODEOWNERS file",
         "Collaboration patterns" => "Break directory silos through cross-functional reviews",
@@ -451,6 +489,20 @@ mod tests {
         assert_eq!(
             target_tab_for_metric("Test safety net"),
             (Some("coupling"), None)
+        );
+    }
+
+    #[test]
+    fn churn_ownership_risk_action_arms_are_pinned() {
+        // Advisory metric with a List of findings — must carry curated
+        // advice, not the generic fallback.
+        assert_eq!(
+            target_tab_for_metric("Churn-ownership risk"),
+            (Some("ownership"), None)
+        );
+        assert_eq!(
+            suggest_action("Churn-ownership risk"),
+            "Pair a second maintainer on the flagged high-churn single-owner files"
         );
     }
 
@@ -581,6 +633,63 @@ mod tests {
         let actions = generate_top_actions(&categories);
         assert!(!actions.is_empty());
         assert!(actions[0].text.contains("Knowledge distribution"));
+    }
+
+    #[test]
+    fn top_actions_includes_advisory_metrics_with_findings() {
+        // Metrics the recalibration made advisory (score: None) still carry
+        // real findings; their curated advice must stay reachable.
+        let categories = vec![CategoryResult {
+            name: "Team".to_string(),
+            score: 100,
+            metrics: vec![
+                MetricValue {
+                    name: "Collaboration patterns".to_string(),
+                    description: "8/9 top-level directories...".to_string(),
+                    raw_value: RawValue::Count(8),
+                    score: None,
+                },
+                MetricValue {
+                    name: "Cross-team coupling".to_string(),
+                    description: "1 cross-team pair".to_string(),
+                    raw_value: RawValue::List(vec!["a.rs <-> b.rs".to_string()]),
+                    score: None,
+                },
+            ],
+        }];
+        let actions = generate_top_actions(&categories);
+        let silo = actions
+            .iter()
+            .find(|a| a.text.contains("Break directory silos"))
+            .expect("collaboration-patterns advice must be reachable");
+        assert!(silo.text.contains("advisory"), "{}", silo.text);
+        assert_eq!(silo.target_tab.as_deref(), Some("ownership"));
+        assert!(actions
+            .iter()
+            .any(|a| a.text.contains("Align ownership with change patterns")));
+    }
+
+    #[test]
+    fn top_actions_skips_advisory_metrics_without_findings() {
+        // N/A metrics, zero counts, and empty evidence lists are not
+        // findings — no advisory action.
+        let metric = |name: &str, raw_value| MetricValue {
+            name: name.to_string(),
+            description: "d".to_string(),
+            raw_value,
+            score: None,
+        };
+        let categories = vec![CategoryResult {
+            name: "Team".to_string(),
+            score: 100,
+            metrics: vec![
+                metric("Bus factor", RawValue::Text("N/A".to_string())),
+                metric("Collaboration patterns", RawValue::Count(0)),
+                metric("Cross-team coupling", RawValue::List(vec![])),
+                metric("Growth trend", RawValue::Integer(42)),
+            ],
+        }];
+        assert!(generate_top_actions(&categories).is_empty());
     }
 
     #[test]

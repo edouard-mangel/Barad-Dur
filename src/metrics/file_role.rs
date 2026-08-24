@@ -48,7 +48,7 @@ const TEST_DIR_NAMES: &[&str] = &["test", "tests", "__tests__", "spec", "specs"]
 const TEST_STEM_NAMES: &[&str] = &["test", "tests", "testutil", "testutils", "conftest"];
 const TEST_STEM_PREFIXES: &[&str] = &["test_", "tests_"];
 const TEST_STEM_SUFFIXES: &[&str] = &[
-    "_test", "_tests", "_spec", "-test", "-spec", ".test", ".spec",
+    "_test", "_tests", "_spec", "-test", "-spec", ".test", ".spec", ".story", ".stories",
 ];
 
 const DOC_EXTENSIONS: &[&str] = &["md", "rst", "adoc", "txt"];
@@ -319,6 +319,12 @@ mod tests {
         assert_eq!(role("pkg/foo_test.go"), FileRole::Test);
         assert_eq!(role("app/test_views.py"), FileRole::Test);
         assert_eq!(role("app/conftest.py"), FileRole::Test);
+    }
+
+    #[test]
+    fn storybook_stories_are_supporting_test_material() {
+        assert_eq!(role("src/Button.stories.tsx"), FileRole::Test);
+        assert_eq!(role("src/Button.story.ts"), FileRole::Test);
     }
 
     #[test]

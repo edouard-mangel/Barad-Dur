@@ -80,6 +80,15 @@ fn html_is_valid_document() {
 }
 
 #[test]
+fn html_explains_context_aware_scoring() {
+    let html = render(&make_report()).unwrap();
+    assert!(html.contains("contributors required to cover 80%"));
+    assert!(html.contains("Advisory until real team boundaries are configured"));
+    assert!(html.contains("Informational and unscored"));
+    assert!(html.contains("affected-file prevalence"));
+}
+
+#[test]
 fn html_has_cbf_css_tokens() {
     let html = render(&make_report()).unwrap();
     assert!(html.contains("--c-good:"), "--c-good token must be in CSS");
@@ -270,6 +279,24 @@ fn js_score_color_reads_embedded_thresholds() {
     assert!(
         super::JS_SHARED.contains("score_thresholds"),
         "shared.js scoreColor must read R.score_thresholds, not hardcode 71/41"
+    );
+}
+
+#[test]
+fn js_trends_skips_entries_missing_the_selected_metric() {
+    // A metric absent from a history entry (e.g. one this release made
+    // advisory) must render as a gap, never as a fake drop to score 0.
+    assert!(
+        super::JS_TRENDS.contains("return null"),
+        "trGetScore must return null, not 0, for a metric absent from an entry"
+    );
+    assert!(
+        super::JS_TRENDS.contains("score === null ? 'n/a' : score"),
+        "the tooltip must show n/a for entries with no recorded score"
+    );
+    assert!(
+        super::JS_TRENDS.contains("scores[i] === null"),
+        "the chart must skip dots/points for entries with no recorded score"
     );
 }
 

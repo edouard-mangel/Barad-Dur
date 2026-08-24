@@ -8,7 +8,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::config::CouplingThresholds;
-use crate::metrics::{median, score_count_bands, CategoryResult, MetricValue, RawValue};
+use crate::metrics::file_role::{classify, FileRole};
+use crate::metrics::{median, score_prevalence, CategoryResult, MetricValue, RawValue};
 use crate::scorer::CouplingFindingCounts;
 use crate::snapshot::{CouplingFinding, CouplingKind, RepoSnapshot};
 
@@ -326,46 +327,97 @@ fn change_coupling_smells(snapshot: &RepoSnapshot, thresholds: &CouplingThreshol
         qualifying_smell_pairs(snapshot, thresholds).collect();
     let smell_count = smell_pairs.len();
 
-    let score = score_count_bands(smell_count);
+    let communities = community::detect_communities(&snapshot.import_graph);
+    let corroborated: Vec<_> = smell_pairs
+        .iter()
+        .filter(|(a, b)| match (communities.get(*a), communities.get(*b)) {
+            (Some(ca), Some(cb)) => ca != cb,
+            _ => false,
+        })
+        .collect();
+    let scored_pairs: Vec<_> = if thresholds.community_corroboration {
+        corroborated.clone()
+    } else {
+        smell_pairs.iter().collect()
+    };
+    let affected: HashSet<&PathBuf> = scored_pairs
+        .iter()
+        .flat_map(|(a, b)| [*a, *b])
+        .filter(|path| classify(path) == FileRole::Source)
+        .collect();
+    let source_total = source_population(snapshot).len();
+    let score = score_prevalence(affected.len(), source_total);
 
     let community_note = if thresholds.community_corroboration && smell_count > 0 {
-        format!(
-            ", {} also cross-community",
-            cross_community_smell_count(&smell_pairs, snapshot)
-        )
+        format!(", {} also cross-community", corroborated.len())
     } else {
         String::new()
     };
 
+    let basis = if smell_count == 0 {
+        String::new()
+    } else if thresholds.community_corroboration {
+        format!(
+            "; score based on {}/{} source files with cross-community corroboration",
+            affected.len(),
+            source_total
+        )
+    } else {
+        format!(
+            "; score based on {}/{} affected source files",
+            affected.len(),
+            source_total
+        )
+    };
     MetricValue {
         name: "Change coupling smells".to_string(),
         description: format!(
-            "{} cross-boundary co-change pair(s) above {:.0}% ratio threshold{}",
+            "{} cross-boundary co-change pair(s) above {:.0}% ratio threshold{}{}",
             smell_count,
             thresholds.change_coupling_min_ratio * 100.0,
-            community_note
+            community_note,
+            basis,
         ),
         raw_value: RawValue::Count(smell_count),
         score: Some(score),
     }
 }
 
-/// Of the already-qualified smell pairs, how many also sit in different
-/// Louvain communities of the import graph — additive structural evidence,
-/// never folded into the score. A pair with no import-graph data on either
-/// side is not counted (absence of data isn't evidence of separation).
-fn cross_community_smell_count(
-    smell_pairs: &[(&PathBuf, &PathBuf)],
-    snapshot: &RepoSnapshot,
-) -> usize {
-    let communities = community::detect_communities(&snapshot.import_graph);
-    smell_pairs
-        .iter()
-        .filter(|(a, b)| match (communities.get(*a), communities.get(*b)) {
-            (Some(ca), Some(cb)) => ca != cb,
-            _ => false,
-        })
-        .count()
+/// Production-source population used to turn absolute coupling findings into
+/// repository-size-aware prevalence scores. Fall back through the available
+/// snapshot collections so focused fixtures remain representative.
+fn source_population(snapshot: &RepoSnapshot) -> HashSet<&PathBuf> {
+    let mut paths: HashSet<&PathBuf> = snapshot
+        .file_metrics
+        .keys()
+        .filter(|path| classify(path) == FileRole::Source)
+        .collect();
+    paths.extend(
+        snapshot
+            .files
+            .iter()
+            .map(|file| &file.path)
+            .filter(|path| classify(path) == FileRole::Source),
+    );
+    for (source, targets) in &snapshot.import_graph {
+        if classify(source) == FileRole::Source {
+            paths.insert(source);
+        }
+        paths.extend(
+            targets
+                .iter()
+                .filter(|path| classify(path) == FileRole::Source),
+        );
+    }
+    for (a, b, _) in &snapshot.file_change_pairs {
+        if classify(a) == FileRole::Source {
+            paths.insert(a);
+        }
+        if classify(b) == FileRole::Source {
+            paths.insert(b);
+        }
+    }
+    paths
 }
 
 /// Whether the import graph has an edge `from` → `to`.
@@ -396,33 +448,58 @@ fn circular_dependencies(snapshot: &RepoSnapshot) -> MetricValue {
     let graph = &snapshot.import_graph;
     let edges = graph
         .iter()
-        .flat_map(|(a, targets)| targets.iter().map(move |b| (a, b)));
+        .flat_map(|(a, targets)| targets.iter().map(move |b| (a, b)))
+        .filter(|(a, b)| a != b);
 
-    let cycles: HashSet<(PathBuf, PathBuf)> = edges
+    // Keyed by dedup key, valued by the full (sorted) member list: the key
+    // collapses the same loop found from any entry point, while prevalence
+    // and evidence must still see every member.
+    let cycles: HashMap<(PathBuf, PathBuf), Vec<PathBuf>> = edges
         .flat_map(|(a, b)| {
-            let direct = has_edge(graph, b, a).then(|| pair_key(a, b));
+            let direct =
+                has_edge(graph, b, a).then(|| (pair_key(a, b), vec![a.clone(), b.clone()]));
             let depth_two = graph
                 .get(b)
                 .into_iter()
                 .flatten()
                 .filter(move |c| *c != a && *c != b && has_edge(graph, c, a))
-                .map(move |c| trio_key(a, b, c));
+                .map(move |c| {
+                    let mut members = vec![a.clone(), b.clone(), c.clone()];
+                    members.sort();
+                    (trio_key(a, b, c), members)
+                });
             direct.into_iter().chain(depth_two)
         })
         .collect();
 
     let count = cycles.len();
-    let score = score_count_bands(count);
+    let affected: HashSet<&PathBuf> = cycles
+        .values()
+        .flatten()
+        .filter(|path| classify(path) == FileRole::Source)
+        .collect();
+    let source_total = source_population(snapshot).len();
+    let score = score_prevalence(affected.len(), source_total);
 
     let cycle_list: Vec<String> = cycles
-        .iter()
+        .values()
         .take(10)
-        .map(|(a, b)| format!("{} <-> {}", a.display(), b.display()))
+        .map(|members| {
+            members
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(" <-> ")
+        })
         .collect();
 
     MetricValue {
         name: "Circular dependencies".to_string(),
-        description: format!("{} circular dependency pairs detected", count),
+        description: format!(
+            "{count} circular dependency pair(s), affecting {}/{} source files",
+            affected.len(),
+            source_total
+        ),
         raw_value: RawValue::List(cycle_list),
         score: Some(score),
     }
@@ -545,9 +622,13 @@ fn pressman_metric(
     let findings: Vec<CouplingFinding> = snapshot
         .coupling_findings
         .iter()
-        .filter(|f| f.kind == kind)
+        .filter(|f| f.kind == kind && classify(&f.path) == FileRole::Source)
         .cloned()
-        .chain(extra)
+        .chain(
+            extra
+                .into_iter()
+                .filter(|f| classify(&f.path) == FileRole::Source),
+        )
         .collect();
     let count = findings.len();
 
@@ -623,6 +704,10 @@ pub(crate) fn all_coupling_findings(
             snapshot,
             thresholds.inheritance_min_depth,
         ))
+        // One filter over AST findings AND the chained extras, mirroring
+        // pressman_metric — the gate/hotspot/counts consumers must agree
+        // with the three Pressman metrics.
+        .filter(|finding| classify(&finding.path) == FileRole::Source)
         .collect()
 }
 

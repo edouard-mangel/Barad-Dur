@@ -1,6 +1,6 @@
 use crate::config::HealthThresholds;
 use crate::metrics::file_role::{classify, FileRole};
-use crate::metrics::{median, MetricValue, RawValue};
+use crate::metrics::{median, score_prevalence, MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
 
 /// Production source code only — tests, config, and docs are other roles.
@@ -128,15 +128,7 @@ pub(super) fn god_objects(
         0.0
     };
 
-    let score = if count == 0 {
-        100
-    } else if pct <= 2.0 {
-        75
-    } else if pct <= 8.0 {
-        50
-    } else {
-        25
-    };
+    let score = score_prevalence(count, source_total);
 
     MetricValue {
         name: "God objects".to_string(),
@@ -196,7 +188,7 @@ mod tests {
             &snapshot,
             &god_object_files(&snapshot, &HealthThresholds::default()),
         );
-        assert_eq!(result.score, Some(75));
+        assert_eq!(result.score, Some(90));
         match &result.raw_value {
             RawValue::List(v) => {
                 assert_eq!(v.len(), 1);
@@ -265,7 +257,7 @@ mod tests {
             &snapshot,
             &god_object_files(&snapshot, &HealthThresholds::default()),
         );
-        assert_eq!(result.score, Some(75)); // LOC>300 AND methods>15
+        assert_eq!(result.score, Some(90)); // one finding among 100 source files
     }
 
     #[test]
@@ -346,7 +338,7 @@ mod tests {
             &snapshot,
             &god_object_files(&snapshot, &HealthThresholds::default()),
         );
-        assert_eq!(result.score, Some(75));
+        assert_eq!(result.score, Some(90));
     }
 
     #[test]
@@ -403,7 +395,7 @@ mod tests {
             &snapshot,
             &god_object_files(&snapshot, &HealthThresholds::default()),
         );
-        assert_eq!(result.score, Some(50));
+        assert_eq!(result.score, Some(75));
     }
 
     #[test]
@@ -433,7 +425,7 @@ mod tests {
             &snapshot,
             &god_object_files(&snapshot, &HealthThresholds::default()),
         );
-        assert_eq!(result.score, Some(25));
+        assert_eq!(result.score, Some(50));
     }
 
     #[test]
@@ -491,7 +483,7 @@ mod tests {
             &snapshot,
             &god_object_files(&snapshot, &HealthThresholds::default()),
         );
-        assert_eq!(result.score, Some(75)); // flagged: 1/100 = 1%
+        assert_eq!(result.score, Some(90)); // flagged: 1/100 = 1%
     }
 
     #[test]

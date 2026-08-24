@@ -1,4 +1,5 @@
-use crate::metrics::{score_count_bands, MetricValue, RawValue};
+use crate::metrics::file_role::{classify, FileRole};
+use crate::metrics::{MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
 
 /// Files in top-quartile churn that are also dominated by a single author.
@@ -32,6 +33,9 @@ pub(super) fn churn_ownership_risk(snapshot: &RepoSnapshot) -> MetricValue {
         .blame_map
         .iter()
         .filter(|(path, lines)| {
+            if classify(path) != FileRole::Source {
+                return false;
+            }
             // Must be above the churn threshold.
             let churn = snapshot
                 .commits_by_file
@@ -41,24 +45,30 @@ pub(super) fn churn_ownership_risk(snapshot: &RepoSnapshot) -> MetricValue {
             if churn <= churn_p75 {
                 return false;
             }
-            // Must be dominated by a single author (>50% of blame lines).
+            // Must be strongly dominated by a single author (>80% of blame lines).
             is_single_author_dominated(lines)
         })
         .map(|(p, _)| p.display().to_string())
         .collect();
 
     let count = risky.len();
-    let score = score_count_bands(count);
-
+    let source_total = snapshot
+        .blame_map
+        .keys()
+        .filter(|path| classify(path) == FileRole::Source)
+        .count();
+    let pct = if source_total == 0 {
+        0.0
+    } else {
+        count as f64 / source_total as f64 * 100.0
+    };
     MetricValue {
         name: "Churn-ownership risk".to_string(),
         description: format!(
-            "{} high-churn file{} with single-author ownership",
-            count,
-            if count == 1 { "" } else { "s" }
+            "{count}/{source_total} source files combine high churn with >80% ownership by one author ({pct:.1}%) — advisory; clear ownership alone is not continuity risk"
         ),
         raw_value: RawValue::List(risky),
-        score: Some(score),
+        score: None,
     }
 }
 
@@ -71,9 +81,12 @@ fn percentile_75(mut values: Vec<usize>) -> usize {
 }
 
 fn is_single_author_dominated(lines: &[crate::snapshot::BlameLine]) -> bool {
-    // Single-author: one *nameable* author owns >50% of lines — the shared
-    // strict-majority rule (unknown-author majorities are not a person).
-    crate::metrics::primary_author(lines).is_some()
+    let counts = crate::metrics::author_line_counts(lines);
+    let total: usize = counts.values().sum();
+    counts
+        .into_iter()
+        .filter(|(author, _)| *author != crate::metrics::UNKNOWN_AUTHOR)
+        .any(|(_, count)| count * 5 > total * 4) // count / total > 0.8, without the float zero-guard
 }
 
 #[cfg(test)]
@@ -182,11 +195,15 @@ mod tests {
             );
         }
         let m = churn_ownership_risk(&s);
-        assert_eq!(m.score, Some(75), "1 risky file → score 75");
+        assert_eq!(m.score, None, "ownership concentration is advisory");
         match &m.raw_value {
             RawValue::List(v) => assert_eq!(v.len(), 1),
             _ => panic!("expected List"),
         }
+        assert_eq!(
+            m.description,
+            "1/4 source files combine high churn with >80% ownership by one author (25.0%) — advisory; clear ownership alone is not continuity risk"
+        );
     }
 
     #[test]
@@ -209,7 +226,52 @@ mod tests {
             );
         }
         let m = churn_ownership_risk(&s);
-        assert_eq!(m.score, Some(100), "shared ownership should not be flagged");
+        assert_eq!(m.score, None, "ownership concentration is advisory");
+        match &m.raw_value {
+            RawValue::List(v) => assert!(v.is_empty(), "shared file must not be listed as risky"),
+            _ => panic!("expected List"),
+        }
+    }
+
+    #[test]
+    fn exactly_80pct_ownership_not_dominated() {
+        // Dominance requires strictly more than 80% of blame lines; a file
+        // owned at exactly 80/20 must not be flagged even with high churn.
+        let now = Utc::now();
+        let mut s = make_snapshot();
+        add_authors(&mut s, &["Alice", "Bob"]);
+        s.blame_map.insert(
+            PathBuf::from("boundary.rs"),
+            vec![
+                BlameLine {
+                    author_id: 0,
+                    timestamp: now,
+                    line_count: 80,
+                },
+                BlameLine {
+                    author_id: 1,
+                    timestamp: now,
+                    line_count: 20,
+                },
+            ],
+        );
+        s.commits_by_file.insert(
+            PathBuf::from("boundary.rs"),
+            (0..10u32).map(CommitId).collect(),
+        );
+        for i in 1..4usize {
+            s.blame_map
+                .insert(PathBuf::from(format!("ok{}.rs", i)), blame_shared(50));
+            s.commits_by_file.insert(
+                PathBuf::from(format!("ok{}.rs", i)),
+                (0..i as u32).map(CommitId).collect(),
+            );
+        }
+        let m = churn_ownership_risk(&s);
+        match &m.raw_value {
+            RawValue::List(v) => assert!(v.is_empty(), "exactly 80% ownership is not dominance"),
+            _ => panic!("expected List"),
+        }
     }
 
     #[test]
@@ -226,10 +288,6 @@ mod tests {
             );
         }
         let m = churn_ownership_risk(&s);
-        assert_eq!(
-            m.score,
-            Some(100),
-            "low-churn single-owner files should not be flagged"
-        );
+        assert_eq!(m.score, None, "ownership concentration is advisory");
     }
 }

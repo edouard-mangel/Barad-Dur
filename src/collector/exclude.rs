@@ -45,6 +45,8 @@ const DEFAULT_EXCLUDE_PATTERNS: &[&str] = &[
     "**/appsettings*.json",
     "**/launchSettings.json",
     "**/.env*",
+    // Generated Mock Service Worker browser bundles
+    "**/mockServiceWorker.js",
     // Tooling directories
     ".claude/**",
     ".cursor/**",

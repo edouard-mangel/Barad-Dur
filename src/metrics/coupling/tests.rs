@@ -214,6 +214,17 @@ fn circular_deps_direct() {
 }
 
 #[test]
+fn circular_deps_ignore_self_edges() {
+    let mut snapshot = make_snapshot();
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("a.rs"), vec![PathBuf::from("a.rs")]);
+    let result = circular_dependencies(&snapshot);
+    assert_eq!(result.score, Some(100));
+    assert!(matches!(result.raw_value, RawValue::List(ref cycles) if cycles.is_empty()));
+}
+
+#[test]
 fn circular_deps_transitive_depth2() {
     let mut snapshot = make_snapshot();
     // A→B→C→A
@@ -228,6 +239,58 @@ fn circular_deps_transitive_depth2() {
         .insert(PathBuf::from("c.rs"), vec![PathBuf::from("a.rs")]);
     let result = circular_dependencies(&snapshot);
     assert!(result.score.unwrap() < 100, "should detect depth-2 cycle");
+}
+
+#[test]
+fn circular_deps_depth2_counts_all_three_members_as_affected() {
+    let mut snapshot = make_snapshot();
+    // A→B→C→A: the dedup key keeps two members, but all three files are in
+    // the cycle and must count toward prevalence and the evidence list.
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("a.rs"), vec![PathBuf::from("b.rs")]);
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("b.rs"), vec![PathBuf::from("c.rs")]);
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("c.rs"), vec![PathBuf::from("a.rs")]);
+    let result = circular_dependencies(&snapshot);
+    assert!(
+        result.description.contains("affecting 3/3 source files"),
+        "all three cycle members must be affected: {}",
+        result.description
+    );
+    assert!(
+        matches!(&result.raw_value, RawValue::List(cycles) if cycles == &vec!["a.rs <-> b.rs <-> c.rs".to_string()]),
+        "evidence must name the whole cycle: {:?}",
+        result.raw_value
+    );
+}
+
+#[test]
+fn circular_deps_affected_counts_only_source_files() {
+    let mut snapshot = make_snapshot();
+    // A cycle between two test files must not count toward the source-file
+    // prevalence numerator (the denominator already excludes them).
+    snapshot.import_graph.insert(
+        PathBuf::from("tests/a_test.rs"),
+        vec![PathBuf::from("tests/b_test.rs")],
+    );
+    snapshot.import_graph.insert(
+        PathBuf::from("tests/b_test.rs"),
+        vec![PathBuf::from("tests/a_test.rs")],
+    );
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("src/x.rs"), vec![PathBuf::from("src/y.rs")]);
+    let result = circular_dependencies(&snapshot);
+    assert!(
+        result.description.contains("affecting 0/2 source files"),
+        "test-only cycle members must not be affected source files: {}",
+        result.description
+    );
+    assert_eq!(result.score, Some(100));
 }
 
 #[test]
@@ -309,7 +372,7 @@ fn change_coupling_cross_component_above_threshold_counted() {
         (0u32..10).map(CommitId).collect::<Vec<_>>(),
     );
     let result = change_coupling_smells(&snapshot, &default_thresholds());
-    assert_eq!(result.score, Some(75)); // 1 smell
+    assert_eq!(result.score, Some(100)); // uncorroborated co-change is advisory
 }
 
 #[test]
@@ -341,6 +404,40 @@ fn change_coupling_missing_commits_entry_excluded() {
     assert_eq!(result.score, Some(100));
 }
 
+#[test]
+fn change_coupling_affected_counts_only_source_files() {
+    let mut snapshot = make_snapshot();
+    // Two source files each pairing with the same test file: only the two
+    // source sides may count toward the prevalence numerator (asymmetric
+    // counts, so an inverted filter — counting the one test file instead —
+    // cannot produce the same number).
+    for source in ["src/a.rs", "src/b.rs"] {
+        snapshot
+            .file_change_pairs
+            .push((PathBuf::from(source), PathBuf::from("tests/t.rs"), 5));
+        snapshot.commits_by_file.insert(
+            PathBuf::from(source),
+            (0u32..10).map(CommitId).collect::<Vec<_>>(),
+        );
+    }
+    snapshot.commits_by_file.insert(
+        PathBuf::from("tests/t.rs"),
+        (0u32..10).map(CommitId).collect::<Vec<_>>(),
+    );
+    let thresholds = CouplingThresholds {
+        community_corroboration: false,
+        ..CouplingThresholds::default()
+    };
+    let result = change_coupling_smells(&snapshot, &thresholds);
+    assert!(
+        result
+            .description
+            .contains("score based on 2/2 affected source files"),
+        "numerator must be Source-filtered like the denominator: {}",
+        result.description
+    );
+}
+
 fn make_cross_boundary_snapshot(n: usize) -> RepoSnapshot {
     let mut snapshot = make_snapshot();
     for i in 0..n {
@@ -365,15 +462,15 @@ fn change_coupling_scoring_bands() {
     );
     assert_eq!(
         change_coupling_smells(&make_cross_boundary_snapshot(2), &default_thresholds()).score,
-        Some(75)
+        Some(100)
     );
     assert_eq!(
         change_coupling_smells(&make_cross_boundary_snapshot(4), &default_thresholds()).score,
-        Some(50)
+        Some(100)
     );
     assert_eq!(
         change_coupling_smells(&make_cross_boundary_snapshot(6), &default_thresholds()).score,
-        Some(25)
+        Some(100)
     );
 }
 
@@ -441,7 +538,7 @@ fn change_coupling_smells_same_community_not_counted() {
         .insert(PathBuf::from("tests/b.rs"), vec![PathBuf::from("src/a.rs")]);
 
     let result = change_coupling_smells(&snapshot, &default_thresholds());
-    assert_eq!(result.score, Some(75));
+    assert_eq!(result.score, Some(100));
     assert!(
         result.description.contains("0 also cross-community"),
         "description was: {}",
@@ -532,7 +629,7 @@ fn change_coupling_depth3_different_component() {
         (0u32..10).map(CommitId).collect::<Vec<_>>(),
     );
     let result = change_coupling_smells(&snapshot, &thresholds_with_depth(3));
-    assert_eq!(result.score, Some(75)); // 1 smell
+    assert_eq!(result.score, Some(100)); // no structural corroboration
 }
 
 #[test]
@@ -625,6 +722,28 @@ fn barrel_bypass_ignores_rust_files() {
         vec![PathBuf::from("lib/util.rs")],
     );
     assert!(barrel_bypass_findings(&snapshot, 1).is_empty());
+}
+
+#[test]
+fn all_coupling_findings_excludes_non_source_extras_like_pressman_metric() {
+    let mut snapshot = crate::metrics::testutil::make_snapshot();
+    // A test file deep-importing past a barrel: pressman_metric filters it
+    // out of the Content metric, so the gate/hotspot/counts consumers of
+    // all_coupling_findings must not see it either.
+    snapshot.files = vec![
+        crate::metrics::testutil::make_file("app/checkout.test.ts"),
+        crate::metrics::testutil::make_file("lib/index.ts"),
+        crate::metrics::testutil::make_file("lib/impl.ts"),
+    ];
+    snapshot.import_graph.insert(
+        PathBuf::from("app/checkout.test.ts"),
+        vec![PathBuf::from("lib/impl.ts")],
+    );
+    let findings = all_coupling_findings(&snapshot, &default_thresholds());
+    assert!(
+        findings.is_empty(),
+        "test-file barrel bypass must not reach the gate: {findings:?}"
+    );
 }
 
 #[test]
@@ -1119,8 +1238,8 @@ fn qualifying_smell_pairs_matches_change_coupling_count() {
     );
     assert_eq!(
         change_coupling_smells(&snapshot, &default_thresholds()).score,
-        Some(50),
-        "refactored smell metric must keep its score"
+        Some(100),
+        "uncorroborated co-change pairs must not lower the score"
     );
 }
 

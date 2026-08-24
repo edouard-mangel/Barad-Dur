@@ -725,11 +725,7 @@ mod cross_team_coupling_tests {
     fn differing_primary_owners_on_qualifying_pair_is_a_finding() {
         let m = cross_team_coupling(&cross_owned_snapshot(), &CouplingThresholds::default());
         assert_eq!(m.name, "Cross-team coupling");
-        assert_eq!(
-            m.score,
-            Some(75),
-            "1 finding -> band 75 (score_count_bands)"
-        );
+        assert_eq!(m.score, None, "author boundaries are advisory");
         match &m.raw_value {
             RawValue::List(v) => assert_eq!(
                 v,
@@ -742,7 +738,7 @@ mod cross_team_coupling_tests {
         }
         assert_eq!(
             m.description,
-            "1 cross-team coupling pair(s) — coupled files with different primary owners"
+            "1 cross-owner coupling pair(s) — advisory; configure real team boundaries before treating this as cross-team risk"
         );
     }
 
@@ -751,10 +747,10 @@ mod cross_team_coupling_tests {
         let mut s = cross_owned_snapshot();
         s.blame_map.insert("b.rs".into(), owned_lines(0)); // alice owns both
         let m = cross_team_coupling(&s, &CouplingThresholds::default());
-        assert_eq!(m.score, Some(100));
+        assert_eq!(m.score, None);
         assert_eq!(
             m.description,
-            "0 cross-team coupling pair(s) — coupled files with different primary owners"
+            "0 cross-owner coupling pair(s) — advisory; configure real team boundaries before treating this as cross-team risk"
         );
     }
 
@@ -768,7 +764,7 @@ mod cross_team_coupling_tests {
         l1.line_count = 50;
         s.blame_map.insert("b.rs".into(), vec![l0, l1]);
         let m = cross_team_coupling(&s, &CouplingThresholds::default());
-        assert_eq!(m.score, Some(100));
+        assert_eq!(m.score, None);
     }
 
     #[test]
@@ -795,8 +791,7 @@ mod cross_team_coupling_tests {
         s.blame_map.insert("b.rs".into(), owned_lines(1));
         let m = cross_team_coupling(&s, &CouplingThresholds::default());
         assert_eq!(
-            m.score,
-            Some(100),
+            m.score, None,
             "ratio 1/4 = 0.25 < 0.30 default must not qualify"
         );
     }
@@ -832,8 +827,7 @@ mod cross_team_coupling_tests {
         s.blame_map.insert("b.rs".into(), owned_lines(1));
         let m = cross_team_coupling(&s, &CouplingThresholds::default());
         assert_eq!(
-            m.score,
-            Some(75),
+            m.score, None,
             "ratio 3/min(10,20) = 0.30 exactly must qualify (>= semantics)"
         );
         match &m.raw_value {
@@ -860,8 +854,7 @@ mod cross_team_coupling_tests {
         s.blame_map.insert("b.rs".into(), owned_lines(1));
         let m = cross_team_coupling(&s, &CouplingThresholds::default());
         assert_eq!(
-            m.score,
-            Some(100),
+            m.score, None,
             "co_days = 1 must not qualify despite ratio 1.0"
         );
     }
@@ -875,11 +868,7 @@ mod cross_team_coupling_tests {
             c.is_merge = true;
         }
         let m = cross_team_coupling(&s, &CouplingThresholds::default());
-        assert_eq!(
-            m.score,
-            Some(100),
-            "merge commits must not create day buckets"
-        );
+        assert_eq!(m.score, None, "merge commits must not create day buckets");
     }
 
     #[test]
@@ -890,11 +879,11 @@ mod cross_team_coupling_tests {
         let mut s = cross_owned_snapshot();
         s.blame_map.remove(&PathBuf::from("b.rs"));
         let m = cross_team_coupling(&s, &CouplingThresholds::default());
-        assert_eq!(m.score, Some(100));
+        assert_eq!(m.score, None);
         assert_eq!(
             m.description,
-            "0 cross-team coupling pair(s) — coupled files with different primary owners; \
-             1 qualifying pair(s) lacked blame data"
+            "0 cross-owner coupling pair(s); 1 qualifying pair(s) lacked blame data — advisory; \
+             configure real team boundaries before treating this as cross-team risk"
         );
     }
 

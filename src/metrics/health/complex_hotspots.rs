@@ -1,4 +1,4 @@
-use crate::metrics::{score_count_bands, MetricValue, RawValue};
+use crate::metrics::{score_prevalence, MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
 
 use super::god_objects::is_source_file;
@@ -56,11 +56,23 @@ pub(super) fn complex_hotspots(snapshot: &RepoSnapshot) -> MetricValue {
         .collect();
 
     let count = hotspots.len();
-    let score = score_count_bands(count);
+    let source_total = snapshot
+        .file_metrics
+        .keys()
+        .filter(|path| is_source_file(path))
+        .count();
+    let pct = if source_total == 0 {
+        0.0
+    } else {
+        count as f64 / source_total as f64 * 100.0
+    };
+    let score = score_prevalence(count, source_total);
 
     MetricValue {
         name: "Complex hotspots".to_string(),
-        description: format!("{} files with high complexity and high churn", count),
+        description: format!(
+            "{count}/{source_total} source files with high complexity and high churn ({pct:.1}%)"
+        ),
         raw_value: RawValue::List(hotspots),
         score: Some(score),
     }
@@ -144,6 +156,10 @@ mod tests {
             RawValue::List(v) => assert_eq!(v.len(), 1),
             _ => panic!("Expected List"),
         }
+        assert_eq!(
+            result.description,
+            "1/4 source files with high complexity and high churn (25.0%)"
+        );
     }
 
     #[test]

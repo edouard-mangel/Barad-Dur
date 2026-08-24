@@ -1,12 +1,14 @@
 
   /* ---- Trends tab ---- */
 
-  /* Score of one history entry for the selected metric. */
+  /* Score of one history entry for the selected metric — null when the
+     entry never recorded it (unscored/advisory metrics are absent from
+     history entries; a null must render as a gap, not a drop to 0). */
   function trGetScore(entry, metric) {
     if (metric === 'Overall Score') return entry.overall_score;
     if (entry.category_scores && entry.category_scores[metric] !== undefined) return entry.category_scores[metric];
     if (entry.metrics && entry.metrics[metric] !== undefined) return entry.metrics[metric];
-    return 0;
+    return null;
   }
 
   function trFmtDate(d) {
@@ -15,8 +17,9 @@
 
   /* Multi-line hover text for one data point. */
   function trTooltipText(entry, metric, isBackfill) {
+    var score = trGetScore(entry, metric);
     return trFmtDate(new Date(entry.timestamp)) + ' (' + entry.head.substring(0, 7) + ')\n'
-      + metric + ': ' + trGetScore(entry, metric) + '\n'
+      + metric + ': ' + (score === null ? 'n/a' : score) + '\n'
       + entry.counts.commits + ' commits, '
       + entry.counts.files + ' files, '
       + entry.counts.authors + ' authors\n'
@@ -40,6 +43,13 @@
     var ch = H - pad.top - pad.bottom;
 
     var scores = history.map(function(e) { return trGetScore(e, metric); });
+    // Entries that never recorded this metric (null) render as gaps.
+    var known = scores.filter(function(s) { return s !== null; });
+    if (known.length === 0) {
+      var emptyNote = el('div', { className: 'tr-empty' });
+      emptyNote.append(txt('No recorded scores for this metric.'));
+      return emptyNote;
+    }
     var dates = history.map(function(e) { return new Date(e.timestamp); });
 
     var minT = dates[0].getTime();
@@ -47,8 +57,8 @@
     var rangeT = maxT - minT || 1;
 
     // Dynamic Y-axis: pad 10 points above max and below min, clamped to 0-100
-    var rawMin = Math.min.apply(null, scores);
-    var rawMax = Math.max.apply(null, scores);
+    var rawMin = Math.min.apply(null, known);
+    var rawMax = Math.max.apply(null, known);
     var yMin = Math.max(0, Math.floor((rawMin - 10) / 5) * 5);
     var yMax = Math.min(100, Math.ceil((rawMax + 10) / 5) * 5);
     if (yMin === yMax) { yMin = Math.max(0, yMin - 10); yMax = Math.min(100, yMax + 10); }
@@ -92,9 +102,12 @@
       svg.append(xLabel);
     }
 
-    // Line
-    var lineColor = scoreColor(scores[scores.length - 1]);
-    var points = history.map(function(_, i) { return x(i) + ',' + y(scores[i]); }).join(' ');
+    // Line — only through entries that recorded a score
+    var lineColor = scoreColor(known[known.length - 1]);
+    var points = history
+      .map(function(_, i) { return scores[i] === null ? null : x(i) + ',' + y(scores[i]); })
+      .filter(function(p) { return p !== null; })
+      .join(' ');
     svg.append(svgEl('polyline', {
       points: points, fill: 'none', stroke: lineColor,
       'stroke-width': '2', 'stroke-linejoin': 'round'
@@ -102,6 +115,7 @@
 
     // Dots — backfill entries render hollow, live analysis filled
     history.forEach(function(entry, i) {
+      if (scores[i] === null) return;
       var isBackfill = entry.source === 'backfill';
       var attrs = {
         class: 'tr-dot',
