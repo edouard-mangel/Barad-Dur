@@ -2,6 +2,51 @@
 
 All notable changes to this project will be documented here.
 
+## [0.21.0] - 2026-08-26
+
+### Added
+- **Test safety net** metric (Crime Scene Ch. 9) — flags source files whose paired tests are eroding, with the `coupling.test_safety_net_min_ratio` threshold, tooltip copy and suggested actions.
+- **Knowledge loss** metric (Ch. 13) and **cross-team coupling** metric (Ch. 12).
+- **Trends**: churn timeline and coupling-pair growth (M1, Ch. 14), code/test growth balance (M2, Ch. 9), coupling-reach decay annotation (M3, Ch. 8).
+- **Call graph**: TS/JS and Rust call-edge extraction, plus a `call_graph` report section gated by a trust floor.
+- Community detection and a structural hub signal shared by the coupling and health categories.
+- File-role classification separating code, tests and config.
+- Hotspot naming and vocabulary heuristics.
+
+### Changed
+- **Breaking (API)**: `compute_coupling`, `compute_team` and `compute_health` each take an additional parameter, and `scorer::build_report` takes 7 rather than 5. Library consumers must update call sites; the CLI is unaffected.
+- Maintainability report scoring recalibrated, and report scoring made context-aware.
+
+### Fixed
+- **Import-derived metrics no longer report a repository as clean when nothing was measured.** Afferent coupling, efferent coupling and circular dependencies now return *unscored* when the import graph could not be built, instead of a perfect 100. This affects every repository whose language has no import resolution — PHP, Ruby, C/C++, Swift, Scala, **and Kotlin**, which has an import query but no resolver arm and so never produced edges. Scores for these repositories will change: the affected metrics stop contributing a fabricated 100 to the Coupling category.
+- **Change-coupling smells are scored from co-change alone when no import data exists.** Previously a pair was kept only if both files carried an import-graph community, so on a repository with no import extraction every finding was reported at a perfect score. Community data now refutes a pair only when both files are known and share a community; absence of data is no longer treated as evidence of separation.
+- Circular dependencies no longer merge a direct `A↔B` cycle with `A→B→C→A`; cycles are keyed by their full sorted member list, so counts and evidence no longer depend on hash iteration order.
+- Test safety net counts co-changes exactly rather than via the floored pair table, and covers reverse-direction stems in its candidate index.
+- CI: h2 advisory patched, stale `deny` ignore dropped.
+
+### Internal
+- `community_corroboration`'s documentation claimed it never changed the score; it drops refuted pairs, so disabling it can only lower the score. Corrected and covered by a test.
+- Mutation-testing coverage holes closed across gate/backfill validation, call-graph extraction and community/hub detection.
+
+## [0.20.0] - 2026-07-18
+
+> **Note on versioning.** No `v0.19.0` tag was ever cut. The `[0.19.0]`
+> section below describes the `.baraddurignore` exclusion work, which
+> shipped in the **v0.20.0** tag. This section records the rest of that
+> release, which had gone undocumented.
+
+### Added
+- **Pressman coupling milestones M4–M7**: hotspot cross-referencing (M4), corroboration weighting over qualifying co-change pairs (M5), per-file refactoring actions surfaced in CLI, HTML and dashboard (M6), and the inheritance-depth rung with an `inheritance_min_depth` threshold and `Ih` hotspot badge (M7).
+- **Gate ratchet**: `--no-new-coupling`, `--max-new-coupling` and `--baseline-ref` for a pure ratchet verdict over baseline/head findings.
+- Opt-in blob-based AST pass so historical (backfill) snapshots carry coupling findings; snapshot cache bumped to v2 to carry resolved class records.
+- Pressman finding counts embedded in the analysis report, recorded in trend history and shown in the trends tooltip.
+
+### Fixed
+- Pressman metrics render unscored when the AST pass did not run, rather than reading as clean.
+- Barrel re-exports followed during inheritance resolution; abstract-class chains detected.
+- No keyword-counted complexity for unknown languages.
+- `crossbeam-epoch` bumped to 0.9.20 for RUSTSEC-2026-0204.
+
 ## [0.19.0] - 2026-07-02
 
 ### Added
