@@ -187,10 +187,14 @@ pub struct CouplingThresholds {
     /// OO, not the deep-chain hazard this rung targets). Default 2.
     #[serde(default = "default_inheritance_min_depth")]
     pub inheritance_min_depth: usize,
-    /// Annotate change-coupling smells with whether the pair also sits in
-    /// different Louvain communities of the import graph — additive
-    /// evidence only, never changes the smell count or score. Teams that
-    /// find it noisy can turn it off.
+    /// Use Louvain communities of the import graph to *refute* change-coupling
+    /// smells: a pair whose two files sit in the same community is dropped
+    /// from the score, while pairs in different communities — and pairs where
+    /// either file is absent from the graph — are kept. Never changes the
+    /// reported smell count, but it does change the score, and disabling it
+    /// can only lower that score (refuted pairs come back in). With no import
+    /// data at all nothing can be refuted, so the switch has no effect.
+    /// Teams that find the annotation noisy can turn it off.
     #[serde(default = "default_community_corroboration")]
     pub community_corroboration: bool,
     /// Minimum distinct co-change partners a file must reach in the second

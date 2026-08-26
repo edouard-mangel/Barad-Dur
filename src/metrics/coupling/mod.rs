@@ -4,10 +4,11 @@ mod test_safety_net;
 pub(crate) use inheritance::inheritance_findings;
 pub(crate) use test_safety_net::test_safety_net;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::config::CouplingThresholds;
+use crate::metrics::complexity::{detect_language, import_query};
 use crate::metrics::file_role::{classify, FileRole};
 use crate::metrics::{median, score_prevalence, CategoryResult, MetricValue, RawValue};
 use crate::scorer::CouplingFindingCounts;
@@ -183,16 +184,13 @@ pub fn growing_coupling_reach(snapshot: &RepoSnapshot, min_partners: usize) -> C
 /// Scored on the median Ca rather than the max. A single hub (core data model)
 /// is normal — what matters is whether *most* files have excessive incoming deps.
 fn afferent_coupling(snapshot: &RepoSnapshot) -> MetricValue {
-    let incoming = crate::metrics::incoming_import_counts(&snapshot.import_graph);
-
-    if incoming.is_empty() {
-        return MetricValue {
-            name: "Afferent coupling".to_string(),
-            description: "No import dependencies detected".to_string(),
-            raw_value: RawValue::Count(0),
-            score: None,
-        };
+    // "No import dependencies detected" claimed we had looked. Defer to the
+    // shared reason so an unresolvable language and a genuinely import-free
+    // repository stop sharing one message — and one score.
+    if let Some(reason) = unmeasured_import_reason(snapshot) {
+        return unmeasured_import_metric("Afferent coupling", reason);
     }
+    let incoming = crate::metrics::incoming_import_counts(&snapshot.import_graph);
 
     // Include all files in the distribution (files with zero incoming deps too),
     // so a single hub doesn't skew the median.
@@ -232,13 +230,8 @@ fn afferent_coupling(snapshot: &RepoSnapshot) -> MetricValue {
 /// Scored on the median Ce. A few orchestrator files with many imports are
 /// expected — the score reflects whether the typical file is well-scoped.
 fn efferent_coupling(snapshot: &RepoSnapshot) -> MetricValue {
-    if snapshot.import_graph.is_empty() {
-        return MetricValue {
-            name: "Efferent coupling".to_string(),
-            description: "No import dependencies detected".to_string(),
-            raw_value: RawValue::Count(0),
-            score: None,
-        };
+    if let Some(reason) = unmeasured_import_reason(snapshot) {
+        return unmeasured_import_metric("Efferent coupling", reason);
     }
 
     // Include all files in the distribution (files with zero outgoing imports too).
@@ -328,18 +321,32 @@ fn change_coupling_smells(snapshot: &RepoSnapshot, thresholds: &CouplingThreshol
     let smell_count = smell_pairs.len();
 
     let communities = community::detect_communities(&snapshot.import_graph);
-    let corroborated: Vec<_> = smell_pairs
+    // Community data can *refute* a pair (both files known, same community)
+    // or *corroborate* it (both known, different communities). When either
+    // file is absent from the import graph there is no evidence either way —
+    // and absence of data is not evidence of separation. Languages with no
+    // import extraction (PHP, Ruby, C/C++, Swift, Scala) produce an empty
+    // graph, so treating "unknown" as "refuted" turned this metric into a
+    // silent no-op that reported real findings at a perfect score.
+    let community_verdict =
+        |a: &PathBuf, b: &PathBuf| match (communities.get(a), communities.get(b)) {
+            (Some(ca), Some(cb)) if ca != cb => Some(true),
+            (Some(_), Some(_)) => Some(false),
+            _ => None,
+        };
+    let corroborated_count = smell_pairs
         .iter()
-        .filter(|(a, b)| match (communities.get(*a), communities.get(*b)) {
-            (Some(ca), Some(cb)) => ca != cb,
-            _ => false,
-        })
-        .collect();
+        .filter(|(a, b)| community_verdict(a, b) == Some(true))
+        .count();
     let scored_pairs: Vec<_> = if thresholds.community_corroboration {
-        corroborated.clone()
+        smell_pairs
+            .iter()
+            .filter(|(a, b)| community_verdict(a, b) != Some(false))
+            .collect()
     } else {
         smell_pairs.iter().collect()
     };
+    let refuted_count = smell_count - scored_pairs.len();
     let affected: HashSet<&PathBuf> = scored_pairs
         .iter()
         .flat_map(|(a, b)| [*a, *b])
@@ -348,26 +355,30 @@ fn change_coupling_smells(snapshot: &RepoSnapshot, thresholds: &CouplingThreshol
     let source_total = source_population(snapshot).len();
     let score = score_prevalence(affected.len(), source_total);
 
-    let community_note = if thresholds.community_corroboration && smell_count > 0 {
-        format!(", {} also cross-community", corroborated.len())
+    // With no communities at all there was nothing to corroborate against,
+    // so a "0 cross-community / 0 refuted" tally would read as a structural
+    // verdict we never actually reached.
+    let corroboration_ran = thresholds.community_corroboration && !communities.is_empty();
+
+    let community_note = if corroboration_ran && smell_count > 0 {
+        format!(", {corroborated_count} also cross-community")
     } else {
         String::new()
     };
 
+    let base = format!(
+        "; score based on {}/{} affected source files",
+        affected.len(),
+        source_total
+    );
     let basis = if smell_count == 0 {
         String::new()
+    } else if corroboration_ran {
+        format!("{base} ({refuted_count} refuted as same-community)")
     } else if thresholds.community_corroboration {
-        format!(
-            "; score based on {}/{} source files with cross-community corroboration",
-            affected.len(),
-            source_total
-        )
+        format!("{base}; no import data to corroborate against")
     } else {
-        format!(
-            "; score based on {}/{} affected source files",
-            affected.len(),
-            source_total
-        )
+        base
     };
     MetricValue {
         name: "Change coupling smells".to_string(),
@@ -425,56 +436,50 @@ fn has_edge(graph: &HashMap<PathBuf, Vec<PathBuf>>, from: &PathBuf, to: &PathBuf
     graph.get(from).is_some_and(|targets| targets.contains(to))
 }
 
-/// Dedup key for a direct A↔B cycle: the pair in lexicographic order.
-fn pair_key(a: &Path, b: &Path) -> (PathBuf, PathBuf) {
-    let mut pair = [a.to_path_buf(), b.to_path_buf()];
-    pair.sort();
-    let [first, second] = pair;
-    (first, second)
-}
-
-/// Dedup key for an A→B→C→A cycle: its two smallest members, so the same
-/// loop found from any entry point collapses to one entry.
-fn trio_key(a: &Path, b: &Path, c: &Path) -> (PathBuf, PathBuf) {
-    let mut trio = [a.to_path_buf(), b.to_path_buf(), c.to_path_buf()];
-    trio.sort();
-    let [first, second, _] = trio;
-    (first, second)
+/// Identity of a cycle: its members, sorted. The same loop found from any
+/// entry point collapses to one entry, while cycles of different arity that
+/// share members stay distinct — a two-member key space shared by pairs and
+/// trios silently merged `A↔B` with `A→B→C→A`.
+fn cycle_members(paths: &[&Path]) -> Vec<PathBuf> {
+    let mut members: Vec<PathBuf> = paths.iter().map(|p| p.to_path_buf()).collect();
+    members.sort();
+    members
 }
 
 /// Circular dependencies: file pairs where A→B and B→A (depth 1) or
 /// A→B→C→A (depth 2).
 fn circular_dependencies(snapshot: &RepoSnapshot) -> MetricValue {
     let graph = &snapshot.import_graph;
+    // An empty graph is only "no cycles" when we actually looked; otherwise
+    // zero findings means "unmeasured", and reporting that as a perfect
+    // score is the same false-perfect bug that hid change-coupling smells.
+    if let Some(reason) = unmeasured_import_reason(snapshot) {
+        return unmeasured_import_metric("Circular dependencies", reason);
+    }
     let edges = graph
         .iter()
         .flat_map(|(a, targets)| targets.iter().map(move |b| (a, b)))
         .filter(|(a, b)| a != b);
 
-    // Keyed by dedup key, valued by the full (sorted) member list: the key
-    // collapses the same loop found from any entry point, while prevalence
-    // and evidence must still see every member.
-    let cycles: HashMap<(PathBuf, PathBuf), Vec<PathBuf>> = edges
+    // A cycle is identified by its sorted member list, held in a BTreeSet so
+    // both the prevalence numerator and the truncated evidence list are
+    // independent of `import_graph`'s hash iteration order.
+    let cycles: BTreeSet<Vec<PathBuf>> = edges
         .flat_map(|(a, b)| {
-            let direct =
-                has_edge(graph, b, a).then(|| (pair_key(a, b), vec![a.clone(), b.clone()]));
+            let direct = has_edge(graph, b, a).then(|| cycle_members(&[a, b]));
             let depth_two = graph
                 .get(b)
                 .into_iter()
                 .flatten()
                 .filter(move |c| *c != a && *c != b && has_edge(graph, c, a))
-                .map(move |c| {
-                    let mut members = vec![a.clone(), b.clone(), c.clone()];
-                    members.sort();
-                    (trio_key(a, b, c), members)
-                });
+                .map(move |c| cycle_members(&[a, b, c]));
             direct.into_iter().chain(depth_two)
         })
         .collect();
 
     let count = cycles.len();
     let affected: HashSet<&PathBuf> = cycles
-        .values()
+        .iter()
         .flatten()
         .filter(|path| classify(path) == FileRole::Source)
         .collect();
@@ -482,7 +487,7 @@ fn circular_dependencies(snapshot: &RepoSnapshot) -> MetricValue {
     let score = score_prevalence(affected.len(), source_total);
 
     let cycle_list: Vec<String> = cycles
-        .values()
+        .iter()
         .take(10)
         .map(|members| {
             members
@@ -496,7 +501,7 @@ fn circular_dependencies(snapshot: &RepoSnapshot) -> MetricValue {
     MetricValue {
         name: "Circular dependencies".to_string(),
         description: format!(
-            "{count} circular dependency pair(s), affecting {}/{} source files",
+            "{count} import cycle(s), affecting {}/{} source files",
             affected.len(),
             source_total
         ),
@@ -535,6 +540,57 @@ pub(crate) fn pressman_finding_counts(
         common: count_kind(CouplingKind::Common),
         inheritance: count_kind(CouplingKind::Inheritance),
         control: count_kind(CouplingKind::Control),
+    })
+}
+
+/// Why an empty import graph cannot be read as "clean", if it cannot.
+///
+/// The three metrics whose only evidence is the import graph share this, so
+/// they cannot drift into disagreeing about what an empty graph means. A
+/// non-empty graph is its own proof that we looked, so it always scores.
+fn unmeasured_import_reason(snapshot: &RepoSnapshot) -> Option<&'static str> {
+    if !snapshot.import_graph.is_empty() {
+        return None;
+    }
+    if !detection_ran(snapshot) {
+        return Some("Coupling detection did not run (no parsed files)");
+    }
+    if !has_import_extractable_files(snapshot) {
+        return Some(
+            "No files whose imports can be resolved \
+             (Rust, TS/JS, Python, Go, Java, C#)",
+        );
+    }
+    None
+}
+
+/// Unscored row for an import metric that had nothing to measure.
+fn unmeasured_import_metric(name: &str, reason: &str) -> MetricValue {
+    MetricValue {
+        name: name.to_string(),
+        description: reason.to_string(),
+        raw_value: RawValue::Count(0),
+        score: None,
+    }
+}
+
+/// Whether any file is in a language whose imports can become graph edges.
+///
+/// Extraction is a two-stage pipeline and both stages must exist: a
+/// tree-sitter import query to pull the specifiers, and a resolver arm to
+/// turn them into repo paths. Kotlin has the first but not the second, so
+/// keying on the query alone would call a Kotlin repo measured and hand it
+/// a perfect score off an empty graph. Derived from the two dispatch tables
+/// themselves rather than a third extension list, so teaching the collector
+/// a new language re-scores those repos with no change here.
+///
+/// Distinct from `has_detectable_files`: Python has an import query but no
+/// coupling-detection query.
+fn has_import_extractable_files(snapshot: &RepoSnapshot) -> bool {
+    snapshot.files.iter().any(|file| {
+        let ext = file.path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        import_query(detect_language(&file.path.to_string_lossy()), ext).is_some()
+            && crate::collector::resolves_imports(ext)
     })
 }
 
