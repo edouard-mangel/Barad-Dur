@@ -40,19 +40,35 @@ pub(crate) fn resolve_specifier(
     resolve_single_import(raw, source, known)
 }
 
+/// Candidate-path builder for one language's import specifiers.
+type CandidateFn = fn(&str, &Path) -> Vec<PathBuf>;
+
+/// The dispatch table, and the single source of truth for which languages
+/// actually produce import edges. A language with an import *query* but no
+/// arm here (Kotlin) yields specifiers that resolve to nothing, so the
+/// import graph stays empty — `resolves_imports` lets the graph metrics
+/// tell that apart from a genuinely import-free repository.
+fn candidates_for(ext: &str) -> Option<CandidateFn> {
+    match ext {
+        "rs" => Some(|raw, _| resolve_rust_import(raw)),
+        "js" | "jsx" | "mjs" | "cjs" => Some(resolve_js_import),
+        "ts" | "tsx" => Some(resolve_ts_import),
+        "py" => Some(|raw, _| resolve_python_import(raw)),
+        "go" => Some(resolve_go_import),
+        "java" => Some(|raw, _| resolve_java_import(raw)),
+        "cs" => Some(|raw, _| resolve_csharp_import(raw)),
+        _ => None,
+    }
+}
+
+/// Whether imports from a file with this extension can resolve to repo paths.
+pub(crate) fn resolves_imports(ext: &str) -> bool {
+    candidates_for(ext).is_some()
+}
+
 fn resolve_single_import(raw: &str, source: &Path, known: &HashSet<&PathBuf>) -> Option<PathBuf> {
     let ext = source.extension().and_then(|e| e.to_str()).unwrap_or("");
-    let candidates = match ext {
-        "rs" => resolve_rust_import(raw),
-        "js" | "jsx" | "mjs" | "cjs" => resolve_js_import(raw, source),
-        "ts" | "tsx" => resolve_ts_import(raw, source),
-        "py" => resolve_python_import(raw),
-        "go" => resolve_go_import(raw, source),
-        "java" => resolve_java_import(raw),
-        "cs" => resolve_csharp_import(raw),
-        _ => Vec::new(),
-    };
-    candidates
+    candidates_for(ext)?(raw, source)
         .into_iter()
         .map(|c| normalize_path(&c))
         .find(|c| known.contains(c))

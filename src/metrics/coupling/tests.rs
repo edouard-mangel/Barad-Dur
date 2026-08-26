@@ -181,22 +181,35 @@ fn circular_deps_open_chain_is_zero() {
 }
 
 #[test]
-fn pair_key_orders_lexicographically() {
+fn cycle_members_are_sorted_regardless_of_entry_point() {
+    // The same loop discovered from any entry point must yield one identity,
+    // so dedup collapses it to a single cycle.
+    let expected = vec![PathBuf::from("a.rs"), PathBuf::from("b.rs")];
     assert_eq!(
-        pair_key(Path::new("b.rs"), Path::new("a.rs")),
-        (PathBuf::from("a.rs"), PathBuf::from("b.rs"))
+        cycle_members(&[Path::new("b.rs"), Path::new("a.rs")]),
+        expected
     );
     assert_eq!(
-        pair_key(Path::new("a.rs"), Path::new("b.rs")),
-        (PathBuf::from("a.rs"), PathBuf::from("b.rs"))
+        cycle_members(&[Path::new("a.rs"), Path::new("b.rs")]),
+        expected
     );
 }
 
 #[test]
-fn trio_key_keeps_two_smallest_members() {
+fn cycle_members_keep_every_member_so_arities_stay_distinct() {
+    // A trio keeps all three members: truncating to the two smallest made it
+    // indistinguishable from the pair of those same two files.
     assert_eq!(
-        trio_key(Path::new("c.rs"), Path::new("a.rs"), Path::new("b.rs")),
-        (PathBuf::from("a.rs"), PathBuf::from("b.rs"))
+        cycle_members(&[Path::new("c.rs"), Path::new("a.rs"), Path::new("b.rs")]),
+        vec![
+            PathBuf::from("a.rs"),
+            PathBuf::from("b.rs"),
+            PathBuf::from("c.rs")
+        ]
+    );
+    assert_ne!(
+        cycle_members(&[Path::new("a.rs"), Path::new("b.rs"), Path::new("c.rs")]),
+        cycle_members(&[Path::new("a.rs"), Path::new("b.rs")])
     );
 }
 
@@ -372,7 +385,9 @@ fn change_coupling_cross_component_above_threshold_counted() {
         (0u32..10).map(CommitId).collect::<Vec<_>>(),
     );
     let result = change_coupling_smells(&snapshot, &default_thresholds());
-    assert_eq!(result.score, Some(100)); // uncorroborated co-change is advisory
+    // No import graph, so nothing to corroborate against: the pair is scored.
+    // Only src/a.rs is a source file, against an empty population → band 1.
+    assert_eq!(result.score, Some(75));
 }
 
 #[test]
@@ -455,22 +470,24 @@ fn make_cross_boundary_snapshot(n: usize) -> RepoSnapshot {
 }
 
 #[test]
-fn change_coupling_scoring_bands() {
+fn change_coupling_scoring_bands_without_import_data() {
+    // These fixtures carry no import graph, so corroboration has nothing to
+    // speak with and the qualifying pairs are scored directly.
     assert_eq!(
         change_coupling_smells(&make_snapshot(), &default_thresholds()).score,
         Some(100)
     );
     assert_eq!(
         change_coupling_smells(&make_cross_boundary_snapshot(2), &default_thresholds()).score,
-        Some(100)
+        Some(75)
     );
     assert_eq!(
         change_coupling_smells(&make_cross_boundary_snapshot(4), &default_thresholds()).score,
-        Some(100)
+        Some(50)
     );
     assert_eq!(
         change_coupling_smells(&make_cross_boundary_snapshot(6), &default_thresholds()).score,
-        Some(100)
+        Some(25)
     );
 }
 
@@ -629,7 +646,8 @@ fn change_coupling_depth3_different_component() {
         (0u32..10).map(CommitId).collect::<Vec<_>>(),
     );
     let result = change_coupling_smells(&snapshot, &thresholds_with_depth(3));
-    assert_eq!(result.score, Some(100)); // no structural corroboration
+    // Both files are source; with no import graph the pair is scored directly.
+    assert_eq!(result.score, Some(75));
 }
 
 #[test]
@@ -1238,8 +1256,8 @@ fn qualifying_smell_pairs_matches_change_coupling_count() {
     );
     assert_eq!(
         change_coupling_smells(&snapshot, &default_thresholds()).score,
-        Some(100),
-        "uncorroborated co-change pairs must not lower the score"
+        Some(50),
+        "with no import data to corroborate against, the pairs are scored"
     );
 }
 
@@ -1808,5 +1826,484 @@ mod growing_coupling_reach_tests {
         }
         let m = growing_coupling_reach(&snap(commits, 9), 8);
         assert!(m.is_empty(), "{m:?}");
+    }
+}
+
+// --- Regressions from the !106 review (issue #4) ---
+
+#[test]
+fn circular_deps_pair_and_trio_sharing_two_members_are_distinct_cycles() {
+    // a↔b is one cycle; a→b→c→a is another. The old `trio_key` returned the
+    // two smallest members, colliding with `pair_key(a, b)` whenever a and b
+    // were the two smallest — the two cycles collapsed into one entry and
+    // whichever value landed last decided whether c counted at all.
+    let mut snapshot = make_snapshot();
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("src/a.rs"), vec![PathBuf::from("src/b.rs")]);
+    snapshot.import_graph.insert(
+        PathBuf::from("src/b.rs"),
+        vec![PathBuf::from("src/a.rs"), PathBuf::from("src/c.rs")],
+    );
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("src/c.rs"), vec![PathBuf::from("src/a.rs")]);
+    let result = circular_dependencies(&snapshot);
+    assert!(
+        result.description.starts_with("2 import cycle(s)"),
+        "pair and trio are separate cycles, and a 3-cycle is not a pair: {}",
+        result.description
+    );
+    assert!(
+        result.description.contains("affecting 3/3 source files"),
+        "every member of both cycles counts toward prevalence: {}",
+        result.description
+    );
+}
+
+#[test]
+fn circular_deps_output_is_stable_across_runs() {
+    // `import_graph` is a HashMap, so each freshly built snapshot may iterate
+    // its edges in a different order. Neither the score nor the truncated
+    // evidence list may depend on that order.
+    fn build() -> RepoSnapshot {
+        let mut snapshot = make_snapshot();
+        snapshot
+            .import_graph
+            .insert(PathBuf::from("src/a.rs"), vec![PathBuf::from("src/b.rs")]);
+        snapshot.import_graph.insert(
+            PathBuf::from("src/b.rs"),
+            vec![PathBuf::from("src/a.rs"), PathBuf::from("src/c.rs")],
+        );
+        snapshot
+            .import_graph
+            .insert(PathBuf::from("src/c.rs"), vec![PathBuf::from("src/a.rs")]);
+        // Enough further 2-cycles to overflow the 10-entry evidence cap, so
+        // truncation is genuinely under test rather than merely claimed.
+        for i in 0..12 {
+            let x = PathBuf::from(format!("src/m{i:02}x.rs"));
+            let y = PathBuf::from(format!("src/m{i:02}y.rs"));
+            snapshot.import_graph.insert(x.clone(), vec![y.clone()]);
+            snapshot.import_graph.insert(y, vec![x]);
+        }
+        snapshot
+    }
+    let baseline = circular_dependencies(&build());
+    assert!(
+        matches!(&baseline.raw_value, RawValue::List(cycles) if cycles.len() == 10),
+        "the fixture must actually overflow the 10-cycle cap, or this test \
+         never exercises the truncation it claims to guard: {:?}",
+        baseline.raw_value
+    );
+    for run in 0..256 {
+        let result = circular_dependencies(&build());
+        assert_eq!(
+            result.score, baseline.score,
+            "run {run}: score must not depend on hash iteration order"
+        );
+        assert_eq!(
+            result.description, baseline.description,
+            "run {run}: description must not depend on hash iteration order"
+        );
+        assert_eq!(
+            format!("{:?}", result.raw_value),
+            format!("{:?}", baseline.raw_value),
+            "run {run}: evidence must not depend on hash iteration order"
+        );
+    }
+}
+
+#[test]
+fn circular_deps_direct_pair_evidence_is_ordered() {
+    // The pair arm stored its members in edge-visit order, so the rendered
+    // string flipped with iteration order. It must be canonical.
+    let mut snapshot = make_snapshot();
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("src/z.rs"), vec![PathBuf::from("src/a.rs")]);
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("src/a.rs"), vec![PathBuf::from("src/z.rs")]);
+    let result = circular_dependencies(&snapshot);
+    assert!(
+        matches!(&result.raw_value, RawValue::List(cycles)
+            if cycles == &vec!["src/a.rs <-> src/z.rs".to_string()]),
+        "pair members must render in sorted order: {:?}",
+        result.raw_value
+    );
+}
+
+#[test]
+fn change_coupling_scores_pairs_when_no_import_data_exists() {
+    // A repo whose language has no import extraction (PHP, Ruby, C/C++,
+    // Swift, Scala) has an empty import graph, so no pair can ever be
+    // corroborated. Requiring corroboration there turned the metric into a
+    // silent no-op that reported real findings at a perfect score.
+    let mut snapshot = make_snapshot();
+    for i in 0..6 {
+        let a = PathBuf::from(format!("app/Http/c{i}.php"));
+        let b = PathBuf::from(format!("app/Models/m{i}.php"));
+        snapshot.file_change_pairs.push((a.clone(), b.clone(), 8));
+        snapshot
+            .commits_by_file
+            .insert(a.clone(), (0u32..10).map(CommitId).collect::<Vec<_>>());
+        snapshot
+            .commits_by_file
+            .insert(b.clone(), (0u32..10).map(CommitId).collect::<Vec<_>>());
+        snapshot.files.push(make_file(a.to_str().unwrap()));
+        snapshot.files.push(make_file(b.to_str().unwrap()));
+    }
+    assert!(
+        snapshot.import_graph.is_empty(),
+        "fixture must carry no import data"
+    );
+
+    let result = change_coupling_smells(&snapshot, &default_thresholds());
+    assert_ne!(
+        result.score,
+        Some(100),
+        "12 coupled files with no structural data to corroborate against \
+         must not score perfect: {}",
+        result.description
+    );
+}
+
+#[test]
+fn change_coupling_keeps_corroboration_when_import_data_exists() {
+    // With a real import graph, an uncorroborated pair (same community) stays
+    // out of the score — absence of separation is evidence, unlike absence
+    // of data.
+    let mut snapshot = make_snapshot();
+    let a = PathBuf::from("src/one/a.rs");
+    let b = PathBuf::from("src/two/b.rs");
+    snapshot.file_change_pairs.push((a.clone(), b.clone(), 8));
+    snapshot
+        .commits_by_file
+        .insert(a.clone(), (0u32..10).map(CommitId).collect::<Vec<_>>());
+    snapshot
+        .commits_by_file
+        .insert(b.clone(), (0u32..10).map(CommitId).collect::<Vec<_>>());
+    snapshot.import_graph.insert(a.clone(), vec![b.clone()]);
+    snapshot.import_graph.insert(b.clone(), vec![a.clone()]);
+
+    let result = change_coupling_smells(&snapshot, &default_thresholds());
+    assert_eq!(
+        result.score,
+        Some(100),
+        "same-community pair is corroborated-negative: {}",
+        result.description
+    );
+}
+
+#[test]
+fn disabling_community_corroboration_can_only_lower_the_score() {
+    // The config doc makes this a falsifiable claim: corroboration drops
+    // same-community pairs from the score, so turning it off can only put
+    // pairs back in. Nothing guarded the score half of that until now.
+    let mut snapshot = make_snapshot();
+    let a = PathBuf::from("src/one/a.rs");
+    let b = PathBuf::from("src/two/b.rs");
+    snapshot.file_change_pairs.push((a.clone(), b.clone(), 8));
+    snapshot
+        .commits_by_file
+        .insert(a.clone(), (0u32..10).map(CommitId).collect::<Vec<_>>());
+    snapshot
+        .commits_by_file
+        .insert(b.clone(), (0u32..10).map(CommitId).collect::<Vec<_>>());
+    snapshot.import_graph.insert(a.clone(), vec![b.clone()]);
+    snapshot.import_graph.insert(b.clone(), vec![a.clone()]);
+
+    let on = change_coupling_smells(&snapshot, &default_thresholds());
+    let off = change_coupling_smells(
+        &snapshot,
+        &CouplingThresholds {
+            community_corroboration: false,
+            ..CouplingThresholds::default()
+        },
+    );
+    assert_eq!(
+        on.score,
+        Some(100),
+        "refuted pair leaves the score: {}",
+        on.description
+    );
+    assert_eq!(
+        off.score,
+        Some(75),
+        "same pair counts again: {}",
+        off.description
+    );
+    assert!(
+        off.score <= on.score,
+        "disabling corroboration must never raise the score: {:?} -> {:?}",
+        on.score,
+        off.score
+    );
+    assert_eq!(
+        format!("{:?}", on.raw_value),
+        format!("{:?}", off.raw_value),
+        "the reported smell count is unaffected either way"
+    );
+}
+
+#[test]
+fn change_coupling_scores_pairs_whose_files_have_no_import_edges() {
+    // The graph carries data for some files, so `communities` is non-empty —
+    // but neither member of this pair appears in it (config, migrations,
+    // entrypoints). We have no evidence about their separation, so excluding
+    // them is the same silent no-op as the empty-graph case.
+    let mut snapshot = make_snapshot();
+    // Unrelated pair that does have import data, to populate communities.
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("src/x.ts"), vec![PathBuf::from("src/y.ts")]);
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("src/y.ts"), vec![PathBuf::from("src/x.ts")]);
+
+    let a = PathBuf::from("config/settings.ts");
+    let b = PathBuf::from("db/migrate.ts");
+    snapshot.file_change_pairs.push((a.clone(), b.clone(), 8));
+    snapshot
+        .commits_by_file
+        .insert(a.clone(), (0u32..10).map(CommitId).collect::<Vec<_>>());
+    snapshot
+        .commits_by_file
+        .insert(b.clone(), (0u32..10).map(CommitId).collect::<Vec<_>>());
+
+    let communities = community::detect_communities(&snapshot.import_graph);
+    assert!(
+        !communities.is_empty(),
+        "fixture must have some import data"
+    );
+    assert!(
+        !communities.contains_key(&a) && !communities.contains_key(&b),
+        "neither pair member may have community data"
+    );
+
+    let result = change_coupling_smells(&snapshot, &default_thresholds());
+    assert_ne!(
+        result.score,
+        Some(100),
+        "a pair with no community data on either side is unproven, not refuted: {}",
+        result.description
+    );
+}
+
+// --- Unscored when no import data could exist (MR !107 follow-up) ---
+
+/// Snapshot whose AST pass ran (`file_metrics` populated) over `paths`,
+/// with no import edges — the shape a real parse of an import-less repo
+/// leaves behind.
+fn parsed_snapshot_without_imports(paths: &[&str]) -> RepoSnapshot {
+    let mut snapshot = make_snapshot();
+    for path in paths {
+        snapshot.files.push(make_file(path));
+        snapshot.file_metrics.insert(
+            PathBuf::from(path),
+            crate::snapshot::FileComplexity::default(),
+        );
+    }
+    snapshot
+}
+
+#[test]
+fn import_extractable_files_follows_import_query_support() {
+    // Python has no *detection* query (`has_detectable_files` rejects it) but
+    // it does have an import query — the two capabilities are distinct.
+    assert!(has_import_extractable_files(
+        &parsed_snapshot_without_imports(&["main.py"])
+    ));
+    assert!(has_import_extractable_files(
+        &parsed_snapshot_without_imports(&["src/a.rs"])
+    ));
+    assert!(
+        !has_import_extractable_files(&parsed_snapshot_without_imports(&["app/User.php"])),
+        "PHP falls to Language::Generic, which has no import query"
+    );
+    assert!(
+        has_import_extractable_files(&parsed_snapshot_without_imports(&[
+            "app/User.php",
+            "src/a.rs"
+        ])),
+        "one extractable file is enough to make the graph meaningful"
+    );
+    assert!(
+        !has_import_extractable_files(&parsed_snapshot_without_imports(&["src/Main.kt"])),
+        "Kotlin has an import query but no resolver arm, so its specifiers \
+         never become edges — extraction is only real end to end"
+    );
+    assert!(!has_import_extractable_files(&make_snapshot()));
+}
+
+#[test]
+fn circular_deps_unscored_for_language_whose_imports_never_resolve() {
+    // Kotlin parses and yields import specifiers, but `resolve_single_import`
+    // has no arm for it, so the graph stays empty. Scoring that 100 is the
+    // same false-perfect bug, one language over.
+    let snapshot = parsed_snapshot_without_imports(&["src/Main.kt", "src/Repo.kt"]);
+    let result = circular_dependencies(&snapshot);
+    assert_eq!(
+        result.score, None,
+        "unresolvable imports must read as unmeasured: {}",
+        result.description
+    );
+    assert!(
+        !result.description.contains("Kotlin"),
+        "the message must not advertise Kotlin as supported while telling a \
+         Kotlin repository it has no supported files: {}",
+        result.description
+    );
+}
+
+#[test]
+fn circular_deps_unscored_without_import_extractable_files() {
+    // A PHP repo parses fine but yields no import edges, so "0 cycles" is
+    // "we cannot see", not "clean". Scoring it 100 is the same false-perfect
+    // bug this MR fixed for change coupling.
+    let snapshot = parsed_snapshot_without_imports(&["app/Http/c.php", "app/Models/m.php"]);
+    let result = circular_dependencies(&snapshot);
+    assert_eq!(
+        result.score, None,
+        "no import-extractable language must read as unmeasured: {}",
+        result.description
+    );
+}
+
+#[test]
+fn circular_deps_scored_when_language_parsed_but_has_no_imports() {
+    // The boundary the capability predicate buys us: we *did* parse this
+    // repo with a working import query and found no edges, so "no cycles"
+    // is a real, earned 100. An `import_graph.is_empty()` guard would
+    // wrongly blank this out.
+    let snapshot = parsed_snapshot_without_imports(&["src/a.rs", "src/b.rs"]);
+    let result = circular_dependencies(&snapshot);
+    assert_eq!(
+        result.score,
+        Some(100),
+        "a parsed Rust repo with no imports has genuinely no cycles: {}",
+        result.description
+    );
+}
+
+#[test]
+fn circular_deps_unscored_when_detection_did_not_run() {
+    // Backfill (ADR-005) lists files but skips the AST pass, so the empty
+    // graph says nothing about cycles even though Rust is extractable.
+    let mut snapshot = make_snapshot();
+    snapshot.files.push(make_file("src/a.rs"));
+    // file_metrics deliberately left empty
+    let result = circular_dependencies(&snapshot);
+    assert_eq!(
+        result.score, None,
+        "an unparsed snapshot must not report a clean bill: {}",
+        result.description
+    );
+}
+
+#[test]
+fn change_coupling_description_states_when_no_import_data_exists() {
+    // "0 also cross-community ... (0 refuted as same-community)" reads as
+    // "the structural check ran and found nothing". On a repo with no
+    // import data it never ran at all, and the description must say so.
+    let mut snapshot = parsed_snapshot_without_imports(&[]);
+    for i in 0..3 {
+        let a = PathBuf::from(format!("app/Http/c{i}.php"));
+        let b = PathBuf::from(format!("app/Models/m{i}.php"));
+        snapshot.file_change_pairs.push((a.clone(), b.clone(), 8));
+        snapshot
+            .commits_by_file
+            .insert(a.clone(), (0u32..10).map(CommitId).collect::<Vec<_>>());
+        snapshot
+            .commits_by_file
+            .insert(b.clone(), (0u32..10).map(CommitId).collect::<Vec<_>>());
+        snapshot.files.push(make_file(a.to_str().unwrap()));
+        snapshot.files.push(make_file(b.to_str().unwrap()));
+    }
+
+    let result = change_coupling_smells(&snapshot, &default_thresholds());
+    assert!(
+        result
+            .description
+            .contains("no import data to corroborate against"),
+        "description must name the missing evidence: {}",
+        result.description
+    );
+    assert!(
+        !result.description.contains("cross-community"),
+        "must not claim a cross-community tally it never computed: {}",
+        result.description
+    );
+    assert!(
+        !result.description.contains("refuted"),
+        "must not claim a refutation tally it never computed: {}",
+        result.description
+    );
+}
+
+// --- All three import-graph metrics must agree on what an empty graph means ---
+
+/// The three metrics whose only evidence is the import graph.
+fn import_graph_metrics(snapshot: &RepoSnapshot) -> Vec<MetricValue> {
+    vec![
+        afferent_coupling(snapshot),
+        efferent_coupling(snapshot),
+        circular_dependencies(snapshot),
+    ]
+}
+
+#[test]
+fn import_metrics_agree_that_unresolvable_languages_are_unmeasured() {
+    let snapshot = parsed_snapshot_without_imports(&["app/Http/c.php", "src/Main.kt"]);
+    for m in import_graph_metrics(&snapshot) {
+        assert_eq!(
+            m.score, None,
+            "{} must be unmeasured on a repo whose imports cannot resolve",
+            m.name
+        );
+        assert!(
+            m.description.contains("cannot be resolved")
+                || m.description.contains("imports can be resolved"),
+            "{} must say the imports could not be resolved, not that none were \
+             detected — the latter claims we looked: {}",
+            m.name,
+            m.description
+        );
+    }
+}
+
+#[test]
+fn import_metrics_agree_that_a_parsed_import_free_repo_is_clean() {
+    // We parsed it with a working import query and resolver and found no
+    // edges. That is an earned 100 for all three, not an absence of data.
+    let snapshot = parsed_snapshot_without_imports(&["src/a.rs", "src/b.rs"]);
+    for m in import_graph_metrics(&snapshot) {
+        assert_eq!(
+            m.score,
+            Some(100),
+            "{} must score a parsed, genuinely import-free repo: {}",
+            m.name,
+            m.description
+        );
+    }
+}
+
+#[test]
+fn import_metrics_agree_that_an_unparsed_snapshot_is_unmeasured() {
+    let mut snapshot = make_snapshot();
+    snapshot.files.push(make_file("src/a.rs"));
+    // file_metrics deliberately left empty (backfill, ADR-005)
+    for m in import_graph_metrics(&snapshot) {
+        assert_eq!(
+            m.score, None,
+            "{} must be unmeasured when the AST pass never ran",
+            m.name
+        );
+        assert!(
+            m.description.contains("did not run"),
+            "{} must name the missing parse: {}",
+            m.name,
+            m.description
+        );
     }
 }

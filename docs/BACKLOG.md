@@ -77,3 +77,53 @@ Revisit the current afferent (Ca) / efferent (Ce) coupling metrics and their com
 **Priority**: Nice-to-have
 
 Automatically detect the architectural style of the repository (layered, hexagonal, feature-sliced, modular monolith, etc.) by analyzing directory structure and naming conventions. Use the detected style to configure which coupling relationships constitute cross-boundary violations — e.g. infrastructure importing from domain in hexagonal architecture. This would make coupling health scores context-aware rather than topology-agnostic.
+
+### Import Extraction for PHP, Ruby, and C/C++
+
+**Priority**: Medium
+**Context**: MR !107 follow-up — see `has_import_extractable_files` in `src/metrics/coupling/mod.rs`
+
+Import extraction is a two-stage pipeline, and the two stages currently
+disagree about which languages are supported:
+
+| stage | location | languages |
+|---|---|---|
+| specifier extraction | `import_query`, `complexity/lang_dispatch.rs:23` | Rust, JS/TS, Python, Go, Java, C#, **Kotlin** |
+| path resolution | `candidates_for`, `collector/import_resolver.rs` | Rust, JS/TS, Python, Go, Java, C# |
+
+Everything else — PHP, Ruby, C/C++, Swift, Scala — falls to
+`Language::Generic` and never produces an import edge. Kotlin extracts
+specifiers that then resolve to nothing, so it behaves identically.
+
+**Consequence today.** Repositories in those languages have an empty
+import graph, so afferent coupling, efferent coupling and circular
+dependencies all report *unscored* rather than a fabricated 100, and
+change-coupling smells scores from co-change alone with the note "no
+import data to corroborate against". The signal is honest but absent:
+three of ten coupling metrics contribute nothing to the category score.
+
+**Work, per language:**
+
+1. Add the tree-sitter grammar to `Cargo.toml`
+2. Extend `Language` + `detect_language` in `complexity/fallback.rs`
+3. Add a `*_IMPORTS` query in `complexity/queries.rs`, with a validity
+   test alongside the existing ones (`queries.rs:375+`)
+4. Wire `grammar_for` + `import_query` in `complexity/lang_dispatch.rs`
+5. Add a resolver arm to `candidates_for` in `collector/import_resolver.rs`
+
+Step 5 is the one that is not boilerplate — resolution semantics differ
+sharply: PHP `use`/`require` against PSR-4 autoload roots in
+`composer.json`, Ruby `require_relative` (path-based) vs `require`
+(load-path-based), C/C++ `#include "..."` vs `<...>` against include
+directories. Each needs its own candidate-path rules, and each should
+land with the language it serves rather than as one shared change.
+
+**Cheapest first step: finish Kotlin.** The query already exists and the
+grammar is already a dependency; only the `candidates_for` arm is
+missing. Kotlin resolution is package-path based, so
+`resolve_java_import` is close to the needed shape. Doing this alone
+lights up three metrics for Kotlin repositories.
+
+Adding any of these requires no change in `src/metrics/coupling/` —
+`has_import_extractable_files` reads both dispatch tables directly, so a
+newly supported language starts being scored on its own.

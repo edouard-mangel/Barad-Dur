@@ -18,6 +18,7 @@ pub use inheritance::{
     extract_class_records, extract_reexports, RawBaseRef, RawClassRecord, RawReExport,
     RawReExportKind,
 };
+pub use lang_dispatch::import_query;
 pub use pressman::extract_coupling_findings;
 
 /// Everything the collector extracts from one source file, produced from a
