@@ -69,6 +69,17 @@ if [ "$BUMP" = "none" ]; then
   exit 0
 fi
 
+# Pre-1.0, the minor position is the breaking-change slot: Cargo treats
+# 0.x.y -> 0.(x+1).0 as incompatible, so breaking changes are already
+# expressible without leaving 0.x. Reaching 1.0.0 is a deliberate product
+# decision, never a side effect of one commit subject carrying a "!" or a
+# BREAKING CHANGE footer.
+if [ "$BUMP" = "major" ] && [ "$MAJOR" -eq 0 ]; then
+  echo "Pre-1.0 crate: breaking change maps to the minor position, not 1.0.0."
+  echo "               To release 1.0.0, edit Cargo.toml by hand."
+  BUMP="minor"
+fi
+
 # Compute next version
 case "$BUMP" in
   major) NEXT="$((MAJOR + 1)).0.0" ;;
@@ -86,8 +97,10 @@ if [ "$1" = "--apply" ]; then
   echo ""
   echo "Updated $CARGO_TOML to version $NEXT"
 
-  # Update Cargo.lock
-  cargo generate-lockfile --quiet 2>/dev/null || true
+  # Update Cargo.lock — only this crate's own version entry.
+  # `cargo generate-lockfile` re-resolves the entire dependency graph and
+  # would sweep unrelated upgrades into a chore: commit.
+  cargo update --workspace --quiet 2>/dev/null || true
 
   # Create tag
   git add "$CARGO_TOML" Cargo.lock
