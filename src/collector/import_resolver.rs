@@ -56,6 +56,7 @@ fn candidates_for(ext: &str) -> Option<CandidateFn> {
         "py" => Some(|raw, _| resolve_python_import(raw)),
         "go" => Some(resolve_go_import),
         "java" => Some(|raw, _| resolve_java_import(raw)),
+        "kt" | "kts" => Some(|raw, _| resolve_kotlin_import(raw)),
         "cs" => Some(|raw, _| resolve_csharp_import(raw)),
         _ => None,
     }
@@ -170,6 +171,27 @@ fn resolve_java_import(raw: &str) -> Vec<PathBuf> {
     ]
 }
 
+/// Kotlin imports are dotted package paths like Java's, laid out under
+/// `src/main/kotlin/` by Gradle. Unlike Java they routinely name a member
+/// or top-level function rather than a type — `com.foo.Bar.baz` is declared
+/// in `com/foo/Bar.kt` — so the parent of the dotted path is a candidate
+/// too. Kotlin does not enforce package/directory correspondence, so a
+/// non-conventional layout simply yields no candidate that exists, never a
+/// wrong edge: `resolve_single_import` keeps only paths the repo really has.
+fn resolve_kotlin_import(raw: &str) -> Vec<PathBuf> {
+    let for_segments = |segments: String| {
+        [
+            PathBuf::from(format!("{segments}.kt")),
+            PathBuf::from(format!("src/main/kotlin/{segments}.kt")),
+        ]
+    };
+    let parent = raw.rsplit_once('.').map(|(head, _)| head.replace('.', "/"));
+    for_segments(raw.replace('.', "/"))
+        .into_iter()
+        .chain(parent.into_iter().flat_map(for_segments))
+        .collect()
+}
+
 fn resolve_csharp_import(raw: &str) -> Vec<PathBuf> {
     let segments = raw.replace('.', "/");
     vec![PathBuf::from(format!("{}.cs", segments))]
@@ -196,6 +218,57 @@ mod tests {
             imports.into_iter().map(String::from).collect(),
         );
         m
+    }
+
+    #[test]
+    fn kotlin_import_resolves_to_package_path() {
+        let files = vec![entry("com/foo/Bar.kt"), entry("com/foo/App.kt")];
+        let graph = resolve_imports(&raw("com/foo/App.kt", vec!["com.foo.Bar"]), &files);
+        assert_eq!(
+            graph[&PathBuf::from("com/foo/App.kt")],
+            vec![PathBuf::from("com/foo/Bar.kt")]
+        );
+    }
+
+    #[test]
+    fn kotlin_import_resolves_under_the_gradle_source_root() {
+        // Gradle lays Kotlin out under src/main/kotlin/, the same shape
+        // resolve_java_import already handles for src/main/java/.
+        let files = vec![
+            entry("src/main/kotlin/com/foo/Bar.kt"),
+            entry("src/main/kotlin/com/foo/App.kt"),
+        ];
+        let graph = resolve_imports(
+            &raw("src/main/kotlin/com/foo/App.kt", vec!["com.foo.Bar"]),
+            &files,
+        );
+        assert_eq!(
+            graph[&PathBuf::from("src/main/kotlin/com/foo/App.kt")],
+            vec![PathBuf::from("src/main/kotlin/com/foo/Bar.kt")]
+        );
+    }
+
+    #[test]
+    fn kotlin_member_import_resolves_to_the_declaring_file() {
+        // Unlike Java, Kotlin routinely imports a member or top-level
+        // function: `com.foo.Bar.baz` lives in com/foo/Bar.kt, so the
+        // final segment must be droppable.
+        let files = vec![entry("com/foo/Bar.kt"), entry("com/foo/App.kt")];
+        let graph = resolve_imports(&raw("com/foo/App.kt", vec!["com.foo.Bar.baz"]), &files);
+        assert_eq!(
+            graph[&PathBuf::from("com/foo/App.kt")],
+            vec![PathBuf::from("com/foo/Bar.kt")]
+        );
+    }
+
+    #[test]
+    fn kotlin_import_of_an_unknown_file_yields_no_edge() {
+        // Kotlin does not enforce package/directory correspondence, so a
+        // non-conventional layout must degrade to "no edge", never a
+        // wrong one.
+        let files = vec![entry("com/foo/App.kt")];
+        let graph = resolve_imports(&raw("com/foo/App.kt", vec!["com.elsewhere.Bar"]), &files);
+        assert!(!graph.contains_key(&PathBuf::from("com/foo/App.kt")));
     }
 
     #[test]

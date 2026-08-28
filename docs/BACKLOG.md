@@ -88,12 +88,14 @@ disagree about which languages are supported:
 
 | stage | location | languages |
 |---|---|---|
-| specifier extraction | `import_query`, `complexity/lang_dispatch.rs:23` | Rust, JS/TS, Python, Go, Java, C#, **Kotlin** |
-| path resolution | `candidates_for`, `collector/import_resolver.rs` | Rust, JS/TS, Python, Go, Java, C# |
+| specifier extraction | `import_query`, `complexity/lang_dispatch.rs` | Rust, JS/TS, Python, Go, Java, C#, Kotlin |
+| path resolution | `candidates_for`, `collector/import_resolver.rs` | Rust, JS/TS, Python, Go, Java, C#, Kotlin |
 
 Everything else — PHP, Ruby, C/C++, Swift, Scala — falls to
-`Language::Generic` and never produces an import edge. Kotlin extracts
-specifiers that then resolve to nothing, so it behaves identically.
+`Language::Generic` and never produces an import edge. Kotlin used to
+behave identically (query but no resolver arm); that gap is closed, and
+`every_language_with_an_import_query_can_resolve_imports` now pins the
+two stages together so they cannot drift apart again.
 
 **Consequence today.** Repositories in those languages have an empty
 import graph, so afferent coupling, efferent coupling and circular
@@ -118,11 +120,18 @@ sharply: PHP `use`/`require` against PSR-4 autoload roots in
 directories. Each needs its own candidate-path rules, and each should
 land with the language it serves rather than as one shared change.
 
-**Cheapest first step: finish Kotlin.** The query already exists and the
-grammar is already a dependency; only the `candidates_for` arm is
-missing. Kotlin resolution is package-path based, so
-`resolve_java_import` is close to the needed shape. Doing this alone
-lights up three metrics for Kotlin repositories.
+**Kotlin is done** — `resolve_kotlin_import`, modelled on
+`resolve_java_import`: dotted package paths, also tried under
+`src/main/kotlin/`, plus the parent of the dotted path because Kotlin
+routinely imports a member or top-level function rather than a type.
+Afferent, efferent and circular dependencies are now scored for Kotlin
+repositories instead of unscored.
+
+Not handled: Kotlin Multiplatform source roots
+(`src/commonMain/kotlin/` and friends) and wildcard imports — both worth
+revisiting against a real MPP repository rather than guessed at. Kotlin
+also does not enforce package/directory correspondence, so a
+non-conventional layout yields no edge (never a wrong one).
 
 Adding any of these requires no change in `src/metrics/coupling/` —
 `has_import_extractable_files` reads both dispatch tables directly, so a
