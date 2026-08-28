@@ -24,7 +24,7 @@ Barad-dur analyzes git metadata (commits, blame, file tree) and source code comp
 
 Scored metrics use a 0-100 scale. Category scores average only the metrics with a numeric score, and the overall score is a weighted average of those categories. Contextual signals whose interpretation depends on repository structure or team configuration are marked **advisory** and do not lower the score.
 
-For repositories with at least 100 production-source files, finding-based metrics are normalized by prevalence: no affected files scores 100, up to 1% scores 90, up to 5% scores 75, up to 20% scores 50, and above 20% scores 25. Smaller repositories retain count bands so a tiny denominator does not hide a meaningful finding. Tests, documentation, configuration, and generated files are excluded where a metric is specifically about production maintainability.
+Finding-based metrics are scored against the size of the population being assessed, in three ranges. Below 100 production-source files the denominator is too small to trust, so absolute count bands apply. At 300 or more, prevalence governs alone: no affected files scores 100, up to 1% scores 90, up to 5% scores 75, up to 20% scores 50, and above 20% scores 25. Between 100 and 300 the **stricter of the two** applies, so crossing the minimum-support boundary does not hand a repository a free jump for gaining one unrelated file. Tests, documentation, configuration, and generated files are excluded where a metric is specifically about production maintainability.
 
 The report includes **Top Actions** — concrete suggestions from the lowest-scoring metrics.
 

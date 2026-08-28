@@ -188,7 +188,9 @@ mod tests {
             &snapshot,
             &god_object_files(&snapshot, &HealthThresholds::default()),
         );
-        assert_eq!(result.score, Some(90));
+        // 1/100 = 1% (prevalence 90), capped by the count band until the
+        // source population passes the trusted-size threshold.
+        assert_eq!(result.score, Some(75));
         match &result.raw_value {
             RawValue::List(v) => {
                 assert_eq!(v.len(), 1);
@@ -257,7 +259,8 @@ mod tests {
             &snapshot,
             &god_object_files(&snapshot, &HealthThresholds::default()),
         );
-        assert_eq!(result.score, Some(90)); // one finding among 100 source files
+        // one finding among 100 source files — count band still governs
+        assert_eq!(result.score, Some(75));
     }
 
     #[test]
@@ -338,7 +341,8 @@ mod tests {
             &snapshot,
             &god_object_files(&snapshot, &HealthThresholds::default()),
         );
-        assert_eq!(result.score, Some(90));
+        // 1/100 = 1%, count band governs below the trusted population
+        assert_eq!(result.score, Some(75));
     }
 
     #[test]
@@ -395,7 +399,8 @@ mod tests {
             &snapshot,
             &god_object_files(&snapshot, &HealthThresholds::default()),
         );
-        assert_eq!(result.score, Some(75));
+        // medium prevalence, still inside the count-band-capped range
+        assert_eq!(result.score, Some(50));
     }
 
     #[test]
@@ -425,7 +430,8 @@ mod tests {
             &snapshot,
             &god_object_files(&snapshot, &HealthThresholds::default()),
         );
-        assert_eq!(result.score, Some(50));
+        // high prevalence, still inside the count-band-capped range
+        assert_eq!(result.score, Some(25));
     }
 
     #[test]
@@ -483,7 +489,8 @@ mod tests {
             &snapshot,
             &god_object_files(&snapshot, &HealthThresholds::default()),
         );
-        assert_eq!(result.score, Some(90)); // flagged: 1/100 = 1%
+        // flagged: 1/100 = 1%, capped by the count band
+        assert_eq!(result.score, Some(75));
     }
 
     #[test]

@@ -74,17 +74,32 @@ pub(crate) fn score_count_bands(count: usize) -> u32 {
 /// Score findings by their prevalence in the population being assessed.
 /// Absolute-count bands make every sufficiently large repository fail even
 /// when only a tiny fraction of its code is affected.
+///
+/// Below `MIN_PREVALENCE_POPULATION` the denominator is too small to trust,
+/// so the count bands govern. Between there and `TRUSTED_POPULATION` the
+/// stricter of the two applies: crossing the minimum-support boundary must
+/// not hand a repository a free jump just for gaining one unrelated file.
+/// At or above `TRUSTED_POPULATION`, prevalence governs alone.
+///
+/// MAINTAINER-AUTHORED THRESHOLDS, like `score_pressman`'s bands: 100 and
+/// 300 are judgement calls about when a denominator becomes meaningful,
+/// not values derived from a corpus. The invariant they exist to protect
+/// is the one the tests pin — the score must never rise merely because the
+/// repository grew. Retune the numbers if evidence warrants; keep that.
 pub(crate) fn score_prevalence(flagged: usize, total: usize) -> u32 {
+    const MIN_PREVALENCE_POPULATION: usize = 100;
+    const TRUSTED_POPULATION: usize = 300;
+
     if flagged == 0 {
         return 100;
     }
     // total == 0 (no recognized source population) falls through to the
     // count bands: findings are real even when the denominator is unknown.
-    if total < 100 {
+    if total < MIN_PREVALENCE_POPULATION {
         return score_count_bands(flagged);
     }
     let pct = flagged as f64 / total as f64 * 100.0;
-    if pct <= 1.0 {
+    let by_prevalence = if pct <= 1.0 {
         90
     } else if pct <= 5.0 {
         75
@@ -92,6 +107,11 @@ pub(crate) fn score_prevalence(flagged: usize, total: usize) -> u32 {
         50
     } else {
         25
+    };
+    if total < TRUSTED_POPULATION {
+        by_prevalence.min(score_count_bands(flagged))
+    } else {
+        by_prevalence
     }
 }
 
@@ -214,6 +234,36 @@ mod primary_author_sentinel_tests {
             .collect()
     }
 
+    // Strict-majority boundaries. These moved here from a `#[cfg(test)]`
+    // wrapper in bus_factor.rs that production code no longer called; the
+    // rule they pin (`count * 2 > total`) lives here.
+
+    #[test]
+    fn empty_blame_has_no_primary_author() {
+        assert_eq!(primary_author(&[]), None);
+    }
+
+    #[test]
+    fn single_author_owning_every_line_is_primary() {
+        assert_eq!(primary_author(&lines(&[(0, 10)])), Some(0));
+    }
+
+    #[test]
+    fn exact_fifty_fifty_split_has_no_primary_author() {
+        // max * 2 == total (not strictly greater) → nobody dominates.
+        assert_eq!(primary_author(&lines(&[(0, 50), (1, 50)])), None);
+    }
+
+    #[test]
+    fn fifty_one_percent_is_a_primary_author() {
+        assert_eq!(primary_author(&lines(&[(0, 51), (1, 49)])), Some(0));
+    }
+
+    #[test]
+    fn eighty_twenty_split_is_a_primary_author() {
+        assert_eq!(primary_author(&lines(&[(0, 80), (1, 20)])), Some(0));
+    }
+
     #[test]
     fn unknown_author_majority_is_not_a_primary_author() {
         // 80 legacy lines + 20 alice lines: the majority is unknown —
@@ -261,6 +311,40 @@ mod prevalence_score_tests {
         assert_eq!(score_prevalence(0, 0), 100);
         assert_eq!(score_prevalence(1, 20), 75);
         assert_eq!(score_prevalence(3, 20), 50);
+    }
+
+    #[test]
+    fn transition_range_takes_the_stricter_of_count_and_prevalence() {
+        // Crossing total == 100 must not hand a repo a free 25-point jump.
+        // Just below the boundary 3 findings score 50 (count band); just
+        // above, prevalence alone would say 75, so the count band wins until
+        // the denominator is large enough to trust on its own.
+        assert_eq!(score_prevalence(3, 99), 50);
+        assert_eq!(score_prevalence(3, 100), 50);
+        assert_eq!(score_prevalence(3, 299), 50);
+        // At 300+ the population is large enough that prevalence governs
+        // alone: 3/300 is 1%, so the count band's 50 no longer caps it.
+        assert_eq!(score_prevalence(3, 300), 90);
+    }
+
+    #[test]
+    fn single_finding_jumps_a_full_band_at_the_trusted_population() {
+        // The largest step in the table, and the one a maintainer is most
+        // likely to be surprised by: one finding is capped at the count
+        // band's 75 right up to the boundary, then the denominator becomes
+        // trustworthy and 1/300 = 0.33% scores 90.
+        assert_eq!(score_prevalence(1, 299), 75);
+        assert_eq!(score_prevalence(1, 300), 90);
+    }
+
+    #[test]
+    fn transition_range_never_scores_above_the_prevalence_band() {
+        // The stricter-of-two rule must also bite the other way: 2 findings
+        // in 100 files is 2% (band 75), and the count band would say 75 too,
+        // but 30 findings in 150 files is 20% (band 50) while the count band
+        // says 25 — the stricter 25 wins.
+        assert_eq!(score_prevalence(2, 100), 75);
+        assert_eq!(score_prevalence(30, 150), 25);
     }
 
     #[test]
