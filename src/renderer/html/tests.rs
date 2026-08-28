@@ -86,6 +86,18 @@ fn html_explains_context_aware_scoring() {
     assert!(html.contains("Advisory until real team boundaries are configured"));
     assert!(html.contains("Informational and unscored"));
     assert!(html.contains("affected-file prevalence"));
+    // The rule has two thresholds, not one: below the trusted population
+    // the count bands still cap the prevalence score, so a report that
+    // advertises prevalence alone overstates what a mid-sized repo gets.
+    assert!(
+        html.contains("stricter"),
+        "scoring copy must say the smaller of the two bands applies \
+         between the minimum and trusted population sizes"
+    );
+    assert!(
+        html.contains("300"),
+        "scoring copy must name the trusted-population threshold"
+    );
 }
 
 #[test]
