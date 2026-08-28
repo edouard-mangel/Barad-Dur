@@ -2129,31 +2129,31 @@ fn import_extractable_files_follows_import_query_support() {
         "one extractable file is enough to make the graph meaningful"
     );
     assert!(
-        !has_import_extractable_files(&parsed_snapshot_without_imports(&["src/Main.kt"])),
-        "Kotlin has an import query but no resolver arm, so its specifiers \
-         never become edges — extraction is only real end to end"
+        has_import_extractable_files(&parsed_snapshot_without_imports(&["src/Main.kt"])),
+        "Kotlin gained its resolver arm, so it is extractable end to end"
     );
     assert!(!has_import_extractable_files(&make_snapshot()));
 }
 
 #[test]
-fn circular_deps_unscored_for_language_whose_imports_never_resolve() {
-    // Kotlin parses and yields import specifiers, but `resolve_single_import`
-    // has no arm for it, so the graph stays empty. Scoring that 100 is the
-    // same false-perfect bug, one language over.
-    let snapshot = parsed_snapshot_without_imports(&["src/Main.kt", "src/Repo.kt"]);
-    let result = circular_dependencies(&snapshot);
-    assert_eq!(
-        result.score, None,
-        "unresolvable imports must read as unmeasured: {}",
-        result.description
-    );
-    assert!(
-        !result.description.contains("Kotlin"),
-        "the message must not advertise Kotlin as supported while telling a \
-         Kotlin repository it has no supported files: {}",
-        result.description
-    );
+fn every_language_with_an_import_query_can_resolve_imports() {
+    // The two extraction stages drifted once: Kotlin had an import query
+    // but no arm in `candidates_for`, so its specifiers resolved to nothing,
+    // its import graph was always empty, and circular dependencies scored a
+    // false 100 on every Kotlin repository. Nothing guarded the pairing.
+    for ext in [
+        "rs", "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "go", "java", "cs", "kt", "kts",
+    ] {
+        let path = format!("src/sample.{ext}");
+        let has_query = import_query(detect_language(&path), ext).is_some();
+        let resolves = crate::collector::resolves_imports(ext);
+        assert_eq!(
+            has_query, resolves,
+            "{ext}: import_query={has_query} but resolves_imports={resolves} — \
+             a language that yields specifiers it cannot resolve produces an \
+             empty graph, which reads as 'clean' rather than 'unmeasured'"
+        );
+    }
 }
 
 #[test]
@@ -2254,7 +2254,7 @@ fn import_graph_metrics(snapshot: &RepoSnapshot) -> Vec<MetricValue> {
 
 #[test]
 fn import_metrics_agree_that_unresolvable_languages_are_unmeasured() {
-    let snapshot = parsed_snapshot_without_imports(&["app/Http/c.php", "src/Main.kt"]);
+    let snapshot = parsed_snapshot_without_imports(&["app/Http/c.php", "app/Models/m.php"]);
     for m in import_graph_metrics(&snapshot) {
         assert_eq!(
             m.score, None,
