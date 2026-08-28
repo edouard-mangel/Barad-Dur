@@ -628,6 +628,28 @@ docker:
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+  # The dind daemon intermittently fails to appear, and the wait above ends
+  # in `exit 1` — a script_failure, which the `default:` retry deliberately
+  # excludes so real build failures are not retried. A fresh service on
+  # retry is what actually clears it, so this job opts in for itself.
+  #
+  # The cost is bounded and time-only: a genuinely broken Dockerfile builds
+  # three times (~8 min each) before reporting. Every step here is
+  # idempotent — build and push overwrite the same tags — except `cosign
+  # sign`, which appends, so a retry after a successful sign leaves a second
+  # signature on the same digest. Verification is unaffected.
+  #
+  # This masks an unhealthy runner rather than fixing one. Repeated retries
+  # in the job log are the signal to look at the runner, not to raise `max`.
+  # A job-level `retry:` REPLACES `default:retry` rather than merging with
+  # it, so the default's two reasons must be repeated here or this job
+  # would lose them.
+  retry:
+    max: 2
+    when:
+      - script_failure
+      - runner_system_failure
+      - stale_schedule
 
 trivy-scan:
   stage: docker
