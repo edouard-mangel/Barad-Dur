@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented here.
 
-## [Unreleased]
+## [0.22.0] - 2026-08-29
 
 ### Added
 - **PHP language support.** `.php` files are now parsed with tree-sitter
