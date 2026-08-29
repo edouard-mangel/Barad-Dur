@@ -1,6 +1,6 @@
 use crate::config::HealthThresholds;
 use crate::metrics::file_role::{classify, FileRole};
-use crate::metrics::{median, score_prevalence, MetricValue, RawValue};
+use crate::metrics::{score_prevalence, MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
 
 /// Production source code only — tests, config, and docs are other roles.
@@ -8,12 +8,36 @@ pub(super) fn is_source_file(path: &std::path::Path) -> bool {
     classify(path) == FileRole::Source
 }
 
-/// A file structurally dominates the codebase when its import-graph degree
-/// clears both an absolute floor and a multiple of the repo's median degree
-/// — the floor alone keeps small/sparse repos from flagging on noise.
-fn is_structural_hub(degree: usize, median_degree: f64, thresholds: &HealthThresholds) -> bool {
-    degree >= thresholds.god_node_min_degree
-        && (degree as f64) > median_degree * thresholds.god_node_degree_multiplier
+/// The degree a file must reach to count as a structural hub: the higher of
+/// an absolute floor and a percentile of the repo's own degree distribution.
+///
+/// The floor lets a genuinely uncoupled repository flag nothing — a purely
+/// relative rule always fires on its own top decile, however healthy the
+/// codebase. The percentile handles the opposite case: where most files are
+/// heavily connected, a degree of 8 is unremarkable and the bar must rise.
+///
+/// This replaces `degree > median * 4`, which never bound. Across five real
+/// repositories the degree median was 0-2, so that term topped out at 8 —
+/// never above the floor — and so never once decided an outcome.
+fn hub_threshold(degrees: &[usize], thresholds: &HealthThresholds) -> usize {
+    let mut sorted: Vec<usize> = degrees.to_vec();
+    sorted.sort_unstable();
+    let percentile = if sorted.is_empty() {
+        0
+    } else {
+        // Nearest rank: ceil(p * n) - 1. A floored index would give n - 1 —
+        // the maximum — for any n <= 10 at p = 0.90, letting a lone outlier
+        // set the bar that excludes every one of its peers.
+        let rank = (thresholds.god_node_degree_percentile * sorted.len() as f64).ceil() as usize;
+        sorted[rank.saturating_sub(1).min(sorted.len() - 1)]
+    };
+    percentile.max(thresholds.god_node_min_degree)
+}
+
+/// A file structurally dominates the codebase when its degree reaches the
+/// repo's hub threshold.
+fn is_structural_hub(degree: usize, threshold: usize) -> bool {
+    degree >= threshold
 }
 
 /// Why a file was flagged — LOC, method bloat, structural centrality, a
@@ -23,8 +47,7 @@ fn god_reason(
     path: &std::path::Path,
     m: &crate::snapshot::FileComplexity,
     degree: usize,
-    median_degree: f64,
-    thresholds: &HealthThresholds,
+    hub_threshold: usize,
 ) -> Option<String> {
     let mut reasons = Vec::new();
     // The size/method-bloat rungs only mean something for files with actual
@@ -41,13 +64,10 @@ fn god_reason(
             ));
         }
     }
-    if is_structural_hub(degree, median_degree, thresholds) {
-        let ratio = if median_degree > 0.0 {
-            format!("{:.1}x median", degree as f64 / median_degree)
-        } else {
-            "median 0".to_string()
-        };
-        reasons.push(format!("structural hub — {degree} connections ({ratio})"));
+    if is_structural_hub(degree, hub_threshold) {
+        reasons.push(format!(
+            "structural hub — {degree} connections (threshold {hub_threshold})"
+        ));
     }
     if !reasons.is_empty() && crate::metrics::name_smell::has_smelly_name(path) {
         reasons.push("generic name suggests broad responsibility".to_string());
@@ -80,7 +100,7 @@ pub fn god_object_files(
         .collect();
 
     let degree_values: Vec<usize> = degrees.values().copied().collect();
-    let median_degree = median(&degree_values);
+    let hub_bar = hub_threshold(&degree_values, thresholds);
 
     let mut flagged: Vec<(std::path::PathBuf, String)> = snapshot
         .file_metrics
@@ -88,7 +108,7 @@ pub fn god_object_files(
         .filter(|(p, _)| is_source_file(p))
         .filter_map(|(p, m)| {
             let degree = degrees.get(p.as_path()).copied().unwrap_or(0);
-            god_reason(p, m, degree, median_degree, thresholds).map(|reason| (p.clone(), reason))
+            god_reason(p, m, degree, hub_bar).map(|reason| (p.clone(), reason))
         })
         .collect();
     // snapshot.file_metrics is a HashMap — sort for deterministic report output.
@@ -147,6 +167,77 @@ mod tests {
 
     use super::*;
     use crate::snapshot::*;
+
+    #[test]
+    fn hub_threshold_is_the_floor_when_the_graph_is_sparse() {
+        // Measured across five real repositories, the degree median is 0-2
+        // and p90 is 4-10. Below the floor the absolute bar must govern, or
+        // a repository with no real hubs starts flagging ordinary files.
+        let th = HealthThresholds::default();
+        let sparse: Vec<usize> = std::iter::repeat_n(0, 90).chain(1..=10).collect();
+        assert_eq!(hub_threshold(&sparse, &th), th.god_node_min_degree);
+    }
+
+    #[test]
+    fn hub_threshold_rises_above_the_floor_on_a_dense_graph() {
+        // The point of a relative term: where most files are heavily
+        // connected, a degree of 8 is unremarkable and must not be flagged.
+        let th = HealthThresholds::default();
+        let dense: Vec<usize> = (1..=100).map(|i| i / 2).collect();
+        let threshold = hub_threshold(&dense, &th);
+        assert!(
+            threshold > th.god_node_min_degree,
+            "p90 of a dense graph must outrank the floor, got {threshold}"
+        );
+    }
+
+    #[test]
+    fn hub_threshold_replaces_a_median_multiplier_that_never_bound() {
+        // The previous rule was `degree > median * 4`. Across every repo
+        // measured the median was 0-2, so that term maxed out at 8 — never
+        // above the floor of 8, so it never once decided an outcome. The
+        // percentile form does: on a mautic-shaped graph (median 2, p90 10)
+        // it raises the bar, which is exactly where it should.
+        let th = HealthThresholds::default();
+        // Shaped to mautic's measured distribution: median 2, p90 10.
+        let mautic_shaped: Vec<usize> = std::iter::repeat_n(0, 30)
+            .chain(std::iter::repeat_n(2, 30))
+            .chain(std::iter::repeat_n(4, 20))
+            .chain(std::iter::repeat_n(10, 10))
+            .chain(std::iter::repeat_n(40, 10))
+            .collect();
+        let median_rule = (crate::metrics::median(&mautic_shaped) * 4.0) as usize;
+        assert!(
+            median_rule <= th.god_node_min_degree,
+            "the old term never exceeded the floor: {median_rule}"
+        );
+        assert!(
+            hub_threshold(&mautic_shaped, &th) > th.god_node_min_degree,
+            "the percentile term must actually bind"
+        );
+    }
+
+    #[test]
+    fn hub_threshold_uses_nearest_rank_not_a_floored_index() {
+        // p90 must be the 90th-percentile value, not the maximum. With a
+        // floored index, `floor(n * 0.9) == n - 1` for any n <= 10, so the
+        // single most-connected file would define the bar every other file
+        // is measured against — and nothing below it could ever be flagged.
+        let th = HealthThresholds::default();
+        // Nine files at degree 20, one at 400. p90 of that is 20, not 400.
+        let one_huge_outlier: Vec<usize> = std::iter::repeat_n(20, 9).chain([400]).collect();
+        assert_eq!(
+            hub_threshold(&one_huge_outlier, &th),
+            20,
+            "the outlier must not set the threshold that excludes its peers"
+        );
+    }
+
+    #[test]
+    fn hub_threshold_on_an_empty_graph_is_the_floor() {
+        let th = HealthThresholds::default();
+        assert_eq!(hub_threshold(&[], &th), th.god_node_min_degree);
+    }
 
     fn add_normal_files(snapshot: &mut RepoSnapshot, count: usize) {
         for i in 0..count {

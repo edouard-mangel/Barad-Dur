@@ -137,7 +137,7 @@ mod tests {
         std::fs::create_dir_all(&cache_dir).unwrap();
         std::fs::write(
             cache_dir.join("barad-dur.toml"),
-            "[thresholds.health]\ngod_node_degree_multiplier = 0.0\n",
+            "[thresholds.health]\ngod_node_degree_percentile = 0.0\n",
         )
         .unwrap();
         let args = BackfillArgs {
