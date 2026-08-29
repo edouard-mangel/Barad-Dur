@@ -274,7 +274,6 @@ pub fn validate(config: &RepoConfig) -> Result<()> {
     // No realistic import-graph degree needs a multiplier anywhere near this;
     // above it, `median_degree * multiplier` risks overflowing to +inf, which
     // silently disables the hub check the same way a literal Infinity would.
-    const GOD_NODE_MULTIPLIER_MAX: f64 = 1_000_000.0;
     // NaN fails the range check on its own — no separate is_nan clause.
     let call_floor = config.thresholds.health.call_resolution_floor;
     if !(0.0..=1.0).contains(&call_floor) {
@@ -283,15 +282,14 @@ pub fn validate(config: &RepoConfig) -> Result<()> {
             call_floor
         );
     }
-    let god_multiplier = config.thresholds.health.god_node_degree_multiplier;
-    if !god_multiplier.is_finite()
-        || god_multiplier <= 0.0
-        || god_multiplier > GOD_NODE_MULTIPLIER_MAX
-    {
+    let god_percentile = config.thresholds.health.god_node_degree_percentile;
+    // A percentile of 1.0 would flag only the single most-connected file, and
+    // 0.0 would put the bar at the minimum degree — both make the relative
+    // term meaningless, so the range is open at each end.
+    if !god_percentile.is_finite() || god_percentile <= 0.0 || god_percentile >= 1.0 {
         bail!(
-            "thresholds.health.god_node_degree_multiplier must be finite, > 0.0, and <= {}, got {}",
-            GOD_NODE_MULTIPLIER_MAX,
-            god_multiplier
+            "thresholds.health.god_node_degree_percentile must be finite and in (0.0, 1.0), got {}",
+            god_percentile
         );
     }
     Ok(())
@@ -691,38 +689,38 @@ mod tests {
     }
 
     #[test]
-    fn validate_god_node_degree_multiplier_zero_errors() {
+    fn validate_god_node_degree_percentile_zero_errors() {
         let mut cfg = RepoConfig::default();
-        cfg.thresholds.health.god_node_degree_multiplier = 0.0;
+        cfg.thresholds.health.god_node_degree_percentile = 0.0;
         let err = validate(&cfg).unwrap_err();
-        assert!(err.to_string().contains("god_node_degree_multiplier"));
+        assert!(err.to_string().contains("god_node_degree_percentile"));
     }
 
     #[test]
-    fn validate_god_node_degree_multiplier_negative_errors() {
+    fn validate_god_node_degree_percentile_negative_errors() {
         let mut cfg = RepoConfig::default();
-        cfg.thresholds.health.god_node_degree_multiplier = -1.0;
+        cfg.thresholds.health.god_node_degree_percentile = -1.0;
         assert!(validate(&cfg).is_err());
     }
 
     #[test]
-    fn validate_god_node_degree_multiplier_nan_errors() {
+    fn validate_god_node_degree_percentile_nan_errors() {
         let mut cfg = RepoConfig::default();
-        cfg.thresholds.health.god_node_degree_multiplier = f64::NAN;
+        cfg.thresholds.health.god_node_degree_percentile = f64::NAN;
         assert!(validate(&cfg).is_err());
     }
 
     #[test]
-    fn validate_god_node_degree_multiplier_default_is_valid() {
+    fn validate_god_node_degree_percentile_default_is_valid() {
         let cfg = RepoConfig::default();
         assert!(validate(&cfg).is_ok());
     }
 
     #[test]
-    fn load_god_node_degree_multiplier_default() {
+    fn load_god_node_degree_percentile_default() {
         let dir = TempDir::new().unwrap();
         let cfg = load(dir.path()).unwrap();
-        assert!((cfg.thresholds.health.god_node_degree_multiplier - 4.0).abs() < f64::EPSILON);
+        assert!((cfg.thresholds.health.god_node_degree_percentile - 0.90).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -733,9 +731,9 @@ mod tests {
     }
 
     #[test]
-    fn validate_god_node_degree_multiplier_infinite_errors() {
+    fn validate_god_node_degree_percentile_infinite_errors() {
         let mut cfg = RepoConfig::default();
-        cfg.thresholds.health.god_node_degree_multiplier = f64::INFINITY;
+        cfg.thresholds.health.god_node_degree_percentile = f64::INFINITY;
         assert!(
             validate(&cfg).is_err(),
             "an infinite multiplier would make the hub check unsatisfiable, silently disabling it"
@@ -743,12 +741,12 @@ mod tests {
     }
 
     #[test]
-    fn validate_god_node_degree_multiplier_extreme_finite_value_errors() {
+    fn validate_god_node_degree_percentile_out_of_range_errors() {
         let mut cfg = RepoConfig::default();
         // Finite, but median_degree * multiplier would overflow to +inf for
         // any realistic median degree — the same silent-disable failure as
         // literal Infinity, just reached via a value that passes is_finite().
-        cfg.thresholds.health.god_node_degree_multiplier = 1e308;
+        cfg.thresholds.health.god_node_degree_percentile = 1e308;
         assert!(
             validate(&cfg).is_err(),
             "an extreme-but-finite multiplier can still overflow the hub threshold to infinity"

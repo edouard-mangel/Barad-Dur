@@ -17,11 +17,17 @@ pub struct HealthThresholds {
     pub biomarker_max_depth: u32,
     #[serde(default = "default_biomarker_max_variance")]
     pub biomarker_max_variance: f64,
-    /// A source file's import-graph degree (incoming + outgoing) must exceed
-    /// the repo's median degree by this multiple to be flagged a structural
-    /// hub, alongside `god_node_min_degree`. Default 4.0.
-    #[serde(default = "default_god_node_degree_multiplier")]
-    pub god_node_degree_multiplier: f64,
+    /// Percentile of the repo's import-graph degree distribution a source
+    /// file must reach to be flagged a structural hub, alongside
+    /// `god_node_min_degree` — the higher of the two governs. Default 0.90.
+    ///
+    /// Replaces a median multiplier that never bound: measured across five
+    /// real repositories the degree median was 0-2, so `median * 4` never
+    /// exceeded the floor of 8 and the relative term never once decided an
+    /// outcome. A percentile adapts to densely-connected graphs, where a
+    /// degree of 8 is unremarkable.
+    #[serde(default = "default_god_node_degree_percentile")]
+    pub god_node_degree_percentile: f64,
     /// Absolute floor on import-graph degree before a file can be flagged a
     /// structural hub — keeps small repos, where even a modest degree is
     /// "4x the median", from producing spurious flags. Default 8.
@@ -56,8 +62,8 @@ fn default_biomarker_max_depth() -> u32 {
 fn default_biomarker_max_variance() -> f64 {
     2.0
 }
-fn default_god_node_degree_multiplier() -> f64 {
-    4.0
+fn default_god_node_degree_percentile() -> f64 {
+    0.90
 }
 fn default_god_node_min_degree() -> usize {
     8
@@ -76,7 +82,7 @@ impl Default for HealthThresholds {
             long_method_cc: default_long_method_cc(),
             biomarker_max_depth: default_biomarker_max_depth(),
             biomarker_max_variance: default_biomarker_max_variance(),
-            god_node_degree_multiplier: default_god_node_degree_multiplier(),
+            god_node_degree_percentile: default_god_node_degree_percentile(),
             god_node_min_degree: default_god_node_min_degree(),
             call_resolution_floor: default_call_resolution_floor(),
         }

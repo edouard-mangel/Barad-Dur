@@ -21,6 +21,24 @@ All notable changes to this project will be documented here.
   adding files with real complexity shifts the threshold. Import-graph edge
   density roughly tripled and cross-community co-change pairs went from 263 to
   5,095. Overall that repository moved 72 to 74.
+- **Breaking config change**: `thresholds.health.god_node_degree_multiplier`
+  is replaced by `god_node_degree_percentile` (default 0.90). A config
+  carrying the old key now fails validation.
+
+  The old rule flagged a structural hub when `degree > median * 4`, and that
+  term never bound. Measured across five real repositories the import-graph
+  degree median is 0-2, so `median * 4` topped out at 8 — never above
+  `god_node_min_degree`, also 8 — so the relative term never once decided an
+  outcome, in any repository tested. The floor was the whole rule.
+
+  The threshold is now `max(god_node_min_degree, p90 of the repo's degree
+  distribution)`. The floor still lets an uncoupled repository flag nothing,
+  which a purely relative rule cannot; the percentile raises the bar where
+  most files are heavily connected and a degree of 8 is unremarkable.
+
+  Measured effect: Apios-Web 124 -> 112 flagged files, mautic 547 -> 488,
+  barad-dûr unchanged at 22 (its p90 is 5, below the floor, so the floor
+  still governs). No category score changed band in any of the three.
 - `Language` is now `#[non_exhaustive]`, for the reason `CouplingPair` and
   `AnalysisReport` already carry it: the enum gains a variant every time a
   language is taught to the collector, and on an exhaustive public enum each

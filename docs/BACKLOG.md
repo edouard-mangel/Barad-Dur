@@ -146,3 +146,41 @@ non-conventional layout yields no edge (never a wrong one).
 Adding any of these requires no change in `src/metrics/coupling/` —
 `has_import_extractable_files` reads both dispatch tables directly, so a
 newly supported language starts being scored on its own.
+
+### Structural-hub calibration — measured, and what is still open
+
+**Priority**: Low (recorded so the numbers are not re-derived)
+**Context**: measured 2026-08-29 while investigating why PHP support moved
+god objects on a Laravel monorepo.
+
+Import-graph degree (incoming + outgoing) across source files, five real
+repositories:
+
+| repo | lang | n | med | p75 | p90 | p99 | max | @8 | @12 | @16 | @20 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Apios-Web | PHP (Laravel) | 1248 | 1 | 3 | 7 | 32 | 123 | 9.5% | 5.3% | 4.4% | 2.6% |
+| mautic | PHP (Symfony) | 4672 | 2 | 5 | 10 | 39 | 325 | 14.6% | 7.9% | 4.6% | 3.1% |
+| barad-dur | Rust | 139 | 1 | 3 | 5 | 22 | 61 | 5.8% | 4.3% | 2.9% | 1.4% |
+| ihexa | TS | 138 | 1 | 2 | 4 | 16 | 31 | 4.3% | 1.4% | 1.4% | 0.7% |
+| the-unit-question | TS | 218 | 0 | 5 | 7 | 11 | 11 | 8.3% | 0% | 0% | 0% |
+
+**What this settled.** `god_node_min_degree = 8` lands near p90 in every
+repository measured, so "degree >= 8" is roughly "top decile" regardless of
+language. PHP flags more (9.5%, 14.6%) because PHP files genuinely are more
+connected — median 1-2 against 0-1, p99 32-39 against 11-22 — not because
+the floor is miscalibrated for PHP. The floor was left at 8.
+
+It also showed the median multiplier never bound, which is why it was
+replaced by a p90 term (see CHANGELOG).
+
+**Still open.**
+
+- The floor of 8 is justified by "it happens to sit near p90 in five
+  repositories", which is an observation, not a derivation. A larger corpus
+  might show it drifting.
+- `the-unit-question` is the shape neither term handles well: median 0,
+  p75 5, and *everything* above 12 vanishes (18 files at >=8, none at >=12).
+  A bimodal graph where a single scalar threshold is a poor fit.
+- Nothing here measures whether flagged files are *actually* god objects.
+  Every number above is distributional; none is validated against a human
+  judgement of the code.
