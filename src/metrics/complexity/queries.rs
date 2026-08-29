@@ -206,6 +206,43 @@ pub const CSHARP_NESTING: &str = r#"[
   (switch_statement)
 ] @nest"#;
 
+// ── PHP ─────────────────────────────────────────────────────────────
+
+pub const PHP_COMPLEXITY: &str = r#"[
+  (if_statement)
+  (for_statement)
+  (foreach_statement)
+  (while_statement)
+  (do_statement)
+  (switch_block)
+  (catch_clause)
+  (conditional_expression)
+] @cc"#;
+
+pub const PHP_COMPLEXITY_OPERATORS: &str =
+    r#"(binary_expression operator: ["&&" "||" "and" "or"]) @cc"#;
+
+pub const PHP_PUBLIC_METHODS: &str =
+    r#"(method_declaration (visibility_modifier) @mods name: (name) @name)"#;
+
+pub const PHP_PROPERTIES: &str = r#"(property_declaration (visibility_modifier) @mods)"#;
+
+pub const PHP_COMMENTS: &str = r#"(comment) @comment"#;
+
+pub const PHP_FUNCTIONS: &str = r#"[
+  (function_definition name: (name) @name)
+  (method_declaration name: (name) @name)
+] @func"#;
+
+pub const PHP_NESTING: &str = r#"[
+  (if_statement)
+  (for_statement)
+  (foreach_statement)
+  (while_statement)
+  (do_statement)
+  (switch_block)
+] @nest"#;
+
 // ── Kotlin ──────────────────────────────────────────────────────────
 
 pub const KOTLIN_COMPLEXITY: &str = r#"[
@@ -261,6 +298,19 @@ pub const JAVA_IMPORTS: &str = r#"(import_declaration (scoped_identifier) @path)
 
 pub const CSHARP_IMPORTS: &str = r#"(using_directive (_) @path)"#;
 
+pub const PHP_IMPORTS: &str = r#"[
+  (namespace_use_clause (qualified_name) @path)
+  (namespace_use_clause (name) @path)
+  (include_expression (string) @path)
+  (include_once_expression (string) @path)
+  (require_expression (string) @path)
+  (require_once_expression (string) @path)
+  (include_expression (binary_expression right: (string) @path))
+  (include_once_expression (binary_expression right: (string) @path))
+  (require_expression (binary_expression right: (string) @path))
+  (require_once_expression (binary_expression right: (string) @path))
+] "#;
+
 pub const KOTLIN_IMPORTS: &str = r#"(import (identifier) @path)"#;
 
 #[cfg(test)]
@@ -292,6 +342,9 @@ mod tests {
     }
     fn csharp() -> tree_sitter::Language {
         tree_sitter_c_sharp::LANGUAGE.into()
+    }
+    fn php() -> tree_sitter::Language {
+        tree_sitter_php::LANGUAGE_PHP.into()
     }
     fn kotlin() -> tree_sitter::Language {
         tree_sitter_kotlin_ng::LANGUAGE.into()
@@ -415,6 +468,22 @@ mod tests {
         assert_valid_query(kotlin(), KOTLIN_COMMENTS, "kotlin comments");
         assert_valid_query(kotlin(), KOTLIN_FUNCTIONS, "kotlin functions");
         assert_valid_query(kotlin(), KOTLIN_NESTING, "kotlin nesting");
+    }
+
+    #[test]
+    fn php_queries_are_valid() {
+        assert_valid_query(php(), PHP_COMPLEXITY, "php complexity");
+        assert_valid_query(php(), PHP_COMPLEXITY_OPERATORS, "php operators");
+        assert_valid_query(php(), PHP_PUBLIC_METHODS, "php public_methods");
+        assert_valid_query(php(), PHP_PROPERTIES, "php properties");
+        assert_valid_query(php(), PHP_COMMENTS, "php comments");
+        assert_valid_query(php(), PHP_FUNCTIONS, "php functions");
+        assert_valid_query(php(), PHP_NESTING, "php nesting");
+    }
+
+    #[test]
+    fn php_import_query_is_valid() {
+        assert_valid_query(php(), PHP_IMPORTS, "php imports");
     }
 
     #[test]

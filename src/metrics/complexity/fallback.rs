@@ -2,7 +2,15 @@ use std::path::Path;
 
 use crate::snapshot::FileComplexity;
 
+/// `#[non_exhaustive]` for the reason `CouplingPair` and `AnalysisReport`
+/// already carry it (0.19.0): this enum gains a variant every time a
+/// language is taught to the collector, and on an exhaustive public enum
+/// each of those is a breaking change. Ruby and C/C++ are already queued.
+///
+/// New variants are appended, never inserted: the discriminants are public
+/// too, and moving one breaks downstream `as isize` casts.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum Language {
     Rust,
     JsTs,
@@ -12,6 +20,7 @@ pub enum Language {
     Kotlin,
     CSharp,
     Generic,
+    Php,
 }
 
 pub fn detect_language(path: &str) -> Language {
@@ -27,6 +36,7 @@ pub fn detect_language(path: &str) -> Language {
         "java" => Language::Java,
         "kt" | "kts" => Language::Kotlin,
         "cs" => Language::CSharp,
+        "php" => Language::Php,
         _ => Language::Generic,
     }
 }
@@ -72,6 +82,15 @@ fn is_comment_line(trimmed: &str, lang: Language) -> bool {
         | Language::Kotlin
         | Language::CSharp => {
             trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with('*')
+        }
+        // PHP takes the C-family forms, plus `#` — but only when it is not
+        // `#[`, which opens a PHP 8 attribute. Attributes are code, and
+        // counting them as comments quietly undercounts LOC.
+        Language::Php => {
+            trimmed.starts_with("//")
+                || trimmed.starts_with("/*")
+                || trimmed.starts_with('*')
+                || (trimmed.starts_with('#') && !trimmed.starts_with("#["))
         }
         Language::Python => trimmed.starts_with('#'),
         Language::Generic => trimmed.starts_with("//") || trimmed.starts_with('#'),
@@ -167,7 +186,9 @@ fn count_public_methods(content: &str, lang: Language) -> u32 {
         Language::JsTs => pub_methods_jsts(content),
         Language::Python => pub_methods_python(content),
         Language::Go => pub_methods_go(content),
-        Language::Java | Language::Kotlin | Language::CSharp => pub_methods_jvm(content),
+        Language::Java | Language::Kotlin | Language::CSharp | Language::Php => {
+            pub_methods_jvm(content)
+        }
         Language::Generic => 0,
     }
 }
@@ -257,7 +278,7 @@ fn count_properties(content: &str, lang: Language) -> u32 {
         Language::JsTs => props_jsts(content),
         Language::Python => props_python(content),
         Language::Go => props_go(content),
-        Language::Java | Language::Kotlin | Language::CSharp => props_jvm(content),
+        Language::Java | Language::Kotlin | Language::CSharp | Language::Php => props_jvm(content),
         Language::Generic => 0,
     }
 }
@@ -291,6 +312,26 @@ mod tests {
     #[test]
     fn detects_java() {
         assert!(matches!(detect_language("Foo.java"), Language::Java));
+    }
+
+    #[test]
+    fn php_attributes_are_code_not_comments() {
+        // `#` is a PHP comment, but PHP 8 attributes are `#[...]` — code
+        // that happens to start with the legacy comment character. Treating
+        // them as comments silently undercounts LOC, which feeds hotspot
+        // size scoring. The validation repo has 70 attributes and zero `#`
+        // comments, so getting this backwards costs real accuracy.
+        assert!(!is_comment_line("#[DataProvider('cases')]", Language::Php));
+        assert!(!is_comment_line("#[OA\\Post(path: '/x')]", Language::Php));
+        assert!(is_comment_line("# legacy hash comment", Language::Php));
+        assert!(is_comment_line("// slash comment", Language::Php));
+        assert!(is_comment_line("/* block */", Language::Php));
+        assert!(is_comment_line("* continuation", Language::Php));
+    }
+
+    #[test]
+    fn detects_php() {
+        assert_eq!(detect_language("app/Models/User.php"), Language::Php);
     }
 
     #[test]

@@ -477,6 +477,91 @@ mod tests {
     }
 
     #[test]
+    fn php_extract_imports_captures_use_and_require() {
+        // A valid query is not a matching query: `assert_valid_query` only
+        // proves the S-expression compiles against the grammar. This pins
+        // that the node names actually select real PHP.
+        let src = "<?php\n\
+                   namespace App\\Http;\n\
+                   use App\\Apios\\Database\\Oracle;\n\
+                   use App\\Models\\User;\n\
+                   require __DIR__ . '/api/version.php';\n\
+                   require_once 'bootstrap/app.php';\n\
+                   class Controller {}\n";
+        let imports = extract_imports(src, Language::Php, "php");
+        assert!(
+            imports.contains(&"App\\Apios\\Database\\Oracle".to_string()),
+            "namespace imports must be captured: {imports:?}"
+        );
+        assert!(
+            imports.contains(&"App\\Models\\User".to_string()),
+            "every use statement, not just the first: {imports:?}"
+        );
+        assert!(
+            imports.contains(&"/api/version.php".to_string()),
+            "__DIR__ concatenation must yield its string literal: {imports:?}"
+        );
+        assert!(
+            imports.contains(&"bootstrap/app.php".to_string()),
+            "bare require literals too: {imports:?}"
+        );
+    }
+
+    #[test]
+    fn php_extracts_functions_and_methods() {
+        // `extract_functions` skips any match missing either @func or @name,
+        // so a query that compiles can still yield nothing. Only a real
+        // extraction proves the capture contract is satisfied.
+        let src = "<?php\n\
+                   function standalone($a) { return $a; }\n\
+                   class C {\n\
+                     public function method($b) { if ($b) { return 1; } return 0; }\n\
+                   }\n";
+        let m = analyse(src, Language::Php, "php").expect("php must parse");
+        let names: Vec<&str> = m.functions.iter().map(|f| f.name.as_str()).collect();
+        assert!(
+            names.contains(&"standalone"),
+            "top-level functions must be extracted: {names:?}"
+        );
+        assert!(
+            names.contains(&"method"),
+            "class methods must be extracted: {names:?}"
+        );
+    }
+
+    #[test]
+    fn php_counts_public_methods_and_properties() {
+        let src = "<?php\n\
+                   class C {\n\
+                     public string $visible = 'x';\n\
+                     private string $hidden = 'y';\n\
+                     public function shown() {}\n\
+                     private function unshown() {}\n\
+                   }\n";
+        let m = analyse(src, Language::Php, "php").expect("php must parse");
+        assert_eq!(m.public_methods, 1, "only the public method counts");
+        assert_eq!(m.properties, 1, "only the public property counts");
+    }
+
+    #[test]
+    fn php_parses_and_counts_complexity() {
+        // PHP was Language::Generic until now, which scores complexity 0 by
+        // design. Once the grammar is wired the branches must actually count.
+        let src = "<?php\n\
+                   function f($a) {\n\
+                     if ($a > 1) { return 1; }\n\
+                     foreach ([1,2] as $x) { if ($x) { return 2; } }\n\
+                     return 0;\n\
+                   }\n";
+        let m = analyse(src, Language::Php, "php").expect("php must parse");
+        assert!(
+            m.cyclomatic_complexity >= 3,
+            "three branches expected, got {}",
+            m.cyclomatic_complexity
+        );
+    }
+
+    #[test]
     fn kotlin_extract_imports() {
         let imports = extract_imports("import foo.bar", Language::Kotlin, "kt");
         // Kotlin imports are now supported via tree-sitter

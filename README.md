@@ -40,6 +40,7 @@ Beyond git metadata, Barad-dur performs **static complexity analysis** on source
 | Go | `.go` | Exported functions (uppercase), exported struct fields |
 | JVM (Java/Kotlin) | `.java`, `.kt`, `.kts` | Public methods, field declarations |
 | CLR (C#) | `.cs` | Public methods, field declarations |
+| PHP | `.php` | Public methods, property declarations |
 
 This produces per-file metrics: **LOC** (excluding blanks/comments), **cyclomatic complexity** (decision points), **public methods**, and **properties**. These feed into the hotspot analysis (churn x complexity x size).
 

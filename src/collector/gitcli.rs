@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use chrono::{DateTime, TimeZone, Utc};
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -53,8 +53,15 @@ pub fn collect_blame_cached(
                 // path returns them directly without re-resolving.
                 cached.clone()
             } else {
-                blame_file(repo_path, &f.path, &email_to_id, raw_email_to_id, None)
-                    .unwrap_or_default()
+                match blame_file(repo_path, &f.path, &email_to_id, raw_email_to_id, None) {
+                    BlameOutcome::Blamed(lines) => lines,
+                    BlameOutcome::Failed(reason) => {
+                        // Degrade, as before — but say so. A silent drop here
+                        // is indistinguishable from a file with no history.
+                        eprintln!("warning: blame failed for {}: {reason}", f.path.display());
+                        Vec::new()
+                    }
+                }
             };
             progress.inc(1);
             if lines.is_empty() {
@@ -75,31 +82,50 @@ pub fn collect_blame_cached(
     Ok((blame_map, new_cache))
 }
 
+/// What blaming one file produced.
+///
+/// `Failed` is deliberately distinct from an empty `Blamed`: a blame that
+/// could not run must not look like a file with no history. Collapsing the
+/// two silently degrades ownership, bus factor and knowledge distribution,
+/// and makes a blame that failed under load indistinguishable from a clean
+/// result.
+enum BlameOutcome {
+    Blamed(Vec<BlameLine>),
+    Failed(String),
+}
+
 fn blame_file(
     repo_path: &Path,
     file_path: &Path,
     email_to_id: &HashMap<&str, AuthorId>,
     raw_email_to_id: &HashMap<String, AuthorId>,
     at_rev: Option<&str>,
-) -> Result<Vec<BlameLine>> {
+) -> BlameOutcome {
     let mut cmd = Command::new("git");
     cmd.args(["blame", "--porcelain"]);
     if let Some(sha) = at_rev {
         cmd.arg(sha);
     }
     cmd.arg("--");
-    let output = cmd
+    let output = match cmd
         .arg(file_path.to_str().unwrap_or(""))
         .current_dir(repo_path)
         .output()
-        .context("Failed to run git blame")?;
+    {
+        Ok(o) => o,
+        Err(e) => return BlameOutcome::Failed(format!("could not run git blame: {e}")),
+    };
 
     if !output.status.success() {
-        return Ok(Vec::new());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return BlameOutcome::Failed(stderr.trim().to_string());
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    parse_porcelain_blame(&stdout, email_to_id, raw_email_to_id)
+    match parse_porcelain_blame(&stdout, email_to_id, raw_email_to_id) {
+        Ok(lines) => BlameOutcome::Blamed(lines),
+        Err(e) => BlameOutcome::Failed(format!("could not parse blame output: {e}")),
+    }
 }
 
 struct BlameParserState<'a> {
@@ -184,6 +210,35 @@ mod tests {
     use super::*;
 
     // --- BlameParserState / parse_porcelain_blame ---
+
+    #[test]
+    fn a_blame_that_cannot_run_is_distinct_from_a_file_with_no_lines() {
+        // Both failure paths — a non-zero `git blame` and a spawn error —
+        // used to collapse into an empty Vec, which the caller then dropped
+        // as if the file simply had no history. Ownership, bus factor and
+        // knowledge distribution degraded with no warning, and a blame that
+        // failed under load looked exactly like a clean result.
+        let dir = tempfile::TempDir::new().unwrap();
+        assert!(std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir.path())
+            .args(["init", "-q"])
+            .status()
+            .unwrap()
+            .success());
+
+        let outcome = blame_file(
+            dir.path(),
+            Path::new("does/not/exist.rs"),
+            &HashMap::new(),
+            &HashMap::new(),
+            None,
+        );
+        assert!(
+            matches!(outcome, BlameOutcome::Failed(_)),
+            "a blame that could not run must report failure, not an empty result"
+        );
+    }
 
     #[test]
     fn blame_parser_resolves_raw_email_via_reverse_map() {

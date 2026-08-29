@@ -86,6 +86,14 @@ pub(super) fn count_public_methods(
             };
             run_query(tree, source, q, grammar)
         }
+        Language::Php => count_with_visibility_filter(
+            tree,
+            source,
+            grammar,
+            queries::PHP_PUBLIC_METHODS,
+            "mods",
+            |text| text.windows(6).any(|w| w == b"public"),
+        ),
         Language::Kotlin => count_with_visibility_filter(
             tree,
             source,
@@ -131,6 +139,14 @@ pub(super) fn count_properties(
             },
         ),
         Language::Java => run_query(tree, source, queries::JAVA_PROPERTIES, grammar),
+        Language::Php => count_with_visibility_filter(
+            tree,
+            source,
+            grammar,
+            queries::PHP_PROPERTIES,
+            "mods",
+            |text| text.windows(6).any(|w| w == b"public"),
+        ),
         Language::CSharp => run_query(tree, source, queries::CSHARP_PROPERTIES, grammar),
         Language::JsTs => {
             let q = match ext {
