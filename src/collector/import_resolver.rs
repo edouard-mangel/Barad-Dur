@@ -1,15 +1,29 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use super::composer::Psr4Root;
 use crate::snapshot::FileEntry;
 
 pub type RawImports = HashMap<PathBuf, Vec<String>>;
+
+/// Repository-level configuration that import resolution needs beyond the
+/// specifier and the source path.
+///
+/// Only PHP uses it today: its namespaces map to directories solely because
+/// `composer.json` says so, and that mapping is per-repository state the
+/// pure per-language resolvers cannot derive. Every other language resolves
+/// from the specifier alone and ignores this.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct RepoImportConfig {
+    pub psr4: Vec<Psr4Root>,
+}
 
 /// Resolve raw import strings to actual file paths present in the repository.
 /// Only keeps imports that map to a known file in `files`.
 pub fn resolve_imports(
     raw_imports: &RawImports,
     files: &[FileEntry],
+    config: &RepoImportConfig,
 ) -> HashMap<PathBuf, Vec<PathBuf>> {
     let known: HashSet<&PathBuf> = files.iter().map(|f| &f.path).collect();
 
@@ -18,7 +32,7 @@ pub fn resolve_imports(
         .filter_map(|(source_path, imports)| {
             let resolved: Vec<PathBuf> = imports
                 .iter()
-                .filter_map(|raw| resolve_single_import(raw, source_path, &known))
+                .filter_map(|raw| resolve_single_import(raw, source_path, &known, config))
                 .collect();
             if resolved.is_empty() {
                 None
@@ -36,12 +50,16 @@ pub(crate) fn resolve_specifier(
     raw: &str,
     source: &Path,
     known: &HashSet<&PathBuf>,
+    config: &RepoImportConfig,
 ) -> Option<PathBuf> {
-    resolve_single_import(raw, source, known)
+    resolve_single_import(raw, source, known, config)
 }
 
 /// Candidate-path builder for one language's import specifiers.
-type CandidateFn = fn(&str, &Path) -> Vec<PathBuf>;
+///
+/// Takes the repo config so PHP can reach its PSR-4 roots; every other
+/// language ignores it.
+type CandidateFn = fn(&str, &Path, &RepoImportConfig) -> Vec<PathBuf>;
 
 /// The dispatch table, and the single source of truth for which languages
 /// actually produce import edges. A language with an import *query* but no
@@ -50,14 +68,15 @@ type CandidateFn = fn(&str, &Path) -> Vec<PathBuf>;
 /// tell that apart from a genuinely import-free repository.
 fn candidates_for(ext: &str) -> Option<CandidateFn> {
     match ext {
-        "rs" => Some(|raw, _| resolve_rust_import(raw)),
-        "js" | "jsx" | "mjs" | "cjs" => Some(resolve_js_import),
-        "ts" | "tsx" => Some(resolve_ts_import),
-        "py" => Some(|raw, _| resolve_python_import(raw)),
-        "go" => Some(resolve_go_import),
-        "java" => Some(|raw, _| resolve_java_import(raw)),
-        "kt" | "kts" => Some(|raw, _| resolve_kotlin_import(raw)),
-        "cs" => Some(|raw, _| resolve_csharp_import(raw)),
+        "rs" => Some(|raw, _, _| resolve_rust_import(raw)),
+        "js" | "jsx" | "mjs" | "cjs" => Some(|raw, src, _| resolve_js_import(raw, src)),
+        "ts" | "tsx" => Some(|raw, src, _| resolve_ts_import(raw, src)),
+        "py" => Some(|raw, _, _| resolve_python_import(raw)),
+        "go" => Some(|raw, src, _| resolve_go_import(raw, src)),
+        "java" => Some(|raw, _, _| resolve_java_import(raw)),
+        "kt" | "kts" => Some(|raw, _, _| resolve_kotlin_import(raw)),
+        "cs" => Some(|raw, _, _| resolve_csharp_import(raw)),
+        "php" => Some(resolve_php_import),
         _ => None,
     }
 }
@@ -67,9 +86,14 @@ pub(crate) fn resolves_imports(ext: &str) -> bool {
     candidates_for(ext).is_some()
 }
 
-fn resolve_single_import(raw: &str, source: &Path, known: &HashSet<&PathBuf>) -> Option<PathBuf> {
+fn resolve_single_import(
+    raw: &str,
+    source: &Path,
+    known: &HashSet<&PathBuf>,
+    config: &RepoImportConfig,
+) -> Option<PathBuf> {
     let ext = source.extension().and_then(|e| e.to_str()).unwrap_or("");
-    candidates_for(ext)?(raw, source)
+    candidates_for(ext)?(raw, source, config)
         .into_iter()
         .map(|c| normalize_path(&c))
         .find(|c| known.contains(c))
@@ -192,6 +216,51 @@ fn resolve_kotlin_import(raw: &str) -> Vec<PathBuf> {
         .collect()
 }
 
+/// PHP has two import forms, and `candidates_for` dispatches on the source
+/// file's extension rather than per specifier, so they are told apart by the
+/// specifier's own shape.
+///
+/// A namespace (`App\Apios\Database\Oracle`) resolves through the PSR-4
+/// roots declared in `composer.json`; the longest matching prefix wins,
+/// because overlapping roots are legal and the more specific one is the one
+/// composer would use. A path (`/api/version.php`, captured from
+/// `require __DIR__ . '/api/version.php'`) resolves against the requiring
+/// file's own directory — `__DIR__` *is* that directory, so a leading slash
+/// is relative to it, not to the repository root.
+fn resolve_php_import(raw: &str, source: &Path, config: &RepoImportConfig) -> Vec<PathBuf> {
+    if raw.contains('\\') || !raw.contains('.') {
+        return psr4_candidates(raw, &config.psr4);
+    }
+    let relative = raw.trim_start_matches("./").trim_start_matches('/');
+    match source.parent() {
+        Some(dir) => vec![dir.join(relative)],
+        None => vec![PathBuf::from(relative)],
+    }
+}
+
+/// Namespace to file, through the longest PSR-4 prefix that matches.
+fn psr4_candidates(namespace: &str, roots: &[Psr4Root]) -> Vec<PathBuf> {
+    let namespace = namespace.trim_start_matches('\\');
+    roots
+        .iter()
+        .filter(|root| {
+            namespace == root.prefix || namespace.starts_with(&format!("{}\\", root.prefix))
+        })
+        .max_by_key(|root| root.prefix.len())
+        .map(|root| {
+            let remainder = namespace[root.prefix.len()..].trim_start_matches('\\');
+            let mut path = root.dir.clone();
+            for segment in remainder.split('\\').filter(|s| !s.is_empty()) {
+                path.push(segment);
+            }
+            // Append rather than `with_extension`, which *replaces* — a root
+            // directory containing a dot (`src/App.Core`) would otherwise be
+            // truncated to a different path entirely.
+            vec![PathBuf::from(format!("{}.php", path.display()))]
+        })
+        .unwrap_or_default()
+}
+
 fn resolve_csharp_import(raw: &str) -> Vec<PathBuf> {
     let segments = raw.replace('.', "/");
     vec![PathBuf::from(format!("{}.cs", segments))]
@@ -220,10 +289,157 @@ mod tests {
         m
     }
 
+    /// The PSR-4 roots the validation repo's `api/composer.json` declares,
+    /// including the one no heuristic would guess.
+    fn apios_config() -> RepoImportConfig {
+        RepoImportConfig {
+            psr4: vec![
+                Psr4Root {
+                    prefix: "App".into(),
+                    dir: PathBuf::from("api/app"),
+                },
+                Psr4Root {
+                    prefix: "Programming".into(),
+                    dir: PathBuf::from("api/contexts/programming/app"),
+                },
+                Psr4Root {
+                    prefix: "Tests".into(),
+                    dir: PathBuf::from("api/tests"),
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn php_use_resolves_through_a_psr4_root() {
+        let files = vec![
+            entry("api/app/Apios/Database/Oracle.php"),
+            entry("api/app/Http/Controller.php"),
+        ];
+        let graph = resolve_imports(
+            &raw(
+                "api/app/Http/Controller.php",
+                vec!["App\\Apios\\Database\\Oracle"],
+            ),
+            &files,
+            &apios_config(),
+        );
+        assert_eq!(
+            graph[&PathBuf::from("api/app/Http/Controller.php")],
+            vec![PathBuf::from("api/app/Apios/Database/Oracle.php")]
+        );
+    }
+
+    #[test]
+    fn php_use_resolves_a_root_no_heuristic_would_guess() {
+        // `Programming\` maps to contexts/programming/app, not Programming/.
+        // A namespace-to-directory guess returns nothing for this entire
+        // bounded context, which is why the manifest must be read.
+        let files = vec![
+            entry("api/contexts/programming/app/Domain/Course.php"),
+            entry("api/app/Http/Controller.php"),
+        ];
+        let graph = resolve_imports(
+            &raw(
+                "api/app/Http/Controller.php",
+                vec!["Programming\\Domain\\Course"],
+            ),
+            &files,
+            &apios_config(),
+        );
+        assert_eq!(
+            graph[&PathBuf::from("api/app/Http/Controller.php")],
+            vec![PathBuf::from(
+                "api/contexts/programming/app/Domain/Course.php"
+            )]
+        );
+    }
+
+    #[test]
+    fn php_use_prefers_the_longest_matching_prefix() {
+        // Overlapping roots are legal in composer.json; the more specific
+        // one must win or every App\Legacy\* edge lands in the wrong tree.
+        let cfg = RepoImportConfig {
+            psr4: vec![
+                Psr4Root {
+                    prefix: "App".into(),
+                    dir: PathBuf::from("api/app"),
+                },
+                Psr4Root {
+                    prefix: "App\\Legacy".into(),
+                    dir: PathBuf::from("api/legacy"),
+                },
+            ],
+        };
+        let files = vec![entry("api/legacy/Thing.php"), entry("api/app/Main.php")];
+        let graph = resolve_imports(
+            &raw("api/app/Main.php", vec!["App\\Legacy\\Thing"]),
+            &files,
+            &cfg,
+        );
+        assert_eq!(
+            graph[&PathBuf::from("api/app/Main.php")],
+            vec![PathBuf::from("api/legacy/Thing.php")]
+        );
+    }
+
+    #[test]
+    fn php_require_resolves_relative_to_the_requiring_file() {
+        // `require __DIR__ . '/api/version.php'` captures the literal
+        // `/api/version.php`; __DIR__ is the requiring file's own directory,
+        // so the leading slash is relative to it, not the repo root.
+        let files = vec![
+            entry("api/routes/api/version.php"),
+            entry("api/routes/web.php"),
+        ];
+        let graph = resolve_imports(
+            &raw("api/routes/web.php", vec!["/api/version.php"]),
+            &files,
+            &RepoImportConfig::default(),
+        );
+        assert_eq!(
+            graph[&PathBuf::from("api/routes/web.php")],
+            vec![PathBuf::from("api/routes/api/version.php")]
+        );
+    }
+
+    #[test]
+    fn php_bare_namespace_does_not_truncate_a_dotted_root_dir() {
+        // `use App;` leaves no remainder, so the candidate ends at the root
+        // directory itself. `Path::with_extension` REPLACES an extension, so
+        // a root like `src/App.Core` would become `src/App.php` — silently
+        // resolving into a different tree.
+        let cfg = RepoImportConfig {
+            psr4: vec![Psr4Root {
+                prefix: "App".into(),
+                dir: PathBuf::from("src/App.Core"),
+            }],
+        };
+        let candidates = resolve_php_import("App", Path::new("src/Main.php"), &cfg);
+        assert_eq!(candidates, vec![PathBuf::from("src/App.Core.php")]);
+    }
+
+    #[test]
+    fn php_specifier_with_no_matching_root_yields_no_edge() {
+        // Vendor namespaces and unconfigured roots must degrade to no edge,
+        // never a wrong one.
+        let files = vec![entry("api/app/Main.php")];
+        let graph = resolve_imports(
+            &raw("api/app/Main.php", vec!["Illuminate\\Support\\Facades\\DB"]),
+            &files,
+            &apios_config(),
+        );
+        assert!(!graph.contains_key(&PathBuf::from("api/app/Main.php")));
+    }
+
     #[test]
     fn kotlin_import_resolves_to_package_path() {
         let files = vec![entry("com/foo/Bar.kt"), entry("com/foo/App.kt")];
-        let graph = resolve_imports(&raw("com/foo/App.kt", vec!["com.foo.Bar"]), &files);
+        let graph = resolve_imports(
+            &raw("com/foo/App.kt", vec!["com.foo.Bar"]),
+            &files,
+            &RepoImportConfig::default(),
+        );
         assert_eq!(
             graph[&PathBuf::from("com/foo/App.kt")],
             vec![PathBuf::from("com/foo/Bar.kt")]
@@ -241,6 +457,7 @@ mod tests {
         let graph = resolve_imports(
             &raw("src/main/kotlin/com/foo/App.kt", vec!["com.foo.Bar"]),
             &files,
+            &RepoImportConfig::default(),
         );
         assert_eq!(
             graph[&PathBuf::from("src/main/kotlin/com/foo/App.kt")],
@@ -254,7 +471,11 @@ mod tests {
         // function: `com.foo.Bar.baz` lives in com/foo/Bar.kt, so the
         // final segment must be droppable.
         let files = vec![entry("com/foo/Bar.kt"), entry("com/foo/App.kt")];
-        let graph = resolve_imports(&raw("com/foo/App.kt", vec!["com.foo.Bar.baz"]), &files);
+        let graph = resolve_imports(
+            &raw("com/foo/App.kt", vec!["com.foo.Bar.baz"]),
+            &files,
+            &RepoImportConfig::default(),
+        );
         assert_eq!(
             graph[&PathBuf::from("com/foo/App.kt")],
             vec![PathBuf::from("com/foo/Bar.kt")]
@@ -267,7 +488,11 @@ mod tests {
         // non-conventional layout must degrade to "no edge", never a
         // wrong one.
         let files = vec![entry("com/foo/App.kt")];
-        let graph = resolve_imports(&raw("com/foo/App.kt", vec!["com.elsewhere.Bar"]), &files);
+        let graph = resolve_imports(
+            &raw("com/foo/App.kt", vec!["com.elsewhere.Bar"]),
+            &files,
+            &RepoImportConfig::default(),
+        );
         assert!(!graph.contains_key(&PathBuf::from("com/foo/App.kt")));
     }
 
@@ -282,6 +507,7 @@ mod tests {
         let graph = resolve_imports(
             &raw("dashboard/src/App.tsx", vec!["./pages/Landing"]),
             &files,
+            &RepoImportConfig::default(),
         );
 
         let targets = &graph[&PathBuf::from("dashboard/src/App.tsx")];
@@ -298,7 +524,11 @@ mod tests {
         // Path::components() keeps ParentDir, so without lexical
         // normalization this import silently fails to resolve.
         let files = vec![entry("src/a/b.ts"), entry("src/shared/util.ts")];
-        let graph = resolve_imports(&raw("src/a/b.ts", vec!["../shared/util"]), &files);
+        let graph = resolve_imports(
+            &raw("src/a/b.ts", vec!["../shared/util"]),
+            &files,
+            &RepoImportConfig::default(),
+        );
 
         let targets = graph
             .get(&PathBuf::from("src/a/b.ts"))
@@ -309,7 +539,11 @@ mod tests {
     #[test]
     fn js_relative_import_resolves_to_normalized_path() {
         let files = vec![entry("web/main.js"), entry("web/lib/api.js")];
-        let graph = resolve_imports(&raw("web/main.js", vec!["./lib/api"]), &files);
+        let graph = resolve_imports(
+            &raw("web/main.js", vec!["./lib/api"]),
+            &files,
+            &RepoImportConfig::default(),
+        );
 
         let targets = &graph[&PathBuf::from("web/main.js")];
         assert_eq!(targets[0].to_string_lossy(), "web/lib/api.js");
@@ -323,7 +557,11 @@ mod tests {
         // path-segment logic can't map it to src/lib.rs without a
         // dedicated case.
         let files = vec![entry("src/lib.rs"), entry("src/other.rs")];
-        let graph = resolve_imports(&raw("src/other.rs", vec!["crate"]), &files);
+        let graph = resolve_imports(
+            &raw("src/other.rs", vec!["crate"]),
+            &files,
+            &RepoImportConfig::default(),
+        );
         let targets = graph
             .get(&PathBuf::from("src/other.rs"))
             .expect("bare crate specifier must resolve to the crate root");
@@ -333,7 +571,11 @@ mod tests {
     #[test]
     fn rust_bare_crate_specifier_resolves_to_main_when_no_lib() {
         let files = vec![entry("src/main.rs"), entry("src/other.rs")];
-        let graph = resolve_imports(&raw("src/other.rs", vec!["crate"]), &files);
+        let graph = resolve_imports(
+            &raw("src/other.rs", vec!["crate"]),
+            &files,
+            &RepoImportConfig::default(),
+        );
         let targets = graph
             .get(&PathBuf::from("src/other.rs"))
             .expect("bare crate specifier must resolve to the crate root");

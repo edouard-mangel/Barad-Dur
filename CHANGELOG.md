@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented here.
 
+## [Unreleased]
+
+### Added
+- **PHP language support.** `.php` files are now parsed with tree-sitter
+  rather than falling through to the generic line-counter: imports, cyclomatic
+  complexity, public methods, properties, functions and nesting. `use`
+  statements resolve through the PSR-4 roots declared in every `composer.json`
+  in the tree (both `autoload` and `autoload-dev`), and `require`/`include`
+  resolve their string literal against the requiring file's own directory.
+
+### Changed
+- **PHP repositories will see their scores move**, because PHP files
+  previously reported `cyclomatic_complexity = 0` and contributed no import
+  edges. Measured on a Laravel monorepo with 870 PHP files: god objects went
+  from 25 to 124 flagged files as PHP structure became visible, while complex
+  hotspots *fell* from 51 to 44 — that metric is percentile-relative, so
+  adding files with real complexity shifts the threshold. Import-graph edge
+  density roughly tripled and cross-community co-change pairs went from 263 to
+  5,095. Overall that repository moved 72 to 74.
+- `Language` is now `#[non_exhaustive]`, for the reason `CouplingPair` and
+  `AnalysisReport` already carry it: the enum gains a variant every time a
+  language is taught to the collector, and on an exhaustive public enum each
+  of those is a breaking change. Downstream matches need a `_` arm.
+- Not resolved, and recorded as known gaps: Laravel path helpers
+  (`base_path()`), `require $var`, PSR-0, and `classmap`/`files` autoload
+  sections. PHP is deliberately absent from `DETECTABLE_EXTS`, so the four
+  Pressman coupling metrics correctly stay unscored for it.
+
 ## [0.21.0] - 2026-08-26
 
 ### Added

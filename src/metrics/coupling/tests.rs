@@ -2118,12 +2118,16 @@ fn import_extractable_files_follows_import_query_support() {
         &parsed_snapshot_without_imports(&["src/a.rs"])
     ));
     assert!(
-        !has_import_extractable_files(&parsed_snapshot_without_imports(&["app/User.php"])),
-        "PHP falls to Language::Generic, which has no import query"
+        has_import_extractable_files(&parsed_snapshot_without_imports(&["app/User.php"])),
+        "PHP gained a grammar, an import query and a resolver arm"
+    );
+    assert!(
+        !has_import_extractable_files(&parsed_snapshot_without_imports(&["lib/user.rb"])),
+        "Ruby still falls to Language::Generic, which has no import query"
     );
     assert!(
         has_import_extractable_files(&parsed_snapshot_without_imports(&[
-            "app/User.php",
+            "lib/user.rb",
             "src/a.rs"
         ])),
         "one extractable file is enough to make the graph meaningful"
@@ -2142,7 +2146,7 @@ fn every_language_with_an_import_query_can_resolve_imports() {
     // its import graph was always empty, and circular dependencies scored a
     // false 100 on every Kotlin repository. Nothing guarded the pairing.
     for ext in [
-        "rs", "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "go", "java", "cs", "kt", "kts",
+        "rs", "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "go", "java", "cs", "kt", "kts", "php",
     ] {
         let path = format!("src/sample.{ext}");
         let has_query = import_query(detect_language(&path), ext).is_some();
@@ -2158,10 +2162,10 @@ fn every_language_with_an_import_query_can_resolve_imports() {
 
 #[test]
 fn circular_deps_unscored_without_import_extractable_files() {
-    // A PHP repo parses fine but yields no import edges, so "0 cycles" is
+    // A Ruby repo parses fine but yields no import edges, so "0 cycles" is
     // "we cannot see", not "clean". Scoring it 100 is the same false-perfect
     // bug this MR fixed for change coupling.
-    let snapshot = parsed_snapshot_without_imports(&["app/Http/c.php", "app/Models/m.php"]);
+    let snapshot = parsed_snapshot_without_imports(&["lib/http/c.rb", "lib/models/m.rb"]);
     let result = circular_dependencies(&snapshot);
     assert_eq!(
         result.score, None,
@@ -2254,7 +2258,7 @@ fn import_graph_metrics(snapshot: &RepoSnapshot) -> Vec<MetricValue> {
 
 #[test]
 fn import_metrics_agree_that_unresolvable_languages_are_unmeasured() {
-    let snapshot = parsed_snapshot_without_imports(&["app/Http/c.php", "app/Models/m.php"]);
+    let snapshot = parsed_snapshot_without_imports(&["lib/http/c.rb", "lib/models/m.rb"]);
     for m in import_graph_metrics(&snapshot) {
         assert_eq!(
             m.score, None,

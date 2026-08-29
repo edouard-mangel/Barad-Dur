@@ -1,3 +1,4 @@
+mod composer;
 pub mod deps;
 mod exclude;
 pub mod gitcli;

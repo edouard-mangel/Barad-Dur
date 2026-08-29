@@ -88,10 +88,10 @@ disagree about which languages are supported:
 
 | stage | location | languages |
 |---|---|---|
-| specifier extraction | `import_query`, `complexity/lang_dispatch.rs` | Rust, JS/TS, Python, Go, Java, C#, Kotlin |
-| path resolution | `candidates_for`, `collector/import_resolver.rs` | Rust, JS/TS, Python, Go, Java, C#, Kotlin |
+| specifier extraction | `import_query`, `complexity/lang_dispatch.rs` | Rust, JS/TS, Python, Go, Java, C#, Kotlin, PHP |
+| path resolution | `candidates_for`, `collector/import_resolver.rs` | Rust, JS/TS, Python, Go, Java, C#, Kotlin, PHP |
 
-Everything else — PHP, Ruby, C/C++, Swift, Scala — falls to
+Everything else — Ruby, C/C++, Swift, Scala — falls to
 `Language::Generic` and never produces an import edge. Kotlin used to
 behave identically (query but no resolver arm); that gap is closed, and
 `every_language_with_an_import_query_can_resolve_imports` now pins the
@@ -119,6 +119,16 @@ sharply: PHP `use`/`require` against PSR-4 autoload roots in
 (load-path-based), C/C++ `#include "..."` vs `<...>` against include
 directories. Each needs its own candidate-path rules, and each should
 land with the language it serves rather than as one shared change.
+
+**PHP is done** — `resolve_php_import` plus `collector/composer.rs`. PHP
+namespaces map to directories only because `composer.json` says so, so the
+PSR-4 roots are parsed from every manifest in the tree (`autoload` and
+`autoload-dev`) and rebased onto each manifest's own directory. A namespace
+resolves through the longest matching prefix; `require`/`include` resolve
+their string literal against the requiring file's directory, which is what
+`__DIR__ . '/x.php'` means. Not handled: Laravel path helpers
+(`base_path()`), `require $var`, PSR-0, and the `classmap`/`files` autoload
+sections.
 
 **Kotlin is done** — `resolve_kotlin_import`, modelled on
 `resolve_java_import`: dotted package paths, also tried under

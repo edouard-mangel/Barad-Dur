@@ -14,8 +14,9 @@ use crate::snapshot::{
     ReExportKind, ReExportRecord, RepoSnapshot, TimeWindow,
 };
 
+use super::composer::psr4_roots_from_tree;
 use super::ignore_file::{should_include, BaradDurIgnore};
-use super::import_resolver::{resolve_imports, resolve_specifier, RawImports};
+use super::import_resolver::{resolve_imports, resolve_specifier, RawImports, RepoImportConfig};
 use super::progress::{NoProgress, Progress};
 use super::{Collector, CommitCollection, SnapshotOptions};
 
@@ -354,7 +355,14 @@ impl Collector {
         let (file_metrics, raw_imports, coupling_findings, raw_classes, raw_reexports, raw_calls) =
             ast;
         let head = self.head_commit_hash()?;
-        let import_graph = resolve_imports(&raw_imports, &files);
+        // Working-tree pass: manifests come from disk.
+        let root = self.repo_path().to_path_buf();
+        let import_config = RepoImportConfig {
+            psr4: psr4_roots_from_tree(&files, |entry| {
+                std::fs::read_to_string(root.join(&entry.path)).ok()
+            }),
+        };
+        let import_graph = resolve_imports(&raw_imports, &files, &import_config);
         let class_records = resolve_class_records(raw_classes, &files);
         let reexports = resolve_reexports(raw_reexports, &files);
         let call_records = resolve_call_records(raw_calls, &files);
@@ -527,7 +535,16 @@ fn ast_pass_at(repo: &git2::Repository, files: &[FileEntry]) -> Result<AstParts>
         }
     }
     coupling_findings.sort_by(|a, b| (&a.path, a.line).cmp(&(&b.path, b.line)));
-    let import_graph = resolve_imports(&raw_imports, files);
+    // Historical pass: manifests must come from the tree AT THAT COMMIT.
+    // Reading the working tree here would make gate baselines incomparable.
+    let import_config = RepoImportConfig {
+        psr4: psr4_roots_from_tree(files, |entry| {
+            let oid = git2::Oid::from_str(&entry.blob_oid).ok()?;
+            let blob = repo.find_blob(oid).ok()?;
+            std::str::from_utf8(blob.content()).ok().map(str::to_owned)
+        }),
+    };
+    let import_graph = resolve_imports(&raw_imports, files, &import_config);
     let class_records = resolve_class_records(raw_classes, files);
     let reexports = resolve_reexports(raw_reexports, files);
     let call_records = resolve_call_records(raw_calls, files);
@@ -578,7 +595,8 @@ fn resolve_reexports(
         raw,
         files,
         |path, r, known| {
-            let target = resolve_specifier(&r.specifier, path, known)?;
+            let target =
+                resolve_specifier(&r.specifier, path, known, &RepoImportConfig::default())?;
             let kind = match r.kind {
                 RawReExportKind::Named { exported, source } => {
                     ReExportKind::Named { exported, source }
@@ -611,7 +629,7 @@ fn resolve_call_records(
                 RawCalleeRef::SameFile(name) => CalleeRef::SameFile(name),
                 RawCalleeRef::Unresolved { name } => CalleeRef::Unresolved { name },
                 RawCalleeRef::Specifier { specifier, name } => {
-                    match resolve_specifier(&specifier, path, known) {
+                    match resolve_specifier(&specifier, path, known, &RepoImportConfig::default()) {
                         Some(target) => CalleeRef::Resolved { path: target, name },
                         None => CalleeRef::Unresolved { name },
                     }
@@ -642,7 +660,7 @@ fn resolve_class_records(
                 RawBaseRef::SameFile(name) => BaseRef::SameFile(name),
                 RawBaseRef::Unresolvable => BaseRef::Unresolvable,
                 RawBaseRef::Specifier { specifier, name } => {
-                    match resolve_specifier(&specifier, path, known) {
+                    match resolve_specifier(&specifier, path, known, &RepoImportConfig::default()) {
                         Some(target) => BaseRef::Resolved { path: target, name },
                         None => BaseRef::Unresolvable,
                     }
