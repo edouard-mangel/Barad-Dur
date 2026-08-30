@@ -184,3 +184,52 @@ replaced by a p90 term (see CHANGELOG).
 - Nothing here measures whether flagged files are *actually* god objects.
   Every number above is distributional; none is validated against a human
   judgement of the code.
+
+### Import resolution floor — stop scoring an empty graph
+
+**Priority**: High (three languages affected today)
+**Design**: `docs/superpowers/specs/2026-08-30-csharp-type-resolution-design.md`
+
+Three languages ship a resolver that produces **zero edges**, so afferent
+coupling, efferent coupling and circular dependencies score a perfect 100
+on repositories nobody can measure:
+
+| language | resolver | why it yields nothing |
+|---|---|---|
+| C# | present | `using` names a *namespace*, not a file; `Domain.cs` never exists |
+| Go | present | builds a literal `*.go` path; nothing expands globs |
+| Kotlin | was missing | fixed in v0.22.0 |
+
+`has_import_extractable_files` asks whether a language *could* resolve — a
+static capability check — so a wrong resolver passes it. Measured on two
+real C# repos: mean degree 0.0, max 0, three metrics at 100.
+
+The fix already exists in this codebase for calls: `call_resolution_floor`
+suppresses function-hub output when the snapshot-wide call resolution rate
+falls below a fraction. Do the same for imports — track specifiers that
+produced an edge over specifiers extracted, and report the import metrics
+*unscored* below the floor.
+
+This catches both a wrong resolver and a missing one, for every language
+including ones not yet written, with no per-language work.
+
+### Go import resolution is broken
+
+**Priority**: Medium
+**Depends on**: nothing; independent of the floor above
+
+```rust
+fn resolve_go_import(raw: &str, source: &Path) -> Vec<PathBuf> {
+    vec![base.join(last).join("*.go")]   // literal "*.go", never matches
+}
+```
+
+A Go `import` names a *package* — a directory of files — not a file. The
+resolver builds a path ending in the literal string `*.go` and
+`resolve_single_import` compares it against real paths; no glob expansion
+exists anywhere in the collector. Zero edges, always.
+
+Same class as C#, and the same granularity question: a package maps to many
+files, so resolving it needs either a symbol-level model or a deliberate
+choice about fan-out. Not yet measured against a real Go repository —
+do that first, as was done for PHP and C#.
