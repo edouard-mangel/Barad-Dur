@@ -18,7 +18,7 @@ pub struct HealthThresholds {
     #[serde(default = "default_biomarker_max_variance")]
     pub biomarker_max_variance: f64,
     /// Percentile of the repo's import-graph degree distribution a source
-    /// file must reach to be flagged a structural hub, alongside
+    /// file must exceed to be flagged a structural hub, alongside
     /// `god_node_min_degree` — the higher of the two governs. Default 0.90.
     ///
     /// Replaces a median multiplier that never bound: measured across five
@@ -67,9 +67,6 @@ fn default_god_node_degree_percentile() -> f64 {
 }
 fn default_god_node_min_degree() -> usize {
     8
-}
-fn default_import_resolution_floor() -> f64 {
-    0.02
 }
 fn default_call_resolution_floor() -> f64 {
     0.5
@@ -219,22 +216,6 @@ pub struct CouplingThresholds {
     /// Must be in [0.0, 1.0]. Default 0.30.
     #[serde(default = "default_test_safety_net_min_ratio")]
     pub test_safety_net_min_ratio: f64,
-    /// Trust floor for the import graph: when the share of extracted import
-    /// specifiers that resolved to a repository file falls at or below this
-    /// fraction, the import-derived metrics report *unscored* rather than
-    /// scoring an empty graph.
-    ///
-    /// Deliberately far below the healthy range. Most specifiers in any real
-    /// repository are external — `use std::`, `import React`,
-    /// `use Illuminate\` — and cannot resolve to a file that exists, so
-    /// measured rates are 0.13 to 0.59, not near 1.0. Copying the call
-    /// graph's 0.5 would suppress most repositories.
-    ///
-    /// What this catches is the cliff at zero: a resolver whose semantics
-    /// are wrong produces 0.000, an order of magnitude below the lowest
-    /// working repository measured. Default 0.02. Must be in [0.0, 1.0].
-    #[serde(default = "default_import_resolution_floor")]
-    pub import_resolution_floor: f64,
 }
 
 fn default_component_depth() -> usize {
@@ -268,7 +249,6 @@ fn default_community_corroboration() -> bool {
 impl Default for CouplingThresholds {
     fn default() -> Self {
         Self {
-            import_resolution_floor: default_import_resolution_floor(),
             component_depth: default_component_depth(),
             change_coupling_min_ratio: default_change_coupling_min_ratio(),
             content_barrel_rule: default_content_barrel_rule(),

@@ -31,11 +31,13 @@ fn hub_threshold(degrees: &[usize], thresholds: &HealthThresholds) -> usize {
         let rank = (thresholds.god_node_degree_percentile * sorted.len() as f64).ceil() as usize;
         sorted[rank.saturating_sub(1).min(sorted.len() - 1)]
     };
-    percentile.max(thresholds.god_node_min_degree)
+    percentile
+        .saturating_add(1)
+        .max(thresholds.god_node_min_degree)
 }
 
-/// A file structurally dominates the codebase when its degree reaches the
-/// repo's hub threshold.
+/// A file structurally dominates the codebase when its degree clears the
+/// percentile value while still reaching the absolute floor.
 fn is_structural_hub(degree: usize, threshold: usize) -> bool {
     degree >= threshold
 }
@@ -228,7 +230,7 @@ mod tests {
         let one_huge_outlier: Vec<usize> = std::iter::repeat_n(20, 9).chain([400]).collect();
         assert_eq!(
             hub_threshold(&one_huge_outlier, &th),
-            20,
+            21,
             "the outlier must not set the threshold that excludes its peers"
         );
     }
@@ -237,6 +239,15 @@ mod tests {
     fn hub_threshold_on_an_empty_graph_is_the_floor() {
         let th = HealthThresholds::default();
         assert_eq!(hub_threshold(&[], &th), th.god_node_min_degree);
+    }
+
+    #[test]
+    fn percentile_ties_do_not_make_every_file_a_hub() {
+        let th = HealthThresholds::default();
+        let tied = vec![10; 100];
+        let threshold = hub_threshold(&tied, &th);
+        assert_eq!(threshold, 11);
+        assert!(!is_structural_hub(10, threshold));
     }
 
     fn add_normal_files(snapshot: &mut RepoSnapshot, count: usize) {

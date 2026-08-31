@@ -32,7 +32,9 @@ pub fn resolve_imports(
         .filter_map(|(source_path, imports)| {
             let resolved: Vec<PathBuf> = imports
                 .iter()
-                .filter_map(|raw| resolve_single_import(raw, source_path, &known, config))
+                .flat_map(|raw| resolve_import_targets(raw, source_path, &known, config))
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
                 .collect();
             if resolved.is_empty() {
                 None
@@ -74,7 +76,7 @@ fn candidates_for(ext: &str) -> Option<CandidateFn> {
         "py" => Some(|raw, _, _| resolve_python_import(raw)),
         "go" => Some(|raw, src, _| resolve_go_import(raw, src)),
         "java" => Some(|raw, _, _| resolve_java_import(raw)),
-        "kt" | "kts" => Some(|raw, _, _| resolve_kotlin_import(raw)),
+        "kt" | "kts" => Some(|raw, source, _| resolve_kotlin_import(raw, source)),
         "cs" => Some(|raw, _, _| resolve_csharp_import(raw)),
         "php" => Some(resolve_php_import),
         _ => None,
@@ -92,11 +94,28 @@ fn resolve_single_import(
     known: &HashSet<&PathBuf>,
     config: &RepoImportConfig,
 ) -> Option<PathBuf> {
-    let ext = source.extension().and_then(|e| e.to_str()).unwrap_or("");
-    candidates_for(ext)?(raw, source, config)
+    resolve_import_targets(raw, source, known, config)
         .into_iter()
+        .next()
+}
+
+fn resolve_import_targets(
+    raw: &str,
+    source: &Path,
+    known: &HashSet<&PathBuf>,
+    config: &RepoImportConfig,
+) -> Vec<PathBuf> {
+    let ext = source.extension().and_then(|e| e.to_str()).unwrap_or("");
+    if matches!(ext, "kt" | "kts") && raw.ends_with(".*") {
+        return resolve_kotlin_wildcard(raw, source, known);
+    }
+    candidates_for(ext)
+        .into_iter()
+        .flat_map(|candidate| candidate(raw, source, config))
         .map(|c| normalize_path(&c))
         .find(|c| known.contains(c))
+        .into_iter()
+        .collect()
 }
 
 /// Lexically normalize a path: drop `.` segments and fold `..` into the
@@ -202,7 +221,7 @@ fn resolve_java_import(raw: &str) -> Vec<PathBuf> {
 /// too. Kotlin does not enforce package/directory correspondence, so a
 /// non-conventional layout simply yields no candidate that exists, never a
 /// wrong edge: `resolve_single_import` keeps only paths the repo really has.
-fn resolve_kotlin_import(raw: &str) -> Vec<PathBuf> {
+fn resolve_kotlin_import(raw: &str, source: &Path) -> Vec<PathBuf> {
     let for_segments = |segments: String| {
         [
             PathBuf::from(format!("{segments}.kt")),
@@ -210,10 +229,55 @@ fn resolve_kotlin_import(raw: &str) -> Vec<PathBuf> {
         ]
     };
     let parent = raw.rsplit_once('.').map(|(head, _)| head.replace('.', "/"));
-    for_segments(raw.replace('.', "/"))
+    let segments = raw.replace('.', "/");
+    let source_root = kotlin_source_root(source);
+    for_segments(segments.clone())
         .into_iter()
-        .chain(parent.into_iter().flat_map(for_segments))
+        .chain(
+            source_root
+                .iter()
+                .map(|root| root.join(format!("{segments}.kt"))),
+        )
+        .chain(parent.clone().into_iter().flat_map(for_segments))
+        .chain(
+            source_root
+                .iter()
+                .flat_map(|root| parent.iter().map(|path| root.join(format!("{path}.kt")))),
+        )
         .collect()
+}
+
+fn kotlin_source_root(source: &Path) -> Option<PathBuf> {
+    let components: Vec<_> = source.components().collect();
+    let kotlin = components
+        .iter()
+        .position(|part| part.as_os_str() == "kotlin")?;
+    Some(components[..=kotlin].iter().collect())
+}
+
+fn resolve_kotlin_wildcard(raw: &str, source: &Path, known: &HashSet<&PathBuf>) -> Vec<PathBuf> {
+    let package = raw.trim_end_matches(".*").replace('.', "/");
+    let mut dirs = vec![
+        PathBuf::from(&package),
+        PathBuf::from("src/main/kotlin").join(&package),
+    ];
+    if let Some(root) = kotlin_source_root(source) {
+        dirs.push(root.join(&package));
+    }
+    let mut matches: Vec<PathBuf> = known
+        .iter()
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|ext| ext == "kt" || ext == "kts")
+        })
+        .filter(|path| {
+            path.parent()
+                .is_some_and(|parent| dirs.iter().any(|dir| parent == dir))
+        })
+        .map(|path| (*path).clone())
+        .collect();
+    matches.sort();
+    matches
 }
 
 /// PHP has two import forms, and `candidates_for` dispatches on the source
@@ -228,7 +292,7 @@ fn resolve_kotlin_import(raw: &str) -> Vec<PathBuf> {
 /// file's own directory — `__DIR__` *is* that directory, so a leading slash
 /// is relative to it, not to the repository root.
 fn resolve_php_import(raw: &str, source: &Path, config: &RepoImportConfig) -> Vec<PathBuf> {
-    if raw.contains('\\') || !raw.contains('.') {
+    if raw.contains('\\') || (!raw.contains('.') && !raw.contains('/')) {
         return psr4_candidates(raw, &config.psr4);
     }
     let relative = raw.trim_start_matches("./").trim_start_matches('/');
@@ -241,12 +305,18 @@ fn resolve_php_import(raw: &str, source: &Path, config: &RepoImportConfig) -> Ve
 /// Namespace to file, through the longest PSR-4 prefix that matches.
 fn psr4_candidates(namespace: &str, roots: &[Psr4Root]) -> Vec<PathBuf> {
     let namespace = namespace.trim_start_matches('\\');
-    roots
+    let matching: Vec<&Psr4Root> = roots
         .iter()
         .filter(|root| {
             namespace == root.prefix || namespace.starts_with(&format!("{}\\", root.prefix))
         })
-        .max_by_key(|root| root.prefix.len())
+        .collect();
+    let Some(longest) = matching.iter().map(|root| root.prefix.len()).max() else {
+        return Vec::new();
+    };
+    matching
+        .into_iter()
+        .filter(|root| root.prefix.len() == longest)
         .map(|root| {
             let remainder = namespace[root.prefix.len()..].trim_start_matches('\\');
             let mut path = root.dir.clone();
@@ -256,9 +326,9 @@ fn psr4_candidates(namespace: &str, roots: &[Psr4Root]) -> Vec<PathBuf> {
             // Append rather than `with_extension`, which *replaces* — a root
             // directory containing a dot (`src/App.Core`) would otherwise be
             // truncated to a different path entirely.
-            vec![PathBuf::from(format!("{}.php", path.display()))]
+            PathBuf::from(format!("{}.php", path.display()))
         })
-        .unwrap_or_default()
+        .collect()
 }
 
 fn resolve_csharp_import(raw: &str) -> Vec<PathBuf> {
@@ -404,6 +474,42 @@ mod tests {
     }
 
     #[test]
+    fn php_extensionless_require_is_a_path_not_a_namespace() {
+        let files = vec![entry("api/bootstrap/autoload"), entry("api/index.php")];
+        let graph = resolve_imports(
+            &raw("api/index.php", vec!["bootstrap/autoload"]),
+            &files,
+            &RepoImportConfig::default(),
+        );
+        assert_eq!(
+            graph[&PathBuf::from("api/index.php")],
+            vec![PathBuf::from("api/bootstrap/autoload")]
+        );
+    }
+
+    #[test]
+    fn php_tries_every_directory_for_the_longest_psr4_prefix() {
+        let cfg = RepoImportConfig {
+            psr4: vec![
+                Psr4Root {
+                    prefix: "Acme".into(),
+                    dir: PathBuf::from("src"),
+                },
+                Psr4Root {
+                    prefix: "Acme".into(),
+                    dir: PathBuf::from("generated"),
+                },
+            ],
+        };
+        let files = vec![entry("generated/Thing.php"), entry("app.php")];
+        let graph = resolve_imports(&raw("app.php", vec!["Acme\\Thing"]), &files, &cfg);
+        assert_eq!(
+            graph[&PathBuf::from("app.php")],
+            vec![PathBuf::from("generated/Thing.php")]
+        );
+    }
+
+    #[test]
     fn php_bare_namespace_does_not_truncate_a_dotted_root_dir() {
         // `use App;` leaves no remainder, so the candidate ends at the root
         // directory itself. `Path::with_extension` REPLACES an extension, so
@@ -462,6 +568,47 @@ mod tests {
         assert_eq!(
             graph[&PathBuf::from("src/main/kotlin/com/foo/App.kt")],
             vec![PathBuf::from("src/main/kotlin/com/foo/Bar.kt")]
+        );
+    }
+
+    #[test]
+    fn kotlin_import_resolves_in_module_test_source_root() {
+        let files = vec![
+            entry("app/src/test/kotlin/com/foo/Helper.kt"),
+            entry("app/src/test/kotlin/com/foo/AppTest.kt"),
+        ];
+        let graph = resolve_imports(
+            &raw(
+                "app/src/test/kotlin/com/foo/AppTest.kt",
+                vec!["com.foo.Helper"],
+            ),
+            &files,
+            &RepoImportConfig::default(),
+        );
+        assert_eq!(
+            graph[&PathBuf::from("app/src/test/kotlin/com/foo/AppTest.kt")],
+            vec![PathBuf::from("app/src/test/kotlin/com/foo/Helper.kt")]
+        );
+    }
+
+    #[test]
+    fn kotlin_wildcard_import_resolves_every_file_in_package() {
+        let files = vec![
+            entry("app/src/main/kotlin/com/foo/A.kt"),
+            entry("app/src/main/kotlin/com/foo/B.kt"),
+            entry("app/src/main/kotlin/com/bar/App.kt"),
+        ];
+        let graph = resolve_imports(
+            &raw("app/src/main/kotlin/com/bar/App.kt", vec!["com.foo.*"]),
+            &files,
+            &RepoImportConfig::default(),
+        );
+        assert_eq!(
+            graph[&PathBuf::from("app/src/main/kotlin/com/bar/App.kt")],
+            vec![
+                PathBuf::from("app/src/main/kotlin/com/foo/A.kt"),
+                PathBuf::from("app/src/main/kotlin/com/foo/B.kt"),
+            ]
         );
     }
 

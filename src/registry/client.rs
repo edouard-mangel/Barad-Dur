@@ -36,8 +36,9 @@ pub fn http_with_timeout(timeout: Duration) -> Result<reqwest::blocking::Client,
 /// parallel, where most of it can be scheduling delay that says nothing
 /// about the client. A tighter bound measures the machine, not the code.
 #[cfg(test)]
-fn ruled_out_default_timeout(elapsed: Duration) -> bool {
-    elapsed < Duration::from_secs(TIMEOUT_SECS)
+fn elapsed_matches_requested_timeout(elapsed: Duration, requested: Duration) -> bool {
+    let generous = requested.saturating_mul(50);
+    elapsed < generous.min(Duration::from_secs(TIMEOUT_SECS - 1))
 }
 
 #[cfg(test)]
@@ -52,11 +53,19 @@ mod tests {
         // 7.5s of wall clock on a runner executing mutation shards in
         // parallel. The client was correct; the machine was busy. Anything
         // short of the default must still count as ruling it out.
-        assert!(ruled_out_default_timeout(Duration::from_millis(200)));
-        assert!(ruled_out_default_timeout(Duration::from_secs(8)));
-        assert!(ruled_out_default_timeout(Duration::from_secs(
-            TIMEOUT_SECS - 1
-        )));
+        let requested = Duration::from_millis(200);
+        assert!(elapsed_matches_requested_timeout(
+            Duration::from_millis(200),
+            requested
+        ));
+        assert!(elapsed_matches_requested_timeout(
+            Duration::from_secs(8),
+            requested
+        ));
+        assert!(!elapsed_matches_requested_timeout(
+            Duration::from_secs(29),
+            requested
+        ));
     }
 
     #[test]
@@ -64,12 +73,15 @@ mod tests {
         // The bug this guards: `http_with_timeout` ignoring its argument and
         // falling back to the default. That path cannot finish before
         // TIMEOUT_SECS, so at or beyond it the check must fail.
-        assert!(!ruled_out_default_timeout(Duration::from_secs(
-            TIMEOUT_SECS
-        )));
-        assert!(!ruled_out_default_timeout(Duration::from_secs(
-            TIMEOUT_SECS + 1
-        )));
+        let requested = Duration::from_millis(200);
+        assert!(!elapsed_matches_requested_timeout(
+            Duration::from_secs(TIMEOUT_SECS),
+            requested
+        ));
+        assert!(!elapsed_matches_requested_timeout(
+            Duration::from_secs(TIMEOUT_SECS + 1),
+            requested
+        ));
     }
 
     #[test]
@@ -118,9 +130,8 @@ mod tests {
         let err = result.unwrap_err();
         assert!(err.is_timeout(), "expected timeout error, got: {err}");
         assert!(
-            ruled_out_default_timeout(start.elapsed()),
-            "client waited at least the default {TIMEOUT_SECS}s, so the \
-             200ms timeout was not applied: {:?}",
+            elapsed_matches_requested_timeout(start.elapsed(), Duration::from_millis(200)),
+            "client did not time out within the requested-timeout bound: {:?}",
             start.elapsed()
         );
     }

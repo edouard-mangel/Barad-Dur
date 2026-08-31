@@ -76,10 +76,9 @@ pub(crate) fn score_count_bands(count: usize) -> u32 {
 /// when only a tiny fraction of its code is affected.
 ///
 /// Below `MIN_PREVALENCE_POPULATION` the denominator is too small to trust,
-/// so the count bands govern. Between there and `TRUSTED_POPULATION` the
-/// stricter of the two applies: crossing the minimum-support boundary must
-/// not hand a repository a free jump just for gaining one unrelated file.
-/// At or above `TRUSTED_POPULATION`, prevalence governs alone.
+/// so the count bands govern. Above it the stricter of prevalence and count
+/// applies. Keeping the count cap at every size preserves the monotonic
+/// invariant: adding unrelated files can never improve a finding's score.
 ///
 /// MAINTAINER-AUTHORED THRESHOLDS, like `score_pressman`'s bands: 100 and
 /// 300 are judgement calls about when a denominator becomes meaningful,
@@ -88,7 +87,6 @@ pub(crate) fn score_count_bands(count: usize) -> u32 {
 /// repository grew. Retune the numbers if evidence warrants; keep that.
 pub(crate) fn score_prevalence(flagged: usize, total: usize) -> u32 {
     const MIN_PREVALENCE_POPULATION: usize = 100;
-    const TRUSTED_POPULATION: usize = 300;
 
     if flagged == 0 {
         return 100;
@@ -108,11 +106,7 @@ pub(crate) fn score_prevalence(flagged: usize, total: usize) -> u32 {
     } else {
         25
     };
-    if total < TRUSTED_POPULATION {
-        by_prevalence.min(score_count_bands(flagged))
-    } else {
-        by_prevalence
-    }
+    by_prevalence.min(score_count_bands(flagged))
 }
 
 /// Median of a slice; 0.0 for an empty slice. Does not mutate the input —
@@ -298,11 +292,11 @@ mod prevalence_score_tests {
     use super::score_prevalence;
 
     #[test]
-    fn large_repositories_are_scored_by_rate_not_raw_count() {
-        assert_eq!(score_prevalence(1, 1_000), 90);
-        assert_eq!(score_prevalence(40, 1_000), 75);
-        assert_eq!(score_prevalence(100, 1_000), 50);
-        assert_eq!(score_prevalence(200, 1_000), 50);
+    fn large_repositories_use_the_stricter_of_rate_and_raw_count() {
+        assert_eq!(score_prevalence(1, 1_000), 75);
+        assert_eq!(score_prevalence(40, 1_000), 25);
+        assert_eq!(score_prevalence(100, 1_000), 25);
+        assert_eq!(score_prevalence(200, 1_000), 25);
         assert_eq!(score_prevalence(201, 1_000), 25);
     }
 
@@ -322,19 +316,14 @@ mod prevalence_score_tests {
         assert_eq!(score_prevalence(3, 99), 50);
         assert_eq!(score_prevalence(3, 100), 50);
         assert_eq!(score_prevalence(3, 299), 50);
-        // At 300+ the population is large enough that prevalence governs
-        // alone: 3/300 is 1%, so the count band's 50 no longer caps it.
-        assert_eq!(score_prevalence(3, 300), 90);
+        assert_eq!(score_prevalence(3, 300), 50);
     }
 
     #[test]
-    fn single_finding_jumps_a_full_band_at_the_trusted_population() {
-        // The largest step in the table, and the one a maintainer is most
-        // likely to be surprised by: one finding is capped at the count
-        // band's 75 right up to the boundary, then the denominator becomes
-        // trustworthy and 1/300 = 0.33% scores 90.
+    fn unrelated_growth_never_improves_a_score() {
         assert_eq!(score_prevalence(1, 299), 75);
-        assert_eq!(score_prevalence(1, 300), 90);
+        assert_eq!(score_prevalence(1, 300), 75);
+        assert_eq!(score_prevalence(1, 30_000), 75);
     }
 
     #[test]

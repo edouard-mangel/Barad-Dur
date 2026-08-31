@@ -35,9 +35,15 @@ pub(crate) fn psr4_roots(manifest_dir: &Path, json: &str) -> Vec<Psr4Root> {
         .iter()
         .filter_map(|section| doc.get(section)?.get("psr-4")?.as_object())
         .flat_map(|map| map.iter())
-        .filter_map(|(prefix, target)| {
-            let dir = target.as_str()?;
-            Some(Psr4Root {
+        .flat_map(|(prefix, target)| {
+            let dirs: Vec<&str> = match target {
+                serde_json::Value::String(dir) => vec![dir],
+                serde_json::Value::Array(dirs) => {
+                    dirs.iter().filter_map(serde_json::Value::as_str).collect()
+                }
+                _ => Vec::new(),
+            };
+            dirs.into_iter().map(|dir| Psr4Root {
                 prefix: prefix.trim_end_matches('\\').to_string(),
                 dir: rebase(manifest_dir, dir),
             })
@@ -196,6 +202,17 @@ mod tests {
             ],
             "autoload-dev roots count too — test files import through them"
         );
+    }
+
+    #[test]
+    fn psr4_prefix_can_map_to_multiple_directories() {
+        let roots = roots_of(
+            "api",
+            r#"{"autoload":{"psr-4":{"Acme\\":["src/", "generated/"]}}}"#,
+        );
+        assert_eq!(roots.len(), 2);
+        assert_eq!(roots[0].dir, PathBuf::from("api/src"));
+        assert_eq!(roots[1].dir, PathBuf::from("api/generated"));
     }
 
     #[test]

@@ -322,7 +322,8 @@ pub struct RepoSnapshot {
     /// The graph alone cannot distinguish "this repository has few imports"
     /// from "the resolver for this language produces nothing" — the failure
     /// that had C# and Go scoring a perfect 100 on repositories nobody
-    /// could measure. Comparing edges against this says which it is.
+    /// could measure. Combined with resolver capability, this identifies
+    /// broken-language empty graphs without penalizing external-only imports.
     ///
     /// Zero on snapshots written before this existed; a populated graph is
     /// then its own proof that resolution worked.

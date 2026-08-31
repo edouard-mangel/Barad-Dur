@@ -185,18 +185,15 @@ replaced by a p90 term (see CHANGELOG).
   Every number above is distributional; none is validated against a human
   judgement of the code.
 
-### ~~Import resolution floor — stop scoring an empty graph~~ ✓ Done
+### ~~Import resolver capability guard — stop scoring broken languages clean~~ ✓ Done
 
-Shipped as `coupling.import_resolution_floor` (default 0.02). Measured
-resolution rates on five repositories before choosing it: mautic 0.585,
-Apios-Web 0.398, barad-dur 0.210, ihexa 0.134, C# repos **0.000**. Healthy
-repositories resolve only 13-59% of specifiers because most imports are
-external, so copying the call graph's 0.5 would have suppressed nearly
-everything. The signal is the cliff at zero, an order of magnitude below
-the lowest working repository.
-
-Both C# repositories now report *unscored*; every other repository is
-unchanged. Go is still broken (below) but no longer reports a false 100.
+Import metrics now report *unscored* for an empty graph when extracted
+specifiers came from a language with a known-unreliable resolver (currently
+C# and Go). A numeric snapshot-wide resolution floor was rejected after
+review: it cannot distinguish a broken resolver from a valid repository that
+only imports external packages, and one weak language could suppress valid
+edges from another in a mixed-language repository. A populated graph always
+remains scored.
 
 Original entry:
 

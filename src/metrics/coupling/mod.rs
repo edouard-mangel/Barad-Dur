@@ -183,11 +183,11 @@ pub fn growing_coupling_reach(snapshot: &RepoSnapshot, min_partners: usize) -> C
 ///
 /// Scored on the median Ca rather than the max. A single hub (core data model)
 /// is normal — what matters is whether *most* files have excessive incoming deps.
-fn afferent_coupling(snapshot: &RepoSnapshot, thresholds: &CouplingThresholds) -> MetricValue {
+fn afferent_coupling(snapshot: &RepoSnapshot, _thresholds: &CouplingThresholds) -> MetricValue {
     // "No import dependencies detected" claimed we had looked. Defer to the
     // shared reason so an unresolvable language and a genuinely import-free
     // repository stop sharing one message — and one score.
-    if let Some(reason) = unmeasured_import_reason(snapshot, thresholds) {
+    if let Some(reason) = unmeasured_import_reason(snapshot) {
         return unmeasured_import_metric("Afferent coupling", reason);
     }
     let incoming = crate::metrics::incoming_import_counts(&snapshot.import_graph);
@@ -229,8 +229,8 @@ fn afferent_coupling(snapshot: &RepoSnapshot, thresholds: &CouplingThresholds) -
 ///
 /// Scored on the median Ce. A few orchestrator files with many imports are
 /// expected — the score reflects whether the typical file is well-scoped.
-fn efferent_coupling(snapshot: &RepoSnapshot, thresholds: &CouplingThresholds) -> MetricValue {
-    if let Some(reason) = unmeasured_import_reason(snapshot, thresholds) {
+fn efferent_coupling(snapshot: &RepoSnapshot, _thresholds: &CouplingThresholds) -> MetricValue {
+    if let Some(reason) = unmeasured_import_reason(snapshot) {
         return unmeasured_import_metric("Efferent coupling", reason);
     }
 
@@ -448,12 +448,12 @@ fn cycle_members(paths: &[&Path]) -> Vec<PathBuf> {
 
 /// Circular dependencies: file pairs where A→B and B→A (depth 1) or
 /// A→B→C→A (depth 2).
-fn circular_dependencies(snapshot: &RepoSnapshot, thresholds: &CouplingThresholds) -> MetricValue {
+fn circular_dependencies(snapshot: &RepoSnapshot, _thresholds: &CouplingThresholds) -> MetricValue {
     let graph = &snapshot.import_graph;
     // An empty graph is only "no cycles" when we actually looked; otherwise
     // zero findings means "unmeasured", and reporting that as a perfect
     // score is the same false-perfect bug that hid change-coupling smells.
-    if let Some(reason) = unmeasured_import_reason(snapshot, thresholds) {
+    if let Some(reason) = unmeasured_import_reason(snapshot) {
         return unmeasured_import_metric("Circular dependencies", reason);
     }
     let edges = graph
@@ -548,32 +548,26 @@ pub(crate) fn pressman_finding_counts(
 /// The three metrics whose only evidence is the import graph share this, so
 /// they cannot drift into disagreeing about what an empty graph means. A
 /// non-empty graph is its own proof that we looked, so it always scores.
-fn unmeasured_import_reason(
-    snapshot: &RepoSnapshot,
-    thresholds: &CouplingThresholds,
-) -> Option<&'static str> {
-    // A resolver whose semantics are wrong extracts specifiers and turns
-    // none of them into edges, which is indistinguishable from a clean
-    // repository by looking at the graph alone. `has_import_extractable_files`
-    // cannot catch it — that asks whether a language *could* resolve, which
-    // a wrong resolver passes. This asks whether it *did*.
-    //
-    // Only meaningful when specifiers were actually counted: snapshots from
-    // before that counter existed report zero, and a populated graph is its
-    // own proof that resolution worked.
-    if snapshot.import_specifiers_extracted > 0 {
-        let edges: usize = snapshot.import_graph.values().map(Vec::len).sum();
-        let rate = edges as f64 / snapshot.import_specifiers_extracted as f64;
-        if rate <= thresholds.import_resolution_floor {
-            return Some(
-                "Import specifiers were found but almost none resolved to \
-                 repository files — the language's resolver cannot see this \
-                 layout, so coupling here is unmeasured rather than clean",
-            );
-        }
-    }
+fn unmeasured_import_reason(snapshot: &RepoSnapshot) -> Option<&'static str> {
+    // A populated graph is usable evidence even when another language in a
+    // mixed repository has poor resolution. Do not let one resolver suppress
+    // valid edges collected by another.
     if !snapshot.import_graph.is_empty() {
         return None;
+    }
+    // A resolver whose semantics are known to be wrong can extract
+    // specifiers and turn none into edges. Do not infer failure from a low
+    // global rate alone: external-only imports legitimately resolve no local
+    // edge, and a weak language must not suppress a working one.
+    //
+    // Only meaningful when specifiers were actually counted: snapshots from
+    // before that counter existed report zero.
+    if snapshot.import_specifiers_extracted > 0 && has_known_unreliable_resolver(snapshot) {
+        return Some(
+            "Import specifiers were found in a language whose resolver cannot \
+             reliably map them to repository files, so coupling here is \
+             unmeasured rather than clean",
+        );
     }
     if !detection_ran(snapshot) {
         return Some("Coupling detection did not run (no parsed files)");
@@ -585,6 +579,15 @@ fn unmeasured_import_reason(
         );
     }
     None
+}
+
+fn has_known_unreliable_resolver(snapshot: &RepoSnapshot) -> bool {
+    snapshot.files.iter().any(|file| {
+        file.path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| matches!(ext, "cs" | "go"))
+    })
 }
 
 /// Unscored row for an import metric that had nothing to measure.

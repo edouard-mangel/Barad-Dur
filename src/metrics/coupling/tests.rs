@@ -2165,7 +2165,7 @@ fn import_metrics_are_unmeasured_when_almost_nothing_resolved() {
     // `has_import_extractable_files` cannot catch that: it asks whether a
     // language *could* resolve, which a wrong resolver passes. This asks
     // whether it *did*.
-    let mut snapshot = parsed_snapshot_without_imports(&["src/a.rs", "src/b.rs"]);
+    let mut snapshot = parsed_snapshot_without_imports(&["src/A.cs", "src/B.cs"]);
     snapshot.import_specifiers_extracted = 40;
     // graph left empty: 40 specifiers in, 0 edges out
     for m in import_graph_metrics(&snapshot) {
@@ -2173,6 +2173,38 @@ fn import_metrics_are_unmeasured_when_almost_nothing_resolved() {
             m.score, None,
             "{} must be unmeasured when resolution collapsed: {}",
             m.name, m.description
+        );
+    }
+}
+
+#[test]
+fn external_only_imports_in_a_working_resolver_are_scored() {
+    let mut snapshot = parsed_snapshot_without_imports(&["src/app.ts"]);
+    snapshot.import_specifiers_extracted = 3;
+    for metric in import_graph_metrics(&snapshot) {
+        assert_eq!(
+            metric.score,
+            Some(100),
+            "{}: {}",
+            metric.name,
+            metric.description
+        );
+    }
+}
+
+#[test]
+fn mixed_language_graph_keeps_valid_edges_scored() {
+    let mut snapshot = parsed_snapshot_without_imports(&["src/A.cs", "src/a.rs", "src/b.rs"]);
+    snapshot.import_specifiers_extracted = 100;
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("src/a.rs"), vec![PathBuf::from("src/b.rs")]);
+    for metric in import_graph_metrics(&snapshot) {
+        assert!(
+            metric.score.is_some(),
+            "{}: {}",
+            metric.name,
+            metric.description
         );
     }
 }
