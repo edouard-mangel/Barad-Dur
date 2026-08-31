@@ -18,7 +18,7 @@ const FINGERPRINT_FILE: &str = "exclude.fingerprint";
 /// 5 = call-graph edges (call_records field);
 /// 6 = unknown-author sentinel in blame lines (same shape, new id
 ///     semantics — cached id-0 collapses must not masquerade as owners).
-const CACHE_VERSION: u32 = 6;
+const CACHE_VERSION: u32 = 7;
 
 /// Wire format for all cache files. Bincode 2's standard config (varint
 /// lengths) — not compatible with the bincode 1 fixint files of versions ≤ 2.

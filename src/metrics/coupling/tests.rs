@@ -8,7 +8,7 @@ use std::path::PathBuf;
 #[test]
 fn afferent_coupling_empty_graph() {
     let snapshot = make_snapshot();
-    let result = afferent_coupling(&snapshot);
+    let result = afferent_coupling(&snapshot, &default_thresholds());
     assert_eq!(result.score, None);
 }
 
@@ -25,7 +25,7 @@ fn afferent_coupling_single_hub_scores_well() {
             .import_graph
             .insert(PathBuf::from(&name), vec![PathBuf::from("core.rs")]);
     }
-    let result = afferent_coupling(&snapshot);
+    let result = afferent_coupling(&snapshot, &default_thresholds());
     assert_eq!(result.score, Some(100)); // median Ca=0, single hub is fine
 }
 
@@ -50,7 +50,7 @@ fn afferent_coupling_widespread_deps_scores_lower() {
             .import_graph
             .insert(PathBuf::from(format!("f{}.rs", i)), targets);
     }
-    let result = afferent_coupling(&snapshot);
+    let result = afferent_coupling(&snapshot, &default_thresholds());
     assert!(
         result.score.unwrap() <= 50,
         "score={:?}, expected <=50",
@@ -69,7 +69,7 @@ fn afferent_coupling_description_shows_distribution() {
             .import_graph
             .insert(PathBuf::from(&name), vec![PathBuf::from("core.rs")]);
     }
-    let result = afferent_coupling(&snapshot);
+    let result = afferent_coupling(&snapshot, &default_thresholds());
     assert!(result.description.contains("median:"));
     assert!(result.description.contains("mean:"));
     assert!(result.description.contains("max:"));
@@ -78,7 +78,7 @@ fn afferent_coupling_description_shows_distribution() {
 #[test]
 fn efferent_coupling_empty_graph() {
     let snapshot = make_snapshot();
-    let result = efferent_coupling(&snapshot);
+    let result = efferent_coupling(&snapshot, &default_thresholds());
     assert_eq!(result.score, None);
 }
 
@@ -104,7 +104,7 @@ fn efferent_coupling_single_heavy_file_scores_well() {
             .import_graph
             .insert(PathBuf::from(&name), vec![PathBuf::from("util.rs")]);
     }
-    let result = efferent_coupling(&snapshot);
+    let result = efferent_coupling(&snapshot, &default_thresholds());
     assert_eq!(result.score, Some(100)); // median Ce ≈ 0
 }
 
@@ -123,7 +123,7 @@ fn efferent_coupling_all_heavy_scores_low() {
                 .collect(),
         );
     }
-    let result = efferent_coupling(&snapshot);
+    let result = efferent_coupling(&snapshot, &default_thresholds());
     assert_eq!(result.score, Some(25));
 }
 
@@ -137,7 +137,7 @@ fn efferent_coupling_description_shows_distribution() {
         PathBuf::from("a.rs"),
         vec![PathBuf::from("b.rs"), PathBuf::from("c.rs")],
     );
-    let result = efferent_coupling(&snapshot);
+    let result = efferent_coupling(&snapshot, &default_thresholds());
     assert!(result.description.contains("median:"));
     assert!(result.description.contains("mean:"));
     assert!(result.description.contains("max:"));
@@ -150,7 +150,7 @@ fn circular_deps_none() {
         .import_graph
         .insert(PathBuf::from("a.rs"), vec![PathBuf::from("b.rs")]);
     // b does not import a → no cycle
-    let result = circular_dependencies(&snapshot);
+    let result = circular_dependencies(&snapshot, &default_thresholds());
     assert_eq!(result.score, Some(100));
 }
 
@@ -166,7 +166,7 @@ fn circular_deps_open_chain_is_zero() {
     snapshot
         .import_graph
         .insert(PathBuf::from("b.rs"), vec![PathBuf::from("c.rs")]);
-    let result = circular_dependencies(&snapshot);
+    let result = circular_dependencies(&snapshot, &default_thresholds());
     assert!(
         matches!(&result.raw_value, RawValue::List(cycles) if cycles.is_empty()),
         "open chain must yield zero cycles, got {:?}",
@@ -222,7 +222,7 @@ fn circular_deps_direct() {
     snapshot
         .import_graph
         .insert(PathBuf::from("b.rs"), vec![PathBuf::from("a.rs")]);
-    let result = circular_dependencies(&snapshot);
+    let result = circular_dependencies(&snapshot, &default_thresholds());
     assert_eq!(result.score, Some(75)); // 1 cycle
 }
 
@@ -232,7 +232,7 @@ fn circular_deps_ignore_self_edges() {
     snapshot
         .import_graph
         .insert(PathBuf::from("a.rs"), vec![PathBuf::from("a.rs")]);
-    let result = circular_dependencies(&snapshot);
+    let result = circular_dependencies(&snapshot, &default_thresholds());
     assert_eq!(result.score, Some(100));
     assert!(matches!(result.raw_value, RawValue::List(ref cycles) if cycles.is_empty()));
 }
@@ -250,7 +250,7 @@ fn circular_deps_transitive_depth2() {
     snapshot
         .import_graph
         .insert(PathBuf::from("c.rs"), vec![PathBuf::from("a.rs")]);
-    let result = circular_dependencies(&snapshot);
+    let result = circular_dependencies(&snapshot, &default_thresholds());
     assert!(result.score.unwrap() < 100, "should detect depth-2 cycle");
 }
 
@@ -268,7 +268,7 @@ fn circular_deps_depth2_counts_all_three_members_as_affected() {
     snapshot
         .import_graph
         .insert(PathBuf::from("c.rs"), vec![PathBuf::from("a.rs")]);
-    let result = circular_dependencies(&snapshot);
+    let result = circular_dependencies(&snapshot, &default_thresholds());
     assert!(
         result.description.contains("affecting 3/3 source files"),
         "all three cycle members must be affected: {}",
@@ -297,7 +297,7 @@ fn circular_deps_affected_counts_only_source_files() {
     snapshot
         .import_graph
         .insert(PathBuf::from("src/x.rs"), vec![PathBuf::from("src/y.rs")]);
-    let result = circular_dependencies(&snapshot);
+    let result = circular_dependencies(&snapshot, &default_thresholds());
     assert!(
         result.description.contains("affecting 0/2 source files"),
         "test-only cycle members must not be affected source files: {}",
@@ -316,18 +316,18 @@ fn circular_deps_many() {
         snapshot.import_graph.insert(a.clone(), vec![b.clone()]);
         snapshot.import_graph.insert(b, vec![a]);
     }
-    let result = circular_dependencies(&snapshot);
+    let result = circular_dependencies(&snapshot, &default_thresholds());
     assert_eq!(result.score, Some(25));
 }
 
 fn default_thresholds() -> CouplingThresholds {
-    CouplingThresholds::default()
+    crate::config::CouplingThresholds::default()
 }
 
 fn thresholds_with_depth(depth: usize) -> CouplingThresholds {
     CouplingThresholds {
         component_depth: depth,
-        ..CouplingThresholds::default()
+        ..crate::config::CouplingThresholds::default()
     }
 }
 
@@ -441,7 +441,7 @@ fn change_coupling_affected_counts_only_source_files() {
     );
     let thresholds = CouplingThresholds {
         community_corroboration: false,
-        ..CouplingThresholds::default()
+        ..crate::config::CouplingThresholds::default()
     };
     let result = change_coupling_smells(&snapshot, &thresholds);
     assert!(
@@ -601,7 +601,7 @@ fn change_coupling_smells_community_corroboration_can_be_disabled() {
 
     let thresholds = CouplingThresholds {
         community_corroboration: false,
-        ..CouplingThresholds::default()
+        ..crate::config::CouplingThresholds::default()
     };
     let result = change_coupling_smells(&snapshot, &thresholds);
     assert!(
@@ -655,7 +655,7 @@ fn compute_coupling_returns_ten_metrics() {
     let snapshot = make_snapshot();
     let result = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     assert_eq!(result.metrics.len(), 10);
@@ -821,7 +821,7 @@ fn pressman_metrics_appear_in_category() {
     let snapshot = snapshot_with_findings(vec![]);
     let result = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     for name in ["Content coupling", "Common coupling", "Control coupling"] {
@@ -837,7 +837,7 @@ fn clean_snapshot_scores_100_on_all_pressman_metrics() {
     let snapshot = snapshot_with_findings(vec![]);
     let result = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     let m = result
@@ -853,7 +853,7 @@ fn one_content_finding_scores_at_most_50() {
     let snapshot = snapshot_with_findings(vec![make_finding(CouplingKind::Content)]);
     let result = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     let m = result
@@ -914,7 +914,7 @@ fn pressman_metrics_unscored_when_detection_did_not_run() {
     // file_metrics deliberately left empty
     let result = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     for name in ["Content coupling", "Common coupling", "Control coupling"] {
@@ -936,7 +936,7 @@ fn pressman_metrics_unscored_without_detectable_files() {
     );
     let result = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     let m = result
@@ -1001,7 +1001,7 @@ fn control_findings_are_scored_leniently() {
     let snapshot = snapshot_with_findings(findings);
     let result = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     let m = result
@@ -1022,7 +1022,7 @@ fn severity_cap_limits_category_when_content_coupling_found() {
     let snapshot = snapshot_with_findings(vec![make_finding(CouplingKind::Content)]);
     let result = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     assert!(
@@ -1046,7 +1046,7 @@ fn severity_cap_not_applied_when_clean() {
     let snapshot = snapshot_with_findings(vec![]);
     let result = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     let m = result
@@ -1063,7 +1063,7 @@ fn severity_cap_triggers_on_many_common_findings() {
     let snapshot = snapshot_with_findings(findings);
     let result = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     assert!(result.score <= 70, "got {}", result.score);
@@ -1080,7 +1080,7 @@ fn severity_cap_is_derived_from_score_good_min_not_a_bare_literal() {
     let snapshot = snapshot_with_findings(vec![make_finding(CouplingKind::Content)]);
     let result = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     assert_eq!(result.score, expected_cap);
@@ -1133,7 +1133,9 @@ fn finding_counts_match_metrics_including_barrel() {
 fn finding_counts_none_when_detection_did_not_run() {
     let mut snapshot = crate::metrics::testutil::make_snapshot();
     snapshot.files = vec![crate::metrics::testutil::make_file("src/a.rs")];
-    assert!(pressman_finding_counts(&snapshot, &CouplingThresholds::default()).is_none());
+    assert!(
+        pressman_finding_counts(&snapshot, &crate::config::CouplingThresholds::default()).is_none()
+    );
 }
 
 #[test]
@@ -1149,7 +1151,8 @@ fn finding_counts_include_inheritance_kind() {
         kind: CouplingKind::Inheritance,
         evidence: "class C extends B → A (depth 2)".into(),
     }];
-    let counts = pressman_finding_counts(&snapshot, &CouplingThresholds::default()).unwrap();
+    let counts =
+        pressman_finding_counts(&snapshot, &crate::config::CouplingThresholds::default()).unwrap();
     assert_eq!(
         (
             counts.content,
@@ -1224,7 +1227,7 @@ fn severity_cap_does_not_raise_already_low_scores() {
     let snapshot = snapshot_with_findings(findings);
     let result = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     let flat_average_would_be = result.metrics.iter().filter_map(|m| m.score).sum::<u32>()
@@ -1327,7 +1330,7 @@ fn corroborated_common_finding_scores_one_band_worse() {
     let dormant = snapshot_with_findings(vec![make_finding(CouplingKind::Common)]);
     let d = compute_coupling(
         &dormant,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     let d_common = d
@@ -1339,7 +1342,11 @@ fn corroborated_common_finding_scores_one_band_worse() {
 
     // 1 corroborated Common finding -> effective 2 (weight 2.0) -> 40.
     let corr = snapshot_with_corroborated(vec![make_finding(CouplingKind::Common)]);
-    let c = compute_coupling(&corr, &CouplingThresholds::default(), &Default::default());
+    let c = compute_coupling(
+        &corr,
+        &crate::config::CouplingThresholds::default(),
+        &Default::default(),
+    );
     let c_common = c
         .metrics
         .iter()
@@ -1353,7 +1360,7 @@ fn weight_one_reproduces_dormant_scores() {
     let corr = snapshot_with_corroborated(vec![make_finding(CouplingKind::Common)]);
     let thresholds = CouplingThresholds {
         corroboration_weight: 1.0,
-        ..CouplingThresholds::default()
+        ..crate::config::CouplingThresholds::default()
     };
     let c = compute_coupling(&corr, &thresholds, &Default::default());
     let common = c
@@ -1386,7 +1393,11 @@ fn corroboration_can_trip_the_severity_cap() {
             evidence: "static mut B".into(),
         },
     ]);
-    let c = compute_coupling(&corr, &CouplingThresholds::default(), &Default::default());
+    let c = compute_coupling(
+        &corr,
+        &crate::config::CouplingThresholds::default(),
+        &Default::default(),
+    );
     let common = c
         .metrics
         .iter()
@@ -1402,7 +1413,11 @@ fn corroboration_can_trip_the_severity_cap() {
 #[test]
 fn corroborated_finding_is_annotated_in_evidence_and_description() {
     let corr = snapshot_with_corroborated(vec![make_finding(CouplingKind::Common)]);
-    let c = compute_coupling(&corr, &CouplingThresholds::default(), &Default::default());
+    let c = compute_coupling(
+        &corr,
+        &crate::config::CouplingThresholds::default(),
+        &Default::default(),
+    );
     let common = c
         .metrics
         .iter()
@@ -1493,7 +1508,7 @@ fn all_coupling_findings_and_counts_include_inheritance() {
             },
         },
     ];
-    let cfg = CouplingThresholds::default();
+    let cfg = crate::config::CouplingThresholds::default();
     let inh = all_coupling_findings(&snapshot, &cfg)
         .into_iter()
         .filter(|f| f.kind == CouplingKind::Inheritance)
@@ -1537,7 +1552,7 @@ fn inheritance_metric_row_uses_bands() {
     ];
     let metrics = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     let m = metrics
@@ -1568,7 +1583,10 @@ mod reach_annotation_tests {
         // import-graph metrics hid it behind their early returns
         // (post-merge review of MR !98).
         let s = import_snapshot();
-        for m in [afferent_coupling(&s), efferent_coupling(&s)] {
+        for m in [
+            afferent_coupling(&s, &crate::config::CouplingThresholds::default()),
+            efferent_coupling(&s, &crate::config::CouplingThresholds::default()),
+        ] {
             assert!(
                 !m.description.contains("growing co-change reach"),
                 "{}: {}",
@@ -1848,7 +1866,7 @@ fn circular_deps_pair_and_trio_sharing_two_members_are_distinct_cycles() {
     snapshot
         .import_graph
         .insert(PathBuf::from("src/c.rs"), vec![PathBuf::from("src/a.rs")]);
-    let result = circular_dependencies(&snapshot);
+    let result = circular_dependencies(&snapshot, &default_thresholds());
     assert!(
         result.description.starts_with("2 import cycle(s)"),
         "pair and trio are separate cycles, and a 3-cycle is not a pair: {}",
@@ -1888,7 +1906,7 @@ fn circular_deps_output_is_stable_across_runs() {
         }
         snapshot
     }
-    let baseline = circular_dependencies(&build());
+    let baseline = circular_dependencies(&build(), &default_thresholds());
     assert!(
         matches!(&baseline.raw_value, RawValue::List(cycles) if cycles.len() == 10),
         "the fixture must actually overflow the 10-cycle cap, or this test \
@@ -1896,7 +1914,7 @@ fn circular_deps_output_is_stable_across_runs() {
         baseline.raw_value
     );
     for run in 0..256 {
-        let result = circular_dependencies(&build());
+        let result = circular_dependencies(&build(), &default_thresholds());
         assert_eq!(
             result.score, baseline.score,
             "run {run}: score must not depend on hash iteration order"
@@ -1924,7 +1942,7 @@ fn circular_deps_direct_pair_evidence_is_ordered() {
     snapshot
         .import_graph
         .insert(PathBuf::from("src/a.rs"), vec![PathBuf::from("src/z.rs")]);
-    let result = circular_dependencies(&snapshot);
+    let result = circular_dependencies(&snapshot, &default_thresholds());
     assert!(
         matches!(&result.raw_value, RawValue::List(cycles)
             if cycles == &vec!["src/a.rs <-> src/z.rs".to_string()]),
@@ -2018,7 +2036,7 @@ fn disabling_community_corroboration_can_only_lower_the_score() {
         &snapshot,
         &CouplingThresholds {
             community_corroboration: false,
-            ..CouplingThresholds::default()
+            ..crate::config::CouplingThresholds::default()
         },
     );
     assert_eq!(
@@ -2140,6 +2158,60 @@ fn import_extractable_files_follows_import_query_support() {
 }
 
 #[test]
+fn import_metrics_are_unmeasured_when_almost_nothing_resolved() {
+    // C# and Go ship resolvers that produce zero edges — `using` names a
+    // namespace and the Go arm builds a literal `*.go` path — so three
+    // metrics scored a perfect 100 on repositories nobody could measure.
+    // `has_import_extractable_files` cannot catch that: it asks whether a
+    // language *could* resolve, which a wrong resolver passes. This asks
+    // whether it *did*.
+    let mut snapshot = parsed_snapshot_without_imports(&["src/a.rs", "src/b.rs"]);
+    snapshot.import_specifiers_extracted = 40;
+    // graph left empty: 40 specifiers in, 0 edges out
+    for m in import_graph_metrics(&snapshot) {
+        assert_eq!(
+            m.score, None,
+            "{} must be unmeasured when resolution collapsed: {}",
+            m.name, m.description
+        );
+    }
+}
+
+#[test]
+fn import_metrics_stay_scored_when_resolution_is_healthy() {
+    // Vendor and stdlib specifiers legitimately never resolve, so the floor
+    // must sit well below 1.0 or every real repository trips it.
+    let mut snapshot = parsed_snapshot_without_imports(&["src/a.rs", "src/b.rs"]);
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("src/a.rs"), vec![PathBuf::from("src/b.rs")]);
+    snapshot.import_specifiers_extracted = 2;
+    for m in import_graph_metrics(&snapshot) {
+        assert!(
+            m.score.is_some(),
+            "{} must stay scored at a healthy rate: {}",
+            m.name,
+            m.description
+        );
+    }
+}
+
+#[test]
+fn a_populated_graph_with_no_recorded_specifiers_is_still_scored() {
+    // Snapshots written before this counter existed have it at zero. A
+    // non-empty graph is its own proof that resolution worked, so the floor
+    // must not retroactively blank out cached data.
+    let mut snapshot = parsed_snapshot_without_imports(&["src/a.rs", "src/b.rs"]);
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("src/a.rs"), vec![PathBuf::from("src/b.rs")]);
+    snapshot.import_specifiers_extracted = 0;
+    for m in import_graph_metrics(&snapshot) {
+        assert!(m.score.is_some(), "{} must stay scored", m.name);
+    }
+}
+
+#[test]
 fn every_language_with_an_import_query_can_resolve_imports() {
     // The two extraction stages drifted once: Kotlin had an import query
     // but no arm in `candidates_for`, so its specifiers resolved to nothing,
@@ -2166,7 +2238,7 @@ fn circular_deps_unscored_without_import_extractable_files() {
     // "we cannot see", not "clean". Scoring it 100 is the same false-perfect
     // bug this MR fixed for change coupling.
     let snapshot = parsed_snapshot_without_imports(&["lib/http/c.rb", "lib/models/m.rb"]);
-    let result = circular_dependencies(&snapshot);
+    let result = circular_dependencies(&snapshot, &default_thresholds());
     assert_eq!(
         result.score, None,
         "no import-extractable language must read as unmeasured: {}",
@@ -2181,7 +2253,7 @@ fn circular_deps_scored_when_language_parsed_but_has_no_imports() {
     // is a real, earned 100. An `import_graph.is_empty()` guard would
     // wrongly blank this out.
     let snapshot = parsed_snapshot_without_imports(&["src/a.rs", "src/b.rs"]);
-    let result = circular_dependencies(&snapshot);
+    let result = circular_dependencies(&snapshot, &default_thresholds());
     assert_eq!(
         result.score,
         Some(100),
@@ -2197,7 +2269,7 @@ fn circular_deps_unscored_when_detection_did_not_run() {
     let mut snapshot = make_snapshot();
     snapshot.files.push(make_file("src/a.rs"));
     // file_metrics deliberately left empty
-    let result = circular_dependencies(&snapshot);
+    let result = circular_dependencies(&snapshot, &default_thresholds());
     assert_eq!(
         result.score, None,
         "an unparsed snapshot must not report a clean bill: {}",
@@ -2250,9 +2322,9 @@ fn change_coupling_description_states_when_no_import_data_exists() {
 /// The three metrics whose only evidence is the import graph.
 fn import_graph_metrics(snapshot: &RepoSnapshot) -> Vec<MetricValue> {
     vec![
-        afferent_coupling(snapshot),
-        efferent_coupling(snapshot),
-        circular_dependencies(snapshot),
+        afferent_coupling(snapshot, &default_thresholds()),
+        efferent_coupling(snapshot, &default_thresholds()),
+        circular_dependencies(snapshot, &default_thresholds()),
     ]
 }
 

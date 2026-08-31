@@ -127,6 +127,8 @@ type RawAstOutput = (
 type AstParts = (
     HashMap<PathBuf, FileComplexity>,
     HashMap<PathBuf, Vec<PathBuf>>,
+    // Import specifiers extraction produced, resolved or not.
+    usize,
     Vec<CouplingFinding>,
     Vec<ClassRecord>,
     Vec<ReExportRecord>,
@@ -362,6 +364,7 @@ impl Collector {
                 std::fs::read_to_string(root.join(&entry.path)).ok()
             }),
         };
+        let import_specifiers_extracted: usize = raw_imports.values().map(Vec::len).sum();
         let import_graph = resolve_imports(&raw_imports, &files, &import_config);
         let class_records = resolve_class_records(raw_classes, &files);
         let reexports = resolve_reexports(raw_reexports, &files);
@@ -382,6 +385,7 @@ impl Collector {
             file_change_pairs: Vec::new(),
             file_metrics,
             import_graph,
+            import_specifiers_extracted,
             coupling_findings,
             class_records,
             reexports,
@@ -464,8 +468,15 @@ impl Collector {
             .and_then(|h| h.shorthand().ok().map(String::from))
             .unwrap_or_else(|| "main".to_string());
 
-        let (file_metrics, import_graph, coupling_findings, class_records, reexports, call_records) =
-            ast_pass(&repo, &files)?;
+        let (
+            file_metrics,
+            import_graph,
+            import_specifiers_extracted,
+            coupling_findings,
+            class_records,
+            reexports,
+            call_records,
+        ) = ast_pass(&repo, &files)?;
 
         let mut snapshot = RepoSnapshot {
             path: repo_path.to_path_buf(),
@@ -483,6 +494,7 @@ impl Collector {
             file_change_pairs: Vec::new(),
             file_metrics,
             import_graph,
+            import_specifiers_extracted,
             coupling_findings,
             class_records,
             reexports,
@@ -544,6 +556,7 @@ fn ast_pass_at(repo: &git2::Repository, files: &[FileEntry]) -> Result<AstParts>
             std::str::from_utf8(blob.content()).ok().map(str::to_owned)
         }),
     };
+    let import_specifiers_extracted: usize = raw_imports.values().map(Vec::len).sum();
     let import_graph = resolve_imports(&raw_imports, files, &import_config);
     let class_records = resolve_class_records(raw_classes, files);
     let reexports = resolve_reexports(raw_reexports, files);
@@ -551,6 +564,7 @@ fn ast_pass_at(repo: &git2::Repository, files: &[FileEntry]) -> Result<AstParts>
     Ok((
         file_metrics,
         import_graph,
+        import_specifiers_extracted,
         coupling_findings,
         class_records,
         reexports,
@@ -1014,7 +1028,7 @@ mod tests {
             ),
             entry("src/non_utf8.rs", non_utf8.to_string()),
         ];
-        let (metrics, _imports, findings, _classes, _reexports, _calls) =
+        let (metrics, _imports, _specifiers, findings, _classes, _reexports, _calls) =
             ast_pass_at(&repo, &files).unwrap();
         assert_eq!(
             findings.len(),
@@ -1167,7 +1181,7 @@ mod tests {
             entry("src/a.ts", caller_blob),
             entry("src/lib.ts", lib_blob),
         ];
-        let (_, _, _, _, _, calls) = ast_pass_at(&repo, &files).unwrap();
+        let (_, _, _, _, _, _, calls) = ast_pass_at(&repo, &files).unwrap();
         assert_eq!(
             calls,
             vec![CallRecord {

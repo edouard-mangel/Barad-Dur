@@ -30,9 +30,9 @@ pub fn compute_coupling(
     let corr = corroboration_degree(snapshot, thresholds);
     let weight = thresholds.corroboration_weight;
     let metrics = vec![
-        afferent_coupling(snapshot),
-        efferent_coupling(snapshot),
-        circular_dependencies(snapshot),
+        afferent_coupling(snapshot, thresholds),
+        efferent_coupling(snapshot, thresholds),
+        circular_dependencies(snapshot, thresholds),
         change_coupling_smells(snapshot, thresholds),
         pressman_metric(snapshot, CouplingKind::Content, barrel, &corr, weight),
         pressman_metric(snapshot, CouplingKind::Common, Vec::new(), &corr, weight),
@@ -183,11 +183,11 @@ pub fn growing_coupling_reach(snapshot: &RepoSnapshot, min_partners: usize) -> C
 ///
 /// Scored on the median Ca rather than the max. A single hub (core data model)
 /// is normal — what matters is whether *most* files have excessive incoming deps.
-fn afferent_coupling(snapshot: &RepoSnapshot) -> MetricValue {
+fn afferent_coupling(snapshot: &RepoSnapshot, thresholds: &CouplingThresholds) -> MetricValue {
     // "No import dependencies detected" claimed we had looked. Defer to the
     // shared reason so an unresolvable language and a genuinely import-free
     // repository stop sharing one message — and one score.
-    if let Some(reason) = unmeasured_import_reason(snapshot) {
+    if let Some(reason) = unmeasured_import_reason(snapshot, thresholds) {
         return unmeasured_import_metric("Afferent coupling", reason);
     }
     let incoming = crate::metrics::incoming_import_counts(&snapshot.import_graph);
@@ -229,8 +229,8 @@ fn afferent_coupling(snapshot: &RepoSnapshot) -> MetricValue {
 ///
 /// Scored on the median Ce. A few orchestrator files with many imports are
 /// expected — the score reflects whether the typical file is well-scoped.
-fn efferent_coupling(snapshot: &RepoSnapshot) -> MetricValue {
-    if let Some(reason) = unmeasured_import_reason(snapshot) {
+fn efferent_coupling(snapshot: &RepoSnapshot, thresholds: &CouplingThresholds) -> MetricValue {
+    if let Some(reason) = unmeasured_import_reason(snapshot, thresholds) {
         return unmeasured_import_metric("Efferent coupling", reason);
     }
 
@@ -448,12 +448,12 @@ fn cycle_members(paths: &[&Path]) -> Vec<PathBuf> {
 
 /// Circular dependencies: file pairs where A→B and B→A (depth 1) or
 /// A→B→C→A (depth 2).
-fn circular_dependencies(snapshot: &RepoSnapshot) -> MetricValue {
+fn circular_dependencies(snapshot: &RepoSnapshot, thresholds: &CouplingThresholds) -> MetricValue {
     let graph = &snapshot.import_graph;
     // An empty graph is only "no cycles" when we actually looked; otherwise
     // zero findings means "unmeasured", and reporting that as a perfect
     // score is the same false-perfect bug that hid change-coupling smells.
-    if let Some(reason) = unmeasured_import_reason(snapshot) {
+    if let Some(reason) = unmeasured_import_reason(snapshot, thresholds) {
         return unmeasured_import_metric("Circular dependencies", reason);
     }
     let edges = graph
@@ -548,7 +548,30 @@ pub(crate) fn pressman_finding_counts(
 /// The three metrics whose only evidence is the import graph share this, so
 /// they cannot drift into disagreeing about what an empty graph means. A
 /// non-empty graph is its own proof that we looked, so it always scores.
-fn unmeasured_import_reason(snapshot: &RepoSnapshot) -> Option<&'static str> {
+fn unmeasured_import_reason(
+    snapshot: &RepoSnapshot,
+    thresholds: &CouplingThresholds,
+) -> Option<&'static str> {
+    // A resolver whose semantics are wrong extracts specifiers and turns
+    // none of them into edges, which is indistinguishable from a clean
+    // repository by looking at the graph alone. `has_import_extractable_files`
+    // cannot catch it — that asks whether a language *could* resolve, which
+    // a wrong resolver passes. This asks whether it *did*.
+    //
+    // Only meaningful when specifiers were actually counted: snapshots from
+    // before that counter existed report zero, and a populated graph is its
+    // own proof that resolution worked.
+    if snapshot.import_specifiers_extracted > 0 {
+        let edges: usize = snapshot.import_graph.values().map(Vec::len).sum();
+        let rate = edges as f64 / snapshot.import_specifiers_extracted as f64;
+        if rate <= thresholds.import_resolution_floor {
+            return Some(
+                "Import specifiers were found but almost none resolved to \
+                 repository files — the language's resolver cannot see this \
+                 layout, so coupling here is unmeasured rather than clean",
+            );
+        }
+    }
     if !snapshot.import_graph.is_empty() {
         return None;
     }

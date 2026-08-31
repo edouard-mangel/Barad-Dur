@@ -317,6 +317,16 @@ pub struct RepoSnapshot {
     pub file_change_pairs: Vec<(PathBuf, PathBuf, usize)>,
     pub file_metrics: HashMap<PathBuf, FileComplexity>,
     pub import_graph: HashMap<PathBuf, Vec<PathBuf>>,
+    /// How many import specifiers extraction produced, resolved or not.
+    ///
+    /// The graph alone cannot distinguish "this repository has few imports"
+    /// from "the resolver for this language produces nothing" — the failure
+    /// that had C# and Go scoring a perfect 100 on repositories nobody
+    /// could measure. Comparing edges against this says which it is.
+    ///
+    /// Zero on snapshots written before this existed; a populated graph is
+    /// then its own proof that resolution worked.
+    pub import_specifiers_extracted: usize,
     pub coupling_findings: Vec<CouplingFinding>,
     pub class_records: Vec<ClassRecord>,
     pub reexports: Vec<ReExportRecord>,
@@ -342,6 +352,7 @@ impl RepoSnapshot {
             file_change_pairs: Vec::new(),
             file_metrics: HashMap::new(),
             import_graph: HashMap::new(),
+            import_specifiers_extracted: 0,
             coupling_findings: Vec::new(),
             class_records: Vec::new(),
             reexports: Vec::new(),
