@@ -8,7 +8,7 @@ use std::path::PathBuf;
 #[test]
 fn afferent_coupling_empty_graph() {
     let snapshot = make_snapshot();
-    let result = afferent_coupling(&snapshot, &default_thresholds());
+    let result = afferent_coupling(&snapshot);
     assert_eq!(result.score, None);
 }
 
@@ -25,7 +25,7 @@ fn afferent_coupling_single_hub_scores_well() {
             .import_graph
             .insert(PathBuf::from(&name), vec![PathBuf::from("core.rs")]);
     }
-    let result = afferent_coupling(&snapshot, &default_thresholds());
+    let result = afferent_coupling(&snapshot);
     assert_eq!(result.score, Some(100)); // median Ca=0, single hub is fine
 }
 
@@ -50,7 +50,7 @@ fn afferent_coupling_widespread_deps_scores_lower() {
             .import_graph
             .insert(PathBuf::from(format!("f{}.rs", i)), targets);
     }
-    let result = afferent_coupling(&snapshot, &default_thresholds());
+    let result = afferent_coupling(&snapshot);
     assert!(
         result.score.unwrap() <= 50,
         "score={:?}, expected <=50",
@@ -69,7 +69,7 @@ fn afferent_coupling_description_shows_distribution() {
             .import_graph
             .insert(PathBuf::from(&name), vec![PathBuf::from("core.rs")]);
     }
-    let result = afferent_coupling(&snapshot, &default_thresholds());
+    let result = afferent_coupling(&snapshot);
     assert!(result.description.contains("median:"));
     assert!(result.description.contains("mean:"));
     assert!(result.description.contains("max:"));
@@ -78,7 +78,7 @@ fn afferent_coupling_description_shows_distribution() {
 #[test]
 fn efferent_coupling_empty_graph() {
     let snapshot = make_snapshot();
-    let result = efferent_coupling(&snapshot, &default_thresholds());
+    let result = efferent_coupling(&snapshot);
     assert_eq!(result.score, None);
 }
 
@@ -104,7 +104,7 @@ fn efferent_coupling_single_heavy_file_scores_well() {
             .import_graph
             .insert(PathBuf::from(&name), vec![PathBuf::from("util.rs")]);
     }
-    let result = efferent_coupling(&snapshot, &default_thresholds());
+    let result = efferent_coupling(&snapshot);
     assert_eq!(result.score, Some(100)); // median Ce ≈ 0
 }
 
@@ -123,7 +123,7 @@ fn efferent_coupling_all_heavy_scores_low() {
                 .collect(),
         );
     }
-    let result = efferent_coupling(&snapshot, &default_thresholds());
+    let result = efferent_coupling(&snapshot);
     assert_eq!(result.score, Some(25));
 }
 
@@ -137,7 +137,7 @@ fn efferent_coupling_description_shows_distribution() {
         PathBuf::from("a.rs"),
         vec![PathBuf::from("b.rs"), PathBuf::from("c.rs")],
     );
-    let result = efferent_coupling(&snapshot, &default_thresholds());
+    let result = efferent_coupling(&snapshot);
     assert!(result.description.contains("median:"));
     assert!(result.description.contains("mean:"));
     assert!(result.description.contains("max:"));
@@ -150,7 +150,7 @@ fn circular_deps_none() {
         .import_graph
         .insert(PathBuf::from("a.rs"), vec![PathBuf::from("b.rs")]);
     // b does not import a → no cycle
-    let result = circular_dependencies(&snapshot, &default_thresholds());
+    let result = circular_dependencies(&snapshot);
     assert_eq!(result.score, Some(100));
 }
 
@@ -166,7 +166,7 @@ fn circular_deps_open_chain_is_zero() {
     snapshot
         .import_graph
         .insert(PathBuf::from("b.rs"), vec![PathBuf::from("c.rs")]);
-    let result = circular_dependencies(&snapshot, &default_thresholds());
+    let result = circular_dependencies(&snapshot);
     assert!(
         matches!(&result.raw_value, RawValue::List(cycles) if cycles.is_empty()),
         "open chain must yield zero cycles, got {:?}",
@@ -222,7 +222,7 @@ fn circular_deps_direct() {
     snapshot
         .import_graph
         .insert(PathBuf::from("b.rs"), vec![PathBuf::from("a.rs")]);
-    let result = circular_dependencies(&snapshot, &default_thresholds());
+    let result = circular_dependencies(&snapshot);
     assert_eq!(result.score, Some(75)); // 1 cycle
 }
 
@@ -232,7 +232,7 @@ fn circular_deps_ignore_self_edges() {
     snapshot
         .import_graph
         .insert(PathBuf::from("a.rs"), vec![PathBuf::from("a.rs")]);
-    let result = circular_dependencies(&snapshot, &default_thresholds());
+    let result = circular_dependencies(&snapshot);
     assert_eq!(result.score, Some(100));
     assert!(matches!(result.raw_value, RawValue::List(ref cycles) if cycles.is_empty()));
 }
@@ -250,7 +250,7 @@ fn circular_deps_transitive_depth2() {
     snapshot
         .import_graph
         .insert(PathBuf::from("c.rs"), vec![PathBuf::from("a.rs")]);
-    let result = circular_dependencies(&snapshot, &default_thresholds());
+    let result = circular_dependencies(&snapshot);
     assert!(result.score.unwrap() < 100, "should detect depth-2 cycle");
 }
 
@@ -268,7 +268,7 @@ fn circular_deps_depth2_counts_all_three_members_as_affected() {
     snapshot
         .import_graph
         .insert(PathBuf::from("c.rs"), vec![PathBuf::from("a.rs")]);
-    let result = circular_dependencies(&snapshot, &default_thresholds());
+    let result = circular_dependencies(&snapshot);
     assert!(
         result.description.contains("affecting 3/3 source files"),
         "all three cycle members must be affected: {}",
@@ -297,7 +297,7 @@ fn circular_deps_affected_counts_only_source_files() {
     snapshot
         .import_graph
         .insert(PathBuf::from("src/x.rs"), vec![PathBuf::from("src/y.rs")]);
-    let result = circular_dependencies(&snapshot, &default_thresholds());
+    let result = circular_dependencies(&snapshot);
     assert!(
         result.description.contains("affecting 0/2 source files"),
         "test-only cycle members must not be affected source files: {}",
@@ -316,7 +316,7 @@ fn circular_deps_many() {
         snapshot.import_graph.insert(a.clone(), vec![b.clone()]);
         snapshot.import_graph.insert(b, vec![a]);
     }
-    let result = circular_dependencies(&snapshot, &default_thresholds());
+    let result = circular_dependencies(&snapshot);
     assert_eq!(result.score, Some(25));
 }
 
@@ -1583,10 +1583,7 @@ mod reach_annotation_tests {
         // import-graph metrics hid it behind their early returns
         // (post-merge review of MR !98).
         let s = import_snapshot();
-        for m in [
-            afferent_coupling(&s, &crate::config::CouplingThresholds::default()),
-            efferent_coupling(&s, &crate::config::CouplingThresholds::default()),
-        ] {
+        for m in [afferent_coupling(&s), efferent_coupling(&s)] {
             assert!(
                 !m.description.contains("growing co-change reach"),
                 "{}: {}",
@@ -1866,7 +1863,7 @@ fn circular_deps_pair_and_trio_sharing_two_members_are_distinct_cycles() {
     snapshot
         .import_graph
         .insert(PathBuf::from("src/c.rs"), vec![PathBuf::from("src/a.rs")]);
-    let result = circular_dependencies(&snapshot, &default_thresholds());
+    let result = circular_dependencies(&snapshot);
     assert!(
         result.description.starts_with("2 import cycle(s)"),
         "pair and trio are separate cycles, and a 3-cycle is not a pair: {}",
@@ -1906,7 +1903,7 @@ fn circular_deps_output_is_stable_across_runs() {
         }
         snapshot
     }
-    let baseline = circular_dependencies(&build(), &default_thresholds());
+    let baseline = circular_dependencies(&build());
     assert!(
         matches!(&baseline.raw_value, RawValue::List(cycles) if cycles.len() == 10),
         "the fixture must actually overflow the 10-cycle cap, or this test \
@@ -1914,7 +1911,7 @@ fn circular_deps_output_is_stable_across_runs() {
         baseline.raw_value
     );
     for run in 0..256 {
-        let result = circular_dependencies(&build(), &default_thresholds());
+        let result = circular_dependencies(&build());
         assert_eq!(
             result.score, baseline.score,
             "run {run}: score must not depend on hash iteration order"
@@ -1942,7 +1939,7 @@ fn circular_deps_direct_pair_evidence_is_ordered() {
     snapshot
         .import_graph
         .insert(PathBuf::from("src/a.rs"), vec![PathBuf::from("src/z.rs")]);
-    let result = circular_dependencies(&snapshot, &default_thresholds());
+    let result = circular_dependencies(&snapshot);
     assert!(
         matches!(&result.raw_value, RawValue::List(cycles)
             if cycles == &vec!["src/a.rs <-> src/z.rs".to_string()]),
@@ -2166,7 +2163,7 @@ fn import_metrics_are_unmeasured_when_almost_nothing_resolved() {
     // language *could* resolve, which a wrong resolver passes. This asks
     // whether it *did*.
     let mut snapshot = parsed_snapshot_without_imports(&["src/A.cs", "src/B.cs"]);
-    snapshot.import_specifiers_extracted = 40;
+    snapshot.unreliable_import_specifiers = 40;
     // graph left empty: 40 specifiers in, 0 edges out
     for m in import_graph_metrics(&snapshot) {
         assert_eq!(
@@ -2179,8 +2176,28 @@ fn import_metrics_are_unmeasured_when_almost_nothing_resolved() {
 
 #[test]
 fn external_only_imports_in_a_working_resolver_are_scored() {
-    let mut snapshot = parsed_snapshot_without_imports(&["src/app.ts"]);
-    snapshot.import_specifiers_extracted = 3;
+    // TypeScript resolves reliably, so nothing lands in the unreliable
+    // counter; an empty graph here really does mean "imports npm only".
+    let snapshot = parsed_snapshot_without_imports(&["src/app.ts"]);
+    for metric in import_graph_metrics(&snapshot) {
+        assert_eq!(
+            metric.score,
+            Some(100),
+            "{}: {}",
+            metric.name,
+            metric.description
+        );
+    }
+}
+
+#[test]
+fn a_vendored_unreliable_file_does_not_blank_a_working_language() {
+    // The guard must key on where the *specifiers* came from, not on which
+    // file extensions happen to exist. A TypeScript app importing only npm
+    // packages has a legitimately empty graph; vendoring one Go helper must
+    // not relabel that as "unmeasured" with a message about Go.
+    let mut snapshot = parsed_snapshot_without_imports(&["src/app.ts", "vendor/helper.go"]);
+    snapshot.unreliable_import_specifiers = 0;
     for metric in import_graph_metrics(&snapshot) {
         assert_eq!(
             metric.score,
@@ -2195,7 +2212,7 @@ fn external_only_imports_in_a_working_resolver_are_scored() {
 #[test]
 fn mixed_language_graph_keeps_valid_edges_scored() {
     let mut snapshot = parsed_snapshot_without_imports(&["src/A.cs", "src/a.rs", "src/b.rs"]);
-    snapshot.import_specifiers_extracted = 100;
+    snapshot.unreliable_import_specifiers = 100;
     snapshot
         .import_graph
         .insert(PathBuf::from("src/a.rs"), vec![PathBuf::from("src/b.rs")]);
@@ -2217,7 +2234,6 @@ fn import_metrics_stay_scored_when_resolution_is_healthy() {
     snapshot
         .import_graph
         .insert(PathBuf::from("src/a.rs"), vec![PathBuf::from("src/b.rs")]);
-    snapshot.import_specifiers_extracted = 2;
     for m in import_graph_metrics(&snapshot) {
         assert!(
             m.score.is_some(),
@@ -2237,7 +2253,7 @@ fn a_populated_graph_with_no_recorded_specifiers_is_still_scored() {
     snapshot
         .import_graph
         .insert(PathBuf::from("src/a.rs"), vec![PathBuf::from("src/b.rs")]);
-    snapshot.import_specifiers_extracted = 0;
+    snapshot.unreliable_import_specifiers = 0;
     for m in import_graph_metrics(&snapshot) {
         assert!(m.score.is_some(), "{} must stay scored", m.name);
     }
@@ -2270,7 +2286,7 @@ fn circular_deps_unscored_without_import_extractable_files() {
     // "we cannot see", not "clean". Scoring it 100 is the same false-perfect
     // bug this MR fixed for change coupling.
     let snapshot = parsed_snapshot_without_imports(&["lib/http/c.rb", "lib/models/m.rb"]);
-    let result = circular_dependencies(&snapshot, &default_thresholds());
+    let result = circular_dependencies(&snapshot);
     assert_eq!(
         result.score, None,
         "no import-extractable language must read as unmeasured: {}",
@@ -2285,7 +2301,7 @@ fn circular_deps_scored_when_language_parsed_but_has_no_imports() {
     // is a real, earned 100. An `import_graph.is_empty()` guard would
     // wrongly blank this out.
     let snapshot = parsed_snapshot_without_imports(&["src/a.rs", "src/b.rs"]);
-    let result = circular_dependencies(&snapshot, &default_thresholds());
+    let result = circular_dependencies(&snapshot);
     assert_eq!(
         result.score,
         Some(100),
@@ -2301,7 +2317,7 @@ fn circular_deps_unscored_when_detection_did_not_run() {
     let mut snapshot = make_snapshot();
     snapshot.files.push(make_file("src/a.rs"));
     // file_metrics deliberately left empty
-    let result = circular_dependencies(&snapshot, &default_thresholds());
+    let result = circular_dependencies(&snapshot);
     assert_eq!(
         result.score, None,
         "an unparsed snapshot must not report a clean bill: {}",
@@ -2354,9 +2370,9 @@ fn change_coupling_description_states_when_no_import_data_exists() {
 /// The three metrics whose only evidence is the import graph.
 fn import_graph_metrics(snapshot: &RepoSnapshot) -> Vec<MetricValue> {
     vec![
-        afferent_coupling(snapshot, &default_thresholds()),
-        efferent_coupling(snapshot, &default_thresholds()),
-        circular_dependencies(snapshot, &default_thresholds()),
+        afferent_coupling(snapshot),
+        efferent_coupling(snapshot),
+        circular_dependencies(snapshot),
     ]
 }
 

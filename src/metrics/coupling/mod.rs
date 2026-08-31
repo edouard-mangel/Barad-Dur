@@ -30,9 +30,9 @@ pub fn compute_coupling(
     let corr = corroboration_degree(snapshot, thresholds);
     let weight = thresholds.corroboration_weight;
     let metrics = vec![
-        afferent_coupling(snapshot, thresholds),
-        efferent_coupling(snapshot, thresholds),
-        circular_dependencies(snapshot, thresholds),
+        afferent_coupling(snapshot),
+        efferent_coupling(snapshot),
+        circular_dependencies(snapshot),
         change_coupling_smells(snapshot, thresholds),
         pressman_metric(snapshot, CouplingKind::Content, barrel, &corr, weight),
         pressman_metric(snapshot, CouplingKind::Common, Vec::new(), &corr, weight),
@@ -183,7 +183,7 @@ pub fn growing_coupling_reach(snapshot: &RepoSnapshot, min_partners: usize) -> C
 ///
 /// Scored on the median Ca rather than the max. A single hub (core data model)
 /// is normal — what matters is whether *most* files have excessive incoming deps.
-fn afferent_coupling(snapshot: &RepoSnapshot, _thresholds: &CouplingThresholds) -> MetricValue {
+fn afferent_coupling(snapshot: &RepoSnapshot) -> MetricValue {
     // "No import dependencies detected" claimed we had looked. Defer to the
     // shared reason so an unresolvable language and a genuinely import-free
     // repository stop sharing one message — and one score.
@@ -229,7 +229,7 @@ fn afferent_coupling(snapshot: &RepoSnapshot, _thresholds: &CouplingThresholds) 
 ///
 /// Scored on the median Ce. A few orchestrator files with many imports are
 /// expected — the score reflects whether the typical file is well-scoped.
-fn efferent_coupling(snapshot: &RepoSnapshot, _thresholds: &CouplingThresholds) -> MetricValue {
+fn efferent_coupling(snapshot: &RepoSnapshot) -> MetricValue {
     if let Some(reason) = unmeasured_import_reason(snapshot) {
         return unmeasured_import_metric("Efferent coupling", reason);
     }
@@ -448,7 +448,7 @@ fn cycle_members(paths: &[&Path]) -> Vec<PathBuf> {
 
 /// Circular dependencies: file pairs where A→B and B→A (depth 1) or
 /// A→B→C→A (depth 2).
-fn circular_dependencies(snapshot: &RepoSnapshot, _thresholds: &CouplingThresholds) -> MetricValue {
+fn circular_dependencies(snapshot: &RepoSnapshot) -> MetricValue {
     let graph = &snapshot.import_graph;
     // An empty graph is only "no cycles" when we actually looked; otherwise
     // zero findings means "unmeasured", and reporting that as a perfect
@@ -558,11 +558,13 @@ fn unmeasured_import_reason(snapshot: &RepoSnapshot) -> Option<&'static str> {
     // A resolver whose semantics are known to be wrong can extract
     // specifiers and turn none into edges. Do not infer failure from a low
     // global rate alone: external-only imports legitimately resolve no local
-    // edge, and a weak language must not suppress a working one.
+    // edge, and a weak language must not suppress a working one — which is
+    // why this counts only the specifiers those resolvers themselves
+    // produced, not every file extension present in the repository.
     //
     // Only meaningful when specifiers were actually counted: snapshots from
     // before that counter existed report zero.
-    if snapshot.import_specifiers_extracted > 0 && has_known_unreliable_resolver(snapshot) {
+    if snapshot.unreliable_import_specifiers > 0 {
         return Some(
             "Import specifiers were found in a language whose resolver cannot \
              reliably map them to repository files, so coupling here is \
@@ -575,19 +577,10 @@ fn unmeasured_import_reason(snapshot: &RepoSnapshot) -> Option<&'static str> {
     if !has_import_extractable_files(snapshot) {
         return Some(
             "No files whose imports can be resolved \
-             (Rust, TS/JS, Python, Go, Java, C#)",
+             (Rust, TS/JS, Python, Go, Java, Kotlin, C#, PHP)",
         );
     }
     None
-}
-
-fn has_known_unreliable_resolver(snapshot: &RepoSnapshot) -> bool {
-    snapshot.files.iter().any(|file| {
-        file.path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .is_some_and(|ext| matches!(ext, "cs" | "go"))
-    })
 }
 
 /// Unscored row for an import metric that had nothing to measure.

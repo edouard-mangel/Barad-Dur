@@ -65,9 +65,11 @@ type CandidateFn = fn(&str, &Path, &RepoImportConfig) -> Vec<PathBuf>;
 
 /// The dispatch table, and the single source of truth for which languages
 /// actually produce import edges. A language with an import *query* but no
-/// arm here (Kotlin) yields specifiers that resolve to nothing, so the
-/// import graph stays empty — `resolves_imports` lets the graph metrics
-/// tell that apart from a genuinely import-free repository.
+/// arm here yields specifiers that resolve to nothing, so the import graph
+/// stays empty — `resolves_imports` lets the graph metrics tell that apart
+/// from a genuinely import-free repository. Kotlin was that language until
+/// v0.22.0; `every_language_with_an_import_query_can_resolve_imports`
+/// keeps the two stages from drifting apart again.
 fn candidates_for(ext: &str) -> Option<CandidateFn> {
     match ext {
         "rs" => Some(|raw, _, _| resolve_rust_import(raw)),
@@ -88,15 +90,33 @@ pub(crate) fn resolves_imports(ext: &str) -> bool {
     candidates_for(ext).is_some()
 }
 
+/// Whether this extension has a resolver arm that is known to be wrong —
+/// it passes `resolves_imports` but cannot map a specifier to a real file.
+///
+/// C#'s `using` names a namespace, so `Domain.cs` never exists; Go's arm
+/// builds a path ending in the literal string `*.go` and nothing expands
+/// globs. Both extract specifiers and produce no edges, which is
+/// indistinguishable from a clean repository unless it is named here.
+pub(crate) fn resolver_is_unreliable(ext: &str) -> bool {
+    matches!(ext, "cs" | "go")
+}
+
+/// The single file a specifier names, or `None` when it names none — or
+/// more than one.
+///
+/// A wildcard resolves to a whole package. Callers that need *the*
+/// declaring file (class bases, call edges, re-exports) cannot use an
+/// arbitrary member of it, and returning the first would hand them a
+/// confidently wrong answer in place of an honest "unresolvable".
 fn resolve_single_import(
     raw: &str,
     source: &Path,
     known: &HashSet<&PathBuf>,
     config: &RepoImportConfig,
 ) -> Option<PathBuf> {
-    resolve_import_targets(raw, source, known, config)
-        .into_iter()
-        .next()
+    let mut targets = resolve_import_targets(raw, source, known, config).into_iter();
+    let only = targets.next()?;
+    targets.next().is_none().then_some(only)
 }
 
 fn resolve_import_targets(
@@ -247,11 +267,18 @@ fn resolve_kotlin_import(raw: &str, source: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+/// The Gradle/Android source root a Kotlin file sits under: everything up
+/// to and including its `kotlin` directory.
+///
+/// The *last* such component, not the first. A polyglot monorepo that keeps
+/// each language at the root produces `kotlin/src/main/kotlin/...`, where
+/// the leading `kotlin` is a language bucket, not a source root — taking it
+/// builds candidates that can never match.
 fn kotlin_source_root(source: &Path) -> Option<PathBuf> {
     let components: Vec<_> = source.components().collect();
     let kotlin = components
         .iter()
-        .position(|part| part.as_os_str() == "kotlin")?;
+        .rposition(|part| part.as_os_str() == "kotlin")?;
     Some(components[..=kotlin].iter().collect())
 }
 
@@ -266,6 +293,9 @@ fn resolve_kotlin_wildcard(raw: &str, source: &Path, known: &HashSet<&PathBuf>) 
     }
     let mut matches: Vec<PathBuf> = known
         .iter()
+        // `import com.foo.*` inside com.foo is legal Kotlin; the package's
+        // other files are real edges, the importing file is not.
+        .filter(|path| path.as_path() != source)
         .filter(|path| {
             path.extension()
                 .is_some_and(|ext| ext == "kt" || ext == "kts")
@@ -588,6 +618,119 @@ mod tests {
         assert_eq!(
             graph[&PathBuf::from("app/src/test/kotlin/com/foo/AppTest.kt")],
             vec![PathBuf::from("app/src/test/kotlin/com/foo/Helper.kt")]
+        );
+    }
+
+    #[test]
+    fn only_the_resolvers_known_to_be_wrong_are_unreliable() {
+        // C#'s `using` names a namespace and Go's arm builds a literal
+        // "*.go" path, so both extract specifiers and produce no edges.
+        assert!(resolver_is_unreliable("cs"));
+        assert!(resolver_is_unreliable("go"));
+        // Everything with a working arm must stay out: marking one of these
+        // unreliable would blank a language whose edges are real.
+        for ext in ["rs", "ts", "tsx", "js", "py", "java", "kt", "php"] {
+            assert!(
+                !resolver_is_unreliable(ext),
+                "{ext} resolves imports correctly and must stay scored"
+            );
+            assert!(resolves_imports(ext), "{ext} must still have an arm");
+        }
+    }
+
+    #[test]
+    fn resolve_specifier_refuses_an_ambiguous_wildcard() {
+        // `resolve_specifier` feeds class-record base, call-edge and
+        // re-export resolution, which need *the* declaring file. A wildcard
+        // names a whole package, so picking one member would be a
+        // confidently wrong `Resolved` where `Unresolvable` is the truth.
+        let a = PathBuf::from("src/main/kotlin/com/foo/A.kt");
+        let b = PathBuf::from("src/main/kotlin/com/foo/B.kt");
+        let known: HashSet<&PathBuf> = [&a, &b].into_iter().collect();
+        assert_eq!(
+            resolve_specifier(
+                "com.foo.*",
+                Path::new("src/main/kotlin/com/bar/App.kt"),
+                &known,
+                &RepoImportConfig::default(),
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn resolve_specifier_still_resolves_an_unambiguous_wildcard() {
+        // One member means one answer; there is nothing to be ambiguous
+        // about, so the edge is still worth reporting.
+        let a = PathBuf::from("src/main/kotlin/com/foo/A.kt");
+        let known: HashSet<&PathBuf> = [&a].into_iter().collect();
+        assert_eq!(
+            resolve_specifier(
+                "com.foo.*",
+                Path::new("src/main/kotlin/com/bar/App.kt"),
+                &known,
+                &RepoImportConfig::default(),
+            ),
+            Some(a)
+        );
+    }
+
+    #[test]
+    fn kotlin_import_resolves_under_a_top_level_language_directory() {
+        // A polyglot monorepo keeps each language at the root, so "kotlin"
+        // appears twice in the path. The source root is the *last* one; the
+        // first is the language bucket and resolves to nothing.
+        let files = vec![
+            entry("kotlin/src/main/kotlin/com/foo/Helper.kt"),
+            entry("kotlin/src/main/kotlin/com/foo/App.kt"),
+        ];
+        let graph = resolve_imports(
+            &raw(
+                "kotlin/src/main/kotlin/com/foo/App.kt",
+                vec!["com.foo.Helper"],
+            ),
+            &files,
+            &RepoImportConfig::default(),
+        );
+        assert_eq!(
+            graph[&PathBuf::from("kotlin/src/main/kotlin/com/foo/App.kt")],
+            vec![PathBuf::from("kotlin/src/main/kotlin/com/foo/Helper.kt")]
+        );
+    }
+
+    #[test]
+    fn kotlin_wildcard_import_resolves_under_a_top_level_language_directory() {
+        let files = vec![
+            entry("kotlin/src/main/kotlin/com/foo/A.kt"),
+            entry("kotlin/src/main/kotlin/com/bar/App.kt"),
+        ];
+        let graph = resolve_imports(
+            &raw("kotlin/src/main/kotlin/com/bar/App.kt", vec!["com.foo.*"]),
+            &files,
+            &RepoImportConfig::default(),
+        );
+        assert_eq!(
+            graph[&PathBuf::from("kotlin/src/main/kotlin/com/bar/App.kt")],
+            vec![PathBuf::from("kotlin/src/main/kotlin/com/foo/A.kt")]
+        );
+    }
+
+    #[test]
+    fn kotlin_wildcard_import_does_not_link_a_file_to_itself() {
+        // `import com.foo.*` written inside com.foo is legal Kotlin. The
+        // package's other files are real edges; the importing file is not.
+        let files = vec![
+            entry("src/main/kotlin/com/foo/A.kt"),
+            entry("src/main/kotlin/com/foo/B.kt"),
+        ];
+        let graph = resolve_imports(
+            &raw("src/main/kotlin/com/foo/A.kt", vec!["com.foo.*"]),
+            &files,
+            &RepoImportConfig::default(),
+        );
+        assert_eq!(
+            graph[&PathBuf::from("src/main/kotlin/com/foo/A.kt")],
+            vec![PathBuf::from("src/main/kotlin/com/foo/B.kt")]
         );
     }
 
