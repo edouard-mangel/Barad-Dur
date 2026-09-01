@@ -148,6 +148,78 @@ mod tests {
         }
     }
 
+    fn build_hygiene_report(paths: &[&str]) -> AnalysisReport {
+        let mut snapshot = RepoSnapshot::new(
+            std::path::PathBuf::from("/tmp"),
+            "test-repo".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        snapshot.files = paths
+            .iter()
+            .map(|path| crate::snapshot::FileEntry {
+                path: (*path).into(),
+                size_bytes: 1,
+                is_binary: false,
+                depth: 0,
+                blob_oid: String::new(),
+            })
+            .collect();
+        let thresholds = crate::config::Thresholds::default();
+        let categories = vec![crate::metrics::hygiene::compute_hygiene(
+            &snapshot,
+            &thresholds.hygiene,
+        )];
+        build_report(
+            &snapshot,
+            categories,
+            None,
+            WEIGHTS,
+            &thresholds,
+            &[],
+            &Default::default(),
+        )
+    }
+
+    #[test]
+    fn source_secret_names_do_not_generate_gitignore_actions() {
+        let report = build_hygiene_report(&["src/root-secret.ts", "src/redact-secrets.test.ts"]);
+        let metric = report.categories[0]
+            .metrics
+            .iter()
+            .find(|metric| metric.name == "Gitignore coverage")
+            .unwrap();
+        assert_eq!(metric.score, Some(100));
+        assert!(matches!(metric.raw_value, RawValue::Count(0)));
+        assert!(report
+            .top_actions
+            .iter()
+            .all(|action| !action.text.contains("Gitignore coverage")));
+    }
+
+    #[test]
+    fn real_env_finding_generates_conditional_gitignore_action() {
+        let report = build_hygiene_report(&[".env", "src/root-secret.ts"]);
+        let metric = report.categories[0]
+            .metrics
+            .iter()
+            .find(|metric| metric.name == "Gitignore coverage")
+            .unwrap();
+        assert_eq!(metric.score, Some(70));
+        match &metric.raw_value {
+            RawValue::List(items) => assert_eq!(items, &[String::from(".env")]),
+            other => panic!("expected findings list, got {other:?}"),
+        }
+        let action = report
+            .top_actions
+            .iter()
+            .find(|action| action.text.contains("Gitignore coverage"))
+            .expect("a below-80 gitignore metric should generate a top action");
+        assert!(action.text.contains("Review suspicious tracked files"));
+        assert!(action.text.contains("only confirmed"));
+        assert!(!action.text.contains("remove from tracking"));
+    }
+
     #[test]
     fn build_report_populates_fields() {
         let snapshot = RepoSnapshot::new(
