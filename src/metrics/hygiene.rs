@@ -1263,6 +1263,16 @@ mod tests {
     }
 
     #[test]
+    fn gitignore_source_exemption_is_case_insensitive() {
+        let result = gitignore_findings(&[
+            "src/infrastructure/crypto/root-secret.TS",
+            "src/application/credentials.PY",
+        ]);
+        assert!(matches!(result.raw_value, RawValue::Count(0)));
+        assert_eq!(result.score, Some(100));
+    }
+
+    #[test]
     fn gitignore_directory_rules_outrank_source_extensions() {
         let result = gitignore_findings(&[
             "node_modules/package/index.ts",

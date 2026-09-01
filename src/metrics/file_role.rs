@@ -22,26 +22,18 @@ pub enum FileRole {
 /// Extensions treated as program source code (mirrors the languages the
 /// AST collector understands, plus common ones we only count lines for).
 pub(crate) fn has_source_extension(path: &Path) -> bool {
-    matches!(
-        path.extension().and_then(|e| e.to_str()).unwrap_or(""),
-        "rs" | "py"
-            | "go"
-            | "java"
-            | "cs"
-            | "js"
-            | "ts"
-            | "tsx"
-            | "jsx"
-            | "kt"
-            | "cpp"
-            | "c"
-            | "h"
-            | "hpp"
-            | "rb"
-            | "php"
-            | "swift"
-            | "scala"
-    )
+    const SOURCE_EXTENSIONS: &[&str] = &[
+        "rs", "py", "go", "java", "cs", "js", "ts", "tsx", "jsx", "kt", "cpp", "c", "h", "hpp",
+        "rb", "php", "swift", "scala",
+    ];
+
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            SOURCE_EXTENSIONS
+                .iter()
+                .any(|candidate| extension.eq_ignore_ascii_case(candidate))
+        })
 }
 
 const TEST_DIR_NAMES: &[&str] = &["test", "tests", "__tests__", "spec", "specs"];
