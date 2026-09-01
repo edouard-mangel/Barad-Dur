@@ -273,22 +273,22 @@ Fix: build a `HashMap<&Path, Vec<&PathBuf>>` of directory → files once in
 import. Measure against a real Kotlin repository first — the cost is
 invisible on the mixed-language fixtures the tests use.
 
-### Score history survives a scoring-formula change that invalidates it
+### ~~Score history survives a scoring-formula change that invalidates it~~ ✓ Done
 
-**Priority**: Medium
-**Depends on**: nothing
+`HISTORY_SCHEMA_VERSION` (`scorer/types.rs`) now stamps every entry, and
+`load_history_checked` treats an entry below it exactly as it treats a
+corrupt file: archive to `trends.json.bak`, start fresh, and warn, naming
+`barad-dur backfill` as the fix. `backfill` uses the same version-aware
+load, so it regenerates every commit instead of deduping against the
+entries the bump just invalidated — without that, the recovery path the
+warning names would silently do nothing.
 
-`schema_version` is written as a literal `1` by both history writers
-(`trend.rs`, `cache/history.rs`), is `#[serde(default)]` on read, and is
-never compared anywhere. Nothing invalidates `trends.json` when a scoring
-formula changes, so `trend.rs` computes deltas and velocity across entries
-produced by different formulas and reports the difference as if the code
-had moved.
+One version is ever in play, so nothing downstream reasons about a
+formula boundary. Bump the constant on any scoring change.
 
-Every scoring change hits this. It is not visible in the tests because
-they build history in-process under one formula.
-
-Options, cheapest first: bump `schema_version` on any scoring change and
-drop entries below the current version; or keep them and mark the boundary
-so the renderer can break the sparkline there rather than draw a cliff.
-The second preserves history at the cost of a renderer change.
+Explicitly rejected: retaining entries from an older formula and marking
+the boundary so the renderer can break the sparkline. History is derived
+— `backfill` recomputes it from git through the current scorer — so old
+entries are a stale computation, not a record. Keeping them buys nothing
+over a re-backfill and pays for it with a renderer that must reason about
+two scoring regimes at once.

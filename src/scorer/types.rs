@@ -276,6 +276,24 @@ pub struct HistoryCounts {
     pub inheritance_coupling: Option<usize>,
 }
 
+/// Version of the scoring formula that produced a `HistoryEntry`.
+///
+/// History is *derived*: `backfill` recomputes every entry through the
+/// current metrics and scorer, so entries are a cache of what today's
+/// formula says about past commits, not a record of what was observed.
+/// That makes an entry from an older formula a stale computation rather
+/// than history worth keeping — mixing the two would report a formula
+/// change as if the code had moved.
+///
+/// Bump this whenever a scoring change alters the numbers. `load_history`
+/// then archives the old file and starts fresh, and `barad-dur backfill`
+/// regenerates the series. There is deliberately never more than one
+/// version in play, so nothing downstream reasons about a boundary.
+///
+/// 2: prevalence and count bands blended across the transition range
+///    (was: count bands capping prevalence at every population size).
+pub const HISTORY_SCHEMA_VERSION: u32 = 2;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryEntry {
     pub timestamp: chrono::DateTime<chrono::Utc>,

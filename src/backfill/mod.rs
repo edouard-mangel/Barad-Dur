@@ -38,8 +38,15 @@ pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
 
     let selected_shas = sampling::select_samples(&commit_refs, sample_count);
 
-    // Build a set of SHAs already present in trends.json to skip duplicates
-    let existing_entries = history::load_history(repo_path)?;
+    // Build a set of SHAs already present in trends.json to skip duplicates.
+    // Version-aware: a scoring change archives the old file and leaves this
+    // empty, so every commit is regenerated. Deduping against entries the
+    // bump just invalidated would make `backfill` — the command the warning
+    // names as the fix — silently do nothing.
+    let (existing_entries, warning) = history::load_history_checked(repo_path)?;
+    if let Some(warning) = warning {
+        println!("{warning}");
+    }
     let existing_heads: HashSet<String> = existing_entries.into_iter().map(|e| e.head).collect();
 
     let total = selected_shas.len();

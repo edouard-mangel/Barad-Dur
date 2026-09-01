@@ -3,7 +3,7 @@ use std::io::{BufRead, Write};
 use std::path::Path;
 
 use crate::cache::storage::CACHE_DIR;
-use crate::scorer::HistoryEntry;
+use crate::scorer::{HistoryEntry, HISTORY_SCHEMA_VERSION};
 
 const HISTORY_FILE: &str = "trends.json";
 const BAK_FILE: &str = "trends.json.bak";
@@ -44,17 +44,37 @@ pub fn load_history_checked(repo_path: &Path) -> Result<(Vec<HistoryEntry>, Opti
     let entries = load_history(repo_path)?;
 
     if file_is_nonempty && entries.is_empty() {
-        let warning = archive_and_replace(repo_path)?;
+        let warning = archive_and_replace(repo_path, CORRUPT_REASON)?;
+        return Ok((Vec::new(), Some(warning)));
+    }
+
+    // Scores from an older formula are a stale computation, not history:
+    // `backfill` recomputes the whole series from git. Keeping them would
+    // make the next run report a formula change as a code change.
+    if entries
+        .iter()
+        .any(|entry| entry.schema_version < HISTORY_SCHEMA_VERSION)
+    {
+        let warning = archive_and_replace(repo_path, STALE_SCORING_REASON)?;
         return Ok((Vec::new(), Some(warning)));
     }
 
     Ok((entries, None))
 }
 
+const CORRUPT_REASON: &str = "trends.json could not be read";
+const STALE_SCORING_REASON: &str =
+    "trends.json holds scores from an older scoring formula; run `barad-dur backfill` to \
+     regenerate the series";
+
 /// Rename trends.json to trends.json.bak (overwriting any prior .bak) and
 /// create a fresh empty trends.json. Returns a warning string that the caller
 /// should emit via println!/eprintln!.
-pub fn archive_and_replace(repo_path: &Path) -> Result<String> {
+///
+/// `reason` names why the file was set aside — it is the part of the warning
+/// that tells the user whether anything is wrong or the history simply needs
+/// regenerating. Nothing is deleted: the previous file remains as .bak.
+pub fn archive_and_replace(repo_path: &Path, reason: &str) -> Result<String> {
     let cache_dir = repo_path.join(CACHE_DIR);
     let trends_path = cache_dir.join(HISTORY_FILE);
     let bak_path = cache_dir.join(BAK_FILE);
@@ -62,7 +82,10 @@ pub fn archive_and_replace(repo_path: &Path) -> Result<String> {
     std::fs::rename(&trends_path, &bak_path)?;
     std::fs::File::create(&trends_path)?;
 
-    Ok("Warning: trends.json could not be read. The corrupt file has been archived to trends.json.bak and a fresh history has been started.".to_string())
+    Ok(format!(
+        "Warning: {reason}. The previous file has been archived to \
+         trends.json.bak and a fresh history has been started."
+    ))
 }
 
 pub fn append_if_new_head(entry: &HistoryEntry, repo_path: &Path) -> Result<()> {
@@ -97,7 +120,7 @@ mod tests {
         let bak_path = cache_dir.join(format!("{}.bak", HISTORY_FILE));
         std::fs::write(&trends_path, corrupt_content).unwrap();
 
-        let warning = archive_and_replace(dir.path()).unwrap();
+        let warning = archive_and_replace(dir.path(), CORRUPT_REASON).unwrap();
 
         // bak file contains the original corrupt content
         assert!(bak_path.exists(), "trends.json.bak should exist");
@@ -133,7 +156,7 @@ mod tests {
                 ..Default::default()
             },
             branch: String::new(),
-            schema_version: 1,
+            schema_version: HISTORY_SCHEMA_VERSION,
             source: None,
         }
     }
@@ -231,6 +254,53 @@ mod tests {
             cache_dir.join(BAK_FILE).exists(),
             "archive_and_replace should have created .bak"
         );
+    }
+
+    #[test]
+    fn history_from_an_older_scoring_version_is_archived_not_trusted() {
+        // Entries are a cache of what the *current* formula says about past
+        // commits, not a record of what was observed. After a scoring
+        // change they are a stale computation, and mixing them with fresh
+        // ones would report a formula change as if the code had moved.
+        let dir = TempDir::new().unwrap();
+        let cache_dir = dir.path().join(CACHE_DIR);
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let stale = serde_json::json!({
+            "timestamp": "2026-01-01T00:00:00Z",
+            "head": "abc123",
+            "overall_score": 80,
+            "category_scores": {},
+            "metrics": {},
+            "counts": {"commits": 1, "files": 2, "authors": 3},
+            "branch": "main",
+            "schema_version": HISTORY_SCHEMA_VERSION - 1,
+        });
+        std::fs::write(cache_dir.join(HISTORY_FILE), format!("{stale}\n")).unwrap();
+
+        let (entries, warning) = load_history_checked(dir.path()).unwrap();
+        assert!(entries.is_empty(), "stale-formula entries must not load");
+        let w = warning.expect("a version bump must warn");
+        assert!(
+            w.contains("backfill"),
+            "the warning must name the command that regenerates history, got: {w}"
+        );
+        assert!(
+            cache_dir.join(BAK_FILE).exists(),
+            "the old history must be archived, not destroyed"
+        );
+    }
+
+    #[test]
+    fn history_at_the_current_scoring_version_loads_untouched() {
+        let dir = TempDir::new().unwrap();
+        let cache_dir = dir.path().join(CACHE_DIR);
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        append_if_new_head(&make_entry("abc123", 80), dir.path()).unwrap();
+
+        let (entries, warning) = load_history_checked(dir.path()).unwrap();
+        assert_eq!(entries.len(), 1, "current-version history must survive");
+        assert!(warning.is_none(), "no warning for current-version history");
+        assert!(!cache_dir.join(BAK_FILE).exists(), "nothing to archive");
     }
 
     #[test]
