@@ -549,8 +549,27 @@ pub(crate) fn pressman_finding_counts(
 /// they cannot drift into disagreeing about what an empty graph means. A
 /// non-empty graph is its own proof that we looked, so it always scores.
 fn unmeasured_import_reason(snapshot: &RepoSnapshot) -> Option<&'static str> {
+    // A populated graph is usable evidence even when another language in a
+    // mixed repository has poor resolution. Do not let one resolver suppress
+    // valid edges collected by another.
     if !snapshot.import_graph.is_empty() {
         return None;
+    }
+    // A resolver whose semantics are known to be wrong can extract
+    // specifiers and turn none into edges. Do not infer failure from a low
+    // global rate alone: external-only imports legitimately resolve no local
+    // edge, and a weak language must not suppress a working one — which is
+    // why this counts only the specifiers those resolvers themselves
+    // produced, not every file extension present in the repository.
+    //
+    // Only meaningful when specifiers were actually counted: snapshots from
+    // before that counter existed report zero.
+    if snapshot.unreliable_import_specifiers > 0 {
+        return Some(
+            "Import specifiers were found in a language whose resolver cannot \
+             reliably map them to repository files, so coupling here is \
+             unmeasured rather than clean",
+        );
     }
     if !detection_ran(snapshot) {
         return Some("Coupling detection did not run (no parsed files)");
@@ -558,7 +577,7 @@ fn unmeasured_import_reason(snapshot: &RepoSnapshot) -> Option<&'static str> {
     if !has_import_extractable_files(snapshot) {
         return Some(
             "No files whose imports can be resolved \
-             (Rust, TS/JS, Python, Go, Java, C#)",
+             (Rust, TS/JS, Python, Go, Java, Kotlin, C#, PHP)",
         );
     }
     None

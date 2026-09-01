@@ -90,7 +90,10 @@ fn backfill_deduplication() {
                 "{}\n",
                 r#"{"timestamp":"2024-01-01T00:00:00Z","head":""#.to_string()
                     + sha
-                    + r#"","branch":"main","overall_score":50,"schema_version":1,"source":"backfill","categories":{}}"#
+                    + &format!(
+                        r#"","branch":"main","overall_score":50,"schema_version":{},"source":"backfill","categories":{{}}}}"#,
+                        barad_dur::scorer::HISTORY_SCHEMA_VERSION
+                    )
             )
         })
         .collect();
@@ -282,7 +285,57 @@ fn backfill_non_destructive() {
 // Then every entry in trends.json has schema_version = 1
 // ---------------------------------------------------------------------------
 #[test]
-fn backfill_schema_version_is_1() {
+fn backfill_regenerates_entries_from_an_older_scoring_version() {
+    // The warning a version bump prints names `backfill` as the fix, so
+    // backfill must not dedupe against the very entries that bump
+    // invalidated — otherwise the recovery path silently does nothing.
+    let dir = TempDir::new().unwrap();
+    let repo_path = dir.path();
+    init_git_repo_with_commits(repo_path, "main", 15);
+
+    barad_dur()
+        .args(["backfill", repo_path.to_str().unwrap()])
+        .assert()
+        .success();
+    let fresh = read_trends_entries(repo_path);
+    assert!(!fresh.is_empty(), "first backfill should write entries");
+
+    // Rewrite every entry as if an older formula had produced it.
+    let stale: String = fresh
+        .iter()
+        .map(|e| {
+            let sha = e["head"].as_str().unwrap();
+            format!(
+                r#"{{"timestamp":"2024-01-01T00:00:00Z","head":"{sha}","branch":"main","overall_score":50,"schema_version":{v},"source":"backfill","categories":{{}}}}
+"#,
+                v = barad_dur::scorer::HISTORY_SCHEMA_VERSION - 1
+            )
+        })
+        .collect();
+    seed_trends(repo_path, &stale);
+
+    barad_dur()
+        .args(["backfill", repo_path.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let regenerated = read_trends_entries(repo_path);
+    assert_eq!(
+        regenerated.len(),
+        fresh.len(),
+        "every commit must be rewritten, not skipped as already present"
+    );
+    for (i, entry) in regenerated.iter().enumerate() {
+        assert_eq!(
+            entry["schema_version"].as_u64().unwrap_or(0),
+            u64::from(barad_dur::scorer::HISTORY_SCHEMA_VERSION),
+            "entry[{i}] must carry the current version after regeneration"
+        );
+    }
+}
+
+#[test]
+fn backfill_stamps_the_current_scoring_version() {
     let dir = TempDir::new().unwrap();
     let repo_path = dir.path();
     init_git_repo_with_commits(repo_path, "main", 15);
@@ -296,10 +349,13 @@ fn backfill_schema_version_is_1() {
     assert!(!entries.is_empty(), "trends.json should have entries");
 
     for (i, entry) in entries.iter().enumerate() {
+        // Pinned to the constant, not a literal: a scoring change bumps
+        // the version deliberately, and backfill must stamp whatever the
+        // scorer currently produces so the series stays self-consistent.
         assert_eq!(
-            entry["schema_version"].as_i64().unwrap_or(-1),
-            1,
-            "entry[{i}].schema_version should be 1\nEntry: {entry}"
+            entry["schema_version"].as_u64().unwrap_or(0),
+            u64::from(barad_dur::scorer::HISTORY_SCHEMA_VERSION),
+            "entry[{i}] must carry the current scoring version\nEntry: {entry}"
         );
         // Also validate non-empty required fields per AC-BF-10
         let head = entry["head"].as_str().unwrap_or("");
@@ -353,7 +409,10 @@ fn backfill_partial_dedup_prints_written_count() {
                 "{}\n",
                 r#"{"timestamp":"2020-01-01T00:00:00Z","head":""#.to_string()
                     + sha
-                    + r#"","branch":"main","overall_score":50,"schema_version":1,"source":"backfill","categories":{}}"#
+                    + &format!(
+                        r#"","branch":"main","overall_score":50,"schema_version":{},"source":"backfill","categories":{{}}}}"#,
+                        barad_dur::scorer::HISTORY_SCHEMA_VERSION
+                    )
             )
         })
         .collect();

@@ -321,13 +321,13 @@ fn circular_deps_many() {
 }
 
 fn default_thresholds() -> CouplingThresholds {
-    CouplingThresholds::default()
+    crate::config::CouplingThresholds::default()
 }
 
 fn thresholds_with_depth(depth: usize) -> CouplingThresholds {
     CouplingThresholds {
         component_depth: depth,
-        ..CouplingThresholds::default()
+        ..crate::config::CouplingThresholds::default()
     }
 }
 
@@ -441,7 +441,7 @@ fn change_coupling_affected_counts_only_source_files() {
     );
     let thresholds = CouplingThresholds {
         community_corroboration: false,
-        ..CouplingThresholds::default()
+        ..crate::config::CouplingThresholds::default()
     };
     let result = change_coupling_smells(&snapshot, &thresholds);
     assert!(
@@ -601,7 +601,7 @@ fn change_coupling_smells_community_corroboration_can_be_disabled() {
 
     let thresholds = CouplingThresholds {
         community_corroboration: false,
-        ..CouplingThresholds::default()
+        ..crate::config::CouplingThresholds::default()
     };
     let result = change_coupling_smells(&snapshot, &thresholds);
     assert!(
@@ -655,7 +655,7 @@ fn compute_coupling_returns_ten_metrics() {
     let snapshot = make_snapshot();
     let result = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     assert_eq!(result.metrics.len(), 10);
@@ -821,7 +821,7 @@ fn pressman_metrics_appear_in_category() {
     let snapshot = snapshot_with_findings(vec![]);
     let result = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     for name in ["Content coupling", "Common coupling", "Control coupling"] {
@@ -837,7 +837,7 @@ fn clean_snapshot_scores_100_on_all_pressman_metrics() {
     let snapshot = snapshot_with_findings(vec![]);
     let result = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     let m = result
@@ -853,7 +853,7 @@ fn one_content_finding_scores_at_most_50() {
     let snapshot = snapshot_with_findings(vec![make_finding(CouplingKind::Content)]);
     let result = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     let m = result
@@ -914,7 +914,7 @@ fn pressman_metrics_unscored_when_detection_did_not_run() {
     // file_metrics deliberately left empty
     let result = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     for name in ["Content coupling", "Common coupling", "Control coupling"] {
@@ -936,7 +936,7 @@ fn pressman_metrics_unscored_without_detectable_files() {
     );
     let result = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     let m = result
@@ -1001,7 +1001,7 @@ fn control_findings_are_scored_leniently() {
     let snapshot = snapshot_with_findings(findings);
     let result = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     let m = result
@@ -1022,7 +1022,7 @@ fn severity_cap_limits_category_when_content_coupling_found() {
     let snapshot = snapshot_with_findings(vec![make_finding(CouplingKind::Content)]);
     let result = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     assert!(
@@ -1046,7 +1046,7 @@ fn severity_cap_not_applied_when_clean() {
     let snapshot = snapshot_with_findings(vec![]);
     let result = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     let m = result
@@ -1063,7 +1063,7 @@ fn severity_cap_triggers_on_many_common_findings() {
     let snapshot = snapshot_with_findings(findings);
     let result = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     assert!(result.score <= 70, "got {}", result.score);
@@ -1080,7 +1080,7 @@ fn severity_cap_is_derived_from_score_good_min_not_a_bare_literal() {
     let snapshot = snapshot_with_findings(vec![make_finding(CouplingKind::Content)]);
     let result = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     assert_eq!(result.score, expected_cap);
@@ -1133,7 +1133,9 @@ fn finding_counts_match_metrics_including_barrel() {
 fn finding_counts_none_when_detection_did_not_run() {
     let mut snapshot = crate::metrics::testutil::make_snapshot();
     snapshot.files = vec![crate::metrics::testutil::make_file("src/a.rs")];
-    assert!(pressman_finding_counts(&snapshot, &CouplingThresholds::default()).is_none());
+    assert!(
+        pressman_finding_counts(&snapshot, &crate::config::CouplingThresholds::default()).is_none()
+    );
 }
 
 #[test]
@@ -1149,7 +1151,8 @@ fn finding_counts_include_inheritance_kind() {
         kind: CouplingKind::Inheritance,
         evidence: "class C extends B → A (depth 2)".into(),
     }];
-    let counts = pressman_finding_counts(&snapshot, &CouplingThresholds::default()).unwrap();
+    let counts =
+        pressman_finding_counts(&snapshot, &crate::config::CouplingThresholds::default()).unwrap();
     assert_eq!(
         (
             counts.content,
@@ -1224,7 +1227,7 @@ fn severity_cap_does_not_raise_already_low_scores() {
     let snapshot = snapshot_with_findings(findings);
     let result = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     let flat_average_would_be = result.metrics.iter().filter_map(|m| m.score).sum::<u32>()
@@ -1327,7 +1330,7 @@ fn corroborated_common_finding_scores_one_band_worse() {
     let dormant = snapshot_with_findings(vec![make_finding(CouplingKind::Common)]);
     let d = compute_coupling(
         &dormant,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     let d_common = d
@@ -1339,7 +1342,11 @@ fn corroborated_common_finding_scores_one_band_worse() {
 
     // 1 corroborated Common finding -> effective 2 (weight 2.0) -> 40.
     let corr = snapshot_with_corroborated(vec![make_finding(CouplingKind::Common)]);
-    let c = compute_coupling(&corr, &CouplingThresholds::default(), &Default::default());
+    let c = compute_coupling(
+        &corr,
+        &crate::config::CouplingThresholds::default(),
+        &Default::default(),
+    );
     let c_common = c
         .metrics
         .iter()
@@ -1353,7 +1360,7 @@ fn weight_one_reproduces_dormant_scores() {
     let corr = snapshot_with_corroborated(vec![make_finding(CouplingKind::Common)]);
     let thresholds = CouplingThresholds {
         corroboration_weight: 1.0,
-        ..CouplingThresholds::default()
+        ..crate::config::CouplingThresholds::default()
     };
     let c = compute_coupling(&corr, &thresholds, &Default::default());
     let common = c
@@ -1386,7 +1393,11 @@ fn corroboration_can_trip_the_severity_cap() {
             evidence: "static mut B".into(),
         },
     ]);
-    let c = compute_coupling(&corr, &CouplingThresholds::default(), &Default::default());
+    let c = compute_coupling(
+        &corr,
+        &crate::config::CouplingThresholds::default(),
+        &Default::default(),
+    );
     let common = c
         .metrics
         .iter()
@@ -1402,7 +1413,11 @@ fn corroboration_can_trip_the_severity_cap() {
 #[test]
 fn corroborated_finding_is_annotated_in_evidence_and_description() {
     let corr = snapshot_with_corroborated(vec![make_finding(CouplingKind::Common)]);
-    let c = compute_coupling(&corr, &CouplingThresholds::default(), &Default::default());
+    let c = compute_coupling(
+        &corr,
+        &crate::config::CouplingThresholds::default(),
+        &Default::default(),
+    );
     let common = c
         .metrics
         .iter()
@@ -1493,7 +1508,7 @@ fn all_coupling_findings_and_counts_include_inheritance() {
             },
         },
     ];
-    let cfg = CouplingThresholds::default();
+    let cfg = crate::config::CouplingThresholds::default();
     let inh = all_coupling_findings(&snapshot, &cfg)
         .into_iter()
         .filter(|f| f.kind == CouplingKind::Inheritance)
@@ -1537,7 +1552,7 @@ fn inheritance_metric_row_uses_bands() {
     ];
     let metrics = compute_coupling(
         &snapshot,
-        &CouplingThresholds::default(),
+        &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
     let m = metrics
@@ -2018,7 +2033,7 @@ fn disabling_community_corroboration_can_only_lower_the_score() {
         &snapshot,
         &CouplingThresholds {
             community_corroboration: false,
-            ..CouplingThresholds::default()
+            ..crate::config::CouplingThresholds::default()
         },
     );
     assert_eq!(
@@ -2137,6 +2152,111 @@ fn import_extractable_files_follows_import_query_support() {
         "Kotlin gained its resolver arm, so it is extractable end to end"
     );
     assert!(!has_import_extractable_files(&make_snapshot()));
+}
+
+#[test]
+fn import_metrics_are_unmeasured_when_almost_nothing_resolved() {
+    // C# and Go ship resolvers that produce zero edges — `using` names a
+    // namespace and the Go arm builds a literal `*.go` path — so three
+    // metrics scored a perfect 100 on repositories nobody could measure.
+    // `has_import_extractable_files` cannot catch that: it asks whether a
+    // language *could* resolve, which a wrong resolver passes. This asks
+    // whether it *did*.
+    let mut snapshot = parsed_snapshot_without_imports(&["src/A.cs", "src/B.cs"]);
+    snapshot.unreliable_import_specifiers = 40;
+    // graph left empty: 40 specifiers in, 0 edges out
+    for m in import_graph_metrics(&snapshot) {
+        assert_eq!(
+            m.score, None,
+            "{} must be unmeasured when resolution collapsed: {}",
+            m.name, m.description
+        );
+    }
+}
+
+#[test]
+fn external_only_imports_in_a_working_resolver_are_scored() {
+    // TypeScript resolves reliably, so nothing lands in the unreliable
+    // counter; an empty graph here really does mean "imports npm only".
+    let snapshot = parsed_snapshot_without_imports(&["src/app.ts"]);
+    for metric in import_graph_metrics(&snapshot) {
+        assert_eq!(
+            metric.score,
+            Some(100),
+            "{}: {}",
+            metric.name,
+            metric.description
+        );
+    }
+}
+
+#[test]
+fn a_vendored_unreliable_file_does_not_blank_a_working_language() {
+    // The guard must key on where the *specifiers* came from, not on which
+    // file extensions happen to exist. A TypeScript app importing only npm
+    // packages has a legitimately empty graph; vendoring one Go helper must
+    // not relabel that as "unmeasured" with a message about Go.
+    let mut snapshot = parsed_snapshot_without_imports(&["src/app.ts", "vendor/helper.go"]);
+    snapshot.unreliable_import_specifiers = 0;
+    for metric in import_graph_metrics(&snapshot) {
+        assert_eq!(
+            metric.score,
+            Some(100),
+            "{}: {}",
+            metric.name,
+            metric.description
+        );
+    }
+}
+
+#[test]
+fn mixed_language_graph_keeps_valid_edges_scored() {
+    let mut snapshot = parsed_snapshot_without_imports(&["src/A.cs", "src/a.rs", "src/b.rs"]);
+    snapshot.unreliable_import_specifiers = 100;
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("src/a.rs"), vec![PathBuf::from("src/b.rs")]);
+    for metric in import_graph_metrics(&snapshot) {
+        assert!(
+            metric.score.is_some(),
+            "{}: {}",
+            metric.name,
+            metric.description
+        );
+    }
+}
+
+#[test]
+fn import_metrics_stay_scored_when_resolution_is_healthy() {
+    // Vendor and stdlib specifiers legitimately never resolve, so the floor
+    // must sit well below 1.0 or every real repository trips it.
+    let mut snapshot = parsed_snapshot_without_imports(&["src/a.rs", "src/b.rs"]);
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("src/a.rs"), vec![PathBuf::from("src/b.rs")]);
+    for m in import_graph_metrics(&snapshot) {
+        assert!(
+            m.score.is_some(),
+            "{} must stay scored at a healthy rate: {}",
+            m.name,
+            m.description
+        );
+    }
+}
+
+#[test]
+fn a_populated_graph_with_no_recorded_specifiers_is_still_scored() {
+    // Snapshots written before this counter existed have it at zero. A
+    // non-empty graph is its own proof that resolution worked, so the floor
+    // must not retroactively blank out cached data.
+    let mut snapshot = parsed_snapshot_without_imports(&["src/a.rs", "src/b.rs"]);
+    snapshot
+        .import_graph
+        .insert(PathBuf::from("src/a.rs"), vec![PathBuf::from("src/b.rs")]);
+    snapshot.unreliable_import_specifiers = 0;
+    for m in import_graph_metrics(&snapshot) {
+        assert!(m.score.is_some(), "{} must stay scored", m.name);
+    }
 }
 
 #[test]

@@ -317,6 +317,21 @@ pub struct RepoSnapshot {
     pub file_change_pairs: Vec<(PathBuf, PathBuf, usize)>,
     pub file_metrics: HashMap<PathBuf, FileComplexity>,
     pub import_graph: HashMap<PathBuf, Vec<PathBuf>>,
+    /// How many import specifiers were extracted from files whose resolver
+    /// is known to be unreliable (`resolver_is_unreliable`).
+    ///
+    /// The graph alone cannot distinguish "this repository has few imports"
+    /// from "the resolver for this language produces nothing" — the failure
+    /// that had C# and Go scoring a perfect 100 on repositories nobody
+    /// could measure. Counting only the specifiers those resolvers produced
+    /// identifies a broken-language empty graph without blaming a working
+    /// language for it: a TypeScript app importing only npm packages has a
+    /// legitimately empty graph, and vendoring one Go file must not relabel
+    /// that as unmeasured.
+    ///
+    /// Zero on snapshots written before this existed; a populated graph is
+    /// then its own proof that resolution worked.
+    pub unreliable_import_specifiers: usize,
     pub coupling_findings: Vec<CouplingFinding>,
     pub class_records: Vec<ClassRecord>,
     pub reexports: Vec<ReExportRecord>,
@@ -342,6 +357,7 @@ impl RepoSnapshot {
             file_change_pairs: Vec::new(),
             file_metrics: HashMap::new(),
             import_graph: HashMap::new(),
+            unreliable_import_specifiers: 0,
             coupling_findings: Vec::new(),
             class_records: Vec::new(),
             reexports: Vec::new(),

@@ -34,7 +34,10 @@ pub fn http_with_timeout(timeout: Duration) -> Result<reqwest::blocking::Client,
 /// deliberately the full default rather than a fraction of it: the number
 /// measured is wall clock on CI machines running mutation shards in
 /// parallel, where most of it can be scheduling delay that says nothing
-/// about the client. A tighter bound measures the machine, not the code.
+/// about the client — 7.5s was observed for a 200ms timeout. A tighter
+/// bound measures the machine, not the code, and a multiple of the
+/// requested timeout is tighter than the default for every timeout this
+/// crate actually requests.
 #[cfg(test)]
 fn ruled_out_default_timeout(elapsed: Duration) -> bool {
     elapsed < Duration::from_secs(TIMEOUT_SECS)
@@ -51,7 +54,9 @@ mod tests {
         // The observed CI failure: a 200ms client timeout measured at over
         // 7.5s of wall clock on a runner executing mutation shards in
         // parallel. The client was correct; the machine was busy. Anything
-        // short of the default must still count as ruling it out.
+        // short of the default must still count as ruling it out — including
+        // wall clock well past the observed ceiling, since that ceiling is a
+        // sample of one busy runner, not a limit.
         assert!(ruled_out_default_timeout(Duration::from_millis(200)));
         assert!(ruled_out_default_timeout(Duration::from_secs(8)));
         assert!(ruled_out_default_timeout(Duration::from_secs(

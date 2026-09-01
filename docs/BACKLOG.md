@@ -185,7 +185,20 @@ replaced by a p90 term (see CHANGELOG).
   Every number above is distributional; none is validated against a human
   judgement of the code.
 
-### Import resolution floor — stop scoring an empty graph
+### ~~Import resolver capability guard — stop scoring broken languages clean~~ ✓ Done
+
+Import metrics now report *unscored* for an empty graph when the extracted
+specifiers *came from* a language with a known-unreliable resolver
+(`resolver_is_unreliable`: currently C# and Go). The count is attributed per
+source file, not inferred from which extensions exist in the tree, so
+vendoring one Go file into a TypeScript app cannot blank that app's metrics.
+A numeric snapshot-wide resolution floor was rejected after review: it
+cannot distinguish a broken resolver from a valid repository that only
+imports external packages, and one weak language could suppress valid edges
+from another in a mixed-language repository. A populated graph always
+remains scored.
+
+Original entry:
 
 **Priority**: High (three languages affected today)
 **Design**: `docs/superpowers/specs/2026-08-30-csharp-type-resolution-design.md`
@@ -233,3 +246,49 @@ Same class as C#, and the same granularity question: a package maps to many
 files, so resolving it needs either a symbol-level model or a deliberate
 choice about fan-out. Not yet measured against a real Go repository —
 do that first, as was done for PHP and C#.
+
+### Kotlin wildcard resolution scans the whole file tree per import
+
+**Priority**: Medium
+**Depends on**: nothing
+
+`resolve_kotlin_wildcard` answers `import com.foo.*` by walking every known
+path in the repository and keeping the ones whose parent is the package
+directory:
+
+```rust
+known.iter()
+    .filter(|path| path.as_path() != source)
+    .filter(|path| path.extension().is_some_and(|e| e == "kt" || e == "kts"))
+    .filter(|path| path.parent().is_some_and(|p| dirs.iter().any(|d| p == d)))
+```
+
+That is O(files) per wildcard import, and Kotlin uses wildcards heavily. A
+5,000-file Kotlin module with ~3 wildcards per file against a 20,000-file
+tree is ~300M path comparisons in the collector's hot path. Every other
+resolver is O(1): it builds candidate paths and probes the `known` set.
+
+Fix: build a `HashMap<&Path, Vec<&PathBuf>>` of directory → files once in
+`resolve_imports` and pass it to the wildcard arm, restoring O(1) per
+import. Measure against a real Kotlin repository first — the cost is
+invisible on the mixed-language fixtures the tests use.
+
+### ~~Score history survives a scoring-formula change that invalidates it~~ ✓ Done
+
+`HISTORY_SCHEMA_VERSION` (`scorer/types.rs`) now stamps every entry, and
+`load_history_checked` treats an entry below it exactly as it treats a
+corrupt file: archive to `trends.json.bak`, start fresh, and warn, naming
+`barad-dur backfill` as the fix. `backfill` uses the same version-aware
+load, so it regenerates every commit instead of deduping against the
+entries the bump just invalidated — without that, the recovery path the
+warning names would silently do nothing.
+
+One version is ever in play, so nothing downstream reasons about a
+formula boundary. Bump the constant on any scoring change.
+
+Explicitly rejected: retaining entries from an older formula and marking
+the boundary so the renderer can break the sparkline. History is derived
+— `backfill` recomputes it from git through the current scorer — so old
+entries are a stale computation, not a record. Keeping them buys nothing
+over a re-backfill and pays for it with a renderer that must reason about
+two scoring regimes at once.

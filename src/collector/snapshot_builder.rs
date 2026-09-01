@@ -127,6 +127,8 @@ type RawAstOutput = (
 type AstParts = (
     HashMap<PathBuf, FileComplexity>,
     HashMap<PathBuf, Vec<PathBuf>>,
+    // Specifiers extracted from files with a known-unreliable resolver.
+    usize,
     Vec<CouplingFinding>,
     Vec<ClassRecord>,
     Vec<ReExportRecord>,
@@ -362,6 +364,7 @@ impl Collector {
                 std::fs::read_to_string(root.join(&entry.path)).ok()
             }),
         };
+        let unreliable_import_specifiers = count_unreliable_specifiers(&raw_imports);
         let import_graph = resolve_imports(&raw_imports, &files, &import_config);
         let class_records = resolve_class_records(raw_classes, &files);
         let reexports = resolve_reexports(raw_reexports, &files);
@@ -382,6 +385,7 @@ impl Collector {
             file_change_pairs: Vec::new(),
             file_metrics,
             import_graph,
+            unreliable_import_specifiers,
             coupling_findings,
             class_records,
             reexports,
@@ -464,8 +468,15 @@ impl Collector {
             .and_then(|h| h.shorthand().ok().map(String::from))
             .unwrap_or_else(|| "main".to_string());
 
-        let (file_metrics, import_graph, coupling_findings, class_records, reexports, call_records) =
-            ast_pass(&repo, &files)?;
+        let (
+            file_metrics,
+            import_graph,
+            unreliable_import_specifiers,
+            coupling_findings,
+            class_records,
+            reexports,
+            call_records,
+        ) = ast_pass(&repo, &files)?;
 
         let mut snapshot = RepoSnapshot {
             path: repo_path.to_path_buf(),
@@ -483,6 +494,7 @@ impl Collector {
             file_change_pairs: Vec::new(),
             file_metrics,
             import_graph,
+            unreliable_import_specifiers,
             coupling_findings,
             class_records,
             reexports,
@@ -544,6 +556,7 @@ fn ast_pass_at(repo: &git2::Repository, files: &[FileEntry]) -> Result<AstParts>
             std::str::from_utf8(blob.content()).ok().map(str::to_owned)
         }),
     };
+    let unreliable_import_specifiers = count_unreliable_specifiers(&raw_imports);
     let import_graph = resolve_imports(&raw_imports, files, &import_config);
     let class_records = resolve_class_records(raw_classes, files);
     let reexports = resolve_reexports(raw_reexports, files);
@@ -551,6 +564,7 @@ fn ast_pass_at(repo: &git2::Repository, files: &[FileEntry]) -> Result<AstParts>
     Ok((
         file_metrics,
         import_graph,
+        unreliable_import_specifiers,
         coupling_findings,
         class_records,
         reexports,
@@ -648,6 +662,21 @@ fn resolve_call_records(
 
 /// Resolve raw class records' import specifiers against the repo's file
 /// set, producing the snapshot's `class_records` (sorted by path, line).
+/// Count the specifiers that came from files whose resolver is known to be
+/// wrong. A zero here means every extracted specifier came from a resolver
+/// we trust, so an empty graph is evidence rather than a blind spot.
+fn count_unreliable_specifiers(raw_imports: &RawImports) -> usize {
+    raw_imports
+        .iter()
+        .filter(|(path, _)| {
+            path.extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(super::resolver_is_unreliable)
+        })
+        .map(|(_, specifiers)| specifiers.len())
+        .sum()
+}
+
 fn resolve_class_records(
     raw: HashMap<PathBuf, Vec<RawClassRecord>>,
     files: &[FileEntry],
@@ -681,6 +710,42 @@ fn resolve_class_records(
 mod tests {
     use super::*;
     use crate::snapshot::TimeWindow;
+
+    #[test]
+    fn only_unreliable_resolvers_contribute_to_the_specifier_count() {
+        // The guard that blanks import metrics reads this number. Counting
+        // every specifier would let a working language's external-only
+        // imports trip it; counting none would let C# and Go score a
+        // perfect 100 on a repository nobody can measure.
+        let raw: RawImports = [
+            (
+                PathBuf::from("src/Domain.cs"),
+                vec!["System.Linq".to_string(), "Acme.Core".to_string()],
+            ),
+            (PathBuf::from("cmd/main.go"), vec!["fmt".to_string()]),
+            (
+                PathBuf::from("src/lib.rs"),
+                vec!["serde".to_string(), "std::fmt".to_string()],
+            ),
+            (PathBuf::from("src/app.ts"), vec!["react".to_string()]),
+        ]
+        .into_iter()
+        .collect();
+
+        assert_eq!(count_unreliable_specifiers(&raw), 3);
+    }
+
+    #[test]
+    fn a_repository_without_an_unreliable_resolver_counts_none() {
+        let raw: RawImports = [(
+            PathBuf::from("src/app.ts"),
+            vec!["react".to_string(), "./local".to_string()],
+        )]
+        .into_iter()
+        .collect();
+
+        assert_eq!(count_unreliable_specifiers(&raw), 0);
+    }
 
     fn test_repo_path() -> std::path::PathBuf {
         std::env::var("BARAD_DUR_TEST_REPO")
@@ -1014,7 +1079,7 @@ mod tests {
             ),
             entry("src/non_utf8.rs", non_utf8.to_string()),
         ];
-        let (metrics, _imports, findings, _classes, _reexports, _calls) =
+        let (metrics, _imports, _unreliable, findings, _classes, _reexports, _calls) =
             ast_pass_at(&repo, &files).unwrap();
         assert_eq!(
             findings.len(),
@@ -1167,7 +1232,7 @@ mod tests {
             entry("src/a.ts", caller_blob),
             entry("src/lib.ts", lib_blob),
         ];
-        let (_, _, _, _, _, calls) = ast_pass_at(&repo, &files).unwrap();
+        let (_, _, _, _, _, _, calls) = ast_pass_at(&repo, &files).unwrap();
         assert_eq!(
             calls,
             vec![CallRecord {

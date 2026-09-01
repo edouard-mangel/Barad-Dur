@@ -76,16 +76,27 @@ pub(crate) fn score_count_bands(count: usize) -> u32 {
 /// when only a tiny fraction of its code is affected.
 ///
 /// Below `MIN_PREVALENCE_POPULATION` the denominator is too small to trust,
-/// so the count bands govern. Between there and `TRUSTED_POPULATION` the
-/// stricter of the two applies: crossing the minimum-support boundary must
-/// not hand a repository a free jump just for gaining one unrelated file.
-/// At or above `TRUSTED_POPULATION`, prevalence governs alone.
+/// so the count bands govern. At or above `TRUSTED_POPULATION` prevalence
+/// governs alone. Between them the two are *blended* in proportion to how
+/// far along the range the population sits, rather than one abruptly
+/// replacing the other.
+///
+/// The blend is what keeps the boundaries honest. A hard switch at either
+/// end let a repository jump a whole band by gaining one unrelated file —
+/// 1 finding in 299 files scored 75, the same finding in 300 scored 90.
+/// Weighting removes the cliff without subordinating prevalence to the
+/// count bands, which would collapse this function into `score_count_bands`
+/// and reinstate the very pathology it exists to remove.
+///
+/// A larger denominator can still *raise* a score, and must: that is what
+/// prevalence means. The direction that is a bug is a score *falling* as
+/// the repository grows while its findings stay put — pinned by
+/// `a_growing_denominator_never_lowers_a_score`.
 ///
 /// MAINTAINER-AUTHORED THRESHOLDS, like `score_pressman`'s bands: 100 and
 /// 300 are judgement calls about when a denominator becomes meaningful,
-/// not values derived from a corpus. The invariant they exist to protect
-/// is the one the tests pin — the score must never rise merely because the
-/// repository grew. Retune the numbers if evidence warrants; keep that.
+/// not values derived from a corpus. Retune the numbers if evidence
+/// warrants; keep the continuity and the no-fall invariant the tests pin.
 pub(crate) fn score_prevalence(flagged: usize, total: usize) -> u32 {
     const MIN_PREVALENCE_POPULATION: usize = 100;
     const TRUSTED_POPULATION: usize = 300;
@@ -95,8 +106,9 @@ pub(crate) fn score_prevalence(flagged: usize, total: usize) -> u32 {
     }
     // total == 0 (no recognized source population) falls through to the
     // count bands: findings are real even when the denominator is unknown.
+    let by_count = score_count_bands(flagged);
     if total < MIN_PREVALENCE_POPULATION {
-        return score_count_bands(flagged);
+        return by_count;
     }
     let pct = flagged as f64 / total as f64 * 100.0;
     let by_prevalence = if pct <= 1.0 {
@@ -108,11 +120,9 @@ pub(crate) fn score_prevalence(flagged: usize, total: usize) -> u32 {
     } else {
         25
     };
-    if total < TRUSTED_POPULATION {
-        by_prevalence.min(score_count_bands(flagged))
-    } else {
-        by_prevalence
-    }
+    let span = (TRUSTED_POPULATION - MIN_PREVALENCE_POPULATION) as f64;
+    let weight = ((total - MIN_PREVALENCE_POPULATION) as f64 / span).min(1.0);
+    (by_count as f64 + (by_prevalence as f64 - by_count as f64) * weight).round() as u32
 }
 
 /// Median of a slice; 0.0 for an empty slice. Does not mutate the input —
@@ -295,10 +305,13 @@ mod primary_author_sentinel_tests {
 
 #[cfg(test)]
 mod prevalence_score_tests {
-    use super::score_prevalence;
+    use super::{score_count_bands, score_prevalence};
 
     #[test]
     fn large_repositories_are_scored_by_rate_not_raw_count() {
+        // Above TRUSTED_POPULATION the denominator is trustworthy on its
+        // own, so a large repo is judged by the fraction of itself that is
+        // affected — not by an absolute count every big repo would fail.
         assert_eq!(score_prevalence(1, 1_000), 90);
         assert_eq!(score_prevalence(40, 1_000), 75);
         assert_eq!(score_prevalence(100, 1_000), 50);
@@ -314,37 +327,80 @@ mod prevalence_score_tests {
     }
 
     #[test]
-    fn transition_range_takes_the_stricter_of_count_and_prevalence() {
-        // Crossing total == 100 must not hand a repo a free 25-point jump.
-        // Just below the boundary 3 findings score 50 (count band); just
-        // above, prevalence alone would say 75, so the count band wins until
-        // the denominator is large enough to trust on its own.
-        assert_eq!(score_prevalence(3, 99), 50);
-        assert_eq!(score_prevalence(3, 100), 50);
-        assert_eq!(score_prevalence(3, 299), 50);
-        // At 300+ the population is large enough that prevalence governs
-        // alone: 3/300 is 1%, so the count band's 50 no longer caps it.
-        assert_eq!(score_prevalence(3, 300), 90);
+    fn the_transition_range_blends_count_bands_into_prevalence() {
+        // Halfway between MIN_PREVALENCE_POPULATION and TRUSTED_POPULATION
+        // the two contribute equally: the count band says 75, prevalence
+        // says 90, so the blend lands midway rather than snapping to either.
+        assert_eq!(score_prevalence(1, 200), 83);
+        assert_eq!(score_prevalence(6, 150), 38);
     }
 
     #[test]
-    fn single_finding_jumps_a_full_band_at_the_trusted_population() {
-        // The largest step in the table, and the one a maintainer is most
-        // likely to be surprised by: one finding is capped at the count
-        // band's 75 right up to the boundary, then the denominator becomes
-        // trustworthy and 1/300 = 0.33% scores 90.
-        assert_eq!(score_prevalence(1, 299), 75);
-        assert_eq!(score_prevalence(1, 300), 90);
+    fn crossing_the_minimum_support_boundary_is_continuous() {
+        // The artifact this replaced: one unrelated file used to buy a
+        // whole band. At the boundary the blend weight is zero, so the
+        // count band still governs and nothing jumps.
+        for flagged in [1, 3, 6, 30] {
+            assert_eq!(
+                score_prevalence(flagged, 99),
+                score_prevalence(flagged, 100),
+                "{flagged} findings jumped a band at the support boundary"
+            );
+            assert_eq!(
+                score_prevalence(flagged, 100),
+                score_count_bands(flagged),
+                "the count band must still govern at the boundary"
+            );
+        }
     }
 
     #[test]
-    fn transition_range_never_scores_above_the_prevalence_band() {
-        // The stricter-of-two rule must also bite the other way: 2 findings
-        // in 100 files is 2% (band 75), and the count band would say 75 too,
-        // but 30 findings in 150 files is 20% (band 50) while the count band
-        // says 25 — the stricter 25 wins.
+    fn crossing_the_trusted_population_boundary_is_continuous() {
+        // At TRUSTED_POPULATION the weight reaches one, so the blend has
+        // already converged on prevalence — no step at the boundary itself.
+        // 3/300 is the exception, and only because it lands exactly on the
+        // 1% prevalence band edge, a step that exists at every percentage.
+        for flagged in [1, 6, 30] {
+            assert_eq!(
+                score_prevalence(flagged, 299),
+                score_prevalence(flagged, 300),
+                "{flagged} findings jumped a band at the trusted boundary"
+            );
+        }
+    }
+
+    #[test]
+    fn a_growing_denominator_never_lowers_a_score() {
+        // Prevalence exists so a large repo is not condemned by absolute
+        // count; the direction that must never happen is a score *falling*
+        // as the repository grows while the findings stay put.
+        for flagged in 0..60 {
+            for total in 2..3_000 {
+                assert!(
+                    score_prevalence(flagged, total) >= score_prevalence(flagged, total - 1),
+                    "score fell from total={} to total={total} at {flagged} findings",
+                    total - 1
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn prevalence_is_not_subordinate_to_the_count_bands() {
+        // The regression this guards: capping by count at every population
+        // made score_prevalence identical to score_count_bands, so a
+        // 10,000-file repo with six affected files scored the worst band.
+        assert_eq!(score_prevalence(6, 10_000), 90);
+        assert_ne!(score_prevalence(6, 10_000), score_count_bands(6));
+    }
+
+    #[test]
+    fn transition_range_still_respects_the_prevalence_band() {
+        // 2 findings in 100 files is 2%: both inputs say 75, so does the
+        // blend. 30 in 150 is 20% (band 50) against a count band of 25 —
+        // a quarter of the way along the ramp, so still close to the count.
         assert_eq!(score_prevalence(2, 100), 75);
-        assert_eq!(score_prevalence(30, 150), 25);
+        assert_eq!(score_prevalence(30, 150), 31);
     }
 
     #[test]

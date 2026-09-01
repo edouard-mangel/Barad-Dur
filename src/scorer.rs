@@ -51,7 +51,7 @@ pub fn build_history_entry(
             control_coupling: report.coupling_finding_counts.map(|c| c.control),
         },
         branch: report.branch.clone(),
-        schema_version: 1,
+        schema_version: HISTORY_SCHEMA_VERSION,
         source,
     }
 }

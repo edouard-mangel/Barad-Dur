@@ -382,8 +382,9 @@ fn ac_02_4_branch_mismatch_suppresses_delta_shows_warning() {
     // append_if_new_head writes the next entry on its own line).
     let now = chrono::Utc::now().to_rfc3339();
     let entry = format!(
-        "{}\n",
-        r#"{"timestamp":"2024-01-01T00:00:00Z","commit":"aabbccdd00112233445566778899aabbccddeeff","branch":"feature/refactor","overall_score":70,"schema_version":1,"category_scores":{"Health":70,"Team":70,"Evolution":70,"Git Hygiene":70}}"#
+        r#"{{"timestamp":"2024-01-01T00:00:00Z","commit":"aabbccdd00112233445566778899aabbccddeeff","branch":"feature/refactor","overall_score":70,"schema_version":{v},"category_scores":{{"Health":70,"Team":70,"Evolution":70,"Git Hygiene":70}}}}
+"#,
+        v = barad_dur::scorer::HISTORY_SCHEMA_VERSION
     );
     let _ = now; // timestamp is embedded above as a fixed value for determinism
     seed_trends(repo_path, &entry);
@@ -763,7 +764,8 @@ fn ac_04_6_direction_field_reflects_improving_trajectory() {
             .format("%Y-%m-%dT%H:%M:%SZ")
             .to_string();
         ndjson.push_str(&format!(
-            r#"{{"timestamp":"{ts}","commit":"{sha}","branch":"main","overall_score":{score},"schema_version":1,"category_scores":{{"Health":{score},"Team":{score},"Evolution":{score},"Git Hygiene":{score}}}}}"#
+            r#"{{"timestamp":"{ts}","commit":"{sha}","branch":"main","overall_score":{score},"schema_version":{v},"category_scores":{{"Health":{score},"Team":{score},"Evolution":{score},"Git Hygiene":{score}}}}}"#,
+            v = barad_dur::scorer::HISTORY_SCHEMA_VERSION
         ));
         ndjson.push('\n');
     }
@@ -818,7 +820,8 @@ fn ac_04_6_direction_is_declining_when_score_drops() {
         .to_string();
     let sha = "aabbccdd00112233445566778899aabbccddeeff";
     let entry = format!(
-        r#"{{"timestamp":"{ts}","commit":"{sha}","branch":"main","overall_score":99,"schema_version":1,"category_scores":{{"Health":99,"Team":99,"Evolution":99,"Git Hygiene":99}}}}"#
+        r#"{{"timestamp":"{ts}","commit":"{sha}","branch":"main","overall_score":99,"schema_version":{v},"category_scores":{{"Health":99,"Team":99,"Evolution":99,"Git Hygiene":99}}}}"#,
+        v = barad_dur::scorer::HISTORY_SCHEMA_VERSION
     );
     seed_trends(repo_path, &entry);
 

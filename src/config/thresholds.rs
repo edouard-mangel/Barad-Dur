@@ -18,7 +18,7 @@ pub struct HealthThresholds {
     #[serde(default = "default_biomarker_max_variance")]
     pub biomarker_max_variance: f64,
     /// Percentile of the repo's import-graph degree distribution a source
-    /// file must reach to be flagged a structural hub, alongside
+    /// file must exceed to be flagged a structural hub, alongside
     /// `god_node_min_degree` — the higher of the two governs. Default 0.90.
     ///
     /// Replaces a median multiplier that never bound: measured across five
