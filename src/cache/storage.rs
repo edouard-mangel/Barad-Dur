@@ -17,7 +17,8 @@ const FINGERPRINT_FILE: &str = "exclude.fingerprint";
 /// 4 = barrel re-exports (reexports field);
 /// 5 = call-graph edges (call_records field);
 /// 6 = unknown-author sentinel in blame lines (same shape, new id
-///     semantics — cached id-0 collapses must not masquerade as owners).
+///     semantics — cached id-0 collapses must not masquerade as owners);
+/// 7 = unreliable import specifiers (unreliable_import_specifiers field).
 const CACHE_VERSION: u32 = 7;
 
 /// Wire format for all cache files. Bincode 2's standard config (varint

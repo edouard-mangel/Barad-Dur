@@ -660,8 +660,6 @@ fn resolve_call_records(
     )
 }
 
-/// Resolve raw class records' import specifiers against the repo's file
-/// set, producing the snapshot's `class_records` (sorted by path, line).
 /// Count the specifiers that came from files whose resolver is known to be
 /// wrong. A zero here means every extracted specifier came from a resolver
 /// we trust, so an empty graph is evidence rather than a blind spot.
@@ -677,6 +675,8 @@ fn count_unreliable_specifiers(raw_imports: &RawImports) -> usize {
         .sum()
 }
 
+/// Resolve raw class records' import specifiers against the repo's file
+/// set, producing the snapshot's `class_records` (sorted by path, line).
 fn resolve_class_records(
     raw: HashMap<PathBuf, Vec<RawClassRecord>>,
     files: &[FileEntry],
