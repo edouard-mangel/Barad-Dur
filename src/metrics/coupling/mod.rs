@@ -597,9 +597,11 @@ fn unmeasured_import_metric(name: &str, reason: &str) -> MetricValue {
 ///
 /// Extraction is a two-stage pipeline and both stages must exist: a
 /// tree-sitter import query to pull the specifiers, and a resolver arm to
-/// turn them into repo paths. Kotlin has the first but not the second, so
-/// keying on the query alone would call a Kotlin repo measured and hand it
-/// a perfect score off an empty graph. Derived from the two dispatch tables
+/// turn them into repo paths. Kotlin had the first but not the second until
+/// v0.22.0, so keying on the query alone would have called a Kotlin repo
+/// measured and handed it a perfect score off an empty graph. Every language
+/// with a query resolves today; the check stays because the next language
+/// added will land one stage at a time. Derived from the two dispatch tables
 /// themselves rather than a third extension list, so teaching the collector
 /// a new language re-scores those repos with no change here.
 ///

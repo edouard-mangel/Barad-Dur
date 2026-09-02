@@ -71,13 +71,11 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
     let threshold = args.min_score;
     let score_failed = check_gate_categories(&report, &args, threshold);
 
-    let trend_failed = if let Some(max_decline) = args.max_decline {
-        let history = cache::history::load_history(&local_path).unwrap_or_default();
-        let current_entry = scorer::build_history_entry(&report, &current_head, None);
-        let summary = trend::compute_trend(&history, &report.branch, &current_entry);
-        check_trend_gate(&summary, max_decline)
-    } else {
-        false
+    let trend_failed = match args.max_decline {
+        Some(max_decline) => {
+            check_trend_gate_against_history(&local_path, &report, &current_head, max_decline)
+        }
+        None => false,
     };
 
     let ratchet_failed = if args.no_new_coupling || args.max_new_coupling.is_some() {
@@ -201,6 +199,25 @@ fn print_ratchet(verdict: &RatchetVerdict, baseline_ref: &str, max_new: usize) -
             verdict.total_new, max_new, baseline_ref
         )
     }
+}
+
+/// Load prior history and decide whether the trend gate fails.
+fn check_trend_gate_against_history(
+    local_path: &Path,
+    report: &AnalysisReport,
+    current_head: &str,
+    max_decline: f64,
+) -> bool {
+    // Checked, not raw: entries from an older scoring formula are archived
+    // rather than compared against. Mixing the two reports a formula change
+    // as if the code had moved, failing the gate on every subsequent run.
+    let (history, warning) = cache::history::load_history_checked(local_path).unwrap_or_default();
+    if let Some(warning) = warning {
+        println!("{warning}");
+    }
+    let current_entry = scorer::build_history_entry(report, current_head, None);
+    let summary = trend::compute_trend(&history, &report.branch, &current_entry);
+    check_trend_gate(&summary, max_decline)
 }
 
 fn check_trend_gate(summary: &trend::TrendSummary, max_decline: f64) -> bool {
@@ -356,6 +373,7 @@ mod tests {
     use crate::snapshot::CouplingKind;
     use crate::trend::{TrendDelta, TrendSummary, TrendVelocity, VelocityDirection};
     use std::collections::HashMap;
+    use tempfile::TempDir;
 
     fn make_report(overall: u32, categories: &[(&str, u32)]) -> AnalysisReport {
         let cats: Vec<CategoryResult> = categories
@@ -537,6 +555,66 @@ mod tests {
         assert!(
             run_gate(args).is_err(),
             "gate must reject a config that analyze would also reject"
+        );
+    }
+
+    // ── check_trend_gate_against_history ────────────────────────────────
+
+    fn write_history_entry(dir: &Path, overall_score: u32, schema_version: u32) {
+        let cache_dir = dir.join(crate::cache::storage::CACHE_DIR);
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let entry = serde_json::json!({
+            "timestamp": "2026-01-01T00:00:00Z",
+            "head": "abc123",
+            "overall_score": overall_score,
+            "category_scores": {},
+            "metrics": {},
+            "counts": {"commits": 1, "files": 2, "authors": 3},
+            "branch": "main",
+            "schema_version": schema_version,
+        });
+        std::fs::write(cache_dir.join("trends.json"), format!("{entry}\n")).unwrap();
+    }
+
+    #[test]
+    fn stale_scoring_history_does_not_trip_the_trend_gate() {
+        // Entries written by an older scoring formula are a stale computation,
+        // not history. `analyze` and `backfill` archive them; the gate must
+        // too. Otherwise CI fails on a decline that is purely the formula
+        // changing underneath it — and keeps failing every run, because
+        // nothing on the gate path ever sets the old file aside.
+        let dir = TempDir::new().unwrap();
+        write_history_entry(dir.path(), 95, crate::scorer::HISTORY_SCHEMA_VERSION - 1);
+
+        let report = make_report(40, &[]);
+        let failed = check_trend_gate_against_history(dir.path(), &report, "deadbeef", 2.0);
+
+        assert!(
+            !failed,
+            "a 95 -> 40 drop across a scoring-formula change is not a decline in the code"
+        );
+        assert!(
+            dir.path()
+                .join(crate::cache::storage::CACHE_DIR)
+                .join("trends.json.bak")
+                .exists(),
+            "the stale history must be archived so the next run starts clean"
+        );
+    }
+
+    #[test]
+    fn current_version_history_still_trips_the_trend_gate() {
+        // The guard above must not neuter the gate: a real decline measured
+        // by the same formula still has to fail.
+        let dir = TempDir::new().unwrap();
+        write_history_entry(dir.path(), 95, crate::scorer::HISTORY_SCHEMA_VERSION);
+
+        let report = make_report(40, &[]);
+        let failed = check_trend_gate_against_history(dir.path(), &report, "deadbeef", 2.0);
+
+        assert!(
+            failed,
+            "a 95 -> 40 drop under one formula is a real decline"
         );
     }
 
