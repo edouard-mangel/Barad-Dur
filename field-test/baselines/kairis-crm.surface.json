@@ -1,0 +1,244 @@
+{
+  "overall_score": 68,
+  "total_files": 216,
+  "total_commits": 558,
+  "total_authors": 3,
+  "score_thresholds": {
+    "good_min": 71,
+    "warn_min": 41
+  },
+  "coupling_finding_counts": {
+    "common": 0,
+    "content": 0,
+    "control": 0,
+    "inheritance": 0
+  },
+  "categories": [
+    {
+      "name": "Health",
+      "score": 37,
+      "metrics": [
+        {
+          "name": "Bus factor",
+          "score": 50
+        },
+        {
+          "name": "God objects",
+          "score": 31
+        },
+        {
+          "name": "Complex hotspots",
+          "score": 31
+        },
+        {
+          "name": "Long methods",
+          "score": 25
+        },
+        {
+          "name": "Code biomarkers",
+          "score": 50
+        },
+        {
+          "name": "Churn-ownership risk",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Team",
+      "score": 100,
+      "metrics": [
+        {
+          "name": "Knowledge distribution",
+          "score": null
+        },
+        {
+          "name": "Contributor activity",
+          "score": null
+        },
+        {
+          "name": "Ownership clarity",
+          "score": null
+        },
+        {
+          "name": "Collaboration patterns",
+          "score": null
+        },
+        {
+          "name": "Merge patterns",
+          "score": null
+        },
+        {
+          "name": "Cross-team coupling",
+          "score": null
+        },
+        {
+          "name": "Knowledge loss",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Evolution",
+      "score": 77,
+      "metrics": [
+        {
+          "name": "Growth trend",
+          "score": null
+        },
+        {
+          "name": "Refactoring ratio",
+          "score": 92
+        },
+        {
+          "name": "Code age",
+          "score": 90
+        },
+        {
+          "name": "Commit cadence",
+          "score": 50
+        },
+        {
+          "name": "Code/test growth balance",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Git Hygiene",
+      "score": 89,
+      "metrics": [
+        {
+          "name": "Commit message quality",
+          "score": 90
+        },
+        {
+          "name": "History cleanliness",
+          "score": 90
+        },
+        {
+          "name": "Gitignore coverage",
+          "score": 100
+        },
+        {
+          "name": "Firefighting ratio",
+          "score": 75
+        },
+        {
+          "name": "Friction language ratio",
+          "score": 90
+        }
+      ]
+    },
+    {
+      "name": "Coupling",
+      "score": 83,
+      "metrics": [
+        {
+          "name": "Afferent coupling",
+          "score": 100
+        },
+        {
+          "name": "Efferent coupling",
+          "score": 100
+        },
+        {
+          "name": "Circular dependencies",
+          "score": 100
+        },
+        {
+          "name": "Change coupling smells",
+          "score": 25
+        },
+        {
+          "name": "Content coupling",
+          "score": 100
+        },
+        {
+          "name": "Common coupling",
+          "score": 100
+        },
+        {
+          "name": "Inheritance coupling",
+          "score": 100
+        },
+        {
+          "name": "Control coupling",
+          "score": 100
+        },
+        {
+          "name": "Co-change reach trend",
+          "score": null
+        },
+        {
+          "name": "Test safety net",
+          "score": 25
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] Change coupling smells (score: 25) — Decouple cross-boundary co-changing files by introducing interfaces or shared abstractions"
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] Test safety net (score: 25) — Revive the paired tests of recently-changed source files — start with the lowest co-change pairs"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] Long methods (score: 25) — Extract smaller functions from the longest methods to improve readability"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] app/campagnes/[id]/page.tsx — 673 loc — consider splitting by responsibility: handle_* (7)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] app/contacts/[id]/page.tsx — 1821 loc — consider splitting by responsibility: handle_* (15)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] app/contacts/page.tsx — 1938 loc — consider splitting by responsibility: handle_* (14)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] app/pipeline/page.tsx — 1614 loc — consider splitting by responsibility: handle_* (7), is_* (5)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] app/taches/page.tsx — 858 loc — consider splitting by responsibility: handle_* (5), is_* (2)"
+    },
+    {
+      "target_tab": "ownership",
+      "text": "[Health] Churn-ownership risk (advisory) — Pair a second maintainer on the flagged high-churn single-owner files"
+    },
+    {
+      "target_tab": "trends",
+      "text": "[Evolution] Code/test growth balance (advisory) — Pair recent source growth with tests — start with the listed untested second-half files"
+    }
+  ],
+  "top_hotspots": [
+    "app/pipeline/page.tsx",
+    "app/contacts/[id]/page.tsx",
+    "app/contacts/page.tsx",
+    "app/companies/[id]/page.tsx",
+    "components/import/ImportOdooModal.tsx",
+    "app/dashboard/page.tsx",
+    "app/taches/page.tsx",
+    "app/api/contacts/route.ts",
+    "app/api/import-odoo/route.ts",
+    "chrome-extension/content.js",
+    "app/companies/page.tsx",
+    "app/parametres/page.tsx",
+    "app/analyse/page.tsx",
+    "app/pipeline/[id]/page.tsx",
+    "components/layout/Sidebar.tsx",
+    "app/api/companies/[id]/enrich/route.ts",
+    "app/api/companies/route.ts",
+    "app/campagnes/[id]/page.tsx",
+    "app/api/contacts/faux-societes/transfer/route.ts",
+    "app/api/queue/next/route.ts"
+  ]
+}

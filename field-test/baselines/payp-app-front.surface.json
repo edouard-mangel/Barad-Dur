@@ -1,0 +1,220 @@
+{
+  "overall_score": 88,
+  "total_files": 414,
+  "total_commits": 0,
+  "total_authors": 0,
+  "score_thresholds": {
+    "good_min": 71,
+    "warn_min": 41
+  },
+  "coupling_finding_counts": {
+    "common": 0,
+    "content": 0,
+    "control": 1,
+    "inheritance": 0
+  },
+  "categories": [
+    {
+      "name": "Health",
+      "score": 68,
+      "metrics": [
+        {
+          "name": "Bus factor",
+          "score": null
+        },
+        {
+          "name": "God objects",
+          "score": 75
+        },
+        {
+          "name": "Complex hotspots",
+          "score": 100
+        },
+        {
+          "name": "Long methods",
+          "score": 25
+        },
+        {
+          "name": "Code biomarkers",
+          "score": 75
+        },
+        {
+          "name": "Churn-ownership risk",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Team",
+      "score": 100,
+      "metrics": [
+        {
+          "name": "Knowledge distribution",
+          "score": null
+        },
+        {
+          "name": "Contributor activity",
+          "score": null
+        },
+        {
+          "name": "Ownership clarity",
+          "score": null
+        },
+        {
+          "name": "Collaboration patterns",
+          "score": null
+        },
+        {
+          "name": "Merge patterns",
+          "score": null
+        },
+        {
+          "name": "Cross-team coupling",
+          "score": null
+        },
+        {
+          "name": "Knowledge loss",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Evolution",
+      "score": 100,
+      "metrics": [
+        {
+          "name": "Growth trend",
+          "score": null
+        },
+        {
+          "name": "Refactoring ratio",
+          "score": null
+        },
+        {
+          "name": "Code age",
+          "score": null
+        },
+        {
+          "name": "Commit cadence",
+          "score": null
+        },
+        {
+          "name": "Code/test growth balance",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Git Hygiene",
+      "score": 100,
+      "metrics": [
+        {
+          "name": "Commit message quality",
+          "score": null
+        },
+        {
+          "name": "History cleanliness",
+          "score": null
+        },
+        {
+          "name": "Gitignore coverage",
+          "score": 100
+        },
+        {
+          "name": "Firefighting ratio",
+          "score": null
+        },
+        {
+          "name": "Friction language ratio",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Coupling",
+      "score": 96,
+      "metrics": [
+        {
+          "name": "Afferent coupling",
+          "score": 100
+        },
+        {
+          "name": "Efferent coupling",
+          "score": 100
+        },
+        {
+          "name": "Circular dependencies",
+          "score": 90
+        },
+        {
+          "name": "Change coupling smells",
+          "score": 100
+        },
+        {
+          "name": "Content coupling",
+          "score": 100
+        },
+        {
+          "name": "Common coupling",
+          "score": 100
+        },
+        {
+          "name": "Inheritance coupling",
+          "score": 100
+        },
+        {
+          "name": "Control coupling",
+          "score": 85
+        },
+        {
+          "name": "Co-change reach trend",
+          "score": null
+        },
+        {
+          "name": "Test safety net",
+          "score": null
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] src/feature/contact/get/getAllContacts.ts — 1 finding(s) (worst: control) — A flag parameter steers this function's control flow — split it into two intent-revealing functions."
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] Code biomarkers (score: 75) — Reduce nesting depth by applying early returns and guard clauses"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] God objects (score: 75) — Break down large files by extracting responsibilities into smaller modules"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] Long methods (score: 25) — Extract smaller functions from the longest methods to improve readability"
+    }
+  ],
+  "top_hotspots": [
+    "app/(protected)/business/lead/_components/LeadsTable.tsx",
+    "src/components/ui/sidebar.tsx",
+    "app/(protected)/contacts/_components/ContactForm/ModifyContactForm.tsx",
+    "app/(protected)/business/lead/_components/ModifyLeadForm.tsx",
+    "src/feature/contact/view-model/contact.viewModel.selectors.ts",
+    "app/(protected)/business/lead/_components/AddLeadForm/step/DetailsStep.tsx",
+    "app/(protected)/contacts/[id]/edit/ContactEditContent.tsx",
+    "src/feature/lead/view-model/lead.viewModel.selectors.ts",
+    "app/(protected)/redaction/_components/MandatTab/MandatsTable.tsx",
+    "app/(protected)/contacts/[id]/_components/tabs/Leads/LeadsTabTable.tsx",
+    "src/components/ui/multi-select.tsx",
+    "app/(protected)/business/deal/_components/DealsTable.tsx",
+    "src/components/ui/address-autocomplete.tsx",
+    "app/(protected)/contacts/_components/ContactForm/steps/ValidationStep.tsx",
+    "app/(protected)/contacts/_components/ContactsTable.tsx",
+    "app/(protected)/business/lead/[id]/_components/LeadHeader.tsx",
+    "app/(protected)/redaction/_components/MandatForm/steps/PropertySteps.tsx",
+    "app/(protected)/business/lead/_components/MatchingData/MatchingDataDisplay.tsx",
+    "app/(protected)/redaction/_components/MandatForm/steps/TermsSteps.tsx",
+    "app/(protected)/contacts/[id]/edit/page.tsx"
+  ]
+}

@@ -9,13 +9,16 @@
 #   make build                release build of CLI
 #   make install              install barad-dur to ~/.cargo/bin
 #   make gate-coupling        fail if HEAD adds new coupling findings vs origin/main
+#   make field-test           run the pinned corpus twice, diff vs baselines (~6 min)
+#   make field-test-accept    rewrite the baselines — commit that diff on its own
+#   make field-audit          emit the True/Safe/Actionable worksheet for this merge
 
 TARGET      ?= .
 OUTPUT      ?= dashboard/report.json
 OUTPUT_HTML ?= report.html
 BROWSER     ?= xdg-open
 
-.PHONY: analyze dashboard report html-report report-smoke build install setup version-bump gate-coupling
+.PHONY: analyze dashboard report html-report report-smoke build install setup version-bump gate-coupling field-test field-test-accept field-audit
 
 analyze:
 	cargo run --release -- analyze $(TARGET) --json > $(OUTPUT)
@@ -55,3 +58,15 @@ setup:
 
 version-bump:
 	./scripts/version-bump.sh
+
+## Field test — run the corpus twice, diff recommendations vs baselines
+field-test: build
+	cargo run --release --features field-test --bin field-test -- run
+
+## Accept new baselines — MUST be its own reviewed commit showing the diff
+field-test-accept: build
+	cargo run --release --features field-test --bin field-test -- accept
+
+## Emit the audit worksheet for this merge
+field-audit: build
+	cargo run --release --features field-test --bin field-test -- audit

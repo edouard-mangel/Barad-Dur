@@ -1,0 +1,276 @@
+{
+  "overall_score": 77,
+  "total_files": 1192,
+  "total_commits": 0,
+  "total_authors": 0,
+  "score_thresholds": {
+    "good_min": 71,
+    "warn_min": 41
+  },
+  "coupling_finding_counts": {
+    "common": 168,
+    "content": 0,
+    "control": 0,
+    "inheritance": 0
+  },
+  "categories": [
+    {
+      "name": "Health",
+      "score": 50,
+      "metrics": [
+        {
+          "name": "Bus factor",
+          "score": null
+        },
+        {
+          "name": "God objects",
+          "score": 25
+        },
+        {
+          "name": "Complex hotspots",
+          "score": 100
+        },
+        {
+          "name": "Long methods",
+          "score": 50
+        },
+        {
+          "name": "Code biomarkers",
+          "score": 25
+        },
+        {
+          "name": "Churn-ownership risk",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Team",
+      "score": 100,
+      "metrics": [
+        {
+          "name": "Knowledge distribution",
+          "score": null
+        },
+        {
+          "name": "Contributor activity",
+          "score": null
+        },
+        {
+          "name": "Ownership clarity",
+          "score": null
+        },
+        {
+          "name": "Collaboration patterns",
+          "score": null
+        },
+        {
+          "name": "Merge patterns",
+          "score": null
+        },
+        {
+          "name": "Cross-team coupling",
+          "score": null
+        },
+        {
+          "name": "Knowledge loss",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Evolution",
+      "score": 100,
+      "metrics": [
+        {
+          "name": "Growth trend",
+          "score": null
+        },
+        {
+          "name": "Refactoring ratio",
+          "score": null
+        },
+        {
+          "name": "Code age",
+          "score": null
+        },
+        {
+          "name": "Commit cadence",
+          "score": null
+        },
+        {
+          "name": "Code/test growth balance",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Git Hygiene",
+      "score": 100,
+      "metrics": [
+        {
+          "name": "Commit message quality",
+          "score": null
+        },
+        {
+          "name": "History cleanliness",
+          "score": null
+        },
+        {
+          "name": "Gitignore coverage",
+          "score": 100
+        },
+        {
+          "name": "Firefighting ratio",
+          "score": null
+        },
+        {
+          "name": "Friction language ratio",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Coupling",
+      "score": 70,
+      "metrics": [
+        {
+          "name": "Afferent coupling",
+          "score": null
+        },
+        {
+          "name": "Efferent coupling",
+          "score": null
+        },
+        {
+          "name": "Circular dependencies",
+          "score": null
+        },
+        {
+          "name": "Change coupling smells",
+          "score": 100
+        },
+        {
+          "name": "Content coupling",
+          "score": 100
+        },
+        {
+          "name": "Common coupling",
+          "score": 25
+        },
+        {
+          "name": "Inheritance coupling",
+          "score": 100
+        },
+        {
+          "name": "Control coupling",
+          "score": 100
+        },
+        {
+          "name": "Co-change reach trend",
+          "score": null
+        },
+        {
+          "name": "Test safety net",
+          "score": null
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "target_tab": "",
+      "text": "[Coupling] Common coupling (score: 25) — Review and improve this metric"
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] eShopLegacyMVCSolution/eShopPorted/wwwroot/Scripts/jquery-3.3.1.js — 6 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] eShopLegacyMVCSolution/src/eShopLegacyMVC/Scripts/jquery-3.3.1.js — 6 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] eShopLegacyWebFormsSolution/src/eShopLegacyWebForms/Scripts/WebForms/MSAjax/MicrosoftAjaxWebForms.js — 13 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] eShopLegacyWebFormsSolution/src/eShopLegacyWebForms/Scripts/WebForms/SmartNav.js — 21 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] eShopLegacyWebFormsSolution/src/eShopLegacyWebForms/Scripts/WebForms/WebUIValidation.js — 5 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] eShopLegacyWebFormsSolution/src/eShopLegacyWebForms/Scripts/jquery-3.3.1.js — 6 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] eShopModernizedMVCSolution/src/eShopModernizedMVC/Scripts/jquery-3.4.1.js — 6 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] eShopModernizedWebFormsSolution/src/eShopModernizedWebForms/Scripts/WebForms/MSAjax/MicrosoftAjaxWebForms.js — 13 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] eShopModernizedWebFormsSolution/src/eShopModernizedWebForms/Scripts/WebForms/SmartNav.js — 21 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] eShopModernizedWebFormsSolution/src/eShopModernizedWebForms/Scripts/jquery-3.4.1.js — 6 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] Code biomarkers (score: 25) — Reduce nesting depth by applying early returns and guard clauses"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] God objects (score: 25) — Break down large files by extracting responsibilities into smaller modules"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] eShopLegacyMVCSolution/eShopPorted/wwwroot/Scripts/bootstrap.bundle.js — 4413 loc — consider splitting by responsibility: compute_* (2), get_* (25), is_* (7), set_* (3)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] eShopLegacyMVCSolution/src/eShopLegacyMVC/Scripts/bootstrap.bundle.js — 4413 loc — consider splitting by responsibility: compute_* (2), get_* (25), is_* (7), set_* (3)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] eShopLegacyWebFormsSolution/src/eShopLegacyWebForms/Scripts/bootstrap.bundle.js — 4413 loc — consider splitting by responsibility: compute_* (2), get_* (25), is_* (7), set_* (3)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] eShopModernizedMVCSolution/src/eShopModernizedMVC/Scripts/bootstrap.bundle.js — 4413 loc — consider splitting by responsibility: compute_* (2), get_* (25), is_* (7), set_* (3)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] eShopModernizedWebFormsSolution/src/eShopModernizedWebForms/Scripts/bootstrap.bundle.js — 4413 loc — consider splitting by responsibility: compute_* (2), get_* (25), is_* (7), set_* (3)"
+    }
+  ],
+  "top_hotspots": [
+    "eShopModernizedMVCSolution/src/eShopModernizedMVC/Scripts/jquery-3.4.1.js",
+    "eShopModernizedWebFormsSolution/src/eShopModernizedWebForms/Scripts/jquery-3.4.1.js",
+    "eShopLegacyMVCSolution/eShopPorted/wwwroot/Scripts/jquery-3.3.1.js",
+    "eShopLegacyMVCSolution/src/eShopLegacyMVC/Scripts/jquery-3.3.1.js",
+    "eShopLegacyWebFormsSolution/src/eShopLegacyWebForms/Scripts/jquery-3.3.1.js",
+    "eShopModernizedMVCSolution/src/eShopModernizedMVC/Scripts/jquery-3.4.1.slim.js",
+    "eShopModernizedWebFormsSolution/src/eShopModernizedWebForms/Scripts/jquery-3.4.1.slim.js",
+    "eShopLegacyMVCSolution/eShopPorted/wwwroot/Scripts/jquery-3.3.1.slim.js",
+    "eShopLegacyMVCSolution/src/eShopLegacyMVC/Scripts/jquery-3.3.1.slim.js",
+    "eShopLegacyWebFormsSolution/src/eShopLegacyWebForms/Scripts/jquery-3.3.1.slim.js",
+    "Kubernetes-DockerForWindows/eShopModernizedSQL-K8s/.kube/schema/v1.6.6/api/v1/schema.json",
+    "Kubernetes-DockerForWindows/eShopModernizedSQL-K8s/.kube/schema/v1.6.6/schema537093963",
+    "Kubernetes/eShopModernizedMVC-K8s/ServiceDeployments/.kube/schema/v1.6.6/api/v1/schema.json",
+    "Kubernetes/eShopModernizedMVC-K8s/ServiceDeployments/.kube/schema/v1.6.6/schema694673094",
+    "Kubernetes/eShopModernizedMVC-K8s/SimplePodDeployment/.kube/schema/v1.6.6/api/v1/schema.json",
+    "Kubernetes/eShopModernizedMVC-K8s/SimplePodDeployment/.kube/schema/v1.6.6/schema684334110",
+    "Kubernetes/eShopModernizedSQL-K8s/.kube/schema/v1.6.6/api/v1/schema.json",
+    "Kubernetes/eShopModernizedSQL-K8s/.kube/schema/v1.6.6/schema537093963",
+    "Kubernetes/eShopModernizedWebForms-K8s/.kube/schema/v1.6.6/api/v1/schema.json",
+    "Kubernetes/eShopModernizedWebForms-K8s/.kube/schema/v1.6.6/schema743382747"
+  ]
+}

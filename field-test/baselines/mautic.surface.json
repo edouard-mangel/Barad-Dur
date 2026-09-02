@@ -1,0 +1,276 @@
+{
+  "overall_score": 69,
+  "total_files": 6913,
+  "total_commits": 0,
+  "total_authors": 0,
+  "score_thresholds": {
+    "good_min": 71,
+    "warn_min": 41
+  },
+  "coupling_finding_counts": {
+    "common": 141,
+    "content": 0,
+    "control": 0,
+    "inheritance": 0
+  },
+  "categories": [
+    {
+      "name": "Health",
+      "score": 62,
+      "metrics": [
+        {
+          "name": "Bus factor",
+          "score": null
+        },
+        {
+          "name": "God objects",
+          "score": 50
+        },
+        {
+          "name": "Complex hotspots",
+          "score": 100
+        },
+        {
+          "name": "Long methods",
+          "score": 50
+        },
+        {
+          "name": "Code biomarkers",
+          "score": 50
+        },
+        {
+          "name": "Churn-ownership risk",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Team",
+      "score": 100,
+      "metrics": [
+        {
+          "name": "Knowledge distribution",
+          "score": null
+        },
+        {
+          "name": "Contributor activity",
+          "score": null
+        },
+        {
+          "name": "Ownership clarity",
+          "score": null
+        },
+        {
+          "name": "Collaboration patterns",
+          "score": null
+        },
+        {
+          "name": "Merge patterns",
+          "score": null
+        },
+        {
+          "name": "Cross-team coupling",
+          "score": null
+        },
+        {
+          "name": "Knowledge loss",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Evolution",
+      "score": 100,
+      "metrics": [
+        {
+          "name": "Growth trend",
+          "score": null
+        },
+        {
+          "name": "Refactoring ratio",
+          "score": null
+        },
+        {
+          "name": "Code age",
+          "score": null
+        },
+        {
+          "name": "Commit cadence",
+          "score": null
+        },
+        {
+          "name": "Code/test growth balance",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Git Hygiene",
+      "score": 20,
+      "metrics": [
+        {
+          "name": "Commit message quality",
+          "score": null
+        },
+        {
+          "name": "History cleanliness",
+          "score": null
+        },
+        {
+          "name": "Gitignore coverage",
+          "score": 20
+        },
+        {
+          "name": "Firefighting ratio",
+          "score": null
+        },
+        {
+          "name": "Friction language ratio",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Coupling",
+      "score": 70,
+      "metrics": [
+        {
+          "name": "Afferent coupling",
+          "score": 100
+        },
+        {
+          "name": "Efferent coupling",
+          "score": 100
+        },
+        {
+          "name": "Circular dependencies",
+          "score": 75
+        },
+        {
+          "name": "Change coupling smells",
+          "score": 100
+        },
+        {
+          "name": "Content coupling",
+          "score": 100
+        },
+        {
+          "name": "Common coupling",
+          "score": 25
+        },
+        {
+          "name": "Inheritance coupling",
+          "score": 100
+        },
+        {
+          "name": "Control coupling",
+          "score": 100
+        },
+        {
+          "name": "Co-change reach trend",
+          "score": null
+        },
+        {
+          "name": "Test safety net",
+          "score": null
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "target_tab": "",
+      "text": "[Coupling] Common coupling (score: 25) — Review and improve this metric"
+    },
+    {
+      "target_tab": "",
+      "text": "[Git Hygiene] Gitignore coverage (score: 20) — Add suspicious files to .gitignore and remove from tracking"
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] app/assets/js/app.js — 4 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] app/assets/js/libraries.js — 19 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] app/assets/js/mautic-form-src.js — 6 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] app/assets/js/mautic-form.js — 6 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] app/bundles/CoreBundle/Assets/js/libraries/2.jquery.js — 6 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] app/bundles/CoreBundle/Assets/js/libraries/ckeditor/plugins/wsc/dialogs/wsc_ie.js — 6 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] app/bundles/CoreBundle/Assets/js/libraries/filemanager/elfinder/dist/js/elfinder.full.js — 16 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] media/js/libraries.js — 21 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] media/js/mautic-form-src.js — 6 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] media/js/mautic-form.js — 6 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] God objects (score: 50) — Break down large files by extracting responsibilities into smaller modules"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] app/assets/js/libraries.js — 6692 loc — consider splitting by responsibility: build_* (11), compute_* (5), get_* (91), handle_* (7), has_* (5), is_* (44), parse_* (11), set_* (23)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] app/bundles/CoreBundle/Assets/js/libraries/51.Chart.js — 11225 loc — consider splitting by responsibility: compute_* (2), get_* (35), has_* (2), is_* (21), parse_* (5), set_* (6)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] app/bundles/EmailBundle/Entity/Email.php — 642 loc; structural hub — 75 connections (threshold 11) — consider splitting by responsibility: get_* (35), is_* (2), set_* (30)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] app/bundles/LeadBundle/Entity/Lead.php — 1135 loc; structural hub — 325 connections (threshold 11) — consider splitting by responsibility: get_* (49), is_* (3), set_* (34)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] media/js/libraries.js — 6694 loc — consider splitting by responsibility: build_* (11), compute_* (5), get_* (91), handle_* (7), has_* (5), is_* (44), parse_* (11), set_* (23)"
+    }
+  ],
+  "top_hotspots": [
+    "plugins/GrapesJsBuilderBundle/Assets/library/js/dist/builder.js",
+    "phpstan-baseline.neon",
+    "media/js/libraries.js",
+    "app/assets/js/libraries.js",
+    "app/bundles/CoreBundle/Assets/js/libraries/filemanager/elfinder/dist/js/elfinder.full.js",
+    "app/bundles/CoreBundle/Assets/js/libraries/ckeditor/ckeditor.js",
+    "app/bundles/CoreBundle/Assets/js/libraries/51.Chart.js",
+    "app/bundles/CoreBundle/Assets/js/libraries/filemanager/jquery-ui/jquery-ui-built.js",
+    "app/bundles/CoreBundle/Assets/js/libraries/filemanager/jquery-ui/jquery-ui.js",
+    "app/bundles/CoreBundle/Assets/css/libraries/libraries.css",
+    "app/bundles/CoreBundle/Assets/js/libraries/6.jsplumb.js",
+    "app/bundles/CoreBundle/Assets/js/libraries/froala/froala_editor.js",
+    "app/bundles/CoreBundle/Assets/js/libraries/2.jquery.js",
+    "app/bundles/CoreBundle/Assets/js/libraries/4j.codemirror.js",
+    "app/bundles/CoreBundle/Assets/js/libraries/4.jquery-ui.js",
+    "media/js/app.js",
+    "app/assets/js/app.js",
+    "app/bundles/CoreBundle/Assets/css/libraries/builder.css",
+    "app/bundles/CoreBundle/Assets/css/app.css",
+    "app/bundles/CoreBundle/Assets/js/libraries/7.datetimepicker.js"
+  ]
+}

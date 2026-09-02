@@ -1,0 +1,284 @@
+{
+  "overall_score": 62,
+  "total_files": 1927,
+  "total_commits": 460,
+  "total_authors": 137,
+  "score_thresholds": {
+    "good_min": 71,
+    "warn_min": 41
+  },
+  "coupling_finding_counts": {
+    "common": 1,
+    "content": 0,
+    "control": 36,
+    "inheritance": 0
+  },
+  "categories": [
+    {
+      "name": "Health",
+      "score": 51,
+      "metrics": [
+        {
+          "name": "Bus factor",
+          "score": 100
+        },
+        {
+          "name": "God objects",
+          "score": 40
+        },
+        {
+          "name": "Complex hotspots",
+          "score": 40
+        },
+        {
+          "name": "Long methods",
+          "score": 50
+        },
+        {
+          "name": "Code biomarkers",
+          "score": 25
+        },
+        {
+          "name": "Churn-ownership risk",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Team",
+      "score": 68,
+      "metrics": [
+        {
+          "name": "Knowledge distribution",
+          "score": 20
+        },
+        {
+          "name": "Contributor activity",
+          "score": 100
+        },
+        {
+          "name": "Ownership clarity",
+          "score": 90
+        },
+        {
+          "name": "Collaboration patterns",
+          "score": null
+        },
+        {
+          "name": "Merge patterns",
+          "score": 80
+        },
+        {
+          "name": "Cross-team coupling",
+          "score": null
+        },
+        {
+          "name": "Knowledge loss",
+          "score": 50
+        }
+      ]
+    },
+    {
+      "name": "Evolution",
+      "score": 48,
+      "metrics": [
+        {
+          "name": "Growth trend",
+          "score": null
+        },
+        {
+          "name": "Refactoring ratio",
+          "score": 55
+        },
+        {
+          "name": "Code age",
+          "score": 40
+        },
+        {
+          "name": "Commit cadence",
+          "score": 50
+        },
+        {
+          "name": "Code/test growth balance",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Git Hygiene",
+      "score": 92,
+      "metrics": [
+        {
+          "name": "Commit message quality",
+          "score": 90
+        },
+        {
+          "name": "History cleanliness",
+          "score": 90
+        },
+        {
+          "name": "Gitignore coverage",
+          "score": 100
+        },
+        {
+          "name": "Firefighting ratio",
+          "score": 90
+        },
+        {
+          "name": "Friction language ratio",
+          "score": 90
+        }
+      ]
+    },
+    {
+      "name": "Coupling",
+      "score": 70,
+      "metrics": [
+        {
+          "name": "Afferent coupling",
+          "score": null
+        },
+        {
+          "name": "Efferent coupling",
+          "score": null
+        },
+        {
+          "name": "Circular dependencies",
+          "score": null
+        },
+        {
+          "name": "Change coupling smells",
+          "score": 40
+        },
+        {
+          "name": "Content coupling",
+          "score": 100
+        },
+        {
+          "name": "Common coupling",
+          "score": 60
+        },
+        {
+          "name": "Inheritance coupling",
+          "score": 100
+        },
+        {
+          "name": "Control coupling",
+          "score": 50
+        },
+        {
+          "name": "Co-change reach trend",
+          "score": null
+        },
+        {
+          "name": "Test safety net",
+          "score": null
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] helix-loader/src/grammar.rs — 2 finding(s) (worst: control), corroborated by change history — A flag parameter steers this function's control flow — split it into two intent-revealing functions."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] helix-lsp/src/client.rs — 7 finding(s) (worst: control), corroborated by change history — A flag parameter steers this function's control flow — split it into two intent-revealing functions."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] helix-stdx/src/env.rs — 1 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] helix-stdx/src/path.rs — 2 finding(s) (worst: control) — A flag parameter steers this function's control flow — split it into two intent-revealing functions."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] helix-term/src/commands.rs — 1 finding(s) (worst: control), corroborated by change history — A flag parameter steers this function's control flow — split it into two intent-revealing functions."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] helix-term/src/ui/document.rs — 1 finding(s) (worst: control), corroborated by change history — A flag parameter steers this function's control flow — split it into two intent-revealing functions."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] helix-term/src/ui/editor.rs — 2 finding(s) (worst: control), corroborated by change history — A flag parameter steers this function's control flow — split it into two intent-revealing functions."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] helix-tui/src/buffer.rs — 2 finding(s) (worst: control), corroborated by change history — A flag parameter steers this function's control flow — split it into two intent-revealing functions."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] helix-view/src/document.rs — 2 finding(s) (worst: control), corroborated by change history — A flag parameter steers this function's control flow — split it into two intent-revealing functions."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] helix-view/src/editor.rs — 3 finding(s) (worst: control), corroborated by change history — A flag parameter steers this function's control flow — split it into two intent-revealing functions."
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] Code biomarkers (score: 25) — Reduce nesting depth by applying early returns and guard clauses"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] God objects (score: 40) — Break down large files by extracting responsibilities into smaller modules"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] helix-term/src/application.rs — 1135 loc — consider splitting by responsibility: handle_* (10)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] helix-term/src/ui/statusline.rs — 515 loc — consider splitting by responsibility: get_* (2), render_* (24)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] helix-tui/src/buffer.rs — 890 loc — consider splitting by responsibility: set_* (17)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] helix-view/src/document.rs — 2033 loc — consider splitting by responsibility: get_* (3), set_* (13)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] helix-view/src/editor.rs — 1933 loc — consider splitting by responsibility: get_* (5), is_* (3), set_* (8)"
+    },
+    {
+      "target_tab": "ownership",
+      "text": "[Health] Churn-ownership risk (advisory) — Pair a second maintainer on the flagged high-churn single-owner files"
+    },
+    {
+      "target_tab": "ownership",
+      "text": "[Team] Collaboration patterns (advisory) — Break directory silos through cross-functional reviews"
+    },
+    {
+      "target_tab": "ownership",
+      "text": "[Team] Knowledge distribution (score: 20) — Encourage cross-team contributions and rotate ownership"
+    }
+  ],
+  "top_hotspots": [
+    "languages.toml",
+    "helix-term/src/commands.rs",
+    "helix-term/src/commands/typed.rs",
+    "helix-view/src/document.rs",
+    "helix-term/src/ui/editor.rs",
+    "helix-view/src/editor.rs",
+    "helix-term/src/application.rs",
+    "helix-core/src/movement.rs",
+    "helix-core/src/indent.rs",
+    "helix-term/src/commands/lsp.rs",
+    "helix-lsp/src/client.rs",
+    "helix-tui/src/buffer.rs",
+    "helix-term/tests/test/auto_pairs.rs",
+    "helix-view/src/handlers/dap.rs",
+    "helix-term/src/ui/picker.rs",
+    "helix-core/src/syntax.rs",
+    "helix-loader/src/grammar.rs",
+    "helix-view/src/handlers/word_index.rs",
+    "helix-lsp/src/lib.rs",
+    "helix-tui/src/backend/termina.rs"
+  ]
+}

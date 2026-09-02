@@ -1,0 +1,264 @@
+{
+  "overall_score": 67,
+  "total_files": 365,
+  "total_commits": 239,
+  "total_authors": 34,
+  "score_thresholds": {
+    "good_min": 71,
+    "warn_min": 41
+  },
+  "coupling_finding_counts": {
+    "common": 1,
+    "content": 0,
+    "control": 5,
+    "inheritance": 0
+  },
+  "categories": [
+    {
+      "name": "Health",
+      "score": 56,
+      "metrics": [
+        {
+          "name": "Bus factor",
+          "score": 50
+        },
+        {
+          "name": "God objects",
+          "score": 44
+        },
+        {
+          "name": "Complex hotspots",
+          "score": 62
+        },
+        {
+          "name": "Long methods",
+          "score": 50
+        },
+        {
+          "name": "Code biomarkers",
+          "score": 75
+        },
+        {
+          "name": "Churn-ownership risk",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Team",
+      "score": 57,
+      "metrics": [
+        {
+          "name": "Knowledge distribution",
+          "score": 20
+        },
+        {
+          "name": "Contributor activity",
+          "score": 100
+        },
+        {
+          "name": "Ownership clarity",
+          "score": 90
+        },
+        {
+          "name": "Collaboration patterns",
+          "score": null
+        },
+        {
+          "name": "Merge patterns",
+          "score": 50
+        },
+        {
+          "name": "Cross-team coupling",
+          "score": null
+        },
+        {
+          "name": "Knowledge loss",
+          "score": 25
+        }
+      ]
+    },
+    {
+      "name": "Evolution",
+      "score": 55,
+      "metrics": [
+        {
+          "name": "Growth trend",
+          "score": null
+        },
+        {
+          "name": "Refactoring ratio",
+          "score": 55
+        },
+        {
+          "name": "Code age",
+          "score": 40
+        },
+        {
+          "name": "Commit cadence",
+          "score": 70
+        },
+        {
+          "name": "Code/test growth balance",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Git Hygiene",
+      "score": 92,
+      "metrics": [
+        {
+          "name": "Commit message quality",
+          "score": 90
+        },
+        {
+          "name": "History cleanliness",
+          "score": 90
+        },
+        {
+          "name": "Gitignore coverage",
+          "score": 100
+        },
+        {
+          "name": "Firefighting ratio",
+          "score": 90
+        },
+        {
+          "name": "Friction language ratio",
+          "score": 90
+        }
+      ]
+    },
+    {
+      "name": "Coupling",
+      "score": 82,
+      "metrics": [
+        {
+          "name": "Afferent coupling",
+          "score": 100
+        },
+        {
+          "name": "Efferent coupling",
+          "score": 100
+        },
+        {
+          "name": "Circular dependencies",
+          "score": 86
+        },
+        {
+          "name": "Change coupling smells",
+          "score": 62
+        },
+        {
+          "name": "Content coupling",
+          "score": 100
+        },
+        {
+          "name": "Common coupling",
+          "score": 40
+        },
+        {
+          "name": "Inheritance coupling",
+          "score": 100
+        },
+        {
+          "name": "Control coupling",
+          "score": 70
+        },
+        {
+          "name": "Co-change reach trend",
+          "score": null
+        },
+        {
+          "name": "Test safety net",
+          "score": null
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "target_tab": "age",
+      "text": "[Evolution] Code age (score: 40) — Plan modernization of oldest code sections"
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] src/configure.rs — 1 finding(s) (worst: control) — A flag parameter steers this function's control flow — split it into two intent-revealing functions."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] src/modules/git_metrics.rs — 1 finding(s) (worst: control), corroborated by change history — A flag parameter steers this function's control flow — split it into two intent-revealing functions."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] src/modules/git_status.rs — 1 finding(s) (worst: common), corroborated by change history — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] src/print.rs — 1 finding(s) (worst: control), corroborated by change history — A flag parameter steers this function's control flow — split it into two intent-revealing functions."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] src/utils/mod.rs — 2 finding(s) (worst: control), corroborated by change history — A flag parameter steers this function's control flow — split it into two intent-revealing functions."
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] src/context/mod.rs — 951 loc; structural hub — 11 connections (threshold 8) — consider splitting by responsibility: get_* (11), has_* (11), is_* (2), parse_* (3), set_* (8)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] src/modules/aws.rs — 1081 loc — consider splitting by responsibility: get_* (10), has_* (3)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] src/modules/git_status.rs — 1912 loc — consider splitting by responsibility: get_* (21), is_* (8), set_* (2)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] src/modules/package.rs — 1466 loc — consider splitting by responsibility: get_* (26), parse_* (3)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] src/utils/mod.rs — 990 loc; structural hub — 17 connections (threshold 8); generic name suggests broad responsibility — consider splitting by responsibility: render_* (9)"
+    },
+    {
+      "target_tab": "ownership",
+      "text": "[Health] Churn-ownership risk (advisory) — Pair a second maintainer on the flagged high-churn single-owner files"
+    },
+    {
+      "target_tab": "ownership",
+      "text": "[Team] Collaboration patterns (advisory) — Break directory silos through cross-functional reviews"
+    },
+    {
+      "target_tab": "ownership",
+      "text": "[Team] Knowledge distribution (score: 20) — Encourage cross-team contributions and rotate ownership"
+    },
+    {
+      "target_tab": "ownership",
+      "text": "[Team] Knowledge loss (score: 25) — Schedule knowledge-transfer or documentation passes over the most unattributed files"
+    }
+  ],
+  "top_hotspots": [
+    "Cargo.toml",
+    "src/modules/git_status.rs",
+    ".github/config-schema.json",
+    "docs/public/config-schema.json",
+    ".github/workflows/release.yml",
+    "src/print.rs",
+    "src/modules/directory.rs",
+    "src/context/mod.rs",
+    "src/modules/custom.rs",
+    "src/modules/git_metrics.rs",
+    "src/modules/status.rs",
+    "src/modules/git_branch.rs",
+    "src/utils/mod.rs",
+    ".github/workflows/format-workflow.yml",
+    "src/config.rs",
+    "src/modules/package.rs",
+    ".github/workflows/workflow.yml",
+    "src/modules/aws.rs",
+    "src/modules/kubernetes.rs",
+    "src/configure.rs"
+  ]
+}
