@@ -7,6 +7,7 @@ pub mod config;
 pub mod contributors;
 pub mod coupling;
 pub mod deps;
+pub mod field_test;
 pub mod init;
 pub mod metrics;
 pub mod registry;

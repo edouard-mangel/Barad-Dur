@@ -34,3 +34,4 @@ mutants.out.old/
 .nwave/*
 !.nwave/local-config.json
 cosign.key
+field-test/archive/

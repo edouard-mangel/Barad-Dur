@@ -1,0 +1,207 @@
+{
+  "overall_score": 86,
+  "total_files": 874,
+  "total_commits": 0,
+  "total_authors": 0,
+  "score_thresholds": {
+    "good_min": 71,
+    "warn_min": 41
+  },
+  "coupling_finding_counts": {},
+  "categories": [
+    {
+      "name": "Health",
+      "score": 93,
+      "metrics": [
+        {
+          "name": "Bus factor",
+          "score": null
+        },
+        {
+          "name": "God objects",
+          "score": 100
+        },
+        {
+          "name": "Complex hotspots",
+          "score": 100
+        },
+        {
+          "name": "Long methods",
+          "score": 75
+        },
+        {
+          "name": "Code biomarkers",
+          "score": 100
+        },
+        {
+          "name": "Churn-ownership risk",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Team",
+      "score": 100,
+      "metrics": [
+        {
+          "name": "Knowledge distribution",
+          "score": null
+        },
+        {
+          "name": "Contributor activity",
+          "score": null
+        },
+        {
+          "name": "Ownership clarity",
+          "score": null
+        },
+        {
+          "name": "Collaboration patterns",
+          "score": null
+        },
+        {
+          "name": "Merge patterns",
+          "score": null
+        },
+        {
+          "name": "Cross-team coupling",
+          "score": null
+        },
+        {
+          "name": "Knowledge loss",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Evolution",
+      "score": 100,
+      "metrics": [
+        {
+          "name": "Growth trend",
+          "score": null
+        },
+        {
+          "name": "Refactoring ratio",
+          "score": null
+        },
+        {
+          "name": "Code age",
+          "score": null
+        },
+        {
+          "name": "Commit cadence",
+          "score": null
+        },
+        {
+          "name": "Code/test growth balance",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Git Hygiene",
+      "score": 20,
+      "metrics": [
+        {
+          "name": "Commit message quality",
+          "score": null
+        },
+        {
+          "name": "History cleanliness",
+          "score": null
+        },
+        {
+          "name": "Gitignore coverage",
+          "score": 20
+        },
+        {
+          "name": "Firefighting ratio",
+          "score": null
+        },
+        {
+          "name": "Friction language ratio",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Coupling",
+      "score": 100,
+      "metrics": [
+        {
+          "name": "Afferent coupling",
+          "score": null
+        },
+        {
+          "name": "Efferent coupling",
+          "score": null
+        },
+        {
+          "name": "Circular dependencies",
+          "score": null
+        },
+        {
+          "name": "Change coupling smells",
+          "score": 100
+        },
+        {
+          "name": "Content coupling",
+          "score": null
+        },
+        {
+          "name": "Common coupling",
+          "score": null
+        },
+        {
+          "name": "Inheritance coupling",
+          "score": null
+        },
+        {
+          "name": "Control coupling",
+          "score": null
+        },
+        {
+          "name": "Co-change reach trend",
+          "score": null
+        },
+        {
+          "name": "Test safety net",
+          "score": null
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "target_tab": "",
+      "text": "[Git Hygiene] Gitignore coverage (score: 20) — Add suspicious files to .gitignore and remove from tracking"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] Long methods (score: 75) — Extract smaller functions from the longest methods to improve readability"
+    }
+  ],
+  "top_hotspots": [
+    "Chapter-3-microservice-extraction/Fitnet.Common/Fitnet.Common.IntegrationTestsToolbox/TestEngine/EventBus/EventBusExtensions.cs",
+    "Chapter-4-applying-tactical-domain-driven-design/Fitnet.Common/Fitnet.Common.IntegrationTestsToolbox/TestEngine/EventBus/EventBusExtensions.cs",
+    "Chapter-4-applying-tactical-domain-driven-design/Fitnet.Common/Fitnet.Common.Core/ValueObject.cs",
+    "Chapter-3-microservice-extraction/Fitnet.Common/Fitnet.Common.IntegrationTestsToolbox/TestEngine/Configuration/ConfigurationExtensions.cs",
+    "Chapter-4-applying-tactical-domain-driven-design/Fitnet.Common/Fitnet.Common.IntegrationTestsToolbox/TestEngine/Configuration/ConfigurationExtensions.cs",
+    "Chapter-2-modules-separation/Src/Contracts/Fitnet.Contracts.Api/ContractsModule.cs",
+    "Chapter-3-microservice-extraction/Fitnet/Src/Passes/Fitnet.Passes.Api/PassesModule.cs",
+    "Chapter-4-applying-tactical-domain-driven-design/Fitnet/Src/Passes/Fitnet.Passes.Api/PassesModule.cs",
+    "Chapter-2-modules-separation/Src/Offers/Fitnet.Offers.Api/OffersModule.cs",
+    "Chapter-2-modules-separation/Src/Passes/Fitnet.Passes.Api/PassesModule.cs",
+    "Chapter-3-microservice-extraction/Fitnet/Src/Offers/Fitnet.Offers.Api/OffersModule.cs",
+    "Chapter-4-applying-tactical-domain-driven-design/Fitnet/Src/Offers/Fitnet.Offers.Api/OffersModule.cs",
+    "Chapter-4-applying-tactical-domain-driven-design/Fitnet/Src/Reports/Fitnet.Reports/ReportsModule.cs",
+    "Chapter-2-modules-separation/Src/Reports/Fitnet.Reports/ReportsModule.cs",
+    "Chapter-3-microservice-extraction/Fitnet/Src/Reports/Fitnet.Reports/ReportsModule.cs",
+    "Chapter-2-modules-separation/Src/Reports/Fitnet.Reports/DataAccess/DatabaseConnectionFactory.cs",
+    "Chapter-3-microservice-extraction/Fitnet/Src/Reports/Fitnet.Reports/DataAccess/DatabaseConnectionFactory.cs",
+    "Chapter-4-applying-tactical-domain-driven-design/Fitnet/Src/Reports/Fitnet.Reports/DataAccess/DatabaseConnectionFactory.cs",
+    "Chapter-1-initial-architecture/Src/Fitnet/Reports/DataAccess/DatabaseConnectionFactory.cs",
+    "Chapter-2-modules-separation/Src/Common/Fitnet.Common.Api/Validation/Requests/RequestValidationApiFilter.cs"
+  ]
+}

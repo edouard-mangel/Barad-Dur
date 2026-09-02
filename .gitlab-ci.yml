@@ -108,6 +108,10 @@ build:
   script:
     - rustup component add clippy
     - cargo clippy --all-targets -- -D warnings
+    # The field-test driver binary has `required-features = ["field-test"]`, so
+    # the line above never compiles it. Without this second pass a refactor of
+    # any `field_test::*` signature breaks the driver while CI stays green.
+    - cargo clippy --all-targets --features field-test -- -D warnings
     - cargo build --release
   artifacts:
     paths:

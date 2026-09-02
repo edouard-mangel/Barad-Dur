@@ -11,3 +11,12 @@ exclude_re = [
     "announce_",
     "print_group",
 ]
+
+# The `field-test` binary is gated behind a non-default cargo feature, so a
+# default-feature mutation run never compiles it. Its mutants are unkillable by
+# construction — no test can observe a change to code that is never linked — yet
+# each one still costs a full suite run to prove it survived. Twenty of them
+# timed out the mutation-0 shard at 4h. Enabling the feature would not help:
+# the integration suites drive the library, never the binary. Everything this
+# binary decides lives in `field_test::sweep` and friends, which stay mutated.
+exclude_globs = ["src/bin/field-test.rs"]

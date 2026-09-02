@@ -68,6 +68,21 @@ Integration tests in `tests/` follow the feature workflow naming: `<feature>_wal
 - The snapshot cache (`.repository-analysis/snapshot.bin`, bincode) makes repeat runs instant — if collector changes don't seem to take effect, run with `--no-cache`.
 - Integration tests analyze a real repo; `BARAD_DUR_TEST_REPO` overrides which one (CI points it at `CI_PROJECT_DIR` for dogfooding, defaults to `.`).
 
+## Review gates
+
+Full definitions in `docs/review-process.md`. In short:
+
+- **P0** at plan freeze — probe every claim about a grammar or API, record the output
+- **P1** at final review — sweep each invariant across *all* its call sites
+- **P2** at final review — `make field-test` (regression + determinism) and
+  `make field-audit` (True/Safe/Actionable). A `Safe` failure blocks the merge
+- Reports state **evidence**, not verdicts. Full suite, never `--lib` alone
+- Minors are fixed, corpus-tested, or retired with a rationale — never silently deferred
+
+`make field-test` analyses from a committed date boundary at each pinned commit,
+so its regression baselines are independent of the wall clock. Missing baselines are errors; create
+or update them explicitly with `make field-test-accept` in a reviewed commit.
+
 ## Development Paradigm
 
 This project follows the **functional programming** paradigm.

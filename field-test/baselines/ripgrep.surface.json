@@ -1,0 +1,276 @@
+{
+  "overall_score": 56,
+  "total_files": 211,
+  "total_commits": 78,
+  "total_authors": 27,
+  "score_thresholds": {
+    "good_min": 71,
+    "warn_min": 41
+  },
+  "coupling_finding_counts": {
+    "common": 4,
+    "content": 2,
+    "control": 5,
+    "inheritance": 0
+  },
+  "categories": [
+    {
+      "name": "Health",
+      "score": 40,
+      "metrics": [
+        {
+          "name": "Bus factor",
+          "score": 25
+        },
+        {
+          "name": "God objects",
+          "score": 25
+        },
+        {
+          "name": "Complex hotspots",
+          "score": 25
+        },
+        {
+          "name": "Long methods",
+          "score": 75
+        },
+        {
+          "name": "Code biomarkers",
+          "score": 50
+        },
+        {
+          "name": "Churn-ownership risk",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Team",
+      "score": 67,
+      "metrics": [
+        {
+          "name": "Knowledge distribution",
+          "score": 20
+        },
+        {
+          "name": "Contributor activity",
+          "score": 100
+        },
+        {
+          "name": "Ownership clarity",
+          "score": 90
+        },
+        {
+          "name": "Collaboration patterns",
+          "score": null
+        },
+        {
+          "name": "Merge patterns",
+          "score": 50
+        },
+        {
+          "name": "Cross-team coupling",
+          "score": null
+        },
+        {
+          "name": "Knowledge loss",
+          "score": 75
+        }
+      ]
+    },
+    {
+      "name": "Evolution",
+      "score": 48,
+      "metrics": [
+        {
+          "name": "Growth trend",
+          "score": null
+        },
+        {
+          "name": "Refactoring ratio",
+          "score": 55
+        },
+        {
+          "name": "Code age",
+          "score": 40
+        },
+        {
+          "name": "Commit cadence",
+          "score": 50
+        },
+        {
+          "name": "Code/test growth balance",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Git Hygiene",
+      "score": 80,
+      "metrics": [
+        {
+          "name": "Commit message quality",
+          "score": 30
+        },
+        {
+          "name": "History cleanliness",
+          "score": 90
+        },
+        {
+          "name": "Gitignore coverage",
+          "score": 100
+        },
+        {
+          "name": "Firefighting ratio",
+          "score": 90
+        },
+        {
+          "name": "Friction language ratio",
+          "score": 90
+        }
+      ]
+    },
+    {
+      "name": "Coupling",
+      "score": 70,
+      "metrics": [
+        {
+          "name": "Afferent coupling",
+          "score": 100
+        },
+        {
+          "name": "Efferent coupling",
+          "score": 100
+        },
+        {
+          "name": "Circular dependencies",
+          "score": 100
+        },
+        {
+          "name": "Change coupling smells",
+          "score": 100
+        },
+        {
+          "name": "Content coupling",
+          "score": 35
+        },
+        {
+          "name": "Common coupling",
+          "score": 25
+        },
+        {
+          "name": "Inheritance coupling",
+          "score": 100
+        },
+        {
+          "name": "Control coupling",
+          "score": 85
+        },
+        {
+          "name": "Co-change reach trend",
+          "score": null
+        },
+        {
+          "name": "Test safety net",
+          "score": null
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] crates/core/index/mod.rs — 2 finding(s) (worst: content) — Reaches into another module's internals — import through the module's public interface instead."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] crates/core/messages.rs — 3 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] crates/ignore/src/gitignore.rs — 1 finding(s) (worst: control) — A flag parameter steers this function's control flow — split it into two intent-revealing functions."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] crates/ignore/src/lib.rs — 1 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] crates/ignore/src/overrides.rs — 1 finding(s) (worst: control) — A flag parameter steers this function's control flow — split it into two intent-revealing functions."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] crates/ignore/src/types.rs — 1 finding(s) (worst: control) — A flag parameter steers this function's control flow — split it into two intent-revealing functions."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] crates/ignore/src/walk.rs — 1 finding(s) (worst: control) — A flag parameter steers this function's control flow — split it into two intent-revealing functions."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] crates/regex/src/matcher.rs — 1 finding(s) (worst: control) — A flag parameter steers this function's control flow — split it into two intent-revealing functions."
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] God objects (score: 25) — Break down large files by extracting responsibilities into smaller modules"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] crates/core/flags/defs.rs — 6915 loc — consider splitting by responsibility: is_* (108)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] crates/globset/src/lib.rs — 876 loc — consider splitting by responsibility: is_* (12), set_* (2)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] crates/ignore/src/gitignore.rs — 549 loc — consider splitting by responsibility: is_* (3), parse_* (6)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] crates/ignore/src/walk.rs — 1780 loc — consider splitting by responsibility: build_* (3), get_* (2), is_* (10)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] crates/index/src/literal.rs — 852 loc — consider splitting by responsibility: build_* (2), has_* (2), is_* (7)"
+    },
+    {
+      "target_tab": "ownership",
+      "text": "[Health] Bus factor (score: 25) — Increase code review coverage and pair programming to spread knowledge"
+    },
+    {
+      "target_tab": "ownership",
+      "text": "[Health] Churn-ownership risk (advisory) — Pair a second maintainer on the flagged high-churn single-owner files"
+    },
+    {
+      "target_tab": "ownership",
+      "text": "[Team] Collaboration patterns (advisory) — Break directory silos through cross-functional reviews"
+    },
+    {
+      "target_tab": "ownership",
+      "text": "[Team] Knowledge distribution (score: 20) — Encourage cross-team contributions and rotate ownership"
+    }
+  ],
+  "top_hotspots": [
+    "crates/ignore/src/walk.rs",
+    "crates/ignore/src/dir.rs",
+    "crates/core/flags/defs.rs",
+    "crates/ignore/Cargo.toml",
+    "crates/core/flags/hiargs.rs",
+    "crates/core/flags/complete/rg.zsh",
+    "Cargo.toml",
+    "crates/globset/src/lib.rs",
+    "crates/core/main.rs",
+    "crates/printer/src/standard.rs",
+    "crates/globset/src/glob.rs",
+    "crates/index/src/literal.rs",
+    "crates/ignore/src/default_types.rs",
+    "crates/searcher/src/searcher/core.rs",
+    "crates/ignore/src/lib.rs",
+    "crates/ignore/src/gitignore.rs",
+    ".github/workflows/ci.yml",
+    "crates/globset/Cargo.toml",
+    "crates/searcher/src/searcher/mod.rs",
+    "crates/ignore/src/pathutil.rs"
+  ]
+}

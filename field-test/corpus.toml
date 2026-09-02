@@ -1,0 +1,73 @@
+# Field-test corpus. Paths are relative to $BARAD_DUR_CORPUS_ROOT
+# (default: $HOME/WS). Pins are mandatory: unpinned repos drift and
+# every diff becomes noise.
+
+[[repo]]
+name = "barad-dur"
+path = "barad-dur"
+# An ancestor of `main`, so it stays reachable after this branch is
+# squash-merged and deleted. A commit that exists only on a feature branch
+# becomes unreachable once the branch is gone and the reflog expires, and
+# `git worktree add --detach <pin>` then fails as a hard harness error.
+pin  = "dc23fbd6"
+lang = "Rust"
+
+[[repo]]
+name = "ripgrep"
+path = "ripgrep"
+pin  = "3fce3b5b"
+lang = "Rust"
+
+[[repo]]
+name = "helix"
+path = "helix"
+pin  = "079a789e"
+lang = "Rust"
+
+[[repo]]
+name = "starship"
+path = "starship"
+pin  = "e939a19a"
+lang = "Rust"
+
+[[repo]]
+name = "dotnet-starter-kit"
+path = "dotnet-starter-kit"
+pin  = "b21bdd93"
+lang = "CSharp"
+
+[[repo]]
+name = "evolutionary-architecture-by-example"
+path = "evolutionary-architecture-by-example"
+pin  = "536af586"
+lang = "CSharp"
+
+[[repo]]
+name = "eShopModernizing"
+path = "eShopModernizing"
+pin  = "63bc9ec4"
+lang = "CSharp"
+
+[[repo]]
+name = "App-Serveat"
+path = "App-Serveat"
+pin  = "6fcfa756"
+lang = "CSharp"
+
+[[repo]]
+name = "payp-app-front"
+path = "payp-app-front"
+pin  = "2260b980"
+lang = "TypeScript"
+
+[[repo]]
+name = "kairis-crm"
+path = "kairis-crm"
+pin  = "663493ef"
+lang = "TypeScript"
+
+[[repo]]
+name = "mautic"
+path = "mautic"
+pin  = "181701cd"
+lang = "PHP"

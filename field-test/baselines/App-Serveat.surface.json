@@ -1,0 +1,252 @@
+{
+  "overall_score": 79,
+  "total_files": 555,
+  "total_commits": 135,
+  "total_authors": 1,
+  "score_thresholds": {
+    "good_min": 71,
+    "warn_min": 41
+  },
+  "coupling_finding_counts": {
+    "common": 5,
+    "content": 0,
+    "control": 0,
+    "inheritance": 36
+  },
+  "categories": [
+    {
+      "name": "Health",
+      "score": 75,
+      "metrics": [
+        {
+          "name": "Bus factor",
+          "score": null
+        },
+        {
+          "name": "God objects",
+          "score": 75
+        },
+        {
+          "name": "Complex hotspots",
+          "score": 75
+        },
+        {
+          "name": "Long methods",
+          "score": 75
+        },
+        {
+          "name": "Code biomarkers",
+          "score": 75
+        },
+        {
+          "name": "Churn-ownership risk",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Team",
+      "score": 100,
+      "metrics": [
+        {
+          "name": "Knowledge distribution",
+          "score": null
+        },
+        {
+          "name": "Contributor activity",
+          "score": null
+        },
+        {
+          "name": "Ownership clarity",
+          "score": null
+        },
+        {
+          "name": "Collaboration patterns",
+          "score": null
+        },
+        {
+          "name": "Merge patterns",
+          "score": null
+        },
+        {
+          "name": "Cross-team coupling",
+          "score": null
+        },
+        {
+          "name": "Knowledge loss",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Evolution",
+      "score": 77,
+      "metrics": [
+        {
+          "name": "Growth trend",
+          "score": null
+        },
+        {
+          "name": "Refactoring ratio",
+          "score": 92
+        },
+        {
+          "name": "Code age",
+          "score": 90
+        },
+        {
+          "name": "Commit cadence",
+          "score": 50
+        },
+        {
+          "name": "Code/test growth balance",
+          "score": null
+        }
+      ]
+    },
+    {
+      "name": "Git Hygiene",
+      "score": 92,
+      "metrics": [
+        {
+          "name": "Commit message quality",
+          "score": 90
+        },
+        {
+          "name": "History cleanliness",
+          "score": 90
+        },
+        {
+          "name": "Gitignore coverage",
+          "score": 100
+        },
+        {
+          "name": "Firefighting ratio",
+          "score": 90
+        },
+        {
+          "name": "Friction language ratio",
+          "score": 90
+        }
+      ]
+    },
+    {
+      "name": "Coupling",
+      "score": 70,
+      "metrics": [
+        {
+          "name": "Afferent coupling",
+          "score": null
+        },
+        {
+          "name": "Efferent coupling",
+          "score": null
+        },
+        {
+          "name": "Circular dependencies",
+          "score": null
+        },
+        {
+          "name": "Change coupling smells",
+          "score": 100
+        },
+        {
+          "name": "Content coupling",
+          "score": 100
+        },
+        {
+          "name": "Common coupling",
+          "score": 25
+        },
+        {
+          "name": "Inheritance coupling",
+          "score": 40
+        },
+        {
+          "name": "Control coupling",
+          "score": 100
+        },
+        {
+          "name": "Co-change reach trend",
+          "score": null
+        },
+        {
+          "name": "Test safety net",
+          "score": null
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "target_tab": "",
+      "text": "[Coupling] Co-change reach trend (advisory) — Review and improve this metric"
+    },
+    {
+      "target_tab": "",
+      "text": "[Coupling] Common coupling (score: 25) — Review and improve this metric"
+    },
+    {
+      "target_tab": "",
+      "text": "[Coupling] Inheritance coupling (score: 40) — Review and improve this metric"
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] templates/dotnet-clean-architecture/BlazorClient/BlazorClient.Client/Components/AccessibleTabsWrapper.razor.js — 1 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] templates/dotnet-clean-architecture/BlazorClient/BlazorClient/wwwroot/auth.js — 1 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] templates/dotnet-clean-architecture/BlazorClient/BlazorClient/wwwroot/lib/bootstrap/dist/js/bootstrap.bundle.js — 13 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] templates/dotnet-clean-architecture/BlazorClient/BlazorClient/wwwroot/lib/bootstrap/dist/js/bootstrap.esm.js — 13 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "coupling",
+      "text": "[Coupling] templates/dotnet-clean-architecture/BlazorClient/BlazorClient/wwwroot/lib/bootstrap/dist/js/bootstrap.js — 13 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] templates/dotnet-clean-architecture/BlazorClient/BlazorClient/wwwroot/lib/bootstrap/dist/js/bootstrap.bundle.js — 4976 loc — consider splitting by responsibility: compute_* (3), get_* (43), is_* (11), set_* (2)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] templates/dotnet-clean-architecture/BlazorClient/BlazorClient/wwwroot/lib/bootstrap/dist/js/bootstrap.esm.js — 3547 loc — consider splitting by responsibility: get_* (11), is_* (3), set_* (2)"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] templates/dotnet-clean-architecture/BlazorClient/BlazorClient/wwwroot/lib/bootstrap/dist/js/bootstrap.js — 3582 loc — consider splitting by responsibility: get_* (11), is_* (3), set_* (2)"
+    },
+    {
+      "target_tab": "trends",
+      "text": "[Evolution] Commit cadence (score: 50) — Establish regular commit patterns and avoid large batches"
+    }
+  ],
+  "top_hotspots": [
+    "templates/dotnet-clean-architecture/Domain/Menu/Menu.cs",
+    "templates/dotnet-clean-architecture/BlazorClient/BlazorClient/wwwroot/lib/bootstrap/dist/js/bootstrap.bundle.js",
+    "templates/dotnet-clean-architecture/Domain/Menu/MenuItem.cs",
+    "templates/dotnet-clean-architecture/BlazorClient/BlazorClient/wwwroot/lib/bootstrap/dist/js/bootstrap.js",
+    "templates/dotnet-clean-architecture/BlazorClient/BlazorClient/wwwroot/lib/bootstrap/dist/js/bootstrap.esm.js",
+    "templates/dotnet-clean-architecture/Infrastructure/DependencyInjection.cs",
+    "templates/dotnet-clean-architecture/Domain/Restaurant/Restaurant.cs",
+    "templates/dotnet-clean-architecture/docker-compose.yml",
+    "templates/dotnet-clean-architecture/ApiTests/Menu/SetIngredientAvailabilityWithCascadeApiTest.cs",
+    "templates/dotnet-clean-architecture/docs/feature/menu-item-modifiers/deliver/execution-log.json",
+    "templates/dotnet-clean-architecture/Domain/Order/Order.cs",
+    "templates/dotnet-clean-architecture/BlazorClient/BlazorClient/Program.cs",
+    "templates/dotnet-clean-architecture/Application/Menu/Queries/MenuDto.cs",
+    "templates/dotnet-clean-architecture/BlazorClient.E2ETests/AccessibilityTests.cs",
+    "templates/dotnet-clean-architecture/BlazorClient/BlazorClient/wwwroot/lib/bootstrap/dist/css/bootstrap.css",
+    "templates/dotnet-clean-architecture/BlazorClient/BlazorClient/wwwroot/lib/bootstrap/dist/css/bootstrap.rtl.css",
+    "templates/dotnet-clean-architecture/BlazorClient.E2ETests/PlaywrightFixture.cs",
+    "templates/dotnet-clean-architecture/AcceptanceTests/Menu/MenuItemAvailabilityCascadeTest.cs",
+    "templates/dotnet-clean-architecture/BlazorClient/BlazorClient.Client/Program.cs",
+    "templates/dotnet-clean-architecture/Domain/Menu/ModifierGroup.cs"
+  ]
+}
