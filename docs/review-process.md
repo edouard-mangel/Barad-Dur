@@ -59,6 +59,20 @@ Three modes against 11 pinned real repositories in `field-test/corpus.toml`
 decision surface). All three are driven by `make field-test` (regression +
 determinism) and `make field-audit` (the True/Safe/Actionable worksheet).
 
+**Where it runs.** CI runs regression + determinism on every merge-request
+and `main` pipeline (`field-test` job) over the **public subset**: the
+entries in `corpus.toml` that carry a `url`, cloned in full under
+`$CI_PROJECT_DIR/.corpus/<manifest-hash>` and cached across pipelines. The
+runtime hash is computed after the merge-result checkout, so repositories from
+different merged manifests never share a directory. The job blocks the
+merge on any diff. The entries without a `url` are private repositories
+that exist only on the maintainer's machine; they are covered only by the
+maintainer's local `make field-test` (`BARAD_DUR_CORPUS_SCOPE` unset), which
+therefore still runs before every merge. `BARAD_DUR_CORPUS_SCOPE=public`
+reproduces the CI subset locally. Merge-request pipelines run on the
+**merged result**, not the branch head, so a branch that forked before an
+unrelated scoring change still meets the current baselines.
+
 ### P2a — Regression mode
 
 Analyse every corpus repo at its pinned SHA and diff the **decision

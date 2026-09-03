@@ -12,6 +12,37 @@ pub struct CorpusEntry {
     /// diff becomes noise.
     pub pin: String,
     pub lang: String,
+    /// Clone URL for a publicly reachable repository. Entries without one
+    /// exist only on the maintainer's machine and are skipped under
+    /// [`Scope::Public`] (the CI subset).
+    #[serde(default)]
+    pub url: Option<String>,
+}
+
+/// Which corpus entries a run covers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    /// Every entry — the maintainer's full local sweep.
+    All,
+    /// Only entries with a `url` — what CI can clone without credentials.
+    Public,
+}
+
+/// Parse `BARAD_DUR_CORPUS_SCOPE`; unset means the full corpus.
+pub fn parse_scope(raw: Option<&str>) -> Result<Scope> {
+    match raw {
+        None | Some("all") => Ok(Scope::All),
+        Some("public") => Ok(Scope::Public),
+        Some(other) => bail!("BARAD_DUR_CORPUS_SCOPE must be `all` or `public`, got `{other}`"),
+    }
+}
+
+/// Entries covered by `scope`, in manifest order.
+pub fn select_entries(entries: Vec<CorpusEntry>, scope: Scope) -> Vec<CorpusEntry> {
+    entries
+        .into_iter()
+        .filter(|entry| scope == Scope::All || entry.url.is_some())
+        .collect()
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,11 +99,67 @@ lang = "PHP"
             path: "ripgrep".into(),
             pin: "3fce3b5b".into(),
             lang: "Rust".into(),
+            url: None,
         };
         assert_eq!(
             resolve_path(&entry, Path::new("/home/edouard/WS")),
             Path::new("/home/edouard/WS/ripgrep")
         );
+    }
+
+    #[test]
+    fn url_is_optional_and_marks_a_publicly_cloneable_entry() {
+        let src = r#"
+[[repo]]
+name = "ripgrep"
+path = "ripgrep"
+pin  = "3fce3b5b"
+lang = "Rust"
+url  = "https://github.com/BurntSushi/ripgrep.git"
+
+[[repo]]
+name = "private-app"
+path = "private-app"
+pin  = "deadbeef"
+lang = "TypeScript"
+"#;
+        let entries = parse_corpus(src).expect("parses");
+        assert_eq!(
+            entries[0].url.as_deref(),
+            Some("https://github.com/BurntSushi/ripgrep.git")
+        );
+        assert_eq!(entries[1].url, None);
+    }
+
+    #[test]
+    fn public_scope_keeps_only_entries_with_a_url() {
+        let src = r#"
+[[repo]]
+name = "ripgrep"
+path = "ripgrep"
+pin  = "3fce3b5b"
+lang = "Rust"
+url  = "https://github.com/BurntSushi/ripgrep.git"
+
+[[repo]]
+name = "private-app"
+path = "private-app"
+pin  = "deadbeef"
+lang = "TypeScript"
+"#;
+        let entries = parse_corpus(src).expect("parses");
+        let public = select_entries(entries.clone(), Scope::Public);
+        assert_eq!(public.len(), 1);
+        assert_eq!(public[0].name, "ripgrep");
+        assert_eq!(select_entries(entries, Scope::All).len(), 2);
+    }
+
+    #[test]
+    fn scope_parses_from_the_environment_value() {
+        assert_eq!(parse_scope(None).unwrap(), Scope::All);
+        assert_eq!(parse_scope(Some("all")).unwrap(), Scope::All);
+        assert_eq!(parse_scope(Some("public")).unwrap(), Scope::Public);
+        assert!(parse_scope(Some("remote")).is_err());
     }
 
     #[test]

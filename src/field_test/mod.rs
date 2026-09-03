@@ -8,6 +8,7 @@ pub mod audit;
 pub mod baseline;
 pub mod corpus;
 pub mod diff;
+pub mod fetch;
 pub mod mode;
 pub mod runner;
 pub mod surface;

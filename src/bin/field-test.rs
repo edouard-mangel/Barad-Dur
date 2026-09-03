@@ -10,8 +10,9 @@ use anyhow::{bail, Context, Result};
 use barad_dur::field_test::{
     audit::render_worksheet,
     baseline::write_baseline,
-    corpus::{parse_corpus, resolve_path},
+    corpus::{parse_corpus, parse_scope, select_entries},
     diff::diff_surfaces,
+    fetch::ensure_present,
     mode::{parse_mode, Mode},
     runner::analyze_pinned,
     sweep::{audit_corpus, baseline_for, step_for, summary_line, AuditInput, RepoStep},
@@ -44,10 +45,14 @@ fn run() -> Result<()> {
     std::fs::create_dir_all(archive)
         .with_context(|| format!("creating archive directory {}", archive.display()))?;
 
-    let entries = parse_corpus(
-        &std::fs::read_to_string("field-test/corpus.toml")
-            .context("reading field-test/corpus.toml")?,
-    )?;
+    let scope = parse_scope(std::env::var("BARAD_DUR_CORPUS_SCOPE").ok().as_deref())?;
+    let entries = select_entries(
+        parse_corpus(
+            &std::fs::read_to_string("field-test/corpus.toml")
+                .context("reading field-test/corpus.toml")?,
+        )?,
+        scope,
+    );
     let binary = PathBuf::from("target/release/barad-dur");
     let passes = if mode == Mode::Run { 2 } else { 1 };
 
@@ -57,7 +62,7 @@ fn run() -> Result<()> {
     let mut audit_inputs: Vec<AuditInput> = Vec::new();
 
     for entry in &entries {
-        let repo = resolve_path(entry, &root);
+        let repo = ensure_present(entry, &root)?;
         let outcome = analyze_pinned(&binary, &entry.name, &repo, &entry.pin, archive, passes)?;
 
         if let Some(nd) = &outcome.nondeterminism {

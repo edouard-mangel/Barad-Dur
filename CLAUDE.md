@@ -82,6 +82,9 @@ Full definitions in `docs/review-process.md`. In short:
 `make field-test` analyses from a committed date boundary at each pinned commit,
 so its regression baselines are independent of the wall clock. Missing baselines are errors; create
 or update them explicitly with `make field-test-accept` in a reviewed commit.
+CI runs the same sweep on every MR and on `main` over the public subset only (corpus entries with
+a `url`, cloned into `.corpus/`); the private entries run only locally, so run the full
+`make field-test` before merging. `BARAD_DUR_CORPUS_SCOPE=public` reproduces the CI subset.
 
 ## Development Paradigm
 
