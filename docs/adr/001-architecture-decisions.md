@@ -131,7 +131,7 @@ Weights are user-configurable via `.repository-analysis/barad-dur.toml` `[weight
 |--------|-----------|---------------|
 | Commit message quality | Length >10, capitalized, not "wip"/"fix" | >80%→90, <40%→30 |
 | History cleanliness | Octopus merges + empty messages | Issues + merge % |
-| Gitignore coverage | Tracked files matching high-confidence directory, exact-name, extension, or non-source semantic path rules | 0→100, 1-2→70, 3-5→45, 6+→20 |
+| Gitignore coverage | Tracked files matching directory, exact-name, extension (wrapper suffixes such as `.bak`/`.enc` stripped), or filename-word rules; `.example`/`.sample`/`.template`/`.dist` files are exempt, and the filename-word rule skips source, prose-documentation, and binary files | 0→100, 1-2→70, 3-5→45, 6+→20 |
 
 ---
 

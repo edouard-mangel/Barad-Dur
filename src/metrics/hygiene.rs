@@ -1,4 +1,6 @@
-use crate::metrics::file_role::{classify, has_source_extension, FileRole};
+use crate::metrics::file_role::{
+    contains_ignore_case, has_doc_extension, has_source_extension_ignore_case,
+};
 use crate::metrics::{CategoryResult, MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
 use std::path::Path;
@@ -201,84 +203,100 @@ fn history_cleanliness(
 }
 
 const SUSPICIOUS_DIRECTORY_NAMES: &[&str] = &["node_modules", "__pycache__"];
-const SUSPICIOUS_EXACT_FILE_NAMES: &[&str] = &[".ds_store", "thumbs.db"];
-const SUSPICIOUS_EXTENSIONS: &[&str] = &["key", "pem", "p12", "pfx", "pyc"];
-const SAFE_ENV_TEMPLATE_NAMES: &[&str] = &[".env.example", ".env.sample", ".env.template"];
+const SUSPICIOUS_EXACT_FILE_NAMES: &[&str] = &[".DS_Store", "Thumbs.db"];
+const SUSPICIOUS_EXTENSIONS: &[&str] = &["key", "pem", "p12", "pfx", "pyc", "env"];
+/// Suffixes that mark a versioned template rather than live material
+/// (`.env.example`, `credentials.json.template`, `phpunit.xml.dist`).
+const TEMPLATE_SUFFIXES: &[&str] = &["example", "sample", "template", "dist"];
+/// Suffixes that wrap another file without changing what it is
+/// (`server.pem.bak` is still a certificate).
+const WRAPPER_SUFFIXES: &[&str] = &["bak", "enc", "old", "orig", "gpg", "asc", "tmp"];
 const SENSITIVE_NAME_TOKENS: &[&str] = &["secret", "secrets", "credential", "credentials"];
+
+fn file_name(path: &Path) -> &str {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("")
+}
+
+/// Dot-separated segments of a file name, without the empty leading segment
+/// of a dotfile: `.env.local` -> `["env", "local"]`, `a.pem.bak` -> `["a", "pem", "bak"]`.
+fn name_segments(name: &str) -> Vec<&str> {
+    name.split('.')
+        .skip_while(|segment| segment.is_empty())
+        .collect()
+}
 
 fn has_suspicious_directory(path: &Path) -> bool {
     path.parent().is_some_and(|parent| {
         parent.components().any(|component| {
-            component.as_os_str().to_str().is_some_and(|name| {
-                SUSPICIOUS_DIRECTORY_NAMES
-                    .iter()
-                    .any(|candidate| name.eq_ignore_ascii_case(candidate))
-            })
+            component
+                .as_os_str()
+                .to_str()
+                .is_some_and(|name| contains_ignore_case(SUSPICIOUS_DIRECTORY_NAMES, name))
         })
     })
 }
 
-fn is_env_file(name: &str) -> bool {
-    if SAFE_ENV_TEMPLATE_NAMES
-        .iter()
-        .any(|template| name.eq_ignore_ascii_case(template))
-    {
-        return false;
-    }
+fn is_template(name: &str) -> bool {
+    name_segments(name)
+        .last()
+        .is_some_and(|last| contains_ignore_case(TEMPLATE_SUFFIXES, last))
+}
 
+fn is_env_file(name: &str) -> bool {
     name.eq_ignore_ascii_case(".env")
         || name
             .get(..5)
             .is_some_and(|prefix| prefix.eq_ignore_ascii_case(".env."))
 }
 
-fn has_sensitive_name_token(path: &Path) -> bool {
-    let stem = path
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or_default();
-
-    stem.split(|character: char| !character.is_ascii_alphanumeric())
-        .filter(|token| !token.is_empty())
-        .any(|token| {
-            SENSITIVE_NAME_TOKENS
-                .iter()
-                .any(|candidate| token.eq_ignore_ascii_case(candidate))
-        })
+/// The extension that decides what a file *is*: wrapper suffixes are
+/// stripped, and a bare dotfile such as `.pem` is its own extension.
+fn effective_extension(name: &str) -> Option<&str> {
+    let segments = name_segments(name);
+    let is_dotfile = name.starts_with('.');
+    let unwrapped = segments
+        .iter()
+        .rev()
+        .skip_while(|segment| contains_ignore_case(WRAPPER_SUFFIXES, segment))
+        .collect::<Vec<_>>();
+    match unwrapped.as_slice() {
+        [] => None,
+        [_] if !is_dotfile => None,
+        [last, ..] => Some(**last),
+    }
 }
 
-fn suspicious_tracked_reason(path: &Path) -> Option<&'static str> {
+fn has_sensitive_name_token(name: &str) -> bool {
+    name.split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .any(|token| contains_ignore_case(SENSITIVE_NAME_TOKENS, token))
+}
+
+fn suspicious_tracked_reason(path: &Path, is_binary: bool) -> Option<&'static str> {
     if has_suspicious_directory(path) {
         return Some("generated or dependency directory");
     }
 
-    let name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("");
+    let name = file_name(path);
+    if is_template(name) {
+        return None;
+    }
     if is_env_file(name) {
         return Some("local environment file");
     }
-    if SUSPICIOUS_EXACT_FILE_NAMES
-        .iter()
-        .any(|candidate| name.eq_ignore_ascii_case(candidate))
-    {
+    if contains_ignore_case(SUSPICIOUS_EXACT_FILE_NAMES, name) {
         return Some("generated OS metadata");
     }
-
-    let extension = path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .unwrap_or("");
-    if SUSPICIOUS_EXTENSIONS
-        .iter()
-        .any(|candidate| extension.eq_ignore_ascii_case(candidate))
+    if effective_extension(name)
+        .is_some_and(|extension| contains_ignore_case(SUSPICIOUS_EXTENSIONS, extension))
     {
         return Some("sensitive or generated extension");
     }
 
-    if has_sensitive_name_token(path) {
-        if has_source_extension(path) || classify(path) == FileRole::Docs {
+    if has_sensitive_name_token(name) {
+        if is_binary || has_source_extension_ignore_case(path) || has_doc_extension(path) {
             return None;
         }
         return Some("sensitive filename token");
@@ -295,7 +313,7 @@ fn gitignore_coverage(
     let suspicious: Vec<String> = snapshot
         .files
         .iter()
-        .filter(|file| suspicious_tracked_reason(&file.path).is_some())
+        .filter(|file| suspicious_tracked_reason(&file.path, file.is_binary).is_some())
         .map(|f| f.path.display().to_string())
         .collect();
 
@@ -456,24 +474,29 @@ mod tests {
     use chrono::{Duration, Utc};
     use std::path::PathBuf;
 
-    fn snapshot_with_files(paths: &[&str]) -> RepoSnapshot {
+    fn snapshot_with_entries(entries: &[(&str, bool)]) -> RepoSnapshot {
         let mut snapshot = RepoSnapshot::new(
             PathBuf::from("/tmp"),
             "test".into(),
             "main".into(),
             TimeWindow::default(),
         );
-        snapshot.files = paths
+        snapshot.files = entries
             .iter()
-            .map(|path| FileEntry {
+            .map(|(path, is_binary)| FileEntry {
                 path: (*path).into(),
                 size_bytes: 1,
-                is_binary: false,
+                is_binary: *is_binary,
                 depth: 0,
                 blob_oid: String::new(),
             })
             .collect();
         snapshot
+    }
+
+    fn snapshot_with_files(paths: &[&str]) -> RepoSnapshot {
+        let entries: Vec<(&str, bool)> = paths.iter().map(|path| (*path, false)).collect();
+        snapshot_with_entries(&entries)
     }
 
     fn gitignore_findings(paths: &[&str]) -> MetricValue {
@@ -1270,6 +1293,101 @@ mod tests {
         ]);
         assert!(matches!(result.raw_value, RawValue::Count(0)));
         assert_eq!(result.score, Some(100));
+    }
+
+    #[test]
+    fn gitignore_semantic_token_rule_skips_binary_assets() {
+        let result = gitignore_coverage(
+            &snapshot_with_entries(&[
+                ("Assets/nuget-feed-credentials-vs.png", true),
+                ("docs/images/secret-settings.jpg", true),
+                ("config/credentials.json", false),
+                ("certs/client-credentials.p12", true),
+            ]),
+            &crate::config::HygieneThresholds::default(),
+        );
+        match result.raw_value {
+            RawValue::List(items) => assert_eq!(
+                items,
+                vec![
+                    String::from("config/credentials.json"),
+                    String::from("certs/client-credentials.p12"),
+                ]
+            ),
+            other => panic!("expected findings list, got {other:?}"),
+        }
+        assert_eq!(result.score, Some(70));
+    }
+
+    #[test]
+    fn gitignore_docs_exemption_is_by_extension_not_directory() {
+        let result = gitignore_findings(&[
+            "docs/prod-credentials.json",
+            "docs/secrets.yaml",
+            "docs/secrets.md",
+            "SECRETS-ROTATION.txt",
+        ]);
+        match result.raw_value {
+            RawValue::List(items) => assert_eq!(
+                items,
+                vec![
+                    String::from("docs/prod-credentials.json"),
+                    String::from("docs/secrets.yaml"),
+                ]
+            ),
+            other => panic!("expected findings list, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn gitignore_flags_dot_env_suffixed_files() {
+        let result = gitignore_findings(&["config/prod.env", "docker/staging.env"]);
+        match result.raw_value {
+            RawValue::List(items) => assert_eq!(items.len(), 2),
+            other => panic!("expected findings list, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn gitignore_sees_through_backup_and_encrypted_wrappers() {
+        let result = gitignore_findings(&[
+            "certs/server.pem.bak",
+            "keys/private.key.enc",
+            ".pem",
+            "src/my.key.service.ts",
+            "src/key.rs",
+        ]);
+        match result.raw_value {
+            RawValue::List(items) => assert_eq!(
+                items,
+                vec![
+                    String::from("certs/server.pem.bak"),
+                    String::from("keys/private.key.enc"),
+                    String::from(".pem"),
+                ]
+            ),
+            other => panic!("expected findings list, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn gitignore_treats_sensitive_word_as_extension() {
+        let result = gitignore_findings(&["jwt.secret", "db.credentials"]);
+        match result.raw_value {
+            RawValue::List(items) => assert_eq!(items.len(), 2),
+            other => panic!("expected findings list, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn gitignore_template_suffixes_are_safe_for_any_file() {
+        let result = gitignore_findings(&[
+            "config/credentials.json.example",
+            "secrets.yaml.template",
+            ".env.dist",
+            "config/prod.env.sample",
+        ]);
+        assert!(matches!(result.raw_value, RawValue::Count(0)));
     }
 
     #[test]

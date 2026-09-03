@@ -292,7 +292,10 @@ pub struct HistoryCounts {
 ///
 /// 2: prevalence and count bands blended across the transition range
 ///    (was: count bands capping prevalence at every population size).
-pub const HISTORY_SCHEMA_VERSION: u32 = 2;
+/// 3: gitignore coverage uses component-aware path rules (source, docs,
+///    binary, and template files no longer count as credentials by name;
+///    OS metadata and wrapped certificate files now do).
+pub const HISTORY_SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryEntry {
