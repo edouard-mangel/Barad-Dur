@@ -21,19 +21,31 @@ pub enum FileRole {
 
 /// Extensions treated as program source code (mirrors the languages the
 /// AST collector understands, plus common ones we only count lines for).
-pub(crate) fn has_source_extension(path: &Path) -> bool {
-    const SOURCE_EXTENSIONS: &[&str] = &[
-        "rs", "py", "go", "java", "cs", "js", "ts", "tsx", "jsx", "kt", "cpp", "c", "h", "hpp",
-        "rb", "php", "swift", "scala",
-    ];
+const SOURCE_EXTENSIONS: &[&str] = &[
+    "rs", "py", "go", "java", "cs", "js", "ts", "tsx", "jsx", "kt", "cpp", "c", "h", "hpp", "rb",
+    "php", "swift", "scala",
+];
 
+pub(crate) fn has_source_extension(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            SOURCE_EXTENSIONS
-                .iter()
-                .any(|candidate| extension.eq_ignore_ascii_case(candidate))
-        })
+        .is_some_and(|extension| SOURCE_EXTENSIONS.contains(&extension))
+}
+
+/// Case-insensitive variant of [`has_source_extension`] for callers that
+/// only need "is this shaped like code" (the hygiene secret-name exemption),
+/// not parity with the case-sensitive language detector.
+pub(crate) fn has_source_extension_ignore_case(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| contains_ignore_case(SOURCE_EXTENSIONS, extension))
+}
+
+/// `list.contains(value)` ignoring ASCII case, so list entries need not be
+/// pre-lowercased to match.
+pub(crate) fn contains_ignore_case(list: &[&str], value: &str) -> bool {
+    list.iter()
+        .any(|candidate| value.eq_ignore_ascii_case(candidate))
 }
 
 const TEST_DIR_NAMES: &[&str] = &["test", "tests", "__tests__", "spec", "specs"];
@@ -86,9 +98,15 @@ fn has_test_name(path: &Path) -> bool {
         || TEST_STEM_SUFFIXES.iter().any(|s| stem.ends_with(s))
 }
 
+/// Prose formats: the file *is* documentation regardless of where it lives.
+pub(crate) fn has_doc_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| contains_ignore_case(DOC_EXTENSIONS, extension))
+}
+
 fn is_docs(path: &Path) -> bool {
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    DOC_EXTENSIONS.contains(&ext.to_lowercase().as_str())
+    has_doc_extension(path)
         || path.components().any(|c| {
             c.as_os_str()
                 .to_str()
@@ -354,6 +372,21 @@ mod tests {
         assert_eq!(role("README.md"), FileRole::Docs);
         assert_eq!(role("docs/architecture.rst"), FileRole::Docs);
         assert_eq!(role("CHANGELOG.txt"), FileRole::Docs);
+    }
+
+    #[test]
+    fn uppercase_source_extensions_stay_other_like_the_language_detector() {
+        // detect_language and import resolution match extensions literally;
+        // classify must agree so an uppercase file is not Source with CC 0.
+        assert_eq!(role("src/Main.RS"), FileRole::Other);
+        assert_eq!(role("legacy/Module.JS"), FileRole::Other);
+    }
+
+    #[test]
+    fn has_source_extension_ignore_case_accepts_uppercase() {
+        assert!(has_source_extension_ignore_case(Path::new("src/Main.RS")));
+        assert!(has_source_extension_ignore_case(Path::new("src/main.rs")));
+        assert!(!has_source_extension_ignore_case(Path::new("a.PNG")));
     }
 
     #[test]

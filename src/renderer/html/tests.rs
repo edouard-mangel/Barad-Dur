@@ -1,13 +1,15 @@
 use super::*;
-
-#[test]
-fn gitignore_tooltip_explains_source_filename_safety() {
-    assert!(JS_CHROME.contains("High-confidence path shapes for review"));
-    assert!(JS_CHROME.contains("Recognized source files are not treated as credentials"));
-}
 use crate::metrics::{CategoryResult, MetricValue, RawValue};
 
 use crate::scorer::{ActionItem, AnalysisReport};
+
+#[test]
+fn gitignore_tooltip_explains_what_is_counted_and_what_is_exempt() {
+    assert!(JS_CHROME.contains("Tracked files whose path shape suggests"));
+    assert!(
+        JS_CHROME.contains("are not flagged on a filename word like secret or credentials alone")
+    );
+}
 
 #[test]
 fn css_defines_bg_primary_variable() {

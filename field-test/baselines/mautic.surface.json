@@ -1,5 +1,5 @@
 {
-  "overall_score": 69,
+  "overall_score": 81,
   "total_files": 6913,
   "total_commits": 0,
   "total_authors": 0,
@@ -106,7 +106,7 @@
     },
     {
       "name": "Git Hygiene",
-      "score": 20,
+      "score": 100,
       "metrics": [
         {
           "name": "Commit message quality",
@@ -118,7 +118,7 @@
         },
         {
           "name": "Gitignore coverage",
-          "score": 20
+          "score": 100
         },
         {
           "name": "Firefighting ratio",
@@ -183,10 +183,6 @@
       "text": "[Coupling] Common coupling (score: 25) — Review and improve this metric"
     },
     {
-      "target_tab": "",
-      "text": "[Git Hygiene] Gitignore coverage (score: 20) — Add suspicious files to .gitignore and remove from tracking"
-    },
-    {
       "target_tab": "coupling",
       "text": "[Coupling] app/assets/js/app.js — 4 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
     },
@@ -229,6 +225,10 @@
     {
       "target_tab": "hotspots",
       "text": "[Health] God objects (score: 50) — Break down large files by extracting responsibilities into smaller modules"
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Health] Long methods (score: 50) — Extract smaller functions from the longest methods to improve readability"
     },
     {
       "target_tab": "hotspots",
