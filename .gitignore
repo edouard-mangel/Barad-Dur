@@ -35,3 +35,6 @@ mutants.out.old/
 !.nwave/local-config.json
 cosign.key
 field-test/archive/
+
+# Field-test corpus clones made by CI (BARAD_DUR_CORPUS_ROOT=$CI_PROJECT_DIR/.corpus)
+.corpus/

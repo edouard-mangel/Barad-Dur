@@ -52,6 +52,38 @@ default:
   before_script:
     - apt-get update -qq && apt-get install -y -qq cmake pkg-config libssl-dev
 
+# Resolve the MR's mutable merge ref once in build and persist its exact SHA.
+# Every tree-dependent consumer receives that artifact, verifies the ref has
+# not moved, and checks out the same commit. A target-branch update therefore
+# restarts/fails the pipeline instead of mixing binaries and test sources.
+.resolve-merge-result: &resolve-merge-result
+  - |
+    if [ -n "$CI_MERGE_REQUEST_IID" ]; then
+      git fetch -q origin "refs/merge-requests/$CI_MERGE_REQUEST_IID/merge"
+      git rev-parse FETCH_HEAD > .merge-result-sha
+    else
+      git rev-parse HEAD > .merge-result-sha
+    fi
+    git checkout -q "$(cat .merge-result-sha)"
+
+.checkout-merge-result: &checkout-merge-result
+  - |
+    expected_merge_sha="$(cat .merge-result-sha)"
+    if [ -n "$CI_MERGE_REQUEST_IID" ]; then
+      git fetch -q origin "refs/merge-requests/$CI_MERGE_REQUEST_IID/merge"
+      fetched_merge_sha="$(git rev-parse FETCH_HEAD)"
+      test "$fetched_merge_sha" = "$expected_merge_sha"
+    fi
+    git checkout -q "$expected_merge_sha"
+
+# Same as .rust-base, on the merge result.
+.rust-base-merged: &rust-base-merged
+  image: rust:1.94
+  <<: *rust-cache
+  before_script:
+    - *checkout-merge-result
+    - apt-get update -qq && apt-get install -y -qq cmake pkg-config libssl-dev
+
 # Shared base for Rust jobs that use CI tools (nextest, tarpaulin, etc.)
 # cargo-binstall downloads pre-built binaries in seconds — no source compilation,
 # no shared tool cache to manage. Each job installs only what it needs.
@@ -59,6 +91,17 @@ default:
   image: rust:1.94
   <<: *rust-cache
   before_script:
+    - apt-get update -qq && apt-get install -y -qq cmake pkg-config libssl-dev
+    - curl -L --proto '=https' --tlsv1.2 -sSf
+        "https://github.com/cargo-bins/cargo-binstall/releases/latest/download/cargo-binstall-x86_64-unknown-linux-musl.tgz"
+        | tar -xz -C /usr/local/bin
+
+# Same as .rust-tools-base, on the merge result.
+.rust-tools-base-merged: &rust-tools-base-merged
+  image: rust:1.94
+  <<: *rust-cache
+  before_script:
+    - *checkout-merge-result
     - apt-get update -qq && apt-get install -y -qq cmake pkg-config libssl-dev
     - curl -L --proto '=https' --tlsv1.2 -sSf
         "https://github.com/cargo-bins/cargo-binstall/releases/latest/download/cargo-binstall-x86_64-unknown-linux-musl.tgz"
@@ -97,7 +140,11 @@ build-presentation:
 # then the release build reuses the already-compiled dependency artifacts.
 build:
   stage: build
-  <<: *rust-base
+  image: rust:1.94
+  <<: *rust-cache
+  before_script:
+    - *resolve-merge-result
+    - apt-get update -qq && apt-get install -y -qq cmake pkg-config libssl-dev
   cache:
     key: rust-registry
     policy: pull-push
@@ -112,17 +159,23 @@ build:
     # the line above never compiles it. Without this second pass a refactor of
     # any `field_test::*` signature breaks the driver while CI stays green.
     - cargo clippy --all-targets --features field-test -- -D warnings
-    - cargo build --release
+    # `--features field-test` also builds the harness driver that the
+    # field-test job runs, so that job needs no second compile.
+    - cargo build --release --features field-test
   artifacts:
     paths:
       - target/release/barad-dur
+      - target/release/field-test
+      - .merge-result-sha
     expire_in: 1 week
 
 # ── Test ──────────────────────────────────────
 
 test:
   stage: test
-  <<: *rust-tools-base
+  <<: *rust-tools-base-merged
+  needs:
+    - build
   timeout: 3 hours
   script:
     - cargo binstall --no-confirm --locked cargo-nextest
@@ -134,7 +187,9 @@ test:
 
 coverage:
   stage: test
-  <<: *rust-tools-base
+  <<: *rust-tools-base-merged
+  needs:
+    - build
   timeout: 3 hours
   script:
     - cargo binstall --no-confirm cargo-tarpaulin
@@ -403,7 +458,7 @@ mutation-nightly:
 
 self-analysis:
   stage: analysis
-  <<: *rust-base
+  <<: *rust-base-merged
   needs:
     - build
   cache:
@@ -426,6 +481,39 @@ self-analysis:
       - barad-dur-report.json
       - barad-dur-report.html
     expire_in: 1 month
+
+# ── Field test (review gate P2) ───────────────
+# Regression + determinism sweep over the publicly cloneable corpus subset
+# (entries with a `url` in field-test/corpus.toml; see docs/review-process.md).
+# The private entries only run in the maintainer's local `make field-test`.
+# Any decision-surface diff fails the job and blocks the merge: baselines
+# are accepted in a reviewed commit (`make field-test-accept`), never here.
+# Clones are full (blame ages feed the surface). The cache is restored before
+# checkout, so the script selects a directory using the merged manifest hash.
+field-test:
+  stage: analysis
+  image: rust:1.94
+  before_script:
+    - *checkout-merge-result
+  needs:
+    - build
+  # First MR run measured 51 min on the shared runners (8 repos, two
+  # passes each, mautic alone ~30 min) against 8 min locally.
+  timeout: 2 hours
+  variables:
+    BARAD_DUR_CORPUS_SCOPE: public
+  cache:
+    key: field-corpus
+    paths:
+      - .corpus/
+    policy: pull-push
+  script:
+    - manifest_hash="$(sha256sum field-test/corpus.toml | cut -d ' ' -f 1)"
+    - export BARAD_DUR_CORPUS_ROOT="$CI_PROJECT_DIR/.corpus/$manifest_hash"
+    - ./target/release/field-test run
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
 
 # Click through every tab of the generated report in jsdom — catches
 # template JS that throws at runtime, which the Rust renderer's string
