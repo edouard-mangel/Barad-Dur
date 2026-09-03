@@ -399,7 +399,9 @@ fn suggest_action(metric_name: &str) -> &'static str {
         "History cleanliness" => {
             "Clean up merge strategy and enforce linear history where possible"
         }
-        "Gitignore coverage" => "Add suspicious files to .gitignore and remove from tracking",
+        "Gitignore coverage" => {
+            "Review suspicious tracked files; ignore and untrack only confirmed credentials, local files, or generated artifacts"
+        }
         _ => "Review and improve this metric",
     }
 }
@@ -528,6 +530,16 @@ mod tests {
             suggest_action("Test safety net"),
             "Revive the paired tests of recently-changed source files — start with the lowest co-change pairs"
         );
+    }
+
+    #[test]
+    fn gitignore_action_requires_review_and_confirmation() {
+        let action = suggest_action("Gitignore coverage");
+        assert_eq!(
+            action,
+            "Review suspicious tracked files; ignore and untrack only confirmed credentials, local files, or generated artifacts"
+        );
+        assert!(!action.contains("remove from tracking"));
     }
     use crate::metrics::{CategoryResult, MetricValue, RawValue};
 

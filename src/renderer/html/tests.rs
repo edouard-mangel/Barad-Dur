@@ -1,4 +1,10 @@
 use super::*;
+
+#[test]
+fn gitignore_tooltip_explains_source_filename_safety() {
+    assert!(JS_CHROME.contains("High-confidence path shapes for review"));
+    assert!(JS_CHROME.contains("Recognized source files are not treated as credentials"));
+}
 use crate::metrics::{CategoryResult, MetricValue, RawValue};
 
 use crate::scorer::{ActionItem, AnalysisReport};

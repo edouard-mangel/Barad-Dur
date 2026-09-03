@@ -134,7 +134,7 @@
     // Git Hygiene
     'Commit message quality': 'Percentage of commits with meaningful messages (\u2265 20 chars). Conventional commit format (feat:, fix:, chore:) scores higher.',
     'History cleanliness':    'Presence of merge commits, octopus merges, and empty messages. A clean history makes git bisect, blame, and revert reliable.',
-    'Gitignore coverage':     'Whether build artefacts, OS metadata, or credentials are tracked in git. Tracked artefacts bloat the repo and can expose sensitive data.',
+    'Gitignore coverage':     'High-confidence path shapes for review, including generated artefacts, OS metadata, local environment files, and credentials. Recognized source files are not treated as credentials from semantic filenames such as secret or credentials alone.',
     'Firefighting ratio':     'Percentage of commits containing revert / hotfix / emergency / rollback keywords. A high ratio means the team is mostly reacting to incidents rather than building.',
     'Friction language ratio':'Percentage of commits admitting technical-debt friction (hack / workaround / kludge / temporary / fixme / sorry keywords). Unlike the firefighting ratio’s reactive-incident-response signal, this tracks debt knowingly shipped rather than something that broke.',
     // Coupling

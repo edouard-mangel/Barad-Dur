@@ -1,5 +1,7 @@
+use crate::metrics::file_role::{classify, has_source_extension, FileRole};
 use crate::metrics::{CategoryResult, MetricValue, RawValue};
 use crate::snapshot::RepoSnapshot;
+use std::path::Path;
 
 pub fn compute_hygiene(
     snapshot: &RepoSnapshot,
@@ -198,21 +200,92 @@ fn history_cleanliness(
     }
 }
 
-const SUSPICIOUS_PATTERNS: &[&str] = &[
-    ".env",
-    ".env.",
-    "credentials",
-    "secret",
-    ".key",
-    ".pem",
-    ".p12",
-    ".pfx",
-    "node_modules/",
-    "__pycache__/",
-    ".DS_Store",
-    "Thumbs.db",
-    ".pyc",
-];
+const SUSPICIOUS_DIRECTORY_NAMES: &[&str] = &["node_modules", "__pycache__"];
+const SUSPICIOUS_EXACT_FILE_NAMES: &[&str] = &[".ds_store", "thumbs.db"];
+const SUSPICIOUS_EXTENSIONS: &[&str] = &["key", "pem", "p12", "pfx", "pyc"];
+const SAFE_ENV_TEMPLATE_NAMES: &[&str] = &[".env.example", ".env.sample", ".env.template"];
+const SENSITIVE_NAME_TOKENS: &[&str] = &["secret", "secrets", "credential", "credentials"];
+
+fn has_suspicious_directory(path: &Path) -> bool {
+    path.parent().is_some_and(|parent| {
+        parent.components().any(|component| {
+            component.as_os_str().to_str().is_some_and(|name| {
+                SUSPICIOUS_DIRECTORY_NAMES
+                    .iter()
+                    .any(|candidate| name.eq_ignore_ascii_case(candidate))
+            })
+        })
+    })
+}
+
+fn is_env_file(name: &str) -> bool {
+    if SAFE_ENV_TEMPLATE_NAMES
+        .iter()
+        .any(|template| name.eq_ignore_ascii_case(template))
+    {
+        return false;
+    }
+
+    name.eq_ignore_ascii_case(".env")
+        || name
+            .get(..5)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(".env."))
+}
+
+fn has_sensitive_name_token(path: &Path) -> bool {
+    let stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or_default();
+
+    stem.split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .any(|token| {
+            SENSITIVE_NAME_TOKENS
+                .iter()
+                .any(|candidate| token.eq_ignore_ascii_case(candidate))
+        })
+}
+
+fn suspicious_tracked_reason(path: &Path) -> Option<&'static str> {
+    if has_suspicious_directory(path) {
+        return Some("generated or dependency directory");
+    }
+
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+    if is_env_file(name) {
+        return Some("local environment file");
+    }
+    if SUSPICIOUS_EXACT_FILE_NAMES
+        .iter()
+        .any(|candidate| name.eq_ignore_ascii_case(candidate))
+    {
+        return Some("generated OS metadata");
+    }
+
+    let extension = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or("");
+    if SUSPICIOUS_EXTENSIONS
+        .iter()
+        .any(|candidate| extension.eq_ignore_ascii_case(candidate))
+    {
+        return Some("sensitive or generated extension");
+    }
+
+    if has_sensitive_name_token(path) {
+        if has_source_extension(path) || classify(path) == FileRole::Docs {
+            return None;
+        }
+        return Some("sensitive filename token");
+    }
+
+    None
+}
 
 /// Check tracked files for suspicious patterns that should be in .gitignore.
 fn gitignore_coverage(
@@ -222,18 +295,7 @@ fn gitignore_coverage(
     let suspicious: Vec<String> = snapshot
         .files
         .iter()
-        .filter(|f| {
-            let path_str = f.path.to_string_lossy().to_lowercase();
-            let file_name = f
-                .path
-                .file_name()
-                .map(|n| n.to_string_lossy().to_lowercase())
-                .unwrap_or_default();
-
-            SUSPICIOUS_PATTERNS
-                .iter()
-                .any(|pat| path_str.contains(pat) || file_name.ends_with(pat) || file_name == *pat)
-        })
+        .filter(|file| suspicious_tracked_reason(&file.path).is_some())
         .map(|f| f.path.display().to_string())
         .collect();
 
@@ -393,6 +455,33 @@ mod tests {
     use crate::snapshot::*;
     use chrono::{Duration, Utc};
     use std::path::PathBuf;
+
+    fn snapshot_with_files(paths: &[&str]) -> RepoSnapshot {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        snapshot.files = paths
+            .iter()
+            .map(|path| FileEntry {
+                path: (*path).into(),
+                size_bytes: 1,
+                is_binary: false,
+                depth: 0,
+                blob_oid: String::new(),
+            })
+            .collect();
+        snapshot
+    }
+
+    fn gitignore_findings(paths: &[&str]) -> MetricValue {
+        gitignore_coverage(
+            &snapshot_with_files(paths),
+            &crate::config::HygieneThresholds::default(),
+        )
+    }
 
     #[test]
     fn firefighting_ratio_detects_reactive_commits() {
@@ -1159,55 +1248,90 @@ mod tests {
     }
 
     #[test]
-    fn gitignore_detects_suspicious_files() {
-        let mut snapshot = RepoSnapshot::new(
-            PathBuf::from("/tmp"),
-            "test".into(),
-            "main".into(),
-            TimeWindow::default(),
-        );
-
-        snapshot.files = vec![
-            FileEntry {
-                path: ".env".into(),
-                size_bytes: 50,
-                is_binary: false,
-                depth: 0,
-                blob_oid: String::new(),
-            },
-            FileEntry {
-                path: "node_modules/package.json".into(),
-                size_bytes: 100,
-                is_binary: false,
-                depth: 1,
-                blob_oid: String::new(),
-            },
-            FileEntry {
-                path: "app.log".into(),
-                size_bytes: 1000,
-                is_binary: false,
-                depth: 0,
-                blob_oid: String::new(),
-            },
-            FileEntry {
-                path: "src/main.rs".into(),
-                size_bytes: 200,
-                is_binary: false,
-                depth: 1,
-                blob_oid: String::new(),
-            },
+    fn gitignore_does_not_flag_source_modules_with_sensitive_terminology() {
+        let paths = [
+            "src/infrastructure/crypto/root-secret.ts",
+            "src/cli/secret.ts",
+            "src/application/redact-secrets.ts",
+            "src/infrastructure/auth/auth-secret.ts",
+            "src/application/signing-secret.ts",
+            "src/application/redact-secrets.test.ts",
         ];
+        let result = gitignore_findings(&paths);
+        assert!(matches!(result.raw_value, RawValue::Count(0)));
+        assert_eq!(result.score, Some(100));
+    }
 
-        let result = gitignore_coverage(&snapshot, &crate::config::HygieneThresholds::default());
-        // .env and node_modules/ should be flagged
-        match &result.raw_value {
-            RawValue::List(items) => assert!(
-                items.len() >= 2,
-                "Expected at least 2 suspicious files, got {:?}",
-                items
+    #[test]
+    fn gitignore_source_exemption_is_case_insensitive() {
+        let result = gitignore_findings(&[
+            "src/infrastructure/crypto/root-secret.TS",
+            "src/application/credentials.PY",
+        ]);
+        assert!(matches!(result.raw_value, RawValue::Count(0)));
+        assert_eq!(result.score, Some(100));
+    }
+
+    #[test]
+    fn gitignore_directory_rules_outrank_source_extensions() {
+        let result = gitignore_findings(&[
+            "node_modules/package/index.ts",
+            "src/__pycache__/generated.py",
+        ]);
+        match result.raw_value {
+            RawValue::List(items) => assert_eq!(
+                items,
+                vec![
+                    String::from("node_modules/package/index.ts"),
+                    String::from("src/__pycache__/generated.py"),
+                ]
             ),
-            _ => panic!("Expected List"),
+            other => panic!("expected findings list, got {other:?}"),
         }
-        assert!(result.score.unwrap() < 100);
+    }
+
+    #[test]
+    fn gitignore_exact_environment_and_extension_rules_remain_active() {
+        let paths = [
+            ".env",
+            ".env.production",
+            "certs/server.pem",
+            "private/signing.key",
+            ".DS_Store",
+            "Thumbs.db",
+            "cache/value.pyc",
+            "config/credentials.json",
+        ];
+        let result = gitignore_findings(&paths);
+        match result.raw_value {
+            RawValue::List(items) => assert_eq!(items, paths.map(String::from).to_vec()),
+            other => panic!("expected findings list, got {other:?}"),
+        }
+        assert_eq!(result.score, Some(20));
+    }
+
+    #[test]
+    fn gitignore_safe_templates_and_documentation_are_not_findings() {
+        let result = gitignore_findings(&[
+            ".env.example",
+            ".env.sample",
+            ".env.template",
+            "docs/secret-management.md",
+            "docs/credentials.md",
+        ]);
+        assert!(matches!(result.raw_value, RawValue::Count(0)));
+        assert_eq!(result.score, Some(100));
+    }
+
+    #[test]
+    fn gitignore_semantic_matching_respects_filename_token_boundaries() {
+        let result = gitignore_findings(&[
+            "src/monkey.rs",
+            "src/secretary.ts",
+            "docs/credentials-overview.txt",
+            "credential-service/config.yaml",
+        ]);
+        assert!(matches!(result.raw_value, RawValue::Count(0)));
+        assert_eq!(result.score, Some(100));
     }
 }
