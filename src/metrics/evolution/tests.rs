@@ -255,7 +255,7 @@ fn commit_cadence_detects_regularity() {
 mod growth_balance_tests {
     use super::*;
     use crate::metrics::testutil::{make_file, make_snapshot};
-    use chrono::{Duration, Utc};
+    use chrono::{DateTime, Duration, Utc};
 
     fn change(p: &str, add: u32) -> FileChange {
         FileChange {
@@ -266,13 +266,23 @@ mod growth_balance_tests {
         }
     }
 
-    /// Commit `hours_ago` relative to now — inside TimeWindow::default()
-    /// and safe against the window filter at any wall-clock time.
+    /// One wall-clock reading shared by every commit in the process, so
+    /// `commit_ago(_, 4, ..)` sits exactly on the midpoint between
+    /// `commit_ago(_, 8, ..)` and `commit_ago(_, 0, ..)` instead of drifting
+    /// by the microseconds between successive `Utc::now()` calls.
+    fn base_now() -> DateTime<Utc> {
+        static BASE: std::sync::OnceLock<DateTime<Utc>> = std::sync::OnceLock::new();
+        *BASE.get_or_init(Utc::now)
+    }
+
+    /// Commit `hours_ago` relative to a fixed "now" — inside
+    /// TimeWindow::default() and safe against the window filter at any
+    /// wall-clock time.
     fn commit_ago(id: u32, hours_ago: i64, files: Vec<FileChange>, is_merge: bool) -> Commit {
         Commit {
             id: CommitId(id),
             author: 0,
-            timestamp: Utc::now() - Duration::hours(hours_ago),
+            timestamp: base_now() - Duration::hours(hours_ago),
             message: String::new(),
             files_changed: files,
             is_merge,
