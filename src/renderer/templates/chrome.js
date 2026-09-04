@@ -101,11 +101,11 @@
 
   /* ---- Metric & category tooltip definitions ---- */
   var CAT_TIPS = {
-    'Health':     'Code quality and maintainability indicators — 35% of the overall score.',
-    'Team':       'Team knowledge spread, activity, and collaboration health — 10% of the overall score.',
-    'Evolution':  'How the codebase is growing and changing over time — 20% of the overall score.',
-    'Git Hygiene':'Commit discipline, message quality, and history cleanliness — 15% of the overall score.',
-    'Coupling':   'Structural and change-based coupling between modules — 20% of the overall score.',
+    'Health':     'Code quality and maintainability indicators — default weight 35% of the overall score.',
+    'Team':       'Team knowledge spread, activity, and collaboration health — default weight 10% of the overall score. Unscored (dash) on teams under four active authors.',
+    'Evolution':  'How the codebase is growing and changing over time — default weight 20% of the overall score.',
+    'Git Hygiene':'Commit discipline, message quality, and history cleanliness — default weight 15% of the overall score.',
+    'Coupling':   'Structural and change-based coupling between modules — default weight 20% of the overall score.',
     'Dependencies': 'Dependency freshness, vulnerability exposure, and licence risk (scored separately when --deps is used).'
   };
 

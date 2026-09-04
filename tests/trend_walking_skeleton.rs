@@ -101,12 +101,18 @@ fn first_run_creates_trend_store() {
     let cat_scores = entry["category_scores"]
         .as_object()
         .expect("category_scores should be an object");
-    for key in &["Health", "Team", "Evolution", "Git Hygiene"] {
+    for key in &["Health", "Evolution", "Git Hygiene", "Coupling"] {
         assert!(
             cat_scores.contains_key(*key),
             "category_scores should contain key '{key}'"
         );
     }
+    assert!(
+        cat_scores
+            .get("Team")
+            .is_some_and(serde_json::Value::is_null),
+        "an unmeasurable Team category is recorded as null, not a perfect score: {cat_scores:?}"
+    );
 
     // And: CLI output mentions first snapshot
     assert!(

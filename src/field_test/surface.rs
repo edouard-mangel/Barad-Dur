@@ -11,7 +11,8 @@ const HOTSPOT_LIMIT: usize = 20;
 /// every run is a baseline everybody learns to ignore.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DecisionSurface {
-    pub overall_score: i64,
+    /// `None` when the report had no measurable category.
+    pub overall_score: Option<i64>,
     pub total_files: i64,
     pub total_commits: i64,
     pub total_authors: i64,
@@ -29,7 +30,7 @@ impl DecisionSurface {
     /// run of a repository should look like to a reviewer.
     pub fn empty() -> Self {
         Self {
-            overall_score: 0,
+            overall_score: None,
             total_files: 0,
             total_commits: 0,
             total_authors: 0,
@@ -160,7 +161,7 @@ pub fn extract_surface(report: &Value) -> DecisionSurface {
         .unwrap_or_default();
 
     DecisionSurface {
-        overall_score: int_at(report, "overall_score"),
+        overall_score: report.get("overall_score").and_then(Value::as_i64),
         total_files: int_at(report, "total_files"),
         total_commits: int_at(report, "total_commits"),
         total_authors: int_at(report, "total_authors"),
@@ -212,7 +213,7 @@ mod tests {
     #[test]
     fn captures_scores_counts_and_thresholds() {
         let s = extract_surface(&sample_report());
-        assert_eq!(s.overall_score, 55);
+        assert_eq!(s.overall_score, Some(55));
         assert_eq!(s.total_commits, 2287);
         assert_eq!(s.score_thresholds.get("good_min"), Some(&71));
         assert_eq!(s.coupling_finding_counts.get("control"), Some(&5));
@@ -294,5 +295,20 @@ mod tests {
         let a = serde_json::to_string(&extract_surface(&sample_report())).unwrap();
         let b = serde_json::to_string(&extract_surface(&sample_report())).unwrap();
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn a_null_overall_score_is_unscored_not_zero() {
+        let report = serde_json::json!({
+            "overall_score": null,
+            "total_files": 3,
+            "total_commits": 0,
+            "total_authors": 1,
+            "categories": [],
+            "top_actions": [],
+            "file_hotspots": []
+        });
+        let s = extract_surface(&report);
+        assert_eq!(s.overall_score, None);
     }
 }

@@ -31,7 +31,7 @@ pub fn compute_health(
 
     CategoryResult {
         name: "Health".to_string(),
-        score: 0,
+        score: None,
         metrics,
     }
     .compute_score()

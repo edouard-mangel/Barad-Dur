@@ -5,6 +5,7 @@ use crate::cache;
 use crate::cli::GateArgs;
 use crate::collector::Collector;
 use crate::config;
+use crate::metrics::CategoryResult;
 use crate::metrics::{coupling, evolution, health, hygiene, team};
 use crate::runner::{self, CollectOptions};
 use crate::scorer::{self, AnalysisReport, CouplingFindingCounts};
@@ -261,44 +262,62 @@ fn check_trend_gate(summary: &trend::TrendSummary, max_decline: f64) -> bool {
     }
 }
 
+/// Verdict for one score against the threshold: `(failed, line to print)`.
+/// An unscored value is not a failure — there is no evidence either way —
+/// but it is reported as such, distinct from a category that does not exist.
+fn score_verdict(label: &str, score: Option<u32>, threshold: u32) -> (bool, String) {
+    match score {
+        Some(score) if score < threshold => (
+            true,
+            format!("FAIL: {label} score {score} < threshold {threshold}"),
+        ),
+        Some(score) => (
+            false,
+            format!("PASS: {label} score {score} >= threshold {threshold}"),
+        ),
+        None => (
+            false,
+            format!("WARN: {label} has no scored metric (insufficient data), not gated"),
+        ),
+    }
+}
+
+fn find_category<'a>(report: &'a AnalysisReport, cat_name: &str) -> Option<&'a CategoryResult> {
+    let cat_lower = cat_name.to_lowercase();
+    report.categories.iter().find(|c| {
+        let name_lower = c.name.to_lowercase();
+        name_lower == cat_lower || name_lower.contains(&cat_lower)
+    })
+}
+
+/// `(failed, line)` for a `--category` argument; unknown names never fail.
+fn category_verdict(report: &AnalysisReport, cat_name: &str, threshold: u32) -> (bool, String) {
+    match find_category(report, cat_name) {
+        Some(cat) => score_verdict(&cat.name, cat.score, threshold),
+        None => (
+            false,
+            format!("WARN: unknown category '{cat_name}', skipping"),
+        ),
+    }
+}
+
+#[cfg(test)]
+fn explain_category_gate(report: &AnalysisReport, cat_name: &str, threshold: u32) -> String {
+    category_verdict(report, cat_name, threshold).1
+}
+
 fn check_gate_categories(report: &AnalysisReport, args: &GateArgs, threshold: u32) -> bool {
     let mut failed = false;
 
     if args.category.is_empty() {
-        if report.overall_score < threshold {
-            println!(
-                "FAIL: overall score {} < threshold {}",
-                report.overall_score, threshold
-            );
-            failed = true;
-        } else {
-            println!(
-                "PASS: overall score {} >= threshold {}",
-                report.overall_score, threshold
-            );
-        }
+        let (overall_failed, line) = score_verdict("overall", report.overall_score, threshold);
+        println!("{line}");
+        failed = overall_failed;
     } else {
         for cat_name in &args.category {
-            let cat_lower = cat_name.to_lowercase();
-            if let Some(cat) = report.categories.iter().find(|c| {
-                let name_lower = c.name.to_lowercase();
-                name_lower == cat_lower || name_lower.contains(&cat_lower)
-            }) {
-                if cat.score < threshold {
-                    println!(
-                        "FAIL: {} score {} < threshold {}",
-                        cat.name, cat.score, threshold
-                    );
-                    failed = true;
-                } else {
-                    println!(
-                        "PASS: {} score {} >= threshold {}",
-                        cat.name, cat.score, threshold
-                    );
-                }
-            } else {
-                println!("WARN: unknown category '{}', skipping", cat_name);
-            }
+            let (cat_failed, line) = category_verdict(report, cat_name, threshold);
+            println!("{line}");
+            failed |= cat_failed;
         }
     }
 
@@ -380,7 +399,7 @@ mod tests {
             .iter()
             .map(|(name, score)| CategoryResult {
                 name: name.to_string(),
-                score: *score,
+                score: Some(*score),
                 metrics: vec![],
             })
             .collect();
@@ -391,7 +410,7 @@ mod tests {
             total_commits: 1,
             total_authors: 1,
             total_files: 1,
-            overall_score: overall,
+            overall_score: Some(overall),
             categories: cats,
             top_actions: vec![],
             coupling_actions: vec![],
@@ -430,8 +449,8 @@ mod tests {
     fn first_summary() -> TrendSummary {
         TrendSummary {
             delta: TrendDelta {
-                overall: 0,
-                delta_vs_oldest: 0,
+                overall: None,
+                delta_vs_oldest: None,
                 categories: HashMap::new(),
                 is_first: true,
             },
@@ -445,8 +464,8 @@ mod tests {
     fn summary_with_velocity(direction: VelocityDirection, points_per_run: f64) -> TrendSummary {
         TrendSummary {
             delta: TrendDelta {
-                overall: -5,
-                delta_vs_oldest: -5,
+                overall: Some(-5),
+                delta_vs_oldest: Some(-5),
                 categories: HashMap::new(),
                 is_first: false,
             },
@@ -489,6 +508,30 @@ mod tests {
         let report = make_report(80, &[("Health", 40)]);
         let args = make_gate_args(60, vec!["health".into()]);
         assert!(check_gate_categories(&report, &args, 60));
+    }
+
+    #[test]
+    fn unscored_category_is_reported_as_not_measurable_and_does_not_fail() {
+        let mut report = make_report(80, &[("Health", 80)]);
+        report.categories.push(CategoryResult {
+            name: "Team".into(),
+            score: None,
+            metrics: vec![],
+        });
+        let args = make_gate_args(60, vec!["team".into()]);
+        assert!(!check_gate_categories(&report, &args, 60));
+        assert_eq!(
+            explain_category_gate(&report, "team", 60),
+            "WARN: Team has no scored metric (insufficient data), not gated"
+        );
+    }
+
+    #[test]
+    fn unscored_overall_is_reported_as_not_measurable_and_does_not_fail() {
+        let mut report = make_report(80, &[]);
+        report.overall_score = None;
+        let args = make_gate_args(60, vec![]);
+        assert!(!check_gate_categories(&report, &args, 60));
     }
 
     #[test]

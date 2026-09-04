@@ -78,13 +78,15 @@ fn render_trend_line(trend: &TrendSummary, report: &AnalysisReport) -> String {
     let mut out = String::new();
 
     if !trend.delta.is_first && !trend.branch_mismatch_warning {
-        let delta = trend.delta.overall;
-        let delta_str = if delta >= 0 {
-            format!("+{} vs last run", delta)
-        } else {
-            format!("{} vs last run", delta)
-        };
-        out.push_str(&format!("  {}\n", delta_str.dimmed()));
+        // No delta line when either run had nothing measurable.
+        if let Some(delta) = trend.delta.overall {
+            let delta_str = if delta >= 0 {
+                format!("+{} vs last run", delta)
+            } else {
+                format!("{} vs last run", delta)
+            };
+            out.push_str(&format!("  {}\n", delta_str.dimmed()));
+        }
 
         if let Some(velocity) = &trend.velocity {
             let direction_str = direction_word(&velocity.direction);
@@ -133,8 +135,8 @@ fn render_score_and_trend(report: &AnalysisReport, trend: Option<&TrendSummary>)
     out.push_str(&format!(
         "\n  {} {} {}\n",
         "Overall Score:".bold(),
-        format_score_bar(report.overall_score, 20),
-        format_score_number(report.overall_score)
+        format_optional_score_bar(report.overall_score, 20),
+        format_optional_score_number(report.overall_score)
     ));
 
     // Delta and direction (only when a prior run exists on this branch, and no branch mismatch)
@@ -165,8 +167,8 @@ fn render_single_category(
     out.push_str(&format!(
         "\n  {} {} {}{}\n",
         format!("▸ {}", cat.name).bold(),
-        format_score_bar(cat.score, 12),
-        format_score_number(cat.score),
+        format_optional_score_bar(cat.score, 12),
+        format_optional_score_number(cat.score),
         delta_suffix.dimmed()
     ));
 
@@ -334,10 +336,10 @@ mod tests {
             total_commits: 100,
             total_authors: 5,
             total_files: 50,
-            overall_score: 72,
+            overall_score: Some(72),
             categories: vec![CategoryResult {
                 name: "Health".into(),
-                score: 72,
+                score: Some(72),
                 metrics: vec![MetricValue {
                     name: "Bus factor".into(),
                     description: "2 (risky)".into(),
@@ -370,11 +372,56 @@ mod tests {
         }
     }
 
+    #[test]
+    fn unscored_category_renders_a_dash_with_its_explanation_not_a_number() {
+        let mut report = make_report();
+        report.categories.push(CategoryResult {
+            name: "Team".into(),
+            score: None,
+            metrics: vec![MetricValue {
+                name: "Bus factor".into(),
+                description: "Small team (1 author, need 4+) — not applicable".into(),
+                raw_value: RawValue::Text("N/A".into()),
+                score: None,
+            }],
+        });
+        let out = render(&report, 1, None);
+        let team_line = out
+            .lines()
+            .find(|line| line.contains("▸ Team"))
+            .expect("the unscored category is still listed");
+        assert!(
+            team_line.contains("—"),
+            "score shown as a dash: {team_line}"
+        );
+        assert!(
+            !team_line.contains("100"),
+            "no fabricated score: {team_line}"
+        );
+        assert!(out.contains("not applicable"), "the reason stays visible");
+    }
+
+    #[test]
+    fn unscored_overall_renders_a_dash() {
+        let mut report = make_report();
+        report.overall_score = None;
+        report.categories[0].score = None;
+        let out = render(&report, 0, None);
+        assert!(
+            !out.contains("Overall Score: 0"),
+            "no fabricated zero:\n{out}"
+        );
+        assert!(
+            out.contains("—"),
+            "dash for the unmeasurable overall:\n{out}"
+        );
+    }
+
     fn make_first_run_trend() -> TrendSummary {
         TrendSummary {
             delta: TrendDelta {
-                overall: 0,
-                delta_vs_oldest: 0,
+                overall: Some(0),
+                delta_vs_oldest: Some(0),
                 categories: HashMap::new(),
                 is_first: true,
             },
@@ -388,8 +435,8 @@ mod tests {
     fn make_subsequent_run_trend(delta: i32) -> TrendSummary {
         TrendSummary {
             delta: TrendDelta {
-                overall: delta,
-                delta_vs_oldest: delta,
+                overall: Some(delta),
+                delta_vs_oldest: Some(delta),
                 categories: HashMap::new(),
                 is_first: false,
             },
@@ -511,8 +558,8 @@ mod tests {
         category_deltas.insert("Health".to_string(), 3_i32);
         let trend = TrendSummary {
             delta: TrendDelta {
-                overall: 3,
-                delta_vs_oldest: 3,
+                overall: Some(3),
+                delta_vs_oldest: Some(3),
                 categories: category_deltas,
                 is_first: false,
             },
@@ -542,8 +589,8 @@ mod tests {
         category_deltas.insert("Health".to_string(), -5_i32);
         let trend = TrendSummary {
             delta: TrendDelta {
-                overall: -5,
-                delta_vs_oldest: -5,
+                overall: Some(-5),
+                delta_vs_oldest: Some(-5),
                 categories: category_deltas,
                 is_first: false,
             },

@@ -1,5 +1,5 @@
 {
-  "overall_score": 92,
+  "overall_score": 89,
   "total_files": 538,
   "total_commits": 0,
   "total_authors": 0,
@@ -46,7 +46,7 @@
     },
     {
       "name": "Team",
-      "score": 100,
+      "score": null,
       "metrics": [
         {
           "name": "Knowledge distribution",
@@ -80,7 +80,7 @@
     },
     {
       "name": "Evolution",
-      "score": 100,
+      "score": null,
       "metrics": [
         {
           "name": "Growth trend",

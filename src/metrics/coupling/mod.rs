@@ -44,7 +44,7 @@ pub fn compute_coupling(
     apply_severity_cap(
         CategoryResult {
             name: "Coupling".to_string(),
-            score: 0,
+            score: None,
             metrics,
         }
         .compute_score(),
@@ -880,8 +880,8 @@ fn apply_severity_cap(mut cat: CategoryResult) -> CategoryResult {
         })
         .map(|m| m.name.clone())
         .collect();
-    if cat.score > SEVERITY_CAP && !triggers.is_empty() {
-        cat.score = SEVERITY_CAP;
+    if cat.score.is_some_and(|score| score > SEVERITY_CAP) && !triggers.is_empty() {
+        cat.score = Some(SEVERITY_CAP);
         for m in cat
             .metrics
             .iter_mut()

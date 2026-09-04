@@ -146,7 +146,7 @@ mod tests {
         HistoryEntry {
             timestamp: chrono::Utc::now(),
             head: head.to_string(),
-            overall_score: score,
+            overall_score: Some(score),
             categories: HashMap::new(),
             metrics: HashMap::new(),
             counts: HistoryCounts {

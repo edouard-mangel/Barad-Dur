@@ -43,10 +43,10 @@ fn make_report() -> AnalysisReport {
         total_commits: 42,
         total_authors: 3,
         total_files: 20,
-        overall_score: 75,
+        overall_score: Some(75),
         categories: vec![CategoryResult {
             name: "Health".into(),
-            score: 75,
+            score: Some(75),
             metrics: vec![MetricValue {
                 name: "Bus factor".into(),
                 description: "OK".into(),
@@ -748,7 +748,7 @@ fn make_history_entry(score: u32, source: Option<&str>) -> crate::scorer::Histor
     crate::scorer::HistoryEntry {
         timestamp: chrono::Utc::now(),
         head: "a".repeat(40),
-        overall_score: score,
+        overall_score: Some(score),
         categories: std::collections::HashMap::new(),
         metrics: std::collections::HashMap::new(),
         counts: crate::scorer::HistoryCounts {

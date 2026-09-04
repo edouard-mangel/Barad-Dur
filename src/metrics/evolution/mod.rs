@@ -19,7 +19,7 @@ pub fn compute_evolution(
 
     CategoryResult {
         name: "Evolution".to_string(),
-        score: 0,
+        score: None,
         metrics,
     }
     .compute_score()

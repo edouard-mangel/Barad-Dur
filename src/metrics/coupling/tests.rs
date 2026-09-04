@@ -1026,8 +1026,8 @@ fn severity_cap_limits_category_when_content_coupling_found() {
         &Default::default(),
     );
     assert!(
-        result.score <= 70,
-        "category must not be green with content coupling present, got {}",
+        result.score.is_some_and(|score| score <= 70),
+        "category must not be green with content coupling present, got {:?}",
         result.score
     );
     let m = result
@@ -1066,7 +1066,11 @@ fn severity_cap_triggers_on_many_common_findings() {
         &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
-    assert!(result.score <= 70, "got {}", result.score);
+    assert!(
+        result.score.is_some_and(|score| score <= 70),
+        "got {:?}",
+        result.score
+    );
 }
 
 #[test]
@@ -1083,7 +1087,7 @@ fn severity_cap_is_derived_from_score_good_min_not_a_bare_literal() {
         &crate::config::CouplingThresholds::default(),
         &Default::default(),
     );
-    assert_eq!(result.score, expected_cap);
+    assert_eq!(result.score, Some(expected_cap));
     let m = result
         .metrics
         .iter()
@@ -1232,7 +1236,9 @@ fn severity_cap_does_not_raise_already_low_scores() {
     );
     let flat_average_would_be = result.metrics.iter().filter_map(|m| m.score).sum::<u32>()
         / result.metrics.iter().filter(|m| m.score.is_some()).count() as u32;
-    assert!(result.score <= flat_average_would_be.min(70));
+    assert!(result
+        .score
+        .is_some_and(|score| score <= flat_average_would_be.min(70)));
 }
 
 #[test]
@@ -1405,7 +1411,8 @@ fn corroboration_can_trip_the_severity_cap() {
         .unwrap();
     assert_eq!(common.score, Some(25));
     assert!(
-        c.score < crate::scorer::SCORE_GOOD_MIN,
+        c.score
+            .is_some_and(|score| score < crate::scorer::SCORE_GOOD_MIN),
         "category must be capped"
     );
 }

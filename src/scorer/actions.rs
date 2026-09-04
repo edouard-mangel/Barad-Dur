@@ -5,33 +5,27 @@ use crate::metrics::CategoryResult;
 
 use super::types::ActionItem;
 
+/// Weighted average of the *scored* categories, the weights renormalised
+/// over them so an unscored category neither counts as 100 nor drags the
+/// rest down. `None` when nothing is measurable.
 pub fn compute_overall_score_with_weights(
     categories: &[CategoryResult],
     weights: &[(&str, f64)],
-) -> u32 {
-    if categories.is_empty() {
-        return 0;
-    }
-
-    let mut weighted_sum = 0.0;
-    let mut total_weight = 0.0;
-
-    for cat in categories {
-        let weight = weights
+) -> Option<u32> {
+    let weight_of = |name: &str| {
+        weights
             .iter()
-            .find(|(name, _)| *name == cat.name)
-            .map(|(_, w)| *w)
-            .unwrap_or(0.25);
-
-        weighted_sum += cat.score as f64 * weight;
-        total_weight += weight;
-    }
-
-    if total_weight > 0.0 {
-        (weighted_sum / total_weight).round() as u32
-    } else {
-        0
-    }
+            .find(|(candidate, _)| *candidate == name)
+            .map(|(_, weight)| *weight)
+            .unwrap_or(0.25)
+    };
+    let (weighted_sum, total_weight) = categories
+        .iter()
+        .filter_map(|cat| cat.score.map(|score| (score as f64, weight_of(&cat.name))))
+        .fold((0.0, 0.0), |(sum, total), (score, weight)| {
+            (sum + score * weight, total + weight)
+        });
+    (total_weight > 0.0).then(|| (weighted_sum / total_weight).round() as u32)
 }
 
 pub(super) fn generate_top_actions(categories: &[CategoryResult]) -> Vec<ActionItem> {
@@ -543,6 +537,39 @@ mod tests {
     }
     use crate::metrics::{CategoryResult, MetricValue, RawValue};
 
+    #[test]
+    fn overall_score_averages_scored_categories_only_and_is_none_without_any() {
+        let scored = |name: &str, score: u32| CategoryResult {
+            name: name.to_string(),
+            score: Some(score),
+            metrics: vec![],
+        };
+        let unscored = CategoryResult {
+            name: "Team".to_string(),
+            score: None,
+            metrics: vec![],
+        };
+        let weights: &[(&str, f64)] = &[("Health", 0.35), ("Coupling", 0.20), ("Team", 0.10)];
+
+        assert_eq!(
+            compute_overall_score_with_weights(
+                &[
+                    scored("Health", 80),
+                    scored("Coupling", 40),
+                    unscored.clone()
+                ],
+                weights
+            ),
+            Some(65),
+            "weights renormalise over the measurable categories: (80*.35 + 40*.20) / .55"
+        );
+        assert_eq!(
+            compute_overall_score_with_weights(&[unscored], weights),
+            None
+        );
+        assert_eq!(compute_overall_score_with_weights(&[], weights), None);
+    }
+
     const WEIGHTS: &[(&str, f64)] = &[
         ("Health", 0.25),
         ("Team", 0.10),
@@ -554,7 +581,7 @@ mod tests {
     fn make_category(name: &str, score: u32) -> CategoryResult {
         CategoryResult {
             name: name.to_string(),
-            score,
+            score: Some(score),
             metrics: vec![MetricValue {
                 name: format!("{} metric", name),
                 description: "test".to_string(),
@@ -575,20 +602,20 @@ mod tests {
         ];
         let score = compute_overall_score_with_weights(&categories, WEIGHTS);
         // 80*0.25 + 60*0.10 + 70*0.25 + 50*0.20 + 60*0.20 = 20+6+17.5+10+12 = 65.5 → 66
-        assert_eq!(score, 66);
+        assert_eq!(score, Some(66));
     }
 
     #[test]
     fn overall_score_single_category() {
         let categories = vec![make_category("Health", 75)];
         let score = compute_overall_score_with_weights(&categories, WEIGHTS);
-        assert_eq!(score, 75);
+        assert_eq!(score, Some(75));
     }
 
     #[test]
-    fn overall_score_empty() {
+    fn overall_score_empty_is_unscored() {
         let score = compute_overall_score_with_weights(&[], WEIGHTS);
-        assert_eq!(score, 0);
+        assert_eq!(score, None, "nothing measurable is not a zero");
     }
 
     #[test]
@@ -606,7 +633,7 @@ mod tests {
             ("Git Hygiene", 0.0),
         ];
         let score = compute_overall_score_with_weights(&categories, &weights);
-        assert_eq!(score, 100);
+        assert_eq!(score, Some(100));
     }
 
     #[test]
@@ -614,7 +641,7 @@ mod tests {
         let categories = vec![
             CategoryResult {
                 name: "Health".to_string(),
-                score: 50,
+                score: Some(50),
                 metrics: vec![
                     MetricValue {
                         name: "Bus factor".to_string(),
@@ -632,7 +659,7 @@ mod tests {
             },
             CategoryResult {
                 name: "Team".to_string(),
-                score: 40,
+                score: Some(40),
                 metrics: vec![MetricValue {
                     name: "Knowledge distribution".to_string(),
                     description: "bad".to_string(),
@@ -653,7 +680,7 @@ mod tests {
         // real findings; their curated advice must stay reachable.
         let categories = vec![CategoryResult {
             name: "Team".to_string(),
-            score: 100,
+            score: Some(100),
             metrics: vec![
                 MetricValue {
                     name: "Collaboration patterns".to_string(),
@@ -693,7 +720,7 @@ mod tests {
         };
         let categories = vec![CategoryResult {
             name: "Team".to_string(),
-            score: 100,
+            score: Some(100),
             metrics: vec![
                 metric("Bus factor", RawValue::Text("N/A".to_string())),
                 metric("Collaboration patterns", RawValue::Count(0)),

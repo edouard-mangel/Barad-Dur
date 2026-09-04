@@ -95,10 +95,10 @@ mod tests {
             total_commits: 100,
             total_authors: 5,
             total_files: 50,
-            overall_score: 72,
+            overall_score: Some(72),
             categories: vec![CategoryResult {
                 name: "Health".into(),
-                score: 72,
+                score: Some(72),
                 metrics: vec![MetricValue {
                     name: "Bus factor".into(),
                     description: "2 (risky)".into(),
@@ -200,8 +200,8 @@ mod tests {
         let report = make_report();
         let summary = TrendSummary {
             delta: TrendDelta {
-                overall: 0,
-                delta_vs_oldest: 0,
+                overall: Some(0),
+                delta_vs_oldest: Some(0),
                 categories: HashMap::new(),
                 is_first: true,
             },
@@ -326,17 +326,17 @@ mod tests {
         let report = make_report();
 
         let mut categories = HashMap::new();
-        categories.insert("Health".to_string(), 30u32);
-        categories.insert("Team".to_string(), 18u32);
-        categories.insert("Evolution".to_string(), 14u32);
-        categories.insert("Git Hygiene".to_string(), 10u32);
+        categories.insert("Health".to_string(), Some(30));
+        categories.insert("Team".to_string(), Some(18));
+        categories.insert("Evolution".to_string(), Some(14));
+        categories.insert("Git Hygiene".to_string(), Some(10));
 
         let entry = HistoryEntry {
             timestamp: chrono::DateTime::parse_from_rfc3339("2025-01-01T00:00:00Z")
                 .unwrap()
                 .with_timezone(&chrono::Utc),
             head: "abc1234def5678901234567890abcdef12345678".to_string(),
-            overall_score: 72,
+            overall_score: Some(72),
             categories,
             metrics: HashMap::new(),
             counts: crate::scorer::HistoryCounts::default(),
@@ -347,8 +347,8 @@ mod tests {
 
         let summary = TrendSummary {
             delta: TrendDelta {
-                overall: 0,
-                delta_vs_oldest: 0,
+                overall: Some(0),
+                delta_vs_oldest: Some(0),
                 categories: HashMap::new(),
                 is_first: true,
             },

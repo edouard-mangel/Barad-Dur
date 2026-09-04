@@ -138,7 +138,7 @@ mod tests {
     fn make_category(name: &str, score: u32) -> CategoryResult {
         CategoryResult {
             name: name.to_string(),
-            score,
+            score: Some(score),
             metrics: vec![MetricValue {
                 name: format!("{} metric", name),
                 description: "test".to_string(),
@@ -242,13 +242,73 @@ mod tests {
 
         assert_eq!(report.repo_name, "test-repo");
         assert_eq!(report.branch, "main");
-        assert_eq!(report.overall_score, 80);
+        assert_eq!(report.overall_score, Some(80));
         assert_eq!(report.categories.len(), 1);
         // New file analysis fields should be empty for an empty snapshot
         assert!(report.file_hotspots.is_empty());
         assert!(report.coupling_pairs.is_empty());
         assert!(report.author_ownership.is_empty());
         assert!(report.file_ages.is_empty());
+    }
+
+    fn unscored_category(name: &str) -> CategoryResult {
+        CategoryResult {
+            name: name.to_string(),
+            score: None,
+            metrics: vec![MetricValue {
+                name: format!("{name} metric"),
+                description: "Small team (1 author, need 4+) — not applicable".to_string(),
+                raw_value: RawValue::Count(0),
+                score: None,
+            }],
+        }
+    }
+
+    fn report_for(categories: Vec<CategoryResult>) -> AnalysisReport {
+        let snapshot = RepoSnapshot::new(
+            std::path::PathBuf::from("/tmp"),
+            "test-repo".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        build_report(
+            &snapshot,
+            categories,
+            None,
+            WEIGHTS,
+            &crate::config::Thresholds::default(),
+            &[],
+            &Default::default(),
+        )
+    }
+
+    #[test]
+    fn build_report_keeps_an_unscored_category_and_excludes_it_from_the_overall() {
+        let report = report_for(vec![make_category("Health", 80), unscored_category("Team")]);
+
+        assert_eq!(
+            report.overall_score,
+            Some(80),
+            "Team must not add a synthetic 100"
+        );
+        let names: Vec<&str> = report.categories.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["Health", "Team"],
+            "the category and its explanation stay visible"
+        );
+        assert_eq!(report.categories[1].score, None);
+        assert_eq!(report.categories[1].metrics.len(), 1);
+    }
+
+    #[test]
+    fn build_report_has_no_overall_score_when_nothing_is_measurable() {
+        let report = report_for(vec![unscored_category("Team")]);
+        assert_eq!(
+            report.overall_score, None,
+            "no measured category, no overall"
+        );
+        assert_eq!(report.categories.len(), 1);
     }
 
     #[test]
