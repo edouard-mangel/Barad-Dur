@@ -10,7 +10,8 @@ export interface MetricValue {
 
 export interface CategoryResult {
   name: string
-  score: number
+  /** Average of the scored metrics, or null when none had enough data. */
+  score: number | null
   metrics: MetricValue[]
 }
 
@@ -84,7 +85,8 @@ export interface AnalysisReport {
   total_commits: number
   total_authors: number
   total_files: number
-  overall_score: number
+  /** Weighted average of the scored categories, or null when none is. */
+  overall_score: number | null
   categories: CategoryResult[]
   // ActionItem since the scorer started serializing structured actions;
   // bare strings in reports generated before that.

@@ -60,7 +60,7 @@ mod tests {
 
     fn with_actions(texts: &[&str]) -> DecisionSurface {
         DecisionSurface {
-            overall_score: 1,
+            overall_score: Some(1),
             total_files: 1,
             total_commits: 1,
             total_authors: 1,

@@ -290,17 +290,26 @@ fn ac_02_2_per_category_deltas_shown() {
 
     let stdout = String::from_utf8(output).unwrap();
 
-    // Each category row should have a delta indicator (+N or -N or +0)
-    // We check that at least the four category names appear alongside delta markers.
+    // Each measurable category row should have a delta indicator (+N or -N or +0).
+    // Team has no scored metric in this one-author fixture, so presenting it as
+    // a perfect category would manufacture evidence that does not exist.
     // The pattern "+0" or "+N" or "-N" adjacent to a category name confirms per-row deltas.
-    let category_delta_present = stdout.contains("Health")
-        && stdout.contains("Team")
-        && stdout.contains("Evolution")
-        && stdout.contains("Git Hygiene");
+    let category_delta_present =
+        stdout.contains("Health") && stdout.contains("Evolution") && stdout.contains("Git Hygiene");
 
     assert!(
         category_delta_present,
-        "stdout should show all four category rows with delta information\nActual:\n{stdout}"
+        "stdout should show every measurable category row with delta information\nActual:\n{stdout}"
+    );
+    let team_line = stdout
+        .lines()
+        .find(|line| line.trim_start().starts_with("▸ Team"))
+        .unwrap_or_else(|| {
+            panic!("an unmeasurable Team category is still listed\nActual:\n{stdout}")
+        });
+    assert!(
+        team_line.contains("—") && !team_line.contains("100"),
+        "an unmeasurable Team category renders a dash, not a fabricated score\nActual:\n{team_line}"
     );
 
     // At least one numeric delta marker must appear (format: +N or -N)
@@ -554,12 +563,16 @@ fn ac_04_1_json_trend_flag_outputs_trend_key_with_required_fields() {
         let cat = snap["category_scores"]
             .as_object()
             .unwrap_or_else(|| panic!("snapshot[{i}].category_scores should be an object"));
-        for key in &["Health", "Team", "Evolution", "Git Hygiene"] {
+        for key in &["Health", "Evolution", "Git Hygiene", "Coupling"] {
             assert!(
                 cat.contains_key(*key),
                 "snapshot[{i}].category_scores should contain key '{key}'"
             );
         }
+        assert!(
+            cat.get("Team").is_some_and(serde_json::Value::is_null),
+            "snapshot[{i}] records an unmeasurable Team category as null, not 100: {cat:?}"
+        );
     }
 
     // And: schema_version is integer 1

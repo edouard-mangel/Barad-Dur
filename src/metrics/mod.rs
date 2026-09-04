@@ -57,7 +57,11 @@ impl std::fmt::Display for RawValue {
 #[derive(Debug, Clone, Serialize)]
 pub struct CategoryResult {
     pub name: String,
-    pub score: u32,
+    /// Average of the scored metrics; `None` when no metric had enough
+    /// evidence to score (e.g. Team on a solo repo). An unscored category
+    /// stays in the report with its metrics' explanations and contributes
+    /// nothing to the overall score.
+    pub score: Option<u32>,
     pub metrics: Vec<MetricValue>,
 }
 
@@ -209,21 +213,20 @@ pub(crate) fn author_line_counts(lines: &[BlameLine]) -> HashMap<AuthorId, usize
 }
 
 impl CategoryResult {
+    /// Whether at least one metric had enough evidence to score.
+    pub fn is_scored(&self) -> bool {
+        self.score.is_some()
+    }
+
     /// Compute category score as the average of scored metrics. Unscored
     /// metrics (`score: None`, insufficient data) don't drag the average.
-    /// When *no* metric could be scored the category defaults to 100 — the
-    /// historical effective behavior for not-applicable categories (e.g.
-    /// Team on a solo repo), so gates don't fail on missing data.
-    pub fn compute_score(mut self) -> Self {
+    /// When *no* metric could be scored the category is unscored too: the
+    /// report keeps it, with each metric's "not applicable" explanation, and
+    /// the overall score is taken over the measurable categories only.
+    pub fn compute_score(self) -> Self {
         let scored: Vec<u32> = self.metrics.iter().filter_map(|m| m.score).collect();
-        self.score = if self.metrics.is_empty() {
-            0
-        } else if scored.is_empty() {
-            100
-        } else {
-            scored.iter().sum::<u32>() / scored.len() as u32
-        };
-        self
+        let score = (!scored.is_empty()).then(|| scored.iter().sum::<u32>() / scored.len() as u32);
+        Self { score, ..self }
     }
 }
 
@@ -533,32 +536,54 @@ mod score_tests {
     fn category_average_skips_unscored_metrics() {
         let cat = CategoryResult {
             name: "Test".into(),
-            score: 0,
+            score: None,
             metrics: vec![metric(Some(80)), metric(None), metric(Some(40))],
         }
         .compute_score();
-        assert_eq!(cat.score, 60, "None metrics must not drag the average");
+        assert_eq!(
+            cat.score,
+            Some(60),
+            "None metrics must not drag the average"
+        );
     }
 
     #[test]
-    fn category_with_no_scored_metrics_defaults_to_100() {
+    fn category_with_no_scored_metrics_is_unscored() {
         let cat = CategoryResult {
             name: "Test".into(),
-            score: 0,
+            score: None,
             metrics: vec![metric(None), metric(None)],
         }
         .compute_score();
-        assert_eq!(cat.score, 100);
+        assert_eq!(cat.score, None, "no evidence must not become a perfect 100");
+        assert!(!cat.is_scored());
     }
 
     #[test]
-    fn category_with_no_metrics_scores_zero() {
+    fn category_with_no_metrics_is_unscored() {
         let cat = CategoryResult {
             name: "Test".into(),
-            score: 0,
+            score: None,
             metrics: vec![],
         }
         .compute_score();
-        assert_eq!(cat.score, 0);
+        assert_eq!(cat.score, None);
+    }
+
+    #[test]
+    fn category_is_scored_only_when_at_least_one_metric_is_scored() {
+        let unscored = CategoryResult {
+            name: "Test".into(),
+            score: None,
+            metrics: vec![metric(None), metric(None)],
+        };
+        let partially_scored = CategoryResult {
+            name: "Test".into(),
+            score: Some(80),
+            metrics: vec![metric(None), metric(Some(80))],
+        };
+
+        assert!(!unscored.is_scored());
+        assert!(partially_scored.is_scored());
     }
 }

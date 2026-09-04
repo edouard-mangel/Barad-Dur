@@ -1,5 +1,7 @@
 [package]
 name = "barad-dur"
+# `cargo run` must pick the tool, not the feature-gated field-test driver.
+default-run = "barad-dur"
 version = "0.22.0"
 edition = "2021"
 description = "The all-seeing repository analyzer"

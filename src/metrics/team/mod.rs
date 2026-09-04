@@ -23,7 +23,7 @@ pub fn compute_team(
         };
         return CategoryResult {
             name: "Team".to_string(),
-            score: 0,
+            score: None,
             metrics: vec![
                 na("Knowledge distribution"),
                 na("Contributor activity"),
@@ -49,7 +49,7 @@ pub fn compute_team(
 
     CategoryResult {
         name: "Team".to_string(),
-        score: 0,
+        score: None,
         metrics,
     }
     .compute_score()

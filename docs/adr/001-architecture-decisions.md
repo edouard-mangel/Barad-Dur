@@ -63,7 +63,7 @@
 
 ## ADR-001.5: Metric Scoring System (0-100)
 
-**Decision:** Each metric produces a score from 0 to 100. Category scores are averages of their metrics. Overall score is a weighted average of categories.
+**Decision:** Each metric produces a score from 0 to 100, or no score when the repository lacks the data to judge it. Category scores are averages of their scored metrics; a category with no scored metric is *unscored* (`null`), kept in the report with its metrics' explanations. Overall score is a weighted average of the scored categories, weights renormalised over them; it is unscored when no category is.
 
 **Default weights** (enforced by `config::CategoryWeights::default()`, sum must equal 100):
 | Category | Weight | Rationale |

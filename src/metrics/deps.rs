@@ -5,7 +5,7 @@ pub fn compute_deps(ecosystem_reports: &[EcosystemReport]) -> CategoryResult {
     let metrics: Vec<MetricValue> = ecosystem_reports.iter().map(score_ecosystem).collect();
     CategoryResult {
         name: "Dependencies".to_string(),
-        score: 0,
+        score: None,
         metrics,
     }
     .compute_score()
@@ -137,7 +137,7 @@ mod tests {
         ];
         let result = compute_deps(&reports);
         assert_eq!(result.name, "Dependencies");
-        assert_eq!(result.score, 87); // (100+75)/2 = 87 (integer division)
+        assert_eq!(result.score, Some(87)); // (100+75)/2 = 87 (integer division)
         assert_eq!(result.metrics.len(), 2);
     }
 }

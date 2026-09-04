@@ -156,7 +156,7 @@ mod tests {
 
     fn surface(score: i64) -> DecisionSurface {
         DecisionSurface {
-            overall_score: score,
+            overall_score: Some(score),
             total_files: 1,
             total_commits: 1,
             total_authors: 1,
@@ -172,7 +172,7 @@ mod tests {
     fn two_identical_passes_report_no_nondeterminism() {
         let outcome = outcome_from_passes("ripgrep", vec![surface(55), surface(55)]);
         assert!(outcome.nondeterminism.is_none());
-        assert_eq!(outcome.surface.overall_score, 55);
+        assert_eq!(outcome.surface.overall_score, Some(55));
     }
 
     #[test]

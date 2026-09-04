@@ -173,7 +173,8 @@ pub struct AnalysisReport {
     pub total_commits: usize,
     pub total_authors: usize,
     pub total_files: usize,
-    pub overall_score: u32,
+    /// `None` when no category is measurable (see `CategoryResult::score`).
+    pub overall_score: Option<u32>,
     pub categories: Vec<CategoryResult>,
     pub top_actions: Vec<ActionItem>,
     /// Per-file coupling refactoring suggestions (Pressman M6), ranked by
@@ -295,16 +296,21 @@ pub struct HistoryCounts {
 /// 3: gitignore coverage uses component-aware path rules (source, docs,
 ///    binary, and template files no longer count as credentials by name;
 ///    OS metadata and wrapped certificate files now do).
-pub const HISTORY_SCHEMA_VERSION: u32 = 3;
+/// 4: a category with no scored metric is unscored (`null`) and excluded
+///    from the overall, whose weights renormalise over the measurable
+///    categories (was: such a category counted as 100 at full weight).
+pub const HISTORY_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryEntry {
     pub timestamp: chrono::DateTime<chrono::Utc>,
     #[serde(rename = "head", alias = "commit")]
     pub head: String,
-    pub overall_score: u32,
+    /// `None` when no category could be scored (nothing measurable).
+    pub overall_score: Option<u32>,
+    /// `None` values are categories that were present but unscored.
     #[serde(rename = "category_scores", alias = "categories")]
-    pub categories: HashMap<String, u32>,
+    pub categories: HashMap<String, Option<u32>>,
     #[serde(default)]
     pub metrics: HashMap<String, u32>,
     #[serde(default)]

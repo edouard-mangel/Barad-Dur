@@ -41,7 +41,7 @@ mod tests {
 
     fn empty_surface() -> DecisionSurface {
         DecisionSurface {
-            overall_score: 55,
+            overall_score: Some(55),
             total_files: 1,
             total_commits: 2,
             total_authors: 3,
@@ -60,7 +60,7 @@ mod tests {
     /// `Some(0)` — the exact regression this baseline store guards against.
     fn sample_surface() -> DecisionSurface {
         DecisionSurface {
-            overall_score: 55,
+            overall_score: Some(55),
             total_files: 1,
             total_commits: 2,
             total_authors: 3,

@@ -29,12 +29,20 @@
   }
 
   /* ---- SVG gauge ---- */
+  // score == null: no category was measurable — empty track and a dash,
+  var UNSCORED_COLOR = '#64748b';
+  /* Category score text: a dash when nothing in the category was measurable. */
+  function categoryLabel(score) { return score == null ? '—' : String(score); }
+  function categoryColor(score) { return score == null ? UNSCORED_COLOR : scoreColor(score); }
+
+  // never a zero (a zero is a verdict; a dash is the absence of one).
   function buildGauge(score) {
     var R_outer = 70, cx = 90, cy = 90;
     var startAngle = -220, endAngle = 40; // degrees, sweep 260
     var sweep = endAngle - startAngle; // 260
-    var pct = score / 100;
-    var color = scoreColor(score);
+    var unscored = score == null;
+    var pct = unscored ? 0 : score / 100;
+    var color = unscored ? UNSCORED_COLOR : scoreColor(score);
 
     var svg = svgEl('svg', {
       class: 'gauge',
@@ -52,7 +60,7 @@
       var fillPath = gaugeArcPath(cx, cy, startAngle, startAngle + sweep * pct, R_outer - 6);
       svg.append(svgEl('path', { d: fillPath, fill: 'none', stroke: color, 'stroke-width': '12', 'stroke-linecap': 'round' }));
     }
-    svg.append(gaugeText(cx, cy - 2, String(score), color, '32', '700'));
+    svg.append(gaugeText(cx, cy - 2, unscored ? '—' : String(score), color, '32', '700'));
     svg.append(gaugeText(cx, cy + 18, '/ 100', '#64748b', '10', null));
     return svg;
   }
@@ -94,12 +102,12 @@
       var scoreEl = svgEl('text', {
         x: String(lp.x), y: String(lp.y + 11),
         'text-anchor': anchor,
-        fill: scoreColor(cats[k].score),
+        fill: categoryColor(cats[k].score),
         'font-size': '9',
         'font-weight': '700',
         'font-family': '-apple-system, BlinkMacSystemFont, sans-serif'
       });
-      scoreEl.append(txt(String(cats[k].score)));
+      scoreEl.append(txt(categoryLabel(cats[k].score)));
       svg.append(scoreEl);
     }
   }
@@ -132,7 +140,8 @@
 
     // Data polygon
     svg.append(svgEl('polygon', {
-      points: radarPolygonPoints(cx, cy, maxR, n, function(j) { return cats[j].score; }),
+      // An unscored category sits at the centre: no claim in either direction.
+      points: radarPolygonPoints(cx, cy, maxR, n, function(j) { return cats[j].score == null ? 0 : cats[j].score; }),
       fill: '#f59e0b22',
       stroke: '#f59e0b',
       'stroke-width': '2'
@@ -175,8 +184,9 @@
     var catTip = CAT_TIPS[cat.name];
     if (catTip) nameEl.append(tipIcon(catTip));
     var right = el('div', { className: 'cat-right' });
-    var scoreEl = el('span', { className: 'cat-score', style: { color: scoreColor(cat.score) } });
-    scoreEl.append(txt(String(cat.score)));
+    var scoreEl = el('span', { className: 'cat-score', style: { color: categoryColor(cat.score) } });
+    scoreEl.append(txt(categoryLabel(cat.score)));
+    if (cat.score == null) scoreEl.title = 'Not measurable: no metric in this category had enough data to score';
     var toggle = el('span', { className: 'cat-toggle' });
     toggle.append(txt('▼'));
     right.append(scoreEl, toggle);

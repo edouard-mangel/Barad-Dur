@@ -9,8 +9,11 @@ interface Props {
 }
 
 export default function CategoryCard({ category }: Props) {
-  // Auto-expand if score is low
-  const [expanded, setExpanded] = useState(category.score < 70)
+  // Auto-expand if score is low; an unscored category stays collapsed —
+  // its rows only say why nothing could be measured.
+  const [expanded, setExpanded] = useState(category.score !== null && category.score < 70)
+  const unscored = category.score === null
+  const unscoredColor = 'rgba(148, 163, 184, 0.8)'
 
   return (
     <div
@@ -46,7 +49,7 @@ export default function CategoryCard({ category }: Props) {
         {/* Collapse indicator */}
         <span
           style={{
-            color: scoreColor(category.score),
+            color: category.score === null ? unscoredColor : scoreColor(category.score),
             fontFamily: 'JetBrains Mono, monospace',
             fontSize: '0.6rem',
             opacity: 0.7,
@@ -73,21 +76,23 @@ export default function CategoryCard({ category }: Props) {
 
         {/* Score */}
         <span
-          className={scoreClass(category.score)}
+          className={category.score === null ? undefined : scoreClass(category.score)}
+          title={unscored ? 'Not measurable: no metric in this category had enough data to score' : undefined}
           style={{
             fontFamily: 'JetBrains Mono, monospace',
             fontWeight: 600,
             fontSize: '1.1rem',
             flexShrink: 0,
+            color: unscored ? unscoredColor : undefined,
           }}
         >
-          {category.score}
+          {unscored ? '—' : category.score}
         </span>
       </button>
 
       {/* Score bar */}
       <div style={{ paddingLeft: '1.25rem', paddingRight: '1.25rem', paddingBottom: '0.75rem' }}>
-        <ScoreBar score={category.score} height="5px" />
+        <ScoreBar score={category.score ?? 0} height="5px" />
       </div>
 
       {/* Metrics */}

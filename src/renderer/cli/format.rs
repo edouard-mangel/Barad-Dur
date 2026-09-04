@@ -9,6 +9,22 @@ pub(crate) fn colorize_by_score(s: &str, score: u32) -> colored::ColoredString {
     }
 }
 
+/// Bar for a score that may be unscored: a dimmed empty track for `None`.
+pub(crate) fn format_optional_score_bar(score: Option<u32>, width: usize) -> String {
+    match score {
+        Some(score) => format_score_bar(score, width),
+        None => "░".repeat(width).dimmed().to_string(),
+    }
+}
+
+/// `—` (dimmed) when there is no score: nothing was measurable.
+pub(crate) fn format_optional_score_number(score: Option<u32>) -> String {
+    match score {
+        Some(score) => format_score_number(score),
+        None => "—".dimmed().to_string(),
+    }
+}
+
 pub(crate) fn format_score_bar(score: u32, width: usize) -> String {
     let filled = (score as usize * width) / 100;
     let empty = width - filled;

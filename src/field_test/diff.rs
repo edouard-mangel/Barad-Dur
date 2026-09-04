@@ -25,6 +25,13 @@ fn scalar(label: &str, before: i64, after: i64) -> Option<String> {
     (before != after).then(|| format!("  {label}: {before} -> {after}"))
 }
 
+/// Like [`scalar`] for a value that may be unscored; a change to or from
+/// `unscored` is a decision change like any other.
+fn optional_scalar(label: &str, before: Option<i64>, after: Option<i64>) -> Option<String> {
+    let show = |value: Option<i64>| value.map_or("unscored".to_string(), |v| v.to_string());
+    (before != after).then(|| format!("  {label}: {} -> {}", show(before), show(after)))
+}
+
 fn map_changes(
     label: &str,
     baseline: &BTreeMap<String, i64>,
@@ -58,7 +65,7 @@ fn map_changes(
 /// Compare a committed baseline against a freshly measured surface.
 pub fn diff_surfaces(baseline: &DecisionSurface, current: &DecisionSurface) -> SurfaceDiff {
     let scalars = [
-        scalar(
+        optional_scalar(
             "overall_score",
             baseline.overall_score,
             current.overall_score,
@@ -243,7 +250,7 @@ mod tests {
 
     fn base_surface() -> DecisionSurface {
         DecisionSurface {
-            overall_score: 55,
+            overall_score: Some(55),
             total_files: 10,
             total_commits: 100,
             total_authors: 3,
@@ -275,7 +282,7 @@ mod tests {
     fn reports_a_changed_overall_score() {
         let baseline = base_surface();
         let mut current = base_surface();
-        current.overall_score = 60;
+        current.overall_score = Some(60);
 
         let d = diff_surfaces(&baseline, &current);
         assert!(!d.is_empty());

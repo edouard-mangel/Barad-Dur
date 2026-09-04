@@ -55,9 +55,10 @@ export default function RadarChart({ categories, size = 240 }: Props) {
     })
 
     // Data polygon
+    // An unscored category sits at the centre: no claim in either direction.
     const dataPoints = categories.map((cat, i) => {
       const angle = angleSlice * i - Math.PI / 2
-      const r = scale(cat.score)
+      const r = scale(cat.score ?? 0)
       return [r * Math.cos(angle), r * Math.sin(angle)] as [number, number]
     })
 
@@ -71,8 +72,8 @@ export default function RadarChart({ categories, size = 240 }: Props) {
     // Data points
     categories.forEach((cat, i) => {
       const angle = angleSlice * i - Math.PI / 2
-      const r = scale(cat.score)
-      const color = scoreColor(cat.score)
+      const r = scale(cat.score ?? 0)
+      const color = cat.score === null ? 'rgba(148, 163, 184, 0.8)' : scoreColor(cat.score)
       g.append('circle')
         .attr('cx', r * Math.cos(angle))
         .attr('cy', r * Math.sin(angle))
@@ -106,11 +107,11 @@ export default function RadarChart({ categories, size = 240 }: Props) {
         .attr('y', y + 13)
         .attr('text-anchor', 'middle')
         .attr('dominant-baseline', 'middle')
-        .attr('fill', scoreColor(cat.score))
+        .attr('fill', cat.score === null ? 'rgba(148, 163, 184, 0.8)' : scoreColor(cat.score))
         .attr('font-size', '9')
         .attr('font-family', 'JetBrains Mono, monospace')
         .attr('font-weight', '500')
-        .text(cat.score)
+        .text(cat.score === null ? '—' : cat.score)
     })
   }, [categories, size])
 

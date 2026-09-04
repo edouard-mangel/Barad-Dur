@@ -19,7 +19,7 @@ pub fn compute_hygiene(
 
     CategoryResult {
         name: "Git Hygiene".to_string(),
-        score: 0,
+        score: None,
         metrics,
     }
     .compute_score()

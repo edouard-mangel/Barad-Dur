@@ -24,9 +24,9 @@ fn compute_team_small_team_metrics_unscored() {
         &crate::config::TeamThresholds::default(),
         &crate::config::CouplingThresholds::default(),
     );
-    // Category keeps 100 (gates must not punish N/A), but the individual
-    // metrics carry no score — renderers show a dash, not a fake 100.
-    assert_eq!(result.score, 100);
+    // Nothing measurable: the category is unscored, not a fake 100. Gates
+    // treat an unscored category as "not gated", so N/A is still not punished.
+    assert_eq!(result.score, None);
     assert!(result.metrics.iter().all(|m| m.score.is_none()));
     assert!(result
         .metrics

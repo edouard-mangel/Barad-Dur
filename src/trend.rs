@@ -45,10 +45,12 @@ pub struct TrendVelocity {
 /// Delta between the current run and the previous run on the same branch.
 #[derive(Debug, Clone, Serialize)]
 pub struct TrendDelta {
-    /// Change in overall score vs the most recent prior run (positive = improving).
-    pub overall: i32,
-    /// Change in overall score vs the oldest entry in the history window.
-    pub delta_vs_oldest: i32,
+    /// Change in overall score vs the most recent prior run (positive =
+    /// improving); `None` when either run had no measurable overall.
+    pub overall: Option<i32>,
+    /// Change in overall score vs the oldest entry in the history window;
+    /// `None` on the same condition.
+    pub delta_vs_oldest: Option<i32>,
     /// Per-category score deltas.
     pub categories: HashMap<String, i32>,
     /// True when there is no prior run on this branch to compare against.
@@ -88,8 +90,8 @@ pub fn compute_trend(
         let branch_mismatch_warning = !history.is_empty();
         return TrendSummary {
             delta: TrendDelta {
-                overall: 0,
-                delta_vs_oldest: 0,
+                overall: None,
+                delta_vs_oldest: None,
                 categories: HashMap::new(),
                 is_first: true,
             },
@@ -110,8 +112,8 @@ pub fn compute_trend(
         .map(|e| e.branch != current_branch)
         .unwrap_or(false);
 
-    let delta_overall = current_entry.overall_score as i32 - last.overall_score as i32;
-    let delta_vs_oldest = current_entry.overall_score as i32 - oldest.overall_score as i32;
+    let delta_overall = score_delta(last.overall_score, current_entry.overall_score);
+    let delta_vs_oldest = score_delta(oldest.overall_score, current_entry.overall_score);
 
     let delta_categories = compute_category_deltas(&last.categories, &current_entry.categories);
 
@@ -127,7 +129,7 @@ pub fn compute_trend(
             is_first: false,
         },
         sparkline,
-        velocity: Some(velocity),
+        velocity,
         branch_mismatch_warning,
         history: history.to_vec(),
     }
@@ -137,18 +139,26 @@ pub fn compute_trend(
 // Private helpers
 // ---------------------------------------------------------------------------
 
+/// `current - previous`, only when both runs were measurable.
+fn score_delta(previous: Option<u32>, current: Option<u32>) -> Option<i32> {
+    Some(current? as i32 - previous? as i32)
+}
+
+/// Per-category deltas for the categories scored in *both* runs. A category
+/// that just became measurable (or just stopped being) has no delta rather
+/// than a misleading `+0`.
 fn compute_category_deltas(
-    previous: &HashMap<String, u32>,
-    current: &HashMap<String, u32>,
+    previous: &HashMap<String, Option<u32>>,
+    current: &HashMap<String, Option<u32>>,
 ) -> HashMap<String, i32> {
-    let mut deltas = HashMap::new();
-
-    for (key, &current_score) in current {
-        let prev_score = previous.get(key).copied().unwrap_or(current_score);
-        deltas.insert(key.clone(), current_score as i32 - prev_score as i32);
-    }
-
-    deltas
+    current
+        .iter()
+        .filter_map(|(key, current_score)| {
+            let current_score = (*current_score)?;
+            let previous_score = previous.get(key).copied().flatten()?;
+            Some((key.clone(), current_score as i32 - previous_score as i32))
+        })
+        .collect()
 }
 
 /// Return the most recent `VELOCITY_WINDOW` entries from `same_branch`, or all
@@ -167,32 +177,35 @@ fn build_sparkline(
 ) -> Vec<SparklinePoint> {
     let window_entries = take_velocity_window(same_branch);
 
-    let mut points: Vec<SparklinePoint> = window_entries
+    // Runs with no measurable overall have no point: a gap, not a zero.
+    window_entries
         .iter()
-        .map(|e| SparklinePoint {
-            score: e.overall_score,
-            head_short: e.head[..e.head.len().min(7)].to_string(),
+        .copied()
+        .chain(std::iter::once(current_entry))
+        .filter_map(|e| {
+            Some(SparklinePoint {
+                score: e.overall_score?,
+                head_short: e.head[..e.head.len().min(7)].to_string(),
+            })
         })
-        .collect();
-
-    points.push(SparklinePoint {
-        score: current_entry.overall_score,
-        head_short: current_entry.head[..current_entry.head.len().min(7)].to_string(),
-    });
-
-    points
+        .collect()
 }
 
-fn compute_velocity(same_branch: &[&HistoryEntry], current_entry: &HistoryEntry) -> TrendVelocity {
+/// `None` when the current run or the oldest run in the window has no
+/// measurable overall: velocity needs two real endpoints.
+fn compute_velocity(
+    same_branch: &[&HistoryEntry],
+    current_entry: &HistoryEntry,
+) -> Option<TrendVelocity> {
     let window = take_velocity_window(same_branch);
 
     let window_size = window.len() + 1; // +1 for current entry
 
+    let last_score = current_entry.overall_score?;
     let first_score = window
         .first()
         .map(|e| e.overall_score)
-        .unwrap_or(current_entry.overall_score);
-    let last_score = current_entry.overall_score;
+        .unwrap_or(current_entry.overall_score)?;
 
     let total_change = last_score as i32 - first_score as i32;
     let runs = (window_size - 1).max(1) as f64;
@@ -206,11 +219,11 @@ fn compute_velocity(same_branch: &[&HistoryEntry], current_entry: &HistoryEntry)
         VelocityDirection::Stable
     };
 
-    TrendVelocity {
+    Some(TrendVelocity {
         direction,
         points_per_run,
         window_size,
-    }
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -225,13 +238,13 @@ mod tests {
 
     fn make_entry(branch: &str, overall_score: u32, head: &str) -> HistoryEntry {
         let mut categories = HashMap::new();
-        categories.insert("Health".to_string(), overall_score);
-        categories.insert("Team".to_string(), overall_score);
+        categories.insert("Health".to_string(), Some(overall_score));
+        categories.insert("Team".to_string(), Some(overall_score));
 
         HistoryEntry {
             timestamp: Utc::now(),
             head: head.to_string(),
-            overall_score,
+            overall_score: Some(overall_score),
             categories,
             metrics: HashMap::new(),
             counts: HistoryCounts {
@@ -244,6 +257,31 @@ mod tests {
             schema_version: 1,
             source: None,
         }
+    }
+
+    #[test]
+    fn category_deltas_skip_categories_unscored_on_either_side() {
+        let previous: HashMap<String, Option<u32>> = [
+            ("Health".to_string(), Some(70)),
+            ("Team".to_string(), None),
+            ("Coupling".to_string(), Some(50)),
+        ]
+        .into_iter()
+        .collect();
+        let current: HashMap<String, Option<u32>> = [
+            ("Health".to_string(), Some(75)),
+            ("Team".to_string(), Some(38)),
+            ("Coupling".to_string(), None),
+        ]
+        .into_iter()
+        .collect();
+        let deltas = compute_category_deltas(&previous, &current);
+        assert_eq!(deltas.get("Health"), Some(&5));
+        assert!(
+            !deltas.contains_key("Team"),
+            "a category that just became measurable has no delta, not +0"
+        );
+        assert!(!deltas.contains_key("Coupling"));
     }
 
     #[test]
@@ -264,11 +302,13 @@ mod tests {
 
         // delta_vs_oldest should be current - oldest (72 - 60 = 12), not current - last (72 - 68 = 4)
         assert_eq!(
-            summary.delta.delta_vs_oldest, 12,
+            summary.delta.delta_vs_oldest,
+            Some(12),
             "delta_vs_oldest should be current_score - oldest_score = 72 - 60 = 12"
         );
         assert_eq!(
-            summary.delta.overall, 4,
+            summary.delta.overall,
+            Some(4),
             "delta.overall (delta_vs_last) should be current_score - last_score = 72 - 68 = 4"
         );
     }
@@ -282,7 +322,7 @@ mod tests {
             summary.delta.is_first,
             "is_first should be true when history is empty"
         );
-        assert_eq!(summary.delta.overall, 0);
+        assert_eq!(summary.delta.overall, None, "no prior run, no delta");
     }
 
     #[test]
@@ -296,7 +336,11 @@ mod tests {
             !summary.delta.is_first,
             "is_first should be false when prior history exists"
         );
-        assert_eq!(summary.delta.overall, 5, "delta should be 75 - 70 = +5");
+        assert_eq!(
+            summary.delta.overall,
+            Some(5),
+            "delta should be 75 - 70 = +5"
+        );
     }
 
     #[test]
@@ -341,7 +385,7 @@ mod tests {
             "direction should be Improving when current score exceeds prior scores"
         );
         assert!(
-            summary.delta.overall > 0,
+            summary.delta.overall > Some(0),
             "delta_vs_last should be positive when current score exceeds last score"
         );
     }
@@ -365,8 +409,8 @@ mod tests {
             "direction should be Declining when current score is below last score"
         );
         assert!(
-            summary.delta.overall < 0,
-            "delta_vs_last should be negative when current score drops, got: {}",
+            summary.delta.overall.is_some_and(|delta| delta < 0),
+            "delta_vs_last should be negative when current score drops, got: {:?}",
             summary.delta.overall
         );
     }
@@ -385,7 +429,8 @@ mod tests {
             "should find prior entry on main branch"
         );
         assert_eq!(
-            summary.delta.overall, 5,
+            summary.delta.overall,
+            Some(5),
             "delta should compare against main branch entry (65 - 60 = +5), not feature branch"
         );
     }

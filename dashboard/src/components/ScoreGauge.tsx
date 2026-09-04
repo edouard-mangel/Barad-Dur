@@ -1,14 +1,16 @@
 import { scoreColor } from '../types'
 
 interface Props {
-  score: number
+  /** null: nothing was measurable — empty track and a dash, never a zero. */
+  score: number | null
   size?: number
   label?: string
 }
 
 export default function ScoreGauge({ score, size = 160, label = 'Overall Score' }: Props) {
-  const clampedScore = Math.max(0, Math.min(100, score))
-  const color = scoreColor(clampedScore)
+  const unscored = score === null
+  const clampedScore = unscored ? 0 : Math.max(0, Math.min(100, score))
+  const color = unscored ? 'rgba(148, 163, 184, 0.8)' : scoreColor(clampedScore)
 
   // Arc parameters — 270° sweep starting from bottom-left
   const radius = 54
@@ -74,7 +76,7 @@ export default function ScoreGauge({ score, size = 160, label = 'Overall Score' 
             fontWeight="600"
             style={{ filter: `drop-shadow(0 0 8px ${color})` }}
           >
-            {clampedScore}
+            {unscored ? "—" : clampedScore}
           </text>
           <text
             x={cx}
