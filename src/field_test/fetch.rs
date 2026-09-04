@@ -34,6 +34,29 @@ fn git_stdout(repo: &Path, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
+/// Whether `repo`'s object database holds `commit`.
+///
+/// `cat-file -e` is a plain existence probe: it exits non-zero for an
+/// unknown object rather than writing to stdout, so a missing pin is an
+/// answer here, not a harness error.
+fn contains_commit(repo: &Path, commit: &str) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["cat-file", "-e", &format!("{commit}^{{commit}}")])
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
+/// Whether the checkout at `repo` is the repository `entry` declares.
+///
+/// Identity is the pin, not the remote URL. The same upstream is reached
+/// over https by the harness, over ssh by a maintainer, and through a local
+/// mirror on a machine that clones from one — all spellings of `origin` that
+/// a string comparison would reject while the history is identical. A
+/// commit ID, by contrast, is shared history's own name for itself: an
+/// unrelated repository cannot hold the pin, and the pin is what the sweep
+/// is about to check out.
 fn validate_repository(entry: &CorpusEntry, repo: &Path) -> Result<()> {
     let inside_work_tree = git_stdout(repo, &["rev-parse", "--is-inside-work-tree"])?;
     if inside_work_tree != "true" {
@@ -42,14 +65,14 @@ fn validate_repository(entry: &CorpusEntry, repo: &Path) -> Result<()> {
             repo.display()
         );
     }
-    if let Some(expected) = entry.url.as_deref() {
-        let actual = git_stdout(repo, &["remote", "get-url", "origin"])?;
-        if actual != expected {
-            bail!(
-                "cached corpus repository {} has origin `{actual}`, expected `{expected}`",
-                entry.name
-            );
-        }
+    if !contains_commit(repo, &entry.pin) {
+        bail!(
+            "corpus repository {} at {} does not contain its pin `{}`; \
+             it is not the declared repository, or it needs a fetch",
+            entry.name,
+            repo.display(),
+            entry.pin
+        );
     }
     Ok(())
 }
@@ -139,12 +162,27 @@ mod tests {
         assert!(status.success(), "git {args:?} failed");
     }
 
+    /// HEAD of `dir`, for use as a corpus pin.
+    fn head(dir: &Path) -> String {
+        git_stdout(dir, &["rev-parse", "HEAD"]).expect("rev-parse HEAD")
+    }
+
     /// A tiny repository with one commit, usable as a clone URL.
     fn seed_repo(dir: &Path) {
+        seed_repo_with(dir, "fn main() {}\n");
+    }
+
+    /// As `seed_repo`, with the commit's content under the caller's control.
+    ///
+    /// A commit ID hashes content, author and timestamp alike, so two repos
+    /// seeded with identical bytes in the same second share the very same
+    /// commit object — indistinguishable histories, not merely similar ones.
+    /// A test that means "a different repository" has to say so in content.
+    fn seed_repo_with(dir: &Path, content: &str) {
         git(dir, &["init", "-q", "-b", "main"]);
         git(dir, &["config", "user.email", "t@example.com"]);
         git(dir, &["config", "user.name", "t"]);
-        std::fs::write(dir.join("a.rs"), "fn main() {}\n").unwrap();
+        std::fs::write(dir.join("a.rs"), content).unwrap();
         git(dir, &["add", "a.rs"]);
         git(dir, &["commit", "-q", "-m", "seed"]);
     }
@@ -152,10 +190,14 @@ mod tests {
     #[test]
     fn a_repository_already_under_the_root_is_used_as_is() {
         let root = tempfile::tempdir().unwrap();
-        std::fs::create_dir(root.path().join("local-only")).unwrap();
-        seed_repo(&root.path().join("local-only"));
-        let got = ensure_present(&entry("local-only", None), root.path()).unwrap();
-        assert_eq!(got, root.path().join("local-only"));
+        let local = root.path().join("local-only");
+        std::fs::create_dir(&local).unwrap();
+        seed_repo(&local);
+        let mut entry = entry("local-only", None);
+        entry.pin = head(&local);
+
+        let got = ensure_present(&entry, root.path()).unwrap();
+        assert_eq!(got, local);
     }
 
     #[test]
@@ -172,12 +214,16 @@ mod tests {
         );
     }
 
+    /// A stale or simply wrong checkout sitting at the expected path is the
+    /// failure this guard exists for: analysing it would silently report on
+    /// the wrong code. Its history cannot hold the declared pin.
     #[test]
-    fn a_cached_repository_from_the_wrong_origin_is_rejected() {
+    fn a_cached_repository_that_is_a_different_repository_is_rejected() {
         let expected = tempfile::tempdir().unwrap();
         seed_repo(expected.path());
+        let pin = head(expected.path());
         let other = tempfile::tempdir().unwrap();
-        seed_repo(other.path());
+        seed_repo_with(other.path(), "fn other() {}\n");
         let root = tempfile::tempdir().unwrap();
         let cached = root.path().join("cached");
         let status = Command::new("git")
@@ -187,15 +233,40 @@ mod tests {
             .status()
             .unwrap();
         assert!(status.success());
-        let expected_url = format!("file://{}", expected.path().display());
+        let mut entry = entry("cached", Some("https://example.invalid/org/cached.git"));
+        entry.pin = pin.clone();
 
-        let err = ensure_present(&entry("cached", Some(&expected_url)), root.path()).unwrap_err();
+        let err = ensure_present(&entry, root.path()).unwrap_err();
         let msg = format!("{err:#}");
-        assert!(msg.contains("origin"), "explains the mismatch: {msg}");
-        assert!(
-            msg.contains(&expected_url),
-            "shows the expected origin: {msg}"
-        );
+        assert!(msg.contains("cached"), "names the entry: {msg}");
+        assert!(msg.contains(&pin), "shows the missing pin: {msg}");
+    }
+
+    /// The pin, not the spelling of the remote, is what says "this is the
+    /// declared repository". A maintainer reaches the same upstream over ssh
+    /// or from a local mirror; the harness clones it over https. All three
+    /// share the history the pin names.
+    #[test]
+    fn a_cached_repository_reached_over_another_transport_is_accepted() {
+        let upstream = tempfile::tempdir().unwrap();
+        seed_repo(upstream.path());
+        let root = tempfile::tempdir().unwrap();
+        let cached = root.path().join("cached");
+        // Cloned from a bare path — not the https url the manifest declares.
+        let status = Command::new("git")
+            .args(["clone", "--quiet", "--"])
+            .arg(upstream.path())
+            .arg(&cached)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let pin = git_stdout(&cached, &["rev-parse", "HEAD"]).unwrap();
+
+        let mut entry = entry("cached", Some("https://example.invalid/org/cached.git"));
+        entry.pin = pin;
+
+        let got = ensure_present(&entry, root.path()).unwrap();
+        assert_eq!(got, cached);
     }
 
     #[test]
@@ -204,7 +275,10 @@ mod tests {
         seed_repo(upstream.path());
         let root = tempfile::tempdir().unwrap();
         let url = format!("file://{}", upstream.path().display());
-        let got = ensure_present(&entry("cloned", Some(&url)), root.path()).unwrap();
+        let mut entry = entry("cloned", Some(&url));
+        entry.pin = head(upstream.path());
+
+        let got = ensure_present(&entry, root.path()).unwrap();
         assert_eq!(got, root.path().join("cloned"));
         assert!(got.join("a.rs").is_file(), "clone has the working tree");
         assert!(
