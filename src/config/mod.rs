@@ -125,10 +125,12 @@ struct TomlOutput {
 pub struct BackfillConfig {
     #[serde(default = "default_sample_count")]
     pub sample_count: u32,
-    /// How many top-scoring hotspots (by `hotspot_score`) get a per-file
-    /// complexity/churn trend entry at each backfill sample. Bounds
-    /// `entity_trends.json`'s growth — see the per-entity trend history
-    /// design's Decision 3.
+    /// How many entities of each kind get a trend entry at each backfill
+    /// sample: the top hotspots by `hotspot_score`, and separately the most
+    /// co-changed qualifying coupling pairs. Bounds `entity_trends.json`'s
+    /// growth — see the per-entity trend history design's Decision 3. The
+    /// coupling side needs the cap as much as the hotspot side: qualifying
+    /// pairs are O(n^2) in the limit, not bounded by construction.
     #[serde(default = "default_entity_trend_top_n")]
     pub entity_trend_top_n: usize,
 }

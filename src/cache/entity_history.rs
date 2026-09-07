@@ -147,11 +147,24 @@ pub fn build_entity_trend_entry(
         churn.insert(h.path.clone(), h.churn_count as u32);
     }
 
-    let mut coupling_degree = HashMap::new();
-    for (a, b, co_changes) in crate::metrics::coupling::qualifying_smell_pairs(snapshot, coupling) {
-        let key = entity_pair_key(&a.display().to_string(), &b.display().to_string());
-        coupling_degree.insert(key, co_changes);
-    }
+    // Bounded the same way the hotspot maps are. `qualifying_smell_pairs` is
+    // not bounded by construction — pair count is O(n^2) in the limit — so
+    // without a cap one sample's line grows with how coupled the repo is
+    // (666 keys, 39 KB on a single line, measured on this repository). Keep
+    // the most-coupled pairs, which are the ones a coupling trend is about.
+    let mut ranked: Vec<(String, usize)> =
+        crate::metrics::coupling::qualifying_smell_pairs(snapshot, coupling)
+            .map(|(a, b, co_changes)| {
+                (
+                    entity_pair_key(&a.display().to_string(), &b.display().to_string()),
+                    co_changes,
+                )
+            })
+            .collect();
+    // Ties broken on the key so the persisted set is deterministic run to run.
+    ranked.sort_by(|(ka, ca), (kb, cb)| cb.cmp(ca).then_with(|| ka.cmp(kb)));
+    ranked.truncate(top_n);
+    let coupling_degree: HashMap<String, usize> = ranked.into_iter().collect();
 
     EntityTrendEntry {
         timestamp,
@@ -870,6 +883,78 @@ mod tests {
             entry.coupling_degree.get("src/a.rs|tests/b.rs"),
             Some(&5),
             "pair key must be lexicographically sorted"
+        );
+    }
+
+    #[test]
+    fn build_entity_trend_entry_caps_coupling_pairs_at_top_n_by_co_changes() {
+        // `entity_trend_top_n` bounded only the hotspot maps; every
+        // qualifying pair was persisted. Pair count is O(n^2) in the limit,
+        // so entry size was governed by how coupled the repo is, with no cap
+        // at all — measured at 666 keys and 39 KB on a single JSONL line for
+        // this repository. Keep the most-coupled pairs, drop the tail.
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+
+        let pairs = [("a", "x", 9usize), ("b", "y", 5usize), ("c", "z", 3usize)];
+        for (src, tst, co) in pairs {
+            let src_path = format!("src/{src}.rs");
+            let test_path = format!("tests/{tst}.rs");
+            for path in [&src_path, &test_path] {
+                snapshot.files.push(FileEntry {
+                    path: path.into(),
+                    size_bytes: 1,
+                    is_binary: false,
+                    depth: 2,
+                    blob_oid: String::new(),
+                });
+                snapshot.commits_by_file.insert(
+                    path.into(),
+                    (0..co as u32).map(crate::snapshot::CommitId).collect(),
+                );
+            }
+            // co_changes == min_commits, so the ratio is 1.0 and every pair
+            // clears the threshold; only the cap can separate them.
+            snapshot.file_change_pairs.push((
+                PathBuf::from(&src_path),
+                PathBuf::from(&test_path),
+                co,
+            ));
+        }
+
+        let entry = build_entity_trend_entry(
+            &snapshot,
+            &[],
+            &CouplingThresholds::default(),
+            2, // top_n
+            "abc123",
+            Utc::now(),
+            "main",
+        );
+
+        assert_eq!(
+            entry.coupling_degree.len(),
+            2,
+            "coupling pairs must be capped at top_n, got: {:?}",
+            entry.coupling_degree
+        );
+        assert_eq!(
+            entry.coupling_degree.get("src/a.rs|tests/x.rs"),
+            Some(&9),
+            "the most-coupled pair must be kept"
+        );
+        assert_eq!(
+            entry.coupling_degree.get("src/b.rs|tests/y.rs"),
+            Some(&5),
+            "the second-most-coupled pair must be kept"
+        );
+        assert!(
+            !entry.coupling_degree.contains_key("src/c.rs|tests/z.rs"),
+            "the weakest pair must be dropped"
         );
     }
 
