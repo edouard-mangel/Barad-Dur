@@ -122,8 +122,18 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<()> {
         eprintln!("  Scoring: {}ms", t.elapsed().as_millis());
     }
 
+    // An Err here is a genuine I/O failure (unreadable cache dir, a failed
+    // archive rename), distinct from "no history yet", which comes back as an
+    // empty Vec. Degrading both to silence hid the reason every direction was
+    // missing, so say so and carry on without trends.
     let (entity_history, entity_history_warning) =
-        cache::entity_history::load_entity_history_checked(&local_path).unwrap_or_default();
+        match cache::entity_history::load_entity_history_checked(&local_path) {
+            Ok(loaded) => loaded,
+            Err(e) => {
+                eprintln!("Warning: could not read entity trend history: {e}");
+                Default::default()
+            }
+        };
     if let Some(ref warning) = entity_history_warning {
         eprintln!("{}", warning);
     }

@@ -45,12 +45,12 @@ const ENTITY_TREND_THRESHOLD_PCT: f64 = 0.15;
 /// growth, classifies as `Stable` (no signal yet / undefined percent
 /// change). A zero baseline with growth classifies as `Growing`.
 pub fn compute_entity_trend(series: &[f64]) -> EntityTrendDirection {
-    let (Some(&first), Some(&last)) = (series.first(), series.last()) else {
-        return EntityTrendDirection::Stable;
-    };
+    // One guard, not two: `first`/`last` are only `None` when the series is
+    // empty, which `len() < 2` already covers.
     if series.len() < 2 {
         return EntityTrendDirection::Stable;
     }
+    let (first, last) = (series[0], series[series.len() - 1]);
     if first == 0.0 {
         return if last > 0.0 {
             EntityTrendDirection::Growing

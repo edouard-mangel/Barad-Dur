@@ -111,10 +111,24 @@ pub(crate) fn entity_pair_key(a: &str, b: &str) -> String {
 
 /// The top `top_n` hotspots by `hotspot_score`, descending. Returns all of
 /// them when there are fewer than `top_n`.
+///
+/// Ranked over the window backfill collects with, which is
+/// `TimeWindow::full_history()` — not the window `analyze` displays hotspots
+/// over (180 days by default). The two populations therefore differ, so a
+/// currently-hot file can carry no direction at all. Tracked as deferred work
+/// in the per-entity trend design; the fix is a scoring-semantics change that
+/// also moves `gate`'s baseline, not a change to this function.
 fn select_top_hotspots(
     hotspots: &[crate::scorer::HotspotFile],
     top_n: usize,
 ) -> Vec<&crate::scorer::HotspotFile> {
+    // The sort is deliberate, not redundant. `build_hotspots` happens to
+    // return its list already sorted by `hotspot_score`, but that is the
+    // caller's current behaviour, not this function's contract: it selects
+    // the top N by score from whatever it is given, and
+    // `build_entity_trend_entry_selects_top_n_hotspots_by_score` passes an
+    // unsorted list precisely to hold that line. Cost is one sort of the file
+    // list per sample.
     let mut sorted: Vec<&crate::scorer::HotspotFile> = hotspots.iter().collect();
     sorted.sort_by(|a, b| {
         b.hotspot_score

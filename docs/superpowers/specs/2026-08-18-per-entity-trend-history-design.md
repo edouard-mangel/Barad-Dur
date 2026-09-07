@@ -307,6 +307,23 @@ selection — no new coupling-specific knobs.
     different notion from `CouplingPair::coupling_trend` added here. Two
     Ch. 8 "coupling trends" with the same name on the same report needs
     resolving before either is drawn.
+- **Aligning the sampling window with `analyze`'s.** `hotspot_score` weights
+  `churn_count`, which is window-dependent, and the two sides use different
+  windows: `collect_snapshot_at_inner` hardcodes `TimeWindow::full_history()`
+  (`src/collector/snapshot_builder.rs`), while `analyze` uses the configured
+  window, 180 days by default. So the top-N persisted at each sample is
+  ranked over all-time churn while the hotspots the report displays are
+  ranked over recent churn: a file with 400 all-time commits but none in six
+  months dominates the persisted set, and a file that turned hot this quarter
+  heads the report with `complexity_trend: None`. The rows most in need of a
+  direction are the likeliest to lack one.
+
+  Not fixed here because it is not local. The window is hardcoded inside the
+  shared `collect_snapshot_at_inner`, so plumbing one through also changes
+  `gate`'s ratchet baseline, and re-windowing every historical sample changes
+  every score in `trends.json`. Both move `make field-test` regression
+  baselines, which this repository requires to be regenerated and reviewed in
+  their own commit. It is a scoring-semantics change and belongs in one.
 - Rename-aware entity identity (Decision 4).
 - Surfacing entity trends in the `backfill` CLI's own progress output
   (currently only prints `[n/total] Analyzing <sha>...`).

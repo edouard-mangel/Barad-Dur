@@ -79,7 +79,12 @@ pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
             continue;
         }
 
-        let snapshot = Collector::collect_snapshot_at_with_ast(repo_path, sha, &ignore, true)?;
+        let snapshot = Collector::collect_snapshot_at_with_ast(
+            repo_path,
+            sha,
+            &ignore,
+            cfg.exclude_use_defaults,
+        )?;
 
         // Computed once, shared by the Health category's "God objects"
         // metric and by build_report's refactoring-action generator.
