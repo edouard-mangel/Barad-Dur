@@ -73,6 +73,25 @@ pub fn compute_entity_trend(series: &[f64]) -> EntityTrendDirection {
     }
 }
 
+/// Per-period rates from a running total. `churn_count` and `co_changes` are
+/// recorded as all-time totals up to each sampled commit (backfill collects
+/// every sample over `TimeWindow::full_history()`), so those series are
+/// monotonically non-decreasing by construction: classifying them directly
+/// makes `Shrinking` unreachable and turns `Growing` into "this file is still
+/// alive". Differencing recovers the quantity a reader actually means by a
+/// churn or coupling trend — how much activity each period carried — and with
+/// it the ability to report a genuine slowdown.
+///
+/// A gap in the series (an entity that dropped out of a sample's top-N) makes
+/// the next delta span two periods; that is the same sparse-window tolerance
+/// `take_velocity_window` already accepts, not a special case.
+fn period_rates(cumulative: &[f64]) -> Vec<f64> {
+    cumulative
+        .windows(2)
+        .map(|w| (w[1] - w[0]).max(0.0))
+        .collect()
+}
+
 /// Attach a `Growing`/`Shrinking`/`Stable` direction to every hotspot and
 /// coupling pair that has at least 2 points of history — matched by path
 /// (hotspots) or sorted pair key (coupling pairs). Entities absent from
@@ -102,25 +121,31 @@ pub fn attach_entity_trends(
             h.complexity_trend = Some(compute_entity_trend(&complexity_series));
         }
 
-        let churn_series: Vec<f64> = ordered
-            .iter()
-            .filter_map(|e| e.churn.get(&h.path).copied())
-            .map(|c| c as f64)
-            .collect();
-        if churn_series.len() >= 2 {
-            h.churn_trend = Some(compute_entity_trend(&churn_series));
+        // Cumulative: classify the per-period rate, not the running total.
+        let churn_rates = period_rates(
+            &ordered
+                .iter()
+                .filter_map(|e| e.churn.get(&h.path).copied())
+                .map(|c| c as f64)
+                .collect::<Vec<f64>>(),
+        );
+        if churn_rates.len() >= 2 {
+            h.churn_trend = Some(compute_entity_trend(&churn_rates));
         }
     }
 
     for p in pairs.iter_mut() {
         let key = crate::cache::entity_history::entity_pair_key(&p.file_a, &p.file_b);
-        let series: Vec<f64> = ordered
-            .iter()
-            .filter_map(|e| e.coupling_degree.get(&key).copied())
-            .map(|c| c as f64)
-            .collect();
-        if series.len() >= 2 {
-            p.coupling_trend = Some(compute_entity_trend(&series));
+        // Cumulative, like churn — see `period_rates`.
+        let rates = period_rates(
+            &ordered
+                .iter()
+                .filter_map(|e| e.coupling_degree.get(&key).copied())
+                .map(|c| c as f64)
+                .collect::<Vec<f64>>(),
+        );
+        if rates.len() >= 2 {
+            p.coupling_trend = Some(compute_entity_trend(&rates));
         }
     }
 }
@@ -605,6 +630,104 @@ mod tests {
         );
     }
 
+    /// Build a hotspot with only the fields these tests care about.
+    fn trend_hotspot(path: &str) -> crate::scorer::HotspotFile {
+        crate::scorer::HotspotFile {
+            path: path.to_string(),
+            role: crate::metrics::file_role::FileRole::Source,
+            churn_count: 0,
+            bug_commit_count: 0,
+            loc: 100,
+            total_lines: 100,
+            cyclomatic_complexity: 10,
+            public_methods: 0,
+            properties: 0,
+            hotspot_score: 50.0,
+            coupling_trend: None,
+            content_findings: 0,
+            common_findings: 0,
+            control_findings: 0,
+            inheritance_findings: 0,
+            churn_timeline: vec![],
+            complexity_trend: None,
+            churn_trend: None,
+        }
+    }
+
+    /// One entry per sample, spaced a day apart, carrying a churn count for
+    /// `path`. Churn is recorded as an all-time cumulative total, so these
+    /// are totals, not per-period counts.
+    fn churn_history(
+        path: &str,
+        totals: &[u32],
+    ) -> Vec<crate::cache::entity_history::EntityTrendEntry> {
+        use crate::cache::entity_history::EntityTrendEntry;
+        use std::collections::HashMap;
+        let base = chrono::Utc::now() - chrono::Duration::days(totals.len() as i64);
+        totals
+            .iter()
+            .enumerate()
+            .map(|(i, total)| {
+                let mut churn = HashMap::new();
+                churn.insert(path.to_string(), *total);
+                EntityTrendEntry {
+                    timestamp: base + chrono::Duration::days(i as i64),
+                    head: format!("sha{i}"),
+                    branch: "main".into(),
+                    complexity: HashMap::new(),
+                    churn,
+                    coupling_degree: HashMap::new(),
+                    schema_version: 1,
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn attach_entity_trends_reports_steady_churn_rate_as_stable() {
+        // Backfill records churn as an all-time total up to each sampled
+        // commit, so the series only ever climbs. A file touched at a
+        // perfectly steady rate yields totals 10 -> 20 -> 30; classifying
+        // the totals directly gives (30-10)/10 = +200% and calls a file
+        // whose habits never changed "Growing". The direction has to be
+        // read from the per-period rate, not the running total.
+        let mut hotspots = vec![trend_hotspot("src/steady.rs")];
+        let mut pairs: Vec<crate::scorer::CouplingPair> = vec![];
+
+        attach_entity_trends(
+            &mut hotspots,
+            &mut pairs,
+            &churn_history("src/steady.rs", &[10, 20, 30]),
+        );
+
+        assert_eq!(
+            hotspots[0].churn_trend,
+            Some(EntityTrendDirection::Stable),
+            "a steady 10-commits-per-period rate is not a rising churn trend"
+        );
+    }
+
+    #[test]
+    fn attach_entity_trends_reports_decelerating_churn_as_shrinking() {
+        // 10 commits in the first period, then only 2 in the second: the
+        // file is calming down. `Shrinking` must be reachable at all — on a
+        // monotonically climbing cumulative total it never is.
+        let mut hotspots = vec![trend_hotspot("src/calming.rs")];
+        let mut pairs: Vec<crate::scorer::CouplingPair> = vec![];
+
+        attach_entity_trends(
+            &mut hotspots,
+            &mut pairs,
+            &churn_history("src/calming.rs", &[10, 20, 22]),
+        );
+
+        assert_eq!(
+            hotspots[0].churn_trend,
+            Some(EntityTrendDirection::Shrinking),
+            "churn dropping from 10 to 2 per period is a shrinking churn trend"
+        );
+    }
+
     #[test]
     fn attach_entity_trends_sets_direction_on_matching_hotspot() {
         use crate::cache::entity_history::EntityTrendEntry;
@@ -637,27 +760,46 @@ mod tests {
         complexity_a.insert("src/big.rs".to_string(), 10u32);
         let mut complexity_b = HashMap::new();
         complexity_b.insert("src/big.rs".to_string(), 50u32);
-        let mut churn_a = HashMap::new();
-        churn_a.insert("src/big.rs".to_string(), 20u32);
-        let mut churn_b = HashMap::new();
-        churn_b.insert("src/big.rs".to_string(), 21u32);
+        // Three samples, because churn is a running total and is classified
+        // on its per-period rate (`period_rates`): N totals give N-1 rates,
+        // and a direction needs two of them.
+        let mut complexity_c = HashMap::new();
+        complexity_c.insert("src/big.rs".to_string(), 90u32);
+        // Steady 20 commits per period — a running total that climbs, but a
+        // rate that does not move.
+        let churn_totals = [20u32, 40u32, 60u32];
+        let mut churn_maps = churn_totals.iter().map(|total| {
+            let mut m = HashMap::new();
+            m.insert("src/big.rs".to_string(), *total);
+            m
+        });
 
+        let now = chrono::Utc::now();
         let history = vec![
             EntityTrendEntry {
-                timestamp: chrono::Utc::now(),
+                timestamp: now - chrono::Duration::days(2),
                 head: "aaa".into(),
                 branch: "main".into(),
                 complexity: complexity_a,
-                churn: churn_a,
+                churn: churn_maps.next().unwrap(),
                 coupling_degree: HashMap::new(),
                 schema_version: 1,
             },
             EntityTrendEntry {
-                timestamp: chrono::Utc::now(),
+                timestamp: now - chrono::Duration::days(1),
                 head: "bbb".into(),
                 branch: "main".into(),
                 complexity: complexity_b,
-                churn: churn_b,
+                churn: churn_maps.next().unwrap(),
+                coupling_degree: HashMap::new(),
+                schema_version: 1,
+            },
+            EntityTrendEntry {
+                timestamp: now,
+                head: "ccc".into(),
+                branch: "main".into(),
+                complexity: complexity_c,
+                churn: churn_maps.next().unwrap(),
                 coupling_degree: HashMap::new(),
                 schema_version: 1,
             },
@@ -668,13 +810,13 @@ mod tests {
         assert_eq!(
             hotspots[0].complexity_trend,
             Some(EntityTrendDirection::Growing),
-            "10 -> 50 is a 400% increase, well past the 15% threshold"
+            "10 -> 90 is a 800% increase, well past the 15% threshold"
         );
         assert_eq!(
             hotspots[0].churn_trend,
             Some(EntityTrendDirection::Stable),
-            "20 -> 21 is a 5% increase, under the 15% threshold — complexity and \
-             churn must classify independently"
+            "a steady 20-per-period churn rate is Stable even while complexity \
+             climbs — complexity and churn must classify independently"
         );
     }
 
@@ -812,8 +954,13 @@ mod tests {
         let older = now - Duration::days(10);
         let newer = now;
 
+        // Coupling degree is a running total too, so three samples are needed
+        // for two rates: 3 -> 6 -> 21 gives rates 3 then 15, a real
+        // acceleration rather than a merely climbing total.
         let mut coupling_newer = HashMap::new();
-        coupling_newer.insert("src/a.rs|src/b.rs".to_string(), 9usize);
+        coupling_newer.insert("src/a.rs|src/b.rs".to_string(), 21usize);
+        let mut coupling_mid = HashMap::new();
+        coupling_mid.insert("src/a.rs|src/b.rs".to_string(), 6usize);
         let mut coupling_older = HashMap::new();
         coupling_older.insert("src/a.rs|src/b.rs".to_string(), 3usize);
 
@@ -827,6 +974,15 @@ mod tests {
                 complexity: HashMap::new(),
                 churn: HashMap::new(),
                 coupling_degree: coupling_newer,
+                schema_version: 1,
+            },
+            EntityTrendEntry {
+                timestamp: now - chrono::Duration::days(5),
+                head: "mid".into(),
+                branch: "main".into(),
+                complexity: HashMap::new(),
+                churn: HashMap::new(),
+                coupling_degree: coupling_mid,
                 schema_version: 1,
             },
             EntityTrendEntry {
