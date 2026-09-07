@@ -125,7 +125,7 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<()> {
     let (entity_history, entity_history_warning) =
         cache::entity_history::load_entity_history_checked(&local_path).unwrap_or_default();
     if let Some(ref warning) = entity_history_warning {
-        println!("{}", warning);
+        eprintln!("{}", warning);
     }
     trend::attach_entity_trends(
         &mut report.file_hotspots,
@@ -233,6 +233,11 @@ pub fn compute_trend_and_update_history(
     // On corruption, archive the file and start fresh.
     let (prior_history, history_warning) =
         cache::history::load_history_checked(local_path).unwrap_or_default();
+    // Stays on stdout: AC-01.4 (`tests/trend_milestone_1.rs`) specifies this
+    // warning as stdout output. That makes `analyze --json` emit unparseable
+    // output when trends.json is corrupt — a real but pre-existing conflict
+    // between that acceptance criterion and the stdout-purity convention,
+    // and a spec decision rather than something to change in passing.
     if let Some(ref warning) = history_warning {
         println!("{}", warning);
     }
