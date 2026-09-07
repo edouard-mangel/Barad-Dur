@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented here.
 
+## [Unreleased]
+
+### Changed
+- **Long Methods is complexity-gated, and scores will move.** The trigger
+  changes from `LOC > 40 OR CC > 10` to `CC > 10, or CC > 5 combined with an
+  applicable LOC threshold` — 80 lines for lowercase `.tsx`/`.jsx`, 40 for
+  other source files. Long but simple declarative code stops being flagged
+  while short, branch-heavy functions still are. Measured across eleven
+  repositories: barad-dur 159 → 55 findings, helix 365 → 176, starship
+  171 → 62, mautic 2,026 → 1,677, payp-app-front 87 → 28. Five of the eleven
+  field-test decision surfaces change; the other six keep their score bands
+  and actions. Note the trade-off this makes deliberately: a long function
+  with no branching (CC ≤ 5) is no longer reported, in every language.
+- **All four Long Methods thresholds are configurable** under
+  `[thresholds.health]`: `long_method_loc`, `long_method_ui_loc`,
+  `long_method_cc_floor` and `long_method_cc`. `barad-dur init` writes them
+  into the generated config. Incoherent combinations are now rejected at load
+  time rather than silently retiring a threshold: `long_method_cc_floor` must
+  be below `long_method_cc`, and `long_method_ui_loc` must not be below
+  `long_method_loc`.
+- **Scoring history resets on the first run after upgrading.**
+  `HISTORY_SCHEMA_VERSION` moves from 4 to 5, because Long Methods scores are
+  no longer comparable to previously recorded ones. Any
+  `.repository-analysis/trends.json` holding older entries is archived to
+  `trends.json.bak` and a fresh series starts. Run `barad-dur backfill` to
+  rebuild the trend line.
+
+### Fixed
+- **The HTML report states the Long Methods rule it actually applied.** The
+  metric tooltip and the Overview methodology panel read the effective
+  thresholds from the report instead of restating the defaults, so a run under
+  a tuned `[thresholds.health]` no longer explains its findings with a rule it
+  did not use.
+
 ## [0.22.0] - 2026-08-29
 
 ### Added

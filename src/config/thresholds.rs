@@ -11,6 +11,10 @@ pub struct HealthThresholds {
     pub coupling_min_commits: usize,
     #[serde(default = "default_long_method_loc")]
     pub long_method_loc: usize,
+    #[serde(default = "default_long_method_ui_loc")]
+    pub long_method_ui_loc: usize,
+    #[serde(default = "default_long_method_cc_floor")]
+    pub long_method_cc_floor: u32,
     #[serde(default = "default_long_method_cc")]
     pub long_method_cc: u32,
     #[serde(default = "default_biomarker_max_depth")]
@@ -53,6 +57,12 @@ fn default_coupling_min_commits() -> usize {
 fn default_long_method_loc() -> usize {
     40
 }
+fn default_long_method_ui_loc() -> usize {
+    80
+}
+fn default_long_method_cc_floor() -> u32 {
+    5
+}
 fn default_long_method_cc() -> u32 {
     10
 }
@@ -79,6 +89,8 @@ impl Default for HealthThresholds {
             hotspot_top_n: default_hotspot_top_n(),
             coupling_min_commits: default_coupling_min_commits(),
             long_method_loc: default_long_method_loc(),
+            long_method_ui_loc: default_long_method_ui_loc(),
+            long_method_cc_floor: default_long_method_cc_floor(),
             long_method_cc: default_long_method_cc(),
             biomarker_max_depth: default_biomarker_max_depth(),
             biomarker_max_variance: default_biomarker_max_variance(),

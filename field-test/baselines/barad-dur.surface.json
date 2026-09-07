@@ -1,5 +1,5 @@
 {
-  "overall_score": 70,
+  "overall_score": 72,
   "total_files": 234,
   "total_commits": 859,
   "total_authors": 2,
@@ -16,7 +16,7 @@
   "categories": [
     {
       "name": "Health",
-      "score": 42,
+      "score": 47,
       "metrics": [
         {
           "name": "Bus factor",
@@ -32,7 +32,7 @@
         },
         {
           "name": "Long methods",
-          "score": 50
+          "score": 75
         },
         {
           "name": "Code biomarkers",

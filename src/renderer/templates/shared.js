@@ -63,6 +63,15 @@
      single source of truth); the fallback only covers pre-threshold reports. */
   var BANDS = (R && R.score_thresholds) || { good_min: 71, warn_min: 41 };
 
+  /* The Long Methods rule is configurable ([thresholds.health] in
+     barad-dur.toml), so its guidance must state the thresholds this run
+     actually applied — scorer/types.rs is the single source of truth, and the
+     fallback only covers reports produced before they were serialized. */
+  var LM = (R && R.long_method_thresholds) || { cc: 10, cc_floor: 5, loc: 40, ui_loc: 80 };
+  var LONG_METHOD_RULE = 'CC > ' + LM.cc + ', or CC > ' + LM.cc_floor +
+    ' with LOC > ' + LM.ui_loc + ' for .tsx/.jsx and LOC > ' + LM.loc +
+    ' for other source files';
+
   function scoreColor(s) {
     return s >= BANDS.good_min ? 'var(--c-good)'
       : s >= BANDS.warn_min ? 'var(--c-warn)'

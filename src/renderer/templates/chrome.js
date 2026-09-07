@@ -114,7 +114,7 @@
     'Bus factor':           'Number of active contributors needed to cover 80% of attributable lines. A low score means critical knowledge is concentrated in too few people. Scoring: 1 → 25, 2 → 50, 3 → 75, 4+ → 100.',
     'God objects':          'Production-source files with LOC > 500, or LOC > 300 with >15 public methods, or that structurally dominate the import graph as a connectivity hub. Large repositories are scored by affected-file prevalence.',
     'Complex hotspots':     'Production-source files above the 75th percentile in both cyclomatic complexity and churn. Large repositories are scored by affected-file prevalence.',
-    'Long methods':         'Functions with LOC > 40 or cyclomatic complexity > 10. Long or complex functions are harder to test, understand, and maintain (Fowler: Long Method).',
+    'Long methods':         'Functions with ' + LONG_METHOD_RULE + '. Long or complex functions are harder to test, understand, and maintain (Fowler: Long Method).',
     'Code biomarkers':      'Files with nesting depth > 4 or nesting variance > 2.0. Deeply nested code signals accumulated complexity; high variance indicates erratic structure (Tornhill: Code Biomarkers).',
     'Churn-ownership risk': 'Production-source files that are both above the churn quartile and >80% owned by one author. Advisory only: clear ownership is useful evidence, but is not continuity risk without team context.',
     // Team

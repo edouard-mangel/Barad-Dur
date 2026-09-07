@@ -273,7 +273,7 @@
         scoring: 'Prevalence: 0% → 100 | ≤1% → 90 | ≤5% → 75 | ≤20% → 50 | >20% → 25 (300+ source files; blended with the count bands between 100 and 300, count bands alone below 100)',
         why: 'Code that is both complex and frequently changed is the highest-risk area for bugs (Tornhill).' },
       { name: 'Long Methods',
-        what: 'Functions with LOC > 40 or cyclomatic complexity > 10.',
+        what: 'Functions with ' + LONG_METHOD_RULE + '.',
         scoring: '0% → 100 | ≤5% → 75 | ≤15% → 50 | >15% → 25',
         why: 'Long or complex functions are harder to test, understand, and maintain (Fowler: Long Method).' },
       { name: 'Code Biomarkers',

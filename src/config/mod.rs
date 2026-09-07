@@ -282,6 +282,30 @@ pub fn validate(config: &RepoConfig) -> Result<()> {
             call_floor
         );
     }
+    // `cc > cc_floor && loc > threshold` is unreachable once the floor reaches
+    // the unconditional ceiling, which would silently retire both LOC
+    // thresholds rather than fail.
+    let long_method_cc = config.thresholds.health.long_method_cc;
+    let long_method_cc_floor = config.thresholds.health.long_method_cc_floor;
+    if long_method_cc_floor >= long_method_cc {
+        bail!(
+            "thresholds.health.long_method_cc_floor must be < long_method_cc ({}), got {}",
+            long_method_cc,
+            long_method_cc_floor
+        );
+    }
+    // The .tsx/.jsx tier exists to be more permissive than the general one;
+    // below it, declarative UI would be judged more strictly than everything
+    // else, inverting the tier.
+    let long_method_loc = config.thresholds.health.long_method_loc;
+    let long_method_ui_loc = config.thresholds.health.long_method_ui_loc;
+    if long_method_ui_loc < long_method_loc {
+        bail!(
+            "thresholds.health.long_method_ui_loc must be >= long_method_loc ({}), got {}",
+            long_method_loc,
+            long_method_ui_loc
+        );
+    }
     let god_percentile = config.thresholds.health.god_node_degree_percentile;
     // A percentile of 1.0 would flag only the single most-connected file, and
     // 0.0 would put the bar at the minimum degree — both make the relative
@@ -443,6 +467,49 @@ mod tests {
         let cfg = load(dir.path()).unwrap();
         assert_eq!(cfg.thresholds.health.max_complexity, 30);
         assert_eq!(cfg.thresholds.team.silo_max_owners, 1);
+    }
+
+    #[test]
+    fn loads_long_method_thresholds_from_toml() {
+        let dir = TempDir::new().unwrap();
+        let cache_dir = dir.path().join(".repository-analysis");
+        fs::create_dir_all(&cache_dir).unwrap();
+        fs::write(
+            cache_dir.join("barad-dur.toml"),
+            "[thresholds.health]\nlong_method_loc = 30\nlong_method_ui_loc = 70\nlong_method_cc_floor = 4\nlong_method_cc = 9\n",
+        ).unwrap();
+        let cfg = load(dir.path()).unwrap();
+        assert_eq!(cfg.thresholds.health.long_method_loc, 30);
+        assert_eq!(cfg.thresholds.health.long_method_ui_loc, 70);
+        assert_eq!(cfg.thresholds.health.long_method_cc_floor, 4);
+        assert_eq!(cfg.thresholds.health.long_method_cc, 9);
+    }
+
+    #[test]
+    fn load_defaults_long_method_keys_absent_from_the_toml() {
+        // A barad-dur.toml written before the tiered rule carries neither
+        // long_method_ui_loc nor long_method_cc_floor. It must still load,
+        // falling back to the compiled defaults rather than failing to parse.
+        let dir = TempDir::new().unwrap();
+        let cache_dir = dir.path().join(".repository-analysis");
+        fs::create_dir_all(&cache_dir).unwrap();
+        fs::write(
+            cache_dir.join("barad-dur.toml"),
+            "[thresholds.health]\nmax_complexity       = 20\nhotspot_top_n        = 10\ncoupling_min_commits = 5\n",
+        )
+        .unwrap();
+        let cfg = load(dir.path()).unwrap();
+        let d = HealthThresholds::default();
+        assert_eq!(cfg.thresholds.health.long_method_loc, d.long_method_loc);
+        assert_eq!(
+            cfg.thresholds.health.long_method_ui_loc,
+            d.long_method_ui_loc
+        );
+        assert_eq!(
+            cfg.thresholds.health.long_method_cc_floor,
+            d.long_method_cc_floor
+        );
+        assert_eq!(cfg.thresholds.health.long_method_cc, d.long_method_cc);
     }
 
     #[test]
@@ -677,6 +744,46 @@ mod tests {
         let mut cfg = RepoConfig::default();
         cfg.thresholds.health.call_resolution_floor = f64::NAN;
         assert!(validate(&cfg).is_err());
+    }
+
+    #[test]
+    fn validate_long_method_cc_floor_not_below_cc_errors() {
+        // floor >= cc makes `cc > cc_floor && loc > threshold` unreachable:
+        // both LOC thresholds silently stop deciding anything.
+        for floor in [10, 12] {
+            let mut cfg = RepoConfig::default();
+            cfg.thresholds.health.long_method_cc = 10;
+            cfg.thresholds.health.long_method_cc_floor = floor;
+            let err = validate(&cfg).unwrap_err();
+            assert!(
+                err.to_string().contains("long_method_cc_floor"),
+                "floor {floor} against cc 10 must be rejected, got: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_long_method_ui_loc_below_loc_errors() {
+        // The .tsx/.jsx tier exists to be MORE permissive; below the general
+        // threshold it inverts the whole point of the tier.
+        let mut cfg = RepoConfig::default();
+        cfg.thresholds.health.long_method_loc = 40;
+        cfg.thresholds.health.long_method_ui_loc = 20;
+        let err = validate(&cfg).unwrap_err();
+        assert!(err.to_string().contains("long_method_ui_loc"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_long_method_thresholds_defaults_and_boundaries_are_valid() {
+        assert!(validate(&RepoConfig::default()).is_ok());
+        // cc_floor exactly one below cc, and ui_loc exactly equal to loc, are
+        // the tightest coherent settings and must both be accepted.
+        let mut cfg = RepoConfig::default();
+        cfg.thresholds.health.long_method_cc = 10;
+        cfg.thresholds.health.long_method_cc_floor = 9;
+        cfg.thresholds.health.long_method_loc = 40;
+        cfg.thresholds.health.long_method_ui_loc = 40;
+        assert!(validate(&cfg).is_ok());
     }
 
     #[test]

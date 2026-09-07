@@ -191,7 +191,26 @@ fn generate_toml_inner(scan: &ScanResult, since: &str, format: &str, auto_open: 
     out.push_str("[thresholds.health]\n");
     out.push_str("max_complexity       = 20\n");
     out.push_str("hotspot_top_n        = 10\n");
-    out.push_str("coupling_min_commits = 5\n\n");
+    out.push_str("coupling_min_commits = 5\n");
+    // Emitted from the compiled defaults so a scaffolded config can never pin
+    // thresholds the analyser has since moved on from.
+    let health_defaults = crate::config::HealthThresholds::default();
+    out.push_str(&format!(
+        "long_method_loc      = {}\n",
+        health_defaults.long_method_loc
+    ));
+    out.push_str(&format!(
+        "long_method_ui_loc   = {}\n",
+        health_defaults.long_method_ui_loc
+    ));
+    out.push_str(&format!(
+        "long_method_cc_floor = {}\n",
+        health_defaults.long_method_cc_floor
+    ));
+    out.push_str(&format!(
+        "long_method_cc       = {}\n\n",
+        health_defaults.long_method_cc
+    ));
     out.push_str("[thresholds.team]\n");
     out.push_str("silo_max_owners      = 1\n");
     out.push_str("activity_window_days = 30\n\n");
@@ -476,6 +495,44 @@ mod tests {
         assert!(toml_str.contains("[output]"));
         // Verify it parses as valid TOML
         assert!(toml_str.parse::<toml::Value>().is_ok());
+    }
+
+    #[test]
+    fn generated_toml_long_method_thresholds_track_the_code_defaults() {
+        // The generated config must not pin values the code no longer uses:
+        // every long-method key it writes has to equal the compiled default.
+        let toml = generate_toml(&ScanResult::default());
+        let value: toml::Value = toml.parse().unwrap();
+        let health = &value["thresholds"]["health"];
+        let d = crate::config::HealthThresholds::default();
+        for (key, expected) in [
+            ("long_method_loc", d.long_method_loc as i64),
+            ("long_method_ui_loc", d.long_method_ui_loc as i64),
+            ("long_method_cc_floor", d.long_method_cc_floor as i64),
+            ("long_method_cc", d.long_method_cc as i64),
+        ] {
+            assert_eq!(
+                health[key].as_integer(),
+                Some(expected),
+                "generated config pins a stale value for {key}"
+            );
+        }
+    }
+
+    #[test]
+    fn generate_toml_includes_long_method_thresholds() {
+        // Guards the emitted key set and its alignment; the VALUES are checked
+        // against the code defaults by the round-trip test above.
+        let toml = generate_toml(&ScanResult::default());
+        let d = crate::config::HealthThresholds::default();
+        for line in [
+            format!("long_method_loc      = {}", d.long_method_loc),
+            format!("long_method_ui_loc   = {}", d.long_method_ui_loc),
+            format!("long_method_cc_floor = {}", d.long_method_cc_floor),
+            format!("long_method_cc       = {}", d.long_method_cc),
+        ] {
+            assert!(toml.contains(&line), "missing generated line: {line}");
+        }
     }
 
     #[test]
