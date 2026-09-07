@@ -24,7 +24,7 @@ pub fn compute_health(
         bus_factor::bus_factor(snapshot, thresholds),
         god_objects::god_objects(snapshot, flagged_god_objects),
         complex_hotspots::complex_hotspots(snapshot),
-        long_methods::long_methods(snapshot),
+        long_methods::long_methods(snapshot, thresholds),
         biomarkers::biomarkers(snapshot),
         churn_ownership::churn_ownership_risk(snapshot),
     ];

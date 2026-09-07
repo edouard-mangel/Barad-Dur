@@ -117,6 +117,7 @@ pub fn build_report(
         call_graph,
         churn_timeline,
         score_thresholds: ScoreThresholds::default(),
+        long_method_thresholds: (&thresholds.health).into(),
     }
 }
 

@@ -76,6 +76,7 @@ fn make_report() -> AnalysisReport {
         call_graph: None,
         churn_timeline: None,
         score_thresholds: Default::default(),
+        long_method_thresholds: Default::default(),
     }
 }
 
@@ -292,6 +293,37 @@ fn html_embeds_score_thresholds_in_window_r() {
         html.contains(r#""score_thresholds":{"good_min":71,"warn_min":41}"#),
         "window.R must carry the band thresholds so JS consumers read them instead of hardcoding"
     );
+}
+
+#[test]
+fn html_embeds_long_method_thresholds_in_window_r() {
+    let html = render(&make_report()).unwrap();
+    assert!(
+        html.contains(r#""long_method_thresholds":{"cc":10,"cc_floor":5,"loc":40,"ui_loc":80}"#),
+        "window.R must carry the effective long-method thresholds so the report guidance \
+         reads them instead of hardcoding the defaults"
+    );
+}
+
+#[test]
+fn long_methods_guidance_reads_embedded_thresholds() {
+    // The rule became configurable, so its guidance must derive from the
+    // thresholds this run applied. Pinning the literal default rule is what
+    // let the report explain a 69-finding run with a rule that produces 57.
+    assert!(
+        super::JS_SHARED.contains("long_method_thresholds"),
+        "the shared layer must build the Long Methods rule from R.long_method_thresholds"
+    );
+    for (name, js) in [
+        ("shared.js", super::JS_SHARED),
+        ("chrome.js", super::JS_CHROME),
+        ("overview_widgets.js", super::JS_OVERVIEW_WIDGETS),
+    ] {
+        assert!(
+            !js.contains("CC > 10, or CC > 5 with LOC > 80"),
+            "{name} must not restate the default thresholds as a literal"
+        );
+    }
 }
 
 #[test]

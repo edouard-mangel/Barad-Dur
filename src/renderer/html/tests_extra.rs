@@ -44,6 +44,7 @@ fn make_report() -> AnalysisReport {
         call_graph: None,
         churn_timeline: None,
         score_thresholds: Default::default(),
+        long_method_thresholds: Default::default(),
     }
 }
 

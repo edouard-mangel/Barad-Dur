@@ -1,5 +1,5 @@
 {
-  "overall_score": 97,
+  "overall_score": 100,
   "total_files": 874,
   "total_commits": 0,
   "total_authors": 0,
@@ -11,7 +11,7 @@
   "categories": [
     {
       "name": "Health",
-      "score": 93,
+      "score": 100,
       "metrics": [
         {
           "name": "Bus factor",
@@ -27,7 +27,7 @@
         },
         {
           "name": "Long methods",
-          "score": 75
+          "score": 100
         },
         {
           "name": "Code biomarkers",
@@ -172,12 +172,7 @@
       ]
     }
   ],
-  "actions": [
-    {
-      "target_tab": "hotspots",
-      "text": "[Health] Long methods (score: 75) — Extract smaller functions from the longest methods to improve readability"
-    }
-  ],
+  "actions": [],
   "top_hotspots": [
     "Chapter-3-microservice-extraction/Fitnet.Common/Fitnet.Common.IntegrationTestsToolbox/TestEngine/EventBus/EventBusExtensions.cs",
     "Chapter-4-applying-tactical-domain-driven-design/Fitnet.Common/Fitnet.Common.IntegrationTestsToolbox/TestEngine/EventBus/EventBusExtensions.cs",

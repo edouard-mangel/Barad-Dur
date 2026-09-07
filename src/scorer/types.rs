@@ -202,6 +202,39 @@ pub struct AnalysisReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub churn_timeline: Option<ChurnTimelineReport>,
     pub score_thresholds: ScoreThresholds,
+    /// Effective Long Methods thresholds, serialized so the report guidance
+    /// renders the rule that was actually applied instead of restating the
+    /// defaults — same contract as `score_thresholds`.
+    pub long_method_thresholds: LongMethodThresholds,
+}
+
+/// The four thresholds the Long Methods predicate reads, as applied to this run.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[non_exhaustive]
+pub struct LongMethodThresholds {
+    pub cc: u32,
+    pub cc_floor: u32,
+    pub loc: usize,
+    pub ui_loc: usize,
+}
+
+impl From<&crate::config::HealthThresholds> for LongMethodThresholds {
+    fn from(health: &crate::config::HealthThresholds) -> Self {
+        Self {
+            cc: health.long_method_cc,
+            cc_floor: health.long_method_cc_floor,
+            loc: health.long_method_loc,
+            ui_loc: health.long_method_ui_loc,
+        }
+    }
+}
+
+// Defaults delegate to the config defaults so the report can never state a
+// rule the analyser would not have applied.
+impl Default for LongMethodThresholds {
+    fn default() -> Self {
+        Self::from(&crate::config::HealthThresholds::default())
+    }
 }
 
 /// Repo-level day-bucketed churn shape (Crime Scene Ch. 14, trends M1).
@@ -299,7 +332,9 @@ pub struct HistoryCounts {
 /// 4: a category with no scored metric is unscored (`null`) and excluded
 ///    from the overall, whose weights renormalise over the measurable
 ///    categories (was: such a category counted as 100 at full weight).
-pub const HISTORY_SCHEMA_VERSION: u32 = 4;
+/// 5: Long Methods uses complexity-gated LOC thresholds, with a higher LOC
+///    threshold for declarative .tsx/.jsx UI code.
+pub const HISTORY_SCHEMA_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryEntry {

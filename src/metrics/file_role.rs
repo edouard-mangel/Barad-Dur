@@ -26,6 +26,11 @@ const SOURCE_EXTENSIONS: &[&str] = &[
     "php", "swift", "scala",
 ];
 
+/// Declarative UI extensions, a subset of [`SOURCE_EXTENSIONS`]. Matched
+/// case-sensitively, exactly like `has_source_extension`, so a path that is
+/// not classified as source can never be classified as UI source either.
+const DECLARATIVE_UI_EXTENSIONS: &[&str] = &["tsx", "jsx"];
+
 pub(crate) fn has_source_extension(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
@@ -46,6 +51,16 @@ pub(crate) fn has_source_extension_ignore_case(path: &Path) -> bool {
 pub(crate) fn contains_ignore_case(list: &[&str], value: &str) -> bool {
     list.iter()
         .any(|candidate| value.eq_ignore_ascii_case(candidate))
+}
+
+/// Declarative UI source: markup-heavy components whose length is not a
+/// control-flow risk. Kept here, next to [`has_source_extension`], so the
+/// notion of "what counts as UI source" has one home rather than being
+/// re-rolled inside individual metrics.
+pub(crate) fn is_declarative_ui(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| DECLARATIVE_UI_EXTENSIONS.contains(&extension))
 }
 
 const TEST_DIR_NAMES: &[&str] = &["test", "tests", "__tests__", "spec", "specs"];
@@ -402,5 +417,36 @@ mod tests {
             "\"source\""
         );
         assert_eq!(serde_json::to_string(&FileRole::Test).unwrap(), "\"test\"");
+    }
+
+    #[test]
+    fn declarative_ui_is_tsx_and_jsx_only() {
+        for path in ["src/View.tsx", "src/View.jsx", "a/b/Component.tsx"] {
+            assert!(
+                is_declarative_ui(Path::new(path)),
+                "{path} must count as declarative UI"
+            );
+        }
+        for path in [
+            "src/view.ts",
+            "src/view.js",
+            "src/lib.rs",
+            "README.md",
+            "noext",
+        ] {
+            assert!(
+                !is_declarative_ui(Path::new(path)),
+                "{path} must not count as declarative UI"
+            );
+        }
+    }
+
+    #[test]
+    fn declarative_ui_extensions_are_source_extensions() {
+        // The tier only ever applies to files the metric already treats as
+        // source, so the two lists must not drift apart.
+        for path in ["a.tsx", "a.jsx"] {
+            assert!(has_source_extension(Path::new(path)), "{path}");
+        }
     }
 }
