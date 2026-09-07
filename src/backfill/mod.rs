@@ -53,6 +53,17 @@ pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
     }
     let existing_heads: HashSet<String> = existing_entries.into_iter().map(|e| e.head).collect();
 
+    // Tracked separately from `existing_heads`: the two files are written and
+    // reset independently. `analyze` appends HEAD to trends.json on every run,
+    // and a corrupt entity_trends.json is archived and replaced with an empty
+    // one — in both cases a SHA present in trends.json says nothing about
+    // whether this sample's entity data exists.
+    let existing_entity_heads: HashSet<String> =
+        crate::cache::entity_history::load_entity_history(repo_path)?
+            .into_iter()
+            .map(|e| e.head)
+            .collect();
+
     let total = selected_shas.len();
     let mut written = 0usize;
 
@@ -62,7 +73,9 @@ pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
     for (idx, sha) in selected_shas.iter().enumerate() {
         println!("[{}/{}] Analyzing {}...", idx + 1, total, &sha[..8]);
 
-        if existing_heads.contains(sha) {
+        let needs_trend_entry = !existing_heads.contains(sha);
+        let needs_entity_entry = !existing_entity_heads.contains(sha);
+        if !needs_trend_entry && !needs_entity_entry {
             continue;
         }
 
@@ -103,18 +116,22 @@ pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
             entry.timestamp = ts;
         }
 
-        history::append_if_new_head(&entry, repo_path)?;
+        if needs_trend_entry {
+            history::append_if_new_head(&entry, repo_path)?;
+        }
 
-        let entity_entry = crate::cache::entity_history::build_entity_trend_entry(
-            &snapshot,
-            &report.file_hotspots,
-            &cfg.thresholds.coupling,
-            cfg.backfill.entity_trend_top_n,
-            sha,
-            entry.timestamp,
-            &report.branch,
-        );
-        crate::cache::entity_history::append_entity_entry(&entity_entry, repo_path)?;
+        if needs_entity_entry {
+            let entity_entry = crate::cache::entity_history::build_entity_trend_entry(
+                &snapshot,
+                &report.file_hotspots,
+                &cfg.thresholds.coupling,
+                cfg.backfill.entity_trend_top_n,
+                sha,
+                entry.timestamp,
+                &report.branch,
+            );
+            crate::cache::entity_history::append_entity_entry(&entity_entry, repo_path)?;
+        }
 
         written += 1;
     }
