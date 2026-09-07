@@ -3,7 +3,17 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::metrics::CategoryResult;
-use crate::trend::EntityTrendDirection;
+
+/// Direction of a per-entity metric series (complexity, coupling degree,
+/// churn) across backfill samples — distinct from `VelocityDirection`,
+/// which classifies the aggregate report score on an absolute scale.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EntityTrendDirection {
+    Growing,
+    Shrinking,
+    Stable,
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[non_exhaustive]

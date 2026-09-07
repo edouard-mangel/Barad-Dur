@@ -6,7 +6,8 @@
 
 use barad_dur::cache::entity_history;
 use barad_dur::cli::BackfillArgs;
-use barad_dur::trend::{compute_entity_trend, EntityTrendDirection};
+use barad_dur::scorer::EntityTrendDirection;
+use barad_dur::trend::compute_entity_trend;
 use std::process::Command;
 
 fn git(dir: &std::path::Path, args: &[&str]) {

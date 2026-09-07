@@ -127,7 +127,7 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<()> {
     if let Some(ref warning) = entity_history_warning {
         eprintln!("{}", warning);
     }
-    trend::attach_entity_trends(
+    cache::entity_history::attach_entity_trends(
         &mut report.file_hotspots,
         &mut report.coupling_pairs,
         &entity_history,
