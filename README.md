@@ -377,7 +377,7 @@ When a `--token` is provided and the target is a GitHub URL, the report is enric
 ### Operational notes
 
 - **Cache**: Snapshots are cached at `.repository-analysis/snapshot.bin` (auto-added to `.gitignore`). Subsequent runs are instant if HEAD hasn't changed. Use `--no-cache` to force re-collection, `--cache-only` to fail if no cache exists.
-- **Per-entity trend history**: `backfill` also writes `.repository-analysis/entity_trends.json`, a JSONL sidecar with one line per backfill sample, holding per-file complexity/churn and per-coupling-pair co-change degree history used to compute the `Growing`/`Shrinking`/`Stable` trend directions shown on hotspot and coupling-pair rows.
+- **Per-entity trend history**: `backfill` also writes `.repository-analysis/entity_trends.json`, a JSONL sidecar with one line per backfill sample, holding per-file complexity/churn and per-coupling-pair co-change degree history. From it, `analyze` computes a `Growing`/`Shrinking`/`Stable` direction per hotspot and per coupling pair. **These directions are currently surfaced in the JSON report only** (`--json`, as `complexity_trend`, `churn_trend` and `coupling_trend`); the CLI and HTML reports do not render them yet. Complexity is a point-in-time measurement, while churn and coupling degree are recorded as running totals and classified on their per-period rate, so all three directions are bidirectional.
 - **Progress**: In interactive mode (non-JSON, non-HTML), a progress spinner shows collection stages (commits, file tree, blame, complexity, indexes).
 - **Shallow clones**: Detected automatically with a warning. For accurate CI/CD results, ensure a full clone (`GIT_DEPTH=0` in GitLab CI).
 

@@ -126,6 +126,17 @@ explicitly in Decision 5 below.
    treated as `Growing` if `last > 0`, `Stable` otherwise (percent change
    is undefined from a zero baseline).
 
+   **Amendment (implementation).** Complexity is a point-in-time measurement
+   and is classified directly, but `churn_count` and `co_changes` are
+   recorded as all-time running totals — every backfill sample collects over
+   `TimeWindow::full_history()` — so their series are monotonically
+   non-decreasing and `Shrinking` would be structurally unreachable for both,
+   with `Growing` degenerating into "this entity is still active". Those two
+   series are differenced into per-period rates before classification
+   (`trend.rs::period_rates`), which is what makes Ch. 8's "trending up
+   (architecture eroding) or down" and Ch. 14's churn trend answerable in
+   both directions. The cost is one point: N totals yield N-1 rates.
+
 ## Architecture
 
 ```
@@ -281,6 +292,21 @@ selection — no new coupling-specific knobs.
 
 ## Future work (explicitly deferred)
 
+- **CLI and HTML rendering of the direction.** The Consumption section above
+  describes a trend arrow/badge next to the complexity and coupling-pct
+  columns. That half is *not* implemented: the directions reach the JSON
+  report only (via serde on `HotspotFile`/`CouplingPair`), and no CLI
+  renderer, HTML template, or dashboard component reads them. Two naming
+  decisions have to be made first, both surfaced when this branch was rebased
+  onto a much later `main`:
+  - the hotspots table already has a column headed **"Trend"**, holding the
+    pre-existing *within-run* churn sparkline (`churn_timeline`), so a
+    cross-sample direction cannot simply claim that header;
+  - `HotspotFile` already carries a field named **`coupling_trend`** — the
+    Ch. 8 half-over-half co-change *reach decay* annotation — which is a
+    different notion from `CouplingPair::coupling_trend` added here. Two
+    Ch. 8 "coupling trends" with the same name on the same report needs
+    resolving before either is drawn.
 - Rename-aware entity identity (Decision 4).
 - Surfacing entity trends in the `backfill` CLI's own progress output
   (currently only prints `[n/total] Analyzing <sha>...`).
