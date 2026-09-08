@@ -23,6 +23,7 @@ yarn.lock
 # Dashboard
 dashboard/node_modules/
 dashboard/dist/
+!dashboard/pnpm-lock.yaml
 
 # Slidev presentation (lock file needed for reproducible CI builds)
 docs/presentation/slidev/node_modules/

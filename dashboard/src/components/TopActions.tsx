@@ -1,13 +1,10 @@
-import type { ActionItem } from '../types'
+import { scoreColor } from '../report/format'
+import type { ActionItem, ScoreThresholds } from '../report/model'
 
 interface Props {
-  // ActionItem for current reports; bare strings for reports generated
-  // before the scorer serialized structured actions.
-  actions: (ActionItem | string)[]
+  actions: ActionItem[]
+  thresholds: ScoreThresholds
 }
-
-const actionText = (action: ActionItem | string): string =>
-  typeof action === 'string' ? action : action.text
 
 // Parse format: "[Category] Metric (score: N) — recommendation"
 function parseAction(action: string): { category: string; metric: string; score: number | null; recommendation: string } {
@@ -27,14 +24,12 @@ function parseAction(action: string): { category: string; metric: string; score:
   return { category, metric, score, recommendation }
 }
 
-function borderColor(score: number | null): string {
+function borderColor(score: number | null, thresholds: ScoreThresholds): string {
   if (score === null) return '#f59e0b'
-  if (score <= 40) return '#ef4444'
-  if (score <= 70) return '#f59e0b'
-  return '#10b981'
+  return scoreColor(score, thresholds)
 }
 
-export default function TopActions({ actions }: Props) {
+export default function TopActions({ actions, thresholds }: Props) {
   if (actions.length === 0) return null
 
   return (
@@ -62,8 +57,8 @@ export default function TopActions({ actions }: Props) {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
         {actions.map((action, i) => {
-          const { category, metric, score, recommendation } = parseAction(actionText(action))
-          const bc = borderColor(score)
+          const { category, metric, score, recommendation } = parseAction(action.text)
+          const bc = borderColor(score, thresholds)
 
           return (
             <div

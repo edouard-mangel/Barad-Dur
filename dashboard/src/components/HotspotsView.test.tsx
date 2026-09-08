@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import HotspotsView, { couplingBadge, riskColor, roleMatches, splitPath, visibleSorted } from './HotspotsView'
-import type { HotspotFile } from '../types'
+import type { HotspotFile } from '../report/model'
 
 function file(path: string, score: number, churn = 10): HotspotFile {
   return {
@@ -14,6 +14,11 @@ function file(path: string, score: number, churn = 10): HotspotFile {
     public_methods: 2,
     properties: 1,
     hotspot_score: score,
+    role: 'source',
+    content_findings: 0,
+    common_findings: 0,
+    control_findings: 0,
+    inheritance_findings: 0,
   }
 }
 
@@ -43,17 +48,15 @@ describe('HotspotsView helpers', () => {
     expect(splitPath('README.md')).toEqual({ dir: '', name: 'README.md' })
   })
 
-  it('roleMatches groups roles and treats missing role as source', () => {
+  it('roleMatches groups current report roles', () => {
     const src: HotspotFile = { ...file('a.rs', 1), role: 'source' }
     const test: HotspotFile = { ...file('b.rs', 1), role: 'test' }
     const config: HotspotFile = { ...file('c.yml', 1), role: 'config' }
-    const legacy: HotspotFile = file('d.rs', 1) // pre-role report shape
     expect(roleMatches(src, 'code')).toBe(true)
     expect(roleMatches(test, 'code')).toBe(false)
     expect(roleMatches(test, 'test')).toBe(true)
     expect(roleMatches(config, 'other')).toBe(true)
     expect(roleMatches(config, 'code')).toBe(false)
-    expect(roleMatches(legacy, 'code')).toBe(true)
     expect(roleMatches(config, 'all')).toBe(true)
   })
 
@@ -100,11 +103,6 @@ describe('HotspotsView role filter', () => {
     expect(screen.queryByTitle('src/app.test.ts')).not.toBeNull()
   })
 
-  it('renders every row for reports without role data', () => {
-    render(<HotspotsView files={[file('src/plain.ts', 60), file('src/other.ts', 40)]} />)
-    expect(screen.queryByTitle('src/plain.ts')).not.toBeNull()
-    expect(screen.queryByTitle('src/other.ts')).not.toBeNull()
-  })
 })
 
 describe('HotspotsView dismiss', () => {
@@ -159,17 +157,15 @@ describe('HotspotsView coupling badge', () => {
     expect(screen.queryByText('Cm 2 · Ct 1')).not.toBeNull()
   })
 
-  it('renders an em dash for files without findings (and for pre-M4 reports)', () => {
+  it('renders an em dash for files without findings', () => {
     render(<HotspotsView files={[file('src/clean.ts', 70)]} />)
     // one em dash from Bugs (0 bugs) + one from Coupling
     expect(screen.getAllByText('—').length).toBe(2)
   })
 
-  it('shows the inheritance badge; reports without the field render unchanged', () => {
+  it('shows the inheritance badge', () => {
     const deep: HotspotFile = { ...file('src/deep.ts', 80), inheritance_findings: 2 }
-    const old: HotspotFile = file('src/old.ts', 70) // pre-M7 report shape
-    render(<HotspotsView files={[deep, old]} />)
+    render(<HotspotsView files={[deep]} />)
     expect(screen.queryByText('Ih 2')).not.toBeNull()
-    expect(screen.queryByTitle('src/old.ts')).not.toBeNull()
   })
 })

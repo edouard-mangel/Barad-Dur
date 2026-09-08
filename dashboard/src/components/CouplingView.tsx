@@ -1,8 +1,8 @@
-import type { ActionItem, CouplingPair } from '../types'
+import type { ActionItem, CouplingPair } from '../report/model'
 
 interface Props {
   pairs: CouplingPair[]
-  actions?: ActionItem[]
+  actions: ActionItem[]
 }
 
 export default function CouplingView({ pairs, actions }: Props) {
@@ -10,7 +10,7 @@ export default function CouplingView({ pairs, actions }: Props) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      {actions && actions.length > 0 && (
+      {actions.length > 0 && (
         <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, padding: '1rem 1.25rem', backgroundColor: 'rgba(255,255,255,0.02)' }}>
           <p style={{ fontFamily: 'Syne', fontSize: '0.7rem', color: 'rgba(148,163,184,0.4)', letterSpacing: '0.1em', textTransform: 'uppercase', margin: '0 0 0.75rem' }}>
             Coupling Actions

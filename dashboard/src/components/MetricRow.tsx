@@ -1,13 +1,14 @@
 import { useState } from 'react'
-import type { MetricValue } from '../types'
-import { scoreClass, formatRawValue } from '../types'
+import { scoreClass, formatRawValue } from '../report/format'
+import type { MetricValue, ScoreThresholds } from '../report/model'
 import ScoreBar from './ScoreBar'
 
 interface Props {
   metric: MetricValue
+  thresholds: ScoreThresholds
 }
 
-export default function MetricRow({ metric }: Props) {
+export default function MetricRow({ metric, thresholds }: Props) {
   const [showTooltip, setShowTooltip] = useState(false)
 
   return (
@@ -99,12 +100,12 @@ export default function MetricRow({ metric }: Props) {
           style={{ height: '4px', backgroundColor: 'rgba(255,255,255,0.06)' }}
         />
       ) : (
-        <ScoreBar score={metric.score} height="4px" />
+        <ScoreBar score={metric.score} thresholds={thresholds} height="4px" />
       )}
 
       {/* Score number — dash when the repo lacks data to judge this metric */}
       <span
-        className={metric.score == null ? '' : scoreClass(metric.score)}
+        className={metric.score == null ? '' : scoreClass(metric.score, thresholds)}
         title={metric.score == null ? 'Not enough data to score this metric' : undefined}
         style={{
           fontFamily: 'JetBrains Mono, monospace',

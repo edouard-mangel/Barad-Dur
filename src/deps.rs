@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub enum Ecosystem {
     Cargo,
     Npm,
@@ -29,6 +30,7 @@ impl Ecosystem {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub enum DepTier {
     Fresh,    // drift < 0.5y
     Aging,    // 0.5y – 2y
@@ -48,6 +50,7 @@ impl DepTier {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct Vuln {
     pub id: String,
     pub severity: String,
@@ -55,6 +58,7 @@ pub struct Vuln {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct DepAge {
     pub name: String,
     pub ecosystem: Ecosystem,
@@ -71,6 +75,7 @@ impl DepAge {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct EcosystemReport {
     pub ecosystem: Ecosystem,
     pub total_deps: usize,

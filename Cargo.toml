@@ -39,14 +39,24 @@ tree-sitter-java = "0.23"
 tree-sitter-c-sharp = "0.23"
 tree-sitter-kotlin-ng = "1.1.0"
 tree-sitter-php = "0.24"
+ts-rs = { version = "=12.0.1", optional = true, features = ["chrono-impl", "no-serde-warnings"] }
 
 [features]
 field-test = []
+export-types = ["dep:ts-rs"]
 
 [[bin]]
 name = "field-test"
 path = "src/bin/field-test.rs"
 required-features = ["field-test"]
+
+[[example]]
+name = "export_report_types"
+required-features = ["export-types"]
+
+[[example]]
+name = "export_report_fixture"
+required-features = ["export-types"]
 
 [dev-dependencies]
 assert_cmd = "2"

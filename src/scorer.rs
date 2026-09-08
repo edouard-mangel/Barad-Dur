@@ -1,6 +1,8 @@
 mod actions;
 mod audit;
 mod builders;
+#[cfg(all(test, feature = "export-types"))]
+mod report_contract_tests;
 mod types;
 
 pub use actions::compute_overall_score_with_weights;

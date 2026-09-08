@@ -504,7 +504,7 @@ The JSON output includes these top-level fields:
 | `total_commits` | number | Commits in window |
 | `total_authors` | number | Unique authors |
 | `total_files` | number | Files in tree |
-| `overall_score` | number | Weighted score (0-100) |
+| `overall_score` | number \| null | Weighted score (0-100), or unscored when nothing is measurable |
 | `categories` | array | Per-category scores and metrics |
 | `top_actions` | array | Suggested improvements |
 | `remote_meta` | object \| null | Remote repo metadata (populated for URL targets; enriched with GitHub API data when `--token` is provided) |
@@ -520,6 +520,19 @@ The JSON output includes these top-level fields:
 | `dep_ecosystem_reports` | array | Per-ecosystem dependency drift and CVE findings (with `--deps`) |
 | `audit` | object \| null | Crisis files, directory concentration, dead files, velocity buckets |
 | `score_thresholds` | object | Score band cut-offs (good/warn) used by all renderers |
+
+The React dashboard loads the current JSON shape only. Its TypeScript wire
+declarations are generated from the Rust report types, while a separate runtime
+decoder validates every field the dashboard consumes. Incompatible reports are
+left untouched and rejected with the failing field path; regenerate one with
+the installed CLI:
+
+```bash
+barad-dur analyze . --json -o report.json
+```
+
+The self-contained HTML report remains independent of the React dashboard and
+continues to embed its renderer and data for offline use.
 
 ## Architecture
 
@@ -554,6 +567,12 @@ cargo test --test integration_tests # end-to-end tests
 
 # Dogfood
 cargo run -- analyze . -v
+
+# Report contract development (Rust is the source of truth)
+make report-contract-check      # non-mutating declaration + fixture drift check
+make report-contract-generate   # explicitly rewrite TypeScript declarations
+make report-contract-fixture    # explicitly rewrite the reviewed current fixture
+pnpm -C dashboard check         # decoder/components tests + production build
 ```
 
 Test quality is enforced with mutation testing (cargo-mutants): every push to `main` runs mutants scoped to the change's diff behind a ≥ 80% kill-rate gate, and a nightly job covers the full codebase.

@@ -13,6 +13,8 @@ pub mod metrics;
 pub mod registry;
 pub mod remote;
 pub mod renderer;
+#[cfg(feature = "export-types")]
+pub mod report_contract;
 pub mod runner;
 pub mod scorer;
 pub mod snapshot;

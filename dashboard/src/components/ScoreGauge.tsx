@@ -1,16 +1,18 @@
-import { scoreColor } from '../types'
+import { scoreColor } from '../report/format'
+import type { ScoreThresholds } from '../report/model'
 
 interface Props {
   /** null: nothing was measurable — empty track and a dash, never a zero. */
   score: number | null
+  thresholds: ScoreThresholds
   size?: number
   label?: string
 }
 
-export default function ScoreGauge({ score, size = 160, label = 'Overall Score' }: Props) {
+export default function ScoreGauge({ score, thresholds, size = 160, label = 'Overall Score' }: Props) {
   const unscored = score === null
   const clampedScore = unscored ? 0 : Math.max(0, Math.min(100, score))
-  const color = unscored ? 'rgba(148, 163, 184, 0.8)' : scoreColor(clampedScore)
+  const color = unscored ? 'rgba(148, 163, 184, 0.8)' : scoreColor(clampedScore, thresholds)
 
   // Arc parameters — 270° sweep starting from bottom-left
   const radius = 54

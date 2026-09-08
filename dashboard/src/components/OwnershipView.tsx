@@ -1,4 +1,4 @@
-import type { FileOwnership } from '../types'
+import type { FileOwnership } from '../report/model'
 
 interface Props {
   ownership: FileOwnership[]

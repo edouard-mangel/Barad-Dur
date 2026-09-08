@@ -159,6 +159,10 @@ build:
     # the line above never compiles it. Without this second pass a refactor of
     # any `field_test::*` signature breaks the driver while CI stays green.
     - cargo clippy --all-targets --features field-test -- -D warnings
+    - cargo clippy --all-targets --features export-types -- -D warnings
+    - cargo run --features export-types --example export_report_types -- --check
+    - cargo test --features export-types --examples
+    - cargo test --features export-types scorer::report_contract_tests::current_fixture_matches_actual_rust_serialization --lib
     # `--features field-test` also builds the harness driver that the
     # field-test job runs, so that job needs no second compile.
     - cargo build --release --features field-test
@@ -184,6 +188,18 @@ test:
     reports:
       junit: target/nextest/ci/junit.xml
     expire_in: 1 week
+
+dashboard-contract:
+  stage: test
+  image: node:22-slim
+  needs:
+    - build
+  before_script:
+    - *checkout-merge-result
+    - corepack enable && corepack prepare pnpm@10.33.2 --activate
+  script:
+    - pnpm -C dashboard install --frozen-lockfile
+    - pnpm -C dashboard check
 
 coverage:
   stage: test

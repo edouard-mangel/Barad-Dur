@@ -18,7 +18,7 @@ OUTPUT      ?= dashboard/report.json
 OUTPUT_HTML ?= report.html
 BROWSER     ?= xdg-open
 
-.PHONY: analyze dashboard report html-report report-smoke build install setup version-bump gate-coupling field-test field-test-accept field-audit
+.PHONY: analyze dashboard report html-report report-smoke report-contract-generate report-contract-check report-contract-fixture build install setup version-bump gate-coupling field-test field-test-accept field-audit
 
 analyze:
 	cargo run --release -- analyze $(TARGET) --json > $(OUTPUT)
@@ -33,6 +33,19 @@ html-report:
 report-smoke:
 	cargo run --release -- analyze $(TARGET) --html -o /tmp/barad-dur-smoke.html
 	node scripts/report-smoke.mjs /tmp/barad-dur-smoke.html
+
+## Rewrite the committed TypeScript declarations from the Rust report contract.
+report-contract-generate:
+	cargo run --features export-types --example export_report_types
+
+## Fail on added, missing, or edited generated declarations; never rewrites them.
+report-contract-check:
+	cargo run --features export-types --example export_report_types -- --check
+	cargo test --features export-types scorer::report_contract_tests::current_fixture_matches_actual_rust_serialization --lib
+
+## Explicitly rewrite the producer-owned fixture after reviewing a wire change.
+report-contract-fixture:
+	cargo run --features export-types --example export_report_fixture
 
 dashboard:
 	cd dashboard && pnpm run dev
