@@ -2,6 +2,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::io::{BufRead, Write};
 use std::path::Path;
 
@@ -10,7 +11,9 @@ use crate::cache::storage::CACHE_DIR;
 
 const ENTITY_HISTORY_FILE: &str = "entity_trends.json";
 const BAK_FILE: &str = "entity_trends.json.bak";
+const INPUT_FINGERPRINT_FILE: &str = "entity_trends.fingerprint";
 const CORRUPT_REASON: &str = "entity_trends.json could not be read";
+const STALE_INPUTS_REASON: &str = "entity_trends.json was produced with different backfill inputs";
 const SCHEMA_VERSION: u32 = 1;
 
 /// One backfill sample's per-entity data: a bounded (top-N hotspots,
@@ -30,7 +33,7 @@ pub struct EntityTrendEntry {
     pub complexity: HashMap<String, u32>,
     /// path → churn_count, same key set as `complexity`.
     pub churn: HashMap<String, u32>,
-    /// "{path_a}|{path_b}" (sorted) → co_changes, qualifying smell pairs only.
+    /// Length-prefixed sorted pair identity → co_changes, qualifying smell pairs only.
     pub coupling_degree: HashMap<String, usize>,
     /// v1 is currently the only schema version and there is only one
     /// producer, so this is not validated on read (see `load_entity_history`).
@@ -66,6 +69,7 @@ pub fn load_entity_history(repo_path: &Path) -> Result<Vec<EntityTrendEntry>> {
 /// non-empty but produced zero valid entries).
 pub fn load_entity_history_checked(
     repo_path: &Path,
+    expected_fingerprint: u64,
 ) -> Result<(Vec<EntityTrendEntry>, Option<String>)> {
     let path = repo_path.join(CACHE_DIR).join(ENTITY_HISTORY_FILE);
     if !path.exists() {
@@ -83,7 +87,66 @@ pub fn load_entity_history_checked(
         return Ok((Vec::new(), Some(warning)));
     }
 
+    if file_is_nonempty && !input_fingerprint_matches(repo_path, expected_fingerprint) {
+        let warning = archive_corrupt_file(
+            repo_path,
+            ENTITY_HISTORY_FILE,
+            BAK_FILE,
+            STALE_INPUTS_REASON,
+        )?;
+        save_input_fingerprint(repo_path, expected_fingerprint)?;
+        return Ok((Vec::new(), Some(warning)));
+    }
+
     Ok((entries, None))
+}
+
+pub(crate) fn entity_history_input_fingerprint(
+    repo_path: &Path,
+    sample_count: u32,
+    top_n: usize,
+    coupling: &crate::config::CouplingThresholds,
+    use_default_excludes: bool,
+) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    SCHEMA_VERSION.hash(&mut hasher);
+    sample_count.hash(&mut hasher);
+    top_n.hash(&mut hasher);
+    coupling.component_depth.hash(&mut hasher);
+    coupling
+        .change_coupling_min_ratio
+        .to_bits()
+        .hash(&mut hasher);
+    coupling.content_barrel_rule.hash(&mut hasher);
+    coupling.hotspot_multiplier.to_bits().hash(&mut hasher);
+    coupling.corroboration_weight.to_bits().hash(&mut hasher);
+    coupling.inheritance_min_depth.hash(&mut hasher);
+    coupling.community_corroboration.hash(&mut hasher);
+    coupling.decay_min_partners.hash(&mut hasher);
+    coupling
+        .test_safety_net_min_ratio
+        .to_bits()
+        .hash(&mut hasher);
+    crate::collector::exclude_fingerprint(repo_path, &[], &[], use_default_excludes)
+        .hash(&mut hasher);
+    hasher.finish()
+}
+
+pub(crate) fn save_input_fingerprint(repo_path: &Path, fingerprint: u64) -> Result<()> {
+    let cache_dir = repo_path.join(CACHE_DIR);
+    std::fs::create_dir_all(&cache_dir)?;
+    std::fs::write(
+        cache_dir.join(INPUT_FINGERPRINT_FILE),
+        fingerprint.to_string(),
+    )?;
+    Ok(())
+}
+
+fn input_fingerprint_matches(repo_path: &Path, expected: u64) -> bool {
+    std::fs::read_to_string(repo_path.join(CACHE_DIR).join(INPUT_FINGERPRINT_FILE))
+        .ok()
+        .and_then(|stored| stored.parse::<u64>().ok())
+        .is_some_and(|stored| stored == expected)
 }
 
 pub fn append_entity_entry(entry: &EntityTrendEntry, repo_path: &Path) -> Result<()> {
@@ -102,11 +165,8 @@ pub fn append_entity_entry(entry: &EntityTrendEntry, repo_path: &Path) -> Result
 /// Deterministic key for an unordered file pair — the same pair always
 /// produces the same key regardless of argument order (Decision 4).
 pub(crate) fn entity_pair_key(a: &str, b: &str) -> String {
-    if a <= b {
-        format!("{a}|{b}")
-    } else {
-        format!("{b}|{a}")
-    }
+    let (first, second) = if a <= b { (a, b) } else { (b, a) };
+    format!("{}:{first}{}:{second}", first.len(), second.len())
 }
 
 /// The top `top_n` hotspots by `hotspot_score`, descending. Returns all of
@@ -555,7 +615,7 @@ mod tests {
 
         let mut hotspots: Vec<crate::scorer::HotspotFile> = vec![];
         let mut pairs = vec![crate::scorer::CouplingPair {
-            // Reversed order from the stored key ("src/a.rs|src/b.rs") to
+            // Reversed order from the stored key to
             // prove `entity_pair_key`'s normalization is applied at the
             // consumption site, not just at construction.
             file_a: "src/b.rs".to_string(),
@@ -577,11 +637,11 @@ mod tests {
         // for two rates: 3 -> 6 -> 21 gives rates 3 then 15, a real
         // acceleration rather than a merely climbing total.
         let mut coupling_newer = HashMap::new();
-        coupling_newer.insert("src/a.rs|src/b.rs".to_string(), 21usize);
+        coupling_newer.insert(entity_pair_key("src/a.rs", "src/b.rs"), 21usize);
         let mut coupling_mid = HashMap::new();
-        coupling_mid.insert("src/a.rs|src/b.rs".to_string(), 6usize);
+        coupling_mid.insert(entity_pair_key("src/a.rs", "src/b.rs"), 6usize);
         let mut coupling_older = HashMap::new();
-        coupling_older.insert("src/a.rs|src/b.rs".to_string(), 3usize);
+        coupling_older.insert(entity_pair_key("src/a.rs", "src/b.rs"), 3usize);
 
         // Non-chronological vec order (newest first) to also exercise the
         // Fix 1 sort.
@@ -682,7 +742,7 @@ mod tests {
         let mut churn = HashMap::new();
         churn.insert("src/big.rs".to_string(), 7);
         let mut coupling_degree = HashMap::new();
-        coupling_degree.insert("src/a.rs|src/b.rs".to_string(), 3);
+        coupling_degree.insert(entity_pair_key("src/a.rs", "src/b.rs"), 3);
         EntityTrendEntry {
             timestamp: Utc::now(),
             head: head.to_string(),
@@ -727,7 +787,11 @@ mod tests {
     #[test]
     fn load_entity_history_checked_no_file_returns_empty_no_warning() {
         let dir = TempDir::new().unwrap();
-        let (entries, warning) = load_entity_history_checked(dir.path()).unwrap();
+        let (entries, warning) = load_entity_history_checked(
+            dir.path(),
+            entity_history_input_fingerprint(dir.path(), 10, 20, &Default::default(), true),
+        )
+        .unwrap();
         assert!(entries.is_empty());
         assert!(warning.is_none());
     }
@@ -739,7 +803,11 @@ mod tests {
         std::fs::create_dir_all(&cache_dir).unwrap();
         std::fs::write(cache_dir.join(ENTITY_HISTORY_FILE), "NOT VALID JSON\n").unwrap();
 
-        let (entries, warning) = load_entity_history_checked(dir.path()).unwrap();
+        let (entries, warning) = load_entity_history_checked(
+            dir.path(),
+            entity_history_input_fingerprint(dir.path(), 10, 20, &Default::default(), true),
+        )
+        .unwrap();
         assert!(entries.is_empty());
         let w = warning.expect("corrupt file must produce a warning");
         assert!(
@@ -759,7 +827,11 @@ mod tests {
         std::fs::create_dir_all(&cache_dir).unwrap();
         std::fs::write(cache_dir.join(ENTITY_HISTORY_FILE), "").unwrap();
 
-        let (entries, warning) = load_entity_history_checked(dir.path()).unwrap();
+        let (entries, warning) = load_entity_history_checked(
+            dir.path(),
+            entity_history_input_fingerprint(dir.path(), 10, 20, &Default::default(), true),
+        )
+        .unwrap();
         assert!(entries.is_empty());
         assert!(warning.is_none(), "a zero-byte file is not corruption");
     }
@@ -894,7 +966,7 @@ mod tests {
         );
         assert_eq!(entry.coupling_degree.len(), 1);
         assert_eq!(
-            entry.coupling_degree.get("src/a.rs|tests/b.rs"),
+            entry.coupling_degree.get("8:src/a.rs10:tests/b.rs"),
             Some(&5),
             "pair key must be lexicographically sorted"
         );
@@ -957,24 +1029,35 @@ mod tests {
             entry.coupling_degree
         );
         assert_eq!(
-            entry.coupling_degree.get("src/a.rs|tests/x.rs"),
+            entry.coupling_degree.get("8:src/a.rs10:tests/x.rs"),
             Some(&9),
             "the most-coupled pair must be kept"
         );
         assert_eq!(
-            entry.coupling_degree.get("src/b.rs|tests/y.rs"),
+            entry.coupling_degree.get("8:src/b.rs10:tests/y.rs"),
             Some(&5),
             "the second-most-coupled pair must be kept"
         );
         assert!(
-            !entry.coupling_degree.contains_key("src/c.rs|tests/z.rs"),
+            !entry
+                .coupling_degree
+                .contains_key("8:src/c.rs10:tests/z.rs"),
             "the weakest pair must be dropped"
         );
     }
 
     #[test]
     fn entity_pair_key_sorts_lexicographically_regardless_of_argument_order() {
-        assert_eq!(entity_pair_key("b.rs", "a.rs"), "a.rs|b.rs");
-        assert_eq!(entity_pair_key("a.rs", "b.rs"), "a.rs|b.rs");
+        assert_eq!(entity_pair_key("b.rs", "a.rs"), "4:a.rs4:b.rs");
+        assert_eq!(entity_pair_key("a.rs", "b.rs"), "4:a.rs4:b.rs");
+    }
+
+    #[test]
+    fn entity_pair_key_distinguishes_paths_containing_the_separator() {
+        assert_ne!(
+            entity_pair_key("a", "b|c"),
+            entity_pair_key("a|b", "c"),
+            "distinct unordered file pairs must never share a persisted identity"
+        );
     }
 }

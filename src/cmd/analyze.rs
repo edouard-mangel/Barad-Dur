@@ -126,8 +126,18 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<()> {
     // archive rename), distinct from "no history yet", which comes back as an
     // empty Vec. Degrading both to silence hid the reason every direction was
     // missing, so say so and carry on without trends.
+    let entity_input_fingerprint = cache::entity_history::entity_history_input_fingerprint(
+        &local_path,
+        cfg.backfill.sample_count,
+        cfg.backfill.entity_trend_top_n,
+        &cfg.thresholds.coupling,
+        cfg.exclude_use_defaults,
+    );
     let (entity_history, entity_history_warning) =
-        match cache::entity_history::load_entity_history_checked(&local_path) {
+        match cache::entity_history::load_entity_history_checked(
+            &local_path,
+            entity_input_fingerprint,
+        ) {
             Ok(loaded) => loaded,
             Err(e) => {
                 eprintln!("Warning: could not read entity trend history: {e}");

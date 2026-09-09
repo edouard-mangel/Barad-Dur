@@ -58,11 +58,26 @@ pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
     // and a corrupt entity_trends.json is archived and replaced with an empty
     // one — in both cases a SHA present in trends.json says nothing about
     // whether this sample's entity data exists.
-    let existing_entity_heads: HashSet<String> =
-        crate::cache::entity_history::load_entity_history(repo_path)?
-            .into_iter()
-            .map(|e| e.head)
-            .collect();
+    let entity_input_fingerprint = crate::cache::entity_history::entity_history_input_fingerprint(
+        repo_path,
+        cfg.backfill.sample_count,
+        cfg.backfill.entity_trend_top_n,
+        &cfg.thresholds.coupling,
+        cfg.exclude_use_defaults,
+    );
+    let (existing_entity_entries, warning) =
+        crate::cache::entity_history::load_entity_history_checked(
+            repo_path,
+            entity_input_fingerprint,
+        )?;
+    if let Some(warning) = warning {
+        println!("{warning}");
+    }
+    crate::cache::entity_history::save_input_fingerprint(repo_path, entity_input_fingerprint)?;
+    let existing_entity_heads: HashSet<String> = existing_entity_entries
+        .into_iter()
+        .map(|e| e.head)
+        .collect();
 
     let total = selected_shas.len();
     let mut written = 0usize;

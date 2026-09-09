@@ -219,3 +219,206 @@ fn backfill_records_entity_data_for_a_head_already_in_trends_json() {
         entries.iter().map(|e| &e.head).collect::<Vec<_>>()
     );
 }
+
+#[test]
+fn backfill_rebuilds_entity_history_when_top_n_changes() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path();
+
+    git(path, &["init", "-q"]);
+    git(path, &["config", "user.email", "t@e"]);
+    git(path, &["config", "user.name", "t"]);
+    std::fs::write(path.join("a.rs"), "fn a() {}\n").unwrap();
+    std::fs::write(path.join("b.rs"), "fn b() {}\n").unwrap();
+    git(path, &["add", "-A"]);
+    git_commit_at(path, "initial", "2024-01-01T00:00:00");
+
+    let cache_dir = path.join(".repository-analysis");
+    std::fs::create_dir_all(&cache_dir).unwrap();
+    let config_path = cache_dir.join("barad-dur.toml");
+    std::fs::write(
+        &config_path,
+        "[backfill]\nsample_count = 1\nentity_trend_top_n = 1\n",
+    )
+    .unwrap();
+    let args = BackfillArgs {
+        target: path.to_string_lossy().into_owned(),
+        no_blame: false,
+    };
+
+    barad_dur::backfill::run(&args, path).expect("first backfill should succeed");
+    let first = entity_history::load_entity_history(path).expect("load first entity history");
+    assert_eq!(first[0].complexity.len(), 1);
+
+    std::fs::write(
+        config_path,
+        "[backfill]\nsample_count = 1\nentity_trend_top_n = 2\n",
+    )
+    .unwrap();
+    barad_dur::backfill::run(&args, path).expect("changed-input backfill should succeed");
+
+    let rebuilt = entity_history::load_entity_history(path).expect("load rebuilt entity history");
+    assert_eq!(
+        rebuilt.len(),
+        1,
+        "stale samples must be replaced, not appended"
+    );
+    assert_eq!(
+        rebuilt[0].complexity.len(),
+        2,
+        "a larger top-N must take effect even when the selected SHA already exists"
+    );
+}
+
+#[test]
+fn backfill_rebuilds_entity_history_when_coupling_thresholds_change() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path();
+
+    git(path, &["init", "-q"]);
+    git(path, &["config", "user.email", "t@e"]);
+    git(path, &["config", "user.name", "t"]);
+    std::fs::create_dir_all(path.join("src")).unwrap();
+    std::fs::create_dir_all(path.join("tests")).unwrap();
+    for day in 1..=3 {
+        std::fs::write(
+            path.join("src/a.rs"),
+            format!("fn a() -> i32 {{ {day} }}\n"),
+        )
+        .unwrap();
+        std::fs::write(
+            path.join("tests/b.rs"),
+            format!("fn b() -> i32 {{ {day} }}\n"),
+        )
+        .unwrap();
+        git(path, &["add", "-A"]);
+        git_commit_at(path, "both", &format!("2024-01-0{day}T00:00:00"));
+    }
+    for day in 4..=6 {
+        std::fs::write(
+            path.join("src/a.rs"),
+            format!("fn a() -> i32 {{ {day} }}\n"),
+        )
+        .unwrap();
+        git(path, &["add", "-A"]);
+        git_commit_at(path, "only a", &format!("2024-01-0{day}T00:00:00"));
+    }
+    for day in 7..=9 {
+        std::fs::write(
+            path.join("tests/b.rs"),
+            format!("fn b() -> i32 {{ {day} }}\n"),
+        )
+        .unwrap();
+        git(path, &["add", "-A"]);
+        git_commit_at(path, "only b", &format!("2024-01-0{day}T00:00:00"));
+    }
+
+    let cache_dir = path.join(".repository-analysis");
+    std::fs::create_dir_all(&cache_dir).unwrap();
+    let config_path = cache_dir.join("barad-dur.toml");
+    std::fs::write(
+        &config_path,
+        "[backfill]\nsample_count = 1\n\n[thresholds.coupling]\ncomponent_depth = 1\nchange_coupling_min_ratio = 0.4\n",
+    )
+    .unwrap();
+    let args = BackfillArgs {
+        target: path.to_string_lossy().into_owned(),
+        no_blame: false,
+    };
+
+    barad_dur::backfill::run(&args, path).expect("first backfill should succeed");
+    let first = entity_history::load_entity_history(path).expect("load first entity history");
+    assert_eq!(first[0].coupling_degree.len(), 1);
+
+    std::fs::write(
+        config_path,
+        "[backfill]\nsample_count = 1\n\n[thresholds.coupling]\ncomponent_depth = 1\nchange_coupling_min_ratio = 0.6\n",
+    )
+    .unwrap();
+    barad_dur::backfill::run(&args, path).expect("changed-input backfill should succeed");
+
+    let rebuilt = entity_history::load_entity_history(path).expect("load rebuilt entity history");
+    assert_eq!(
+        rebuilt.len(),
+        1,
+        "stale samples must be replaced, not appended"
+    );
+    assert!(
+        rebuilt[0].coupling_degree.is_empty(),
+        "the stricter coupling threshold must remove the formerly qualifying pair"
+    );
+}
+
+#[test]
+fn backfill_rebuilds_entity_history_when_baraddurignore_changes() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path();
+
+    git(path, &["init", "-q"]);
+    git(path, &["config", "user.email", "t@e"]);
+    git(path, &["config", "user.name", "t"]);
+    std::fs::write(path.join("a.rs"), "fn a() {}\n").unwrap();
+    std::fs::write(path.join("b.rs"), "fn b() {}\n").unwrap();
+    git(path, &["add", "-A"]);
+    git_commit_at(path, "initial", "2024-01-01T00:00:00");
+
+    let args = BackfillArgs {
+        target: path.to_string_lossy().into_owned(),
+        no_blame: false,
+    };
+    barad_dur::backfill::run(&args, path).expect("first backfill should succeed");
+    let first = entity_history::load_entity_history(path).expect("load first entity history");
+    assert_eq!(first[0].complexity.len(), 2);
+
+    std::fs::write(path.join(".baraddurignore"), "b.rs\n").unwrap();
+    barad_dur::backfill::run(&args, path).expect("changed-input backfill should succeed");
+
+    let rebuilt = entity_history::load_entity_history(path).expect("load rebuilt entity history");
+    assert_eq!(
+        rebuilt.len(),
+        1,
+        "stale samples must be replaced, not appended"
+    );
+    assert_eq!(
+        rebuilt[0].complexity.len(),
+        1,
+        "a newly excluded file must disappear even when the selected SHA already exists"
+    );
+    assert!(!rebuilt[0].complexity.contains_key("b.rs"));
+}
+
+#[test]
+fn backfill_rebuilds_entity_history_when_sample_count_changes() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path();
+
+    git(path, &["init", "-q"]);
+    git(path, &["config", "user.email", "t@e"]);
+    git(path, &["config", "user.name", "t"]);
+    for day in 1..=2 {
+        std::fs::write(path.join("lib.rs"), format!("fn f() -> i32 {{ {day} }}\n")).unwrap();
+        git(path, &["add", "-A"]);
+        git_commit_at(path, "change", &format!("2024-01-0{day}T00:00:00"));
+    }
+
+    let cache_dir = path.join(".repository-analysis");
+    std::fs::create_dir_all(&cache_dir).unwrap();
+    let config_path = cache_dir.join("barad-dur.toml");
+    std::fs::write(&config_path, "[backfill]\nsample_count = 2\n").unwrap();
+    let args = BackfillArgs {
+        target: path.to_string_lossy().into_owned(),
+        no_blame: false,
+    };
+
+    barad_dur::backfill::run(&args, path).expect("first backfill should succeed");
+    assert_eq!(entity_history::load_entity_history(path).unwrap().len(), 2);
+
+    std::fs::write(config_path, "[backfill]\nsample_count = 1\n").unwrap();
+    barad_dur::backfill::run(&args, path).expect("changed-input backfill should succeed");
+
+    assert_eq!(
+        entity_history::load_entity_history(path).unwrap().len(),
+        1,
+        "reducing sample_count must discard no-longer-selected entity samples"
+    );
+}
