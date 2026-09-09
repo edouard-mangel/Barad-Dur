@@ -8,6 +8,7 @@ use crate::metrics::CategoryResult;
 /// churn) across backfill samples — distinct from `VelocityDirection`,
 /// which classifies the aggregate report score on an absolute scale.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum EntityTrendDirection {
     Growing,

@@ -114,7 +114,9 @@ const currentReport: AnalysisReport = {
         0,
         2,
         1
-      ]
+      ],
+      "complexity_trend": "growing",
+      "churn_trend": "stable"
     }
   ],
   "coupling_pairs": [
@@ -126,7 +128,8 @@ const currentReport: AnalysisReport = {
       "cross_boundary": true,
       "is_test_pair": true,
       "growth_a": 10,
-      "growth_b": -2
+      "growth_b": -2,
+      "coupling_trend": "shrinking"
     }
   ],
   "author_ownership": [

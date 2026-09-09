@@ -11,9 +11,9 @@ use crate::metrics::{CategoryResult, MetricValue, RawValue};
 use crate::scorer::{
     ActionItem, AnalysisReport, AuditReport, AuthorCard, AuthorShare, CallGraphReport, ChurnBucket,
     ChurnTimelineReport, CouplingFindingCounts, CouplingPair, CouplingTrend, CrisisFile, DeadFile,
-    DirConcentration, FileAge, FileCouplingMetrics, FileOwnership, FunctionHub, HistoryCounts,
-    HistoryEntry, HotspotFile, ImportEdge, LongMethodThresholds, RemoteMeta, ScoreThresholds,
-    VelocityBucket, HISTORY_SCHEMA_VERSION,
+    DirConcentration, EntityTrendDirection, FileAge, FileCouplingMetrics, FileOwnership,
+    FunctionHub, HistoryCounts, HistoryEntry, HotspotFile, ImportEdge, LongMethodThresholds,
+    RemoteMeta, ScoreThresholds, VelocityBucket, HISTORY_SCHEMA_VERSION,
 };
 
 pub fn export_report_types(output: &Path) -> Result<()> {
@@ -198,6 +198,8 @@ fn report_fixture() -> AnalysisReport {
             control_findings: 3,
             inheritance_findings: 4,
             churn_timeline: vec![0, 2, 1],
+            complexity_trend: Some(EntityTrendDirection::Growing),
+            churn_trend: Some(EntityTrendDirection::Stable),
         }],
         coupling_pairs: vec![CouplingPair {
             file_a: "src/lib.rs".into(),
@@ -208,6 +210,7 @@ fn report_fixture() -> AnalysisReport {
             is_test_pair: true,
             growth_a: 10,
             growth_b: -2,
+            coupling_trend: Some(EntityTrendDirection::Shrinking),
         }],
         author_ownership: vec![FileOwnership {
             path: "src/lib.rs".into(),
