@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
-import type { AnalysisReport } from '../types'
-import { applyScoreThresholds, isAnalysisReport } from '../types'
+import type { DashboardReport } from '../report/model'
+import { restoreReport } from '../report/storage'
 import ScoreGauge from '../components/ScoreGauge'
 import RadarChart from '../components/RadarChart'
 import CategoryCard from '../components/CategoryCard'
@@ -11,8 +11,6 @@ import HotspotsView from '../components/HotspotsView'
 import CouplingView from '../components/CouplingView'
 import OwnershipView from '../components/OwnershipView'
 import AgeView from '../components/AgeView'
-
-const STORAGE_KEY = 'barad-dur-report'
 
 type Tab = 'overview' | 'hotspots' | 'coupling' | 'ownership' | 'age'
 
@@ -26,25 +24,20 @@ const TABS: [Tab, string][] = [
 
 export default function Report() {
   const navigate = useNavigate()
-  const [report, setReport] = useState<AnalysisReport | null>(null)
+  const [report, setReport] = useState<DashboardReport | null>(null)
   const [activeTab, setActiveTab] = useState<Tab>('overview')
 
   useEffect(() => {
-    const raw = sessionStorage.getItem(STORAGE_KEY)
-    if (!raw) {
-      void navigate('/')
-      return
-    }
     try {
-      const data = JSON.parse(raw) as unknown
-      if (isAnalysisReport(data)) {
-        applyScoreThresholds(data.score_thresholds)
-        setReport(data)
-      } else {
+      const restored = restoreReport(sessionStorage)
+      if (restored === null) {
         void navigate('/')
+        return
       }
-    } catch {
-      void navigate('/')
+      setReport(restored.report)
+    } catch (loadError) {
+      const reportError = loadError instanceof Error ? loadError.message : 'Failed to restore the report.'
+      void navigate('/', { state: { reportError } })
     }
   }, [navigate])
 
@@ -199,16 +192,16 @@ export default function Report() {
             }}
           >
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2rem' }}>
-              <ScoreGauge score={report.overall_score} size={200} label="Overall Score" />
-              <RadarChart categories={report.categories} size={240} />
+              <ScoreGauge score={report.overall_score} thresholds={report.score_thresholds} size={200} label="Overall Score" />
+              <RadarChart categories={report.categories} thresholds={report.score_thresholds} size={240} />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               {report.categories.map((cat, i) => (
-                <CategoryCard key={i} category={cat} />
+                <CategoryCard key={i} category={cat} thresholds={report.score_thresholds} />
               ))}
             </div>
           </div>
-          {report.top_actions.length > 0 && <TopActions actions={report.top_actions} />}
+          {report.top_actions.length > 0 && <TopActions actions={report.top_actions} thresholds={report.score_thresholds} />}
         </>
       )}
 

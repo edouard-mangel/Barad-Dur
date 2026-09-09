@@ -1,4 +1,4 @@
-import type { RemoteMeta } from '../types'
+import type { RemoteMeta } from '../report/model'
 
 interface Props {
   meta: RemoteMeta

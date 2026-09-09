@@ -19,7 +19,7 @@ describe('CouplingView coupling actions panel', () => {
   })
 
   it('renders no actions panel when actions are absent', () => {
-    render(<CouplingView pairs={[]} />)
+    render(<CouplingView pairs={[]} actions={[]} />)
     expect(screen.queryByText('Coupling Actions')).toBeNull()
     // the existing empty-pairs message still shows
     expect(screen.queryByText(/No coupling pairs detected/)).not.toBeNull()

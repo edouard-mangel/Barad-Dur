@@ -6,6 +6,7 @@ describe('TopActions', () => {
   it('renders ActionItem objects as serialized by the Rust scorer', () => {
     render(
       <TopActions
+        thresholds={{ good_min: 71, warn_min: 41 }}
         actions={[
           {
             text: '[Complexity] Cyclomatic Complexity (score: 35) — Break down large functions',
@@ -20,14 +21,4 @@ describe('TopActions', () => {
     expect(screen.queryByText('Break down large functions')).not.toBeNull()
   })
 
-  it('still renders plain strings from reports generated before ActionItem', () => {
-    render(
-      <TopActions
-        actions={['[Health] Bus Factor (score: 20) — Spread ownership across the team']}
-      />,
-    )
-    expect(screen.queryByText('Health')).not.toBeNull()
-    expect(screen.queryByText('Bus Factor')).not.toBeNull()
-    expect(screen.queryByText('Spread ownership across the team')).not.toBeNull()
-  })
 })

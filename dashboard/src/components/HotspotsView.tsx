@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState } from 'react'
 import * as d3 from 'd3'
-import type { HotspotFile } from '../types'
+import type { HotspotFile } from '../report/model'
 
 interface Props {
   files: HotspotFile[]
@@ -10,11 +10,9 @@ export type SortKey = 'hotspot_score' | 'churn_count' | 'cyclomatic_complexity' 
 
 export type RoleFilter = 'code' | 'test' | 'other' | 'all'
 
-/** Does the file belong to the selected role group? Reports generated before
- * role classification carry no role — treat those files as source so the
- * default Code view never hides them. */
+/** Does the file belong to the selected role group? */
 export function roleMatches(f: HotspotFile, filter: RoleFilter): boolean {
-  const role = f.role ?? 'source'
+  const role = f.role
   if (filter === 'all') return true
   if (filter === 'code') return role === 'source'
   if (filter === 'test') return role === 'test'
@@ -37,10 +35,10 @@ export function visibleSorted(
 
 /** Per-kind coupling badge text (Cn/Cm/Ih/Ct), empty when no findings. */
 export function couplingBadge(f: HotspotFile): string {
-  const cn = f.content_findings ?? 0
-  const cm = f.common_findings ?? 0
-  const ih = f.inheritance_findings ?? 0
-  const ct = f.control_findings ?? 0
+  const cn = f.content_findings
+  const cm = f.common_findings
+  const ih = f.inheritance_findings
+  const ct = f.control_findings
   return [cn > 0 && `Cn ${cn}`, cm > 0 && `Cm ${cm}`, ih > 0 && `Ih ${ih}`, ct > 0 && `Ct ${ct}`]
     .filter(Boolean)
     .join(' · ')
@@ -150,8 +148,8 @@ function HotspotRow({ f, onDismiss }: { f: HotspotFile; onDismiss: (path: string
   const color = riskColor(score)
   const { dir, name } = splitPath(f.path)
   const badge = couplingBadge(f)
-  const cn = f.content_findings ?? 0
-  const cm = f.common_findings ?? 0
+  const cn = f.content_findings
+  const cm = f.common_findings
   return (
     <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
       <td style={{ padding: '0.4rem 0.5rem', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.path}>

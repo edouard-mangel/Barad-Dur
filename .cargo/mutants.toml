@@ -19,4 +19,12 @@ exclude_re = [
 # timed out the mutation-0 shard at 4h. Enabling the feature would not help:
 # the integration suites drive the library, never the binary. Everything this
 # binary decides lives in `field_test::sweep` and friends, which stay mutated.
-exclude_globs = ["src/bin/field-test.rs"]
+# `src/report_contract.rs` is the same case, one layer up: the module is
+# `#[cfg(feature = "export-types")]`, both examples that drive it declare
+# `required-features = ["export-types"]`, and every test covering it
+# (`tests/report_type_generation.rs`, `scorer::report_contract_tests`) is gated
+# on that feature too. A default-feature mutation run therefore mutates source
+# that is never linked: the build succeeds, the suite passes unchanged, and the
+# mutant is recorded as missed. That produced a 0/22 kill rate on !137, each of
+# the 22 costing a full ~25min build-and-test cycle to prove nothing.
+exclude_globs = ["src/bin/field-test.rs", "src/report_contract.rs"]

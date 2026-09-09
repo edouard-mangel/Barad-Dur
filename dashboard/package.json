@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "check": "pnpm test && pnpm build",
     "test:watch": "vitest",
     "analyze": "cargo run --release --manifest-path ../Cargo.toml -- analyze .. --json > report.json && echo 'Report → report.json'",
     "analyze:target": "cargo run --release --manifest-path ../Cargo.toml -- analyze $TARGET --json > report.json && echo 'Report → report.json'"

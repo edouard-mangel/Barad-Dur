@@ -1,4 +1,4 @@
-import type { FileAge } from '../types'
+import type { FileAge } from '../report/model'
 
 interface Props {
   ages: FileAge[]

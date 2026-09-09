@@ -1,14 +1,16 @@
-import { scoreBgClass } from '../types'
+import { scoreBgClass, scoreColor } from '../report/format'
+import type { ScoreThresholds } from '../report/model'
 
 interface Props {
   score: number
+  thresholds: ScoreThresholds
   width?: string
   height?: string
   showLabel?: boolean
 }
 
-export default function ScoreBar({ score, width = '100%', height = '6px', showLabel = false }: Props) {
-  const bg = scoreBgClass(score)
+export default function ScoreBar({ score, thresholds, width = '100%', height = '6px', showLabel = false }: Props) {
+  const bg = scoreBgClass(score, thresholds)
   const pct = Math.max(0, Math.min(100, score))
 
   return (
@@ -28,7 +30,7 @@ export default function ScoreBar({ score, width = '100%', height = '6px', showLa
       {showLabel && (
         <span
           className={`font-mono text-xs font-semibold tabular-nums`}
-          style={{ color: pct > 70 ? '#10b981' : pct > 40 ? '#f59e0b' : '#ef4444', minWidth: '2.5rem', textAlign: 'right' }}
+          style={{ color: scoreColor(pct, thresholds), minWidth: '2.5rem', textAlign: 'right' }}
         >
           {pct}
         </span>

@@ -1,14 +1,17 @@
 import { useRef, useState, useCallback } from 'react'
-import { useNavigate } from 'react-router'
-import { isAnalysisReport } from '../types'
-
-const STORAGE_KEY = 'barad-dur-report'
+import { useLocation, useNavigate } from 'react-router'
+import { fileReadError, storeUploadedReport } from '../report/storage'
 
 export default function Landing() {
   const navigate = useNavigate()
+  const location = useLocation()
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const restoredError = typeof location.state === 'object' && location.state !== null
+    && 'reportError' in location.state && typeof location.state.reportError === 'string'
+    ? location.state.reportError
+    : null
+  const [error, setError] = useState<string | null>(restoredError)
 
   const processFile = useCallback((file: File) => {
     if (!file.name.endsWith('.json') && file.type !== 'application/json') {
@@ -18,18 +21,15 @@ export default function Landing() {
     const reader = new FileReader()
     reader.onload = (e) => {
       try {
-        const text = e.target?.result as string
-        const data = JSON.parse(text) as unknown
-        if (!isAnalysisReport(data)) {
-          setError('Invalid report format. Generate with: barad-dur analyze . --json')
-          return
-        }
-        sessionStorage.setItem(STORAGE_KEY, text)
+        const text = e.target?.result
+        if (typeof text !== 'string') throw fileReadError()
+        storeUploadedReport(sessionStorage, text)
         void navigate('/report')
-      } catch {
-        setError('Failed to parse JSON. Make sure the file is valid.')
+      } catch (loadError) {
+        setError(loadError instanceof Error ? loadError.message : 'Failed to load the report.')
       }
     }
+    reader.onerror = () => setError(fileReadError().message)
     reader.readAsText(file)
   }, [navigate])
 

@@ -8,6 +8,7 @@ use crate::metrics::CategoryResult;
 /// churn) across backfill samples — distinct from `VelocityDirection`,
 /// which classifies the aggregate report score on an absolute scale.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum EntityTrendDirection {
     Growing,
@@ -16,6 +17,7 @@ pub enum EntityTrendDirection {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 #[non_exhaustive]
 pub struct HotspotFile {
     pub path: String,
@@ -35,6 +37,7 @@ pub struct HotspotFile {
     /// and cleared `decay_min_partners`. Structured so renderers own the
     /// wording (e.g. "3 → 9").
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "export-types", ts(optional))]
     pub coupling_trend: Option<CouplingTrend>,
     /// Pressman coupling findings in this file, per kind. Content includes
     /// barrel-bypass findings when `content_barrel_rule` is on — the same
@@ -61,12 +64,14 @@ pub struct HotspotFile {
 /// Half-over-half distinct co-change partner counts for a file flagged as
 /// growing reach (Ch. 8 decay, trends M3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct CouplingTrend {
     pub first_half_partners: usize,
     pub second_half_partners: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 #[non_exhaustive]
 pub struct CouplingPair {
     pub file_a: String,
@@ -92,18 +97,21 @@ pub struct CouplingPair {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct AuthorShare {
     pub name: String,
     pub pct: f64,
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct FileOwnership {
     pub path: String,
     pub authors: Vec<AuthorShare>,
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct FileAge {
     pub path: String,
     pub last_modified: chrono::DateTime<chrono::Utc>,
@@ -111,6 +119,7 @@ pub struct FileAge {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct AuthorCard {
     pub name: String,
     pub email: String,
@@ -125,6 +134,7 @@ pub struct AuthorCard {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct CrisisFile {
     pub path: String,
     pub crisis_commit_count: usize,
@@ -133,6 +143,7 @@ pub struct CrisisFile {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct DirConcentration {
     pub dir: String,
     pub file_count: usize,
@@ -141,6 +152,7 @@ pub struct DirConcentration {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct DeadFile {
     pub path: String,
     pub days_since_modified: i64,
@@ -148,6 +160,7 @@ pub struct DeadFile {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct VelocityBucket {
     pub week_start: String,
     pub commit_count: usize,
@@ -155,6 +168,7 @@ pub struct VelocityBucket {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct AuditReport {
     pub crisis_files: Vec<CrisisFile>,
     pub dir_concentration: Vec<DirConcentration>,
@@ -163,6 +177,7 @@ pub struct AuditReport {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct FileCouplingMetrics {
     pub path: String,
     pub ca: usize,
@@ -172,6 +187,7 @@ pub struct FileCouplingMetrics {
 
 /// One directed edge of the static import graph: `from` imports `to`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct ImportEdge {
     pub from: String,
     pub to: String,
@@ -179,6 +195,7 @@ pub struct ImportEdge {
 
 /// Metadata about the remote repository origin (populated when a URL is given).
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct RemoteMeta {
     pub url: String,
     pub stars: Option<u64>,
@@ -188,15 +205,19 @@ pub struct RemoteMeta {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct ActionItem {
     pub text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "export-types", ts(optional))]
     pub target_tab: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "export-types", ts(optional))]
     pub sort_by: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 #[non_exhaustive]
 pub struct AnalysisReport {
     pub repo_name: String,
@@ -226,12 +247,15 @@ pub struct AnalysisReport {
     /// Import cycles as sorted member-file lists (depth 1 and 2).
     pub import_cycles: Vec<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "export-types", ts(optional))]
     pub coupling_finding_counts: Option<CouplingFindingCounts>,
     /// Call-graph summary (design D7); `None` = no call data collected.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "export-types", ts(optional))]
     pub call_graph: Option<CallGraphReport>,
     /// Day-bucketed churn shape (trends M1); `None` = no data.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "export-types", ts(optional))]
     pub churn_timeline: Option<ChurnTimelineReport>,
     pub score_thresholds: ScoreThresholds,
     /// Effective Long Methods thresholds, serialized so the report guidance
@@ -242,6 +266,7 @@ pub struct AnalysisReport {
 
 /// The four thresholds the Long Methods predicate reads, as applied to this run.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 #[non_exhaustive]
 pub struct LongMethodThresholds {
     pub cc: u32,
@@ -272,6 +297,7 @@ impl Default for LongMethodThresholds {
 /// Repo-level day-bucketed churn shape (Crime Scene Ch. 14, trends M1).
 /// `None` on the report = no non-merge commits in the window.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct ChurnTimelineReport {
     /// Bucket width in days (always 1 in v1; field future-proofs wider buckets).
     pub bucket_days: u32,
@@ -281,6 +307,7 @@ pub struct ChurnTimelineReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct ChurnBucket {
     /// UTC day, `YYYY-MM-DD`.
     pub date: String,
@@ -293,6 +320,7 @@ pub struct ChurnBucket {
 /// supported-language file produced call edges — never "zero calls".
 /// `resolution_rate` counts same-file callees as resolved.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct CallGraphReport {
     pub resolution_rate: f64,
     pub edges_resolved: usize,
@@ -310,6 +338,7 @@ pub struct CallGraphReport {
 /// One function-hub row: a call target and how many distinct functions
 /// call it through resolved (or same-file) edges.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct FunctionHub {
     pub path: String,
     pub name: String,
@@ -320,6 +349,7 @@ pub struct FunctionHub {
 /// `None` on the report means detection did not run (e.g. backfill's
 /// ADR-005 snapshot) — distinct from all-zero, which means "clean".
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct CouplingFindingCounts {
     pub content: usize,
     pub common: usize,
@@ -328,17 +358,22 @@ pub struct CouplingFindingCounts {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct HistoryCounts {
     pub commits: usize,
     pub files: usize,
     pub authors: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "export-types", ts(optional))]
     pub content_coupling: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "export-types", ts(optional))]
     pub common_coupling: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "export-types", ts(optional))]
     pub control_coupling: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "export-types", ts(optional))]
     pub inheritance_coupling: Option<usize>,
 }
 
@@ -369,6 +404,7 @@ pub struct HistoryCounts {
 pub const HISTORY_SCHEMA_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct HistoryEntry {
     pub timestamp: chrono::DateTime<chrono::Utc>,
     #[serde(rename = "head", alias = "commit")]
@@ -387,6 +423,7 @@ pub struct HistoryEntry {
     #[serde(default)]
     pub schema_version: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "export-types", ts(optional))]
     pub source: Option<String>,
 }
 
@@ -416,6 +453,7 @@ pub fn score_band(score: u32) -> ScoreBand {
 /// Band thresholds serialized into every report so JS/TS consumers read the
 /// verdict boundaries instead of hardcoding them.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct ScoreThresholds {
     pub good_min: u32,
     pub warn_min: u32,

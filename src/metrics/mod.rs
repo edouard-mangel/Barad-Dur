@@ -21,6 +21,7 @@ use serde::Serialize;
 use crate::snapshot::{AuthorId, BlameLine, UNKNOWN_AUTHOR};
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct MetricValue {
     pub name: String,
     pub description: String,
@@ -32,6 +33,7 @@ pub struct MetricValue {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub enum RawValue {
     Integer(i64),
     Float(f64),
@@ -55,6 +57,7 @@ impl std::fmt::Display for RawValue {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct CategoryResult {
     pub name: String,
     /// Average of the scored metrics; `None` when no metric had enough

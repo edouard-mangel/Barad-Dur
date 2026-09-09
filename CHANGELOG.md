@@ -4,7 +4,18 @@ All notable changes to this project will be documented here.
 
 ## [Unreleased]
 
+### Added
+- **The dashboard report contract is generated from Rust.** An opt-in
+  `export-types` feature produces committed TypeScript declarations, a
+  producer-owned fixture, and non-mutating drift checks. Ordinary Cargo builds
+  and dashboard-only builds do not run generation.
+
 ### Changed
+- **The React dashboard now accepts the current report shape only.** Uploads
+  and session restoration share a field-specific runtime decoder; incompatible
+  files remain untouched and receive regeneration guidance. Null scores remain
+  unscored, and every score component uses the thresholds carried by its report
+  instead of process-global defaults.
 - **Long Methods is complexity-gated, and scores will move.** The trigger
   changes from `LOC > 40 OR CC > 10` to `CC > 10, or CC > 5 combined with an
   applicable LOC threshold` — 80 lines for lowercase `.tsx`/`.jsx`, 40 for

@@ -1,14 +1,15 @@
 import { useEffect, useRef } from 'react'
 import * as d3 from 'd3'
-import type { CategoryResult } from '../types'
-import { scoreColor } from '../types'
+import { scoreColor } from '../report/format'
+import type { CategoryResult, ScoreThresholds } from '../report/model'
 
 interface Props {
   categories: CategoryResult[]
+  thresholds: ScoreThresholds
   size?: number
 }
 
-export default function RadarChart({ categories, size = 240 }: Props) {
+export default function RadarChart({ categories, thresholds, size = 240 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null)
 
   useEffect(() => {
@@ -73,7 +74,7 @@ export default function RadarChart({ categories, size = 240 }: Props) {
     categories.forEach((cat, i) => {
       const angle = angleSlice * i - Math.PI / 2
       const r = scale(cat.score ?? 0)
-      const color = cat.score === null ? 'rgba(148, 163, 184, 0.8)' : scoreColor(cat.score)
+      const color = cat.score === null ? 'rgba(148, 163, 184, 0.8)' : scoreColor(cat.score, thresholds)
       g.append('circle')
         .attr('cx', r * Math.cos(angle))
         .attr('cy', r * Math.sin(angle))
@@ -107,13 +108,13 @@ export default function RadarChart({ categories, size = 240 }: Props) {
         .attr('y', y + 13)
         .attr('text-anchor', 'middle')
         .attr('dominant-baseline', 'middle')
-        .attr('fill', cat.score === null ? 'rgba(148, 163, 184, 0.8)' : scoreColor(cat.score))
+        .attr('fill', cat.score === null ? 'rgba(148, 163, 184, 0.8)' : scoreColor(cat.score, thresholds))
         .attr('font-size', '9')
         .attr('font-family', 'JetBrains Mono, monospace')
         .attr('font-weight', '500')
         .text(cat.score === null ? '—' : cat.score)
     })
-  }, [categories, size])
+  }, [categories, size, thresholds])
 
   return (
     <svg
