@@ -118,6 +118,21 @@ fmt-check:
     - rustup component add rustfmt
     - cargo fmt -- --check
 
+# The mutation gate decides whether merge requests pass, so its edge cases —
+# skipped shards, shards that died without a summary, diffs with no Rust in
+# them — are pinned by tests rather than discovered in a red pipeline.
+mutation-gate-selftest:
+  stage: lint
+  image: python:3.12-slim
+  cache: []
+  before_script: []
+  script:
+    - cd scripts && python3 -m unittest discover -p 'test_*.py' -v
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+
 # ── Build ─────────────────────────────────────
 
 build-presentation:
@@ -343,65 +358,7 @@ mutation-gate:
     - job: mutation-2
       artifacts: true
   script:
-    - |
-      python3 << 'PYEOF'
-      import re, sys, os
-      total_caught = total_missed = total_timeout = total_unviable = total_tested = 0
-      all_skipped = True
-      for i in range(3):
-          path = f'mutants-{i}.log'
-          if not os.path.exists(path):
-              continue
-          content = open(path).read()
-          if 'skipping mutation run' in content:
-              continue
-          if 'ERROR cargo test failed' in content:
-              print(f'Shard {i}: baseline tests failed — cannot compute kill rate')
-              sys.exit(1)
-          all_skipped = False
-          m = re.search(r'(\d+) mutants? tested', content)
-          if not m:
-              # cargo-mutants prints only an INFO line (no summary) when the
-              # diff touches no Rust source — a docs/CI-only push is a skip,
-              # not a failure.
-              if re.search(r'Found 0 mutants|[Nn]o mutants found|No mutants to filter|Diff changes no Rust source files', content):
-                  continue
-              # Shards swallow cargo-mutants exit codes (|| true), so a log with
-              # no summary means the run itself broke — surface that here.
-              print(f'Shard {i}: no mutants summary in log — shard run failed')
-              sys.exit(1)
-          tested = int(m.group(1))
-          # cargo-mutants omits zero categories from the summary line, so parse
-          # each one independently within that line and default to 0.
-          summary = content[m.start():].splitlines()[0]
-          def count(pattern):
-              c = re.search(r'(\d+) ' + pattern, summary)
-              return int(c.group(1)) if c else 0
-          caught, missed = count('caught'), count('missed')
-          timeout_n, unviable = count('timeouts?'), count('unviable')
-          total_tested += tested
-          total_caught += caught
-          total_missed += missed
-          total_timeout += timeout_n
-          total_unviable += unviable
-      if all_skipped:
-          print('All shards skipped — no source changes')
-          sys.exit(0)
-      viable = total_tested - total_unviable
-      if viable == 0:
-          print('No viable mutants — skipping gate')
-          sys.exit(0)
-      # TIMEOUTs count as caught: a mutant that pushes the suite past 3x its
-      # baseline runtime is exercised by tests and cannot ship undetected —
-      # it just fails slowly.
-      effective_caught = total_caught + total_timeout
-      rate = effective_caught / viable * 100
-      print(f'Kill rate: {effective_caught}/{viable} viable = {rate:.1f}% ({total_caught} fast + {total_timeout} timeout, {total_missed} missed)')
-      if rate < 80:
-          print(f'FAIL: {rate:.1f}% < 80% required. Add tests for {total_missed} missed mutant(s).')
-          sys.exit(1)
-      print(f'PASS: {rate:.1f}% >= 80%')
-      PYEOF
+    - python3 scripts/mutation_gate.py 'mutants-*.log'
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
@@ -409,52 +366,116 @@ mutation-gate:
 
 # Mutation testing — nightly: full codebase, no diff filter.
 # To enable: Settings > CI/CD > Schedules — add a daily trigger on main.
-# Set allow_failure: false once full-codebase kill rate ≥ 80% is confirmed.
+# Set allow_failure: false once a full-codebase kill rate is confirmed.
+#
+# Sharded because a full sweep does not fit one runner: cargo-mutants rebuilds
+# per mutant (~200s each in CI), so 3400 mutants cost ~47h of build time alone
+# before a single test runs. The unsharded job never finished — it was killed
+# at its 6h limit having covered under 6% of the corpus.
+
+# Remembers the commit the last completed sweep ran against. Separate from the
+# registry cache because this one has to be writable.
+.mutation-state-cache: &mutation-state-cache
+  cache:
+    key: mutation-nightly-state
+    policy: pull-push
+    paths:
+      - .mutation-nightly/
+
+# Guard: a sweep costs ~16 runners for hours, so skip it when main has not
+# moved. Fail-safe by construction — a cache miss reads as "none", which runs
+# the sweep. The failure mode is a wasted night, never a missed regression.
+mutation-nightly-guard:
+  stage: test
+  image: alpine:3
+  cache:
+    key: mutation-nightly-state
+    policy: pull
+    paths:
+      - .mutation-nightly/
+  script:
+    - |
+      LAST=$(cat .mutation-nightly/last-sha 2>/dev/null || echo "none")
+      if [ "$LAST" = "$CI_COMMIT_SHA" ]; then
+        echo "main unchanged since the last completed nightly ($LAST) — skipping"
+        echo "RUN_MUTATION=false" > guard.env
+      else
+        echo "main moved ($LAST -> $CI_COMMIT_SHA) — running the sweep"
+        echo "RUN_MUTATION=true" > guard.env
+      fi
+      echo "LAST_NIGHTLY_SHA=$LAST" >> guard.env
+  artifacts:
+    reports:
+      dotenv: guard.env
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+
 mutation-nightly:
   stage: analysis
   <<: *rust-tools-base
   timeout: 6 hours
+  # Sized so a shard fits the 6h wall at both ends of the per-mutant cost
+  # seen on the two MR shards that completed (176 and 324 job-seconds on
+  # different runners): ~2.8h at the optimistic end, ~4.8h at the pessimistic.
+  # Sixteen fit the optimistic estimate only, and timed out under the other.
+  # More shards is not better — each one repeats a ~19min unmutated baseline,
+  # so total runner time grows with the count while throughput does not.
+  # Tune against a completed run: this is the one number to change, the gate
+  # globs whatever logs it finds.
+  parallel: 24
+  needs:
+    - job: mutation-nightly-guard
+      artifacts: true
   script:
-    - cargo binstall --no-confirm cargo-mutants
-    - BARAD_DUR_TEST_REPO=${CI_PROJECT_DIR} cargo mutants --timeout-multiplier 3 --jobs 4 2>&1 | tee mutants.log || true
     - |
-      python3 << 'PYEOF'
-      import re, sys
-      with open('mutants.log') as f:
-          content = f.read()
-      m = re.search(r'(\d+) mutants? tested', content)
-      if not m:
-          print('No mutants generated — skipping kill rate gate')
-          sys.exit(0)
-      total = int(m.group(1))
-      # cargo-mutants omits zero categories from the summary line, so parse
-      # each one independently within that line and default to 0.
-      summary = content[m.start():].splitlines()[0]
-      def count(pattern):
-          c = re.search(r'(\d+) ' + pattern, summary)
-          return int(c.group(1)) if c else 0
-      caught, missed = count('caught'), count('missed')
-      timeout_n, unviable = count('timeouts?'), count('unviable')
-      viable = total - unviable
-      if viable == 0:
-          print('No viable mutants — skipping gate')
-          sys.exit(0)
-      effective_caught = caught + timeout_n
-      rate = effective_caught / viable * 100
-      print(f'Kill rate: {effective_caught}/{viable} viable mutants = {rate:.1f}% ({caught} fast + {timeout_n} timeout)')
-      if rate < 80:
-          print(f'FAIL: {rate:.1f}% < 80% required. Add tests for {missed} missed mutant(s).')
-          sys.exit(1)
-      print(f'PASS: {rate:.1f}% >= 80%')
-      PYEOF
+      if [ "$RUN_MUTATION" != "true" ]; then
+        echo "skipping mutation run (main unchanged since $LAST_NIGHTLY_SHA)" \
+          > mutants-${CI_NODE_INDEX}.log
+        exit 0
+      fi
+    - cargo binstall --no-confirm --locked cargo-mutants cargo-nextest
+    - |
+      # cargo-mutants shards are 0-based; CI_NODE_INDEX is 1-based. An
+      # off-by-one here silently drops a slice of the codebase instead of
+      # erroring, so it is computed once, here, and nowhere else.
+      SHARD=$((CI_NODE_INDEX - 1))
+      # --test-tool nextest matches the per-MR shards; the unsharded nightly
+      # omitted it and paid for the slower runner on every mutant.
+      BARAD_DUR_TEST_REPO=${CI_PROJECT_DIR} cargo mutants \
+        --shard ${SHARD}/${CI_NODE_TOTAL} \
+        --test-tool nextest \
+        --timeout-multiplier 3 --jobs 4 \
+        --output mutants-out-${CI_NODE_INDEX} \
+        2>&1 | tee mutants-${CI_NODE_INDEX}.log || true
   artifacts:
     paths:
-      - mutants.out/
+      - mutants-${CI_NODE_INDEX}.log
+      - mutants-out-${CI_NODE_INDEX}/
     when: always
     expire_in: 1 week
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
-  allow_failure: true  # Remove once full-codebase baseline ≥ 80% is confirmed
+  allow_failure: true
+
+# Gate: aggregates every shard log into one whole-codebase kill rate, then
+# records the commit so tomorrow's guard can skip an unchanged main. The SHA is
+# written only after the gate passes, so a broken or timed-out night is retried
+# rather than skipped.
+mutation-nightly-gate:
+  stage: analysis
+  image: python:3.12-slim
+  <<: *mutation-state-cache
+  needs:
+    - job: mutation-nightly
+      artifacts: true
+  script:
+    - python3 scripts/mutation_gate.py 'mutants-*.log'
+    - mkdir -p .mutation-nightly
+    - echo "$CI_COMMIT_SHA" > .mutation-nightly/last-sha
+    - echo "recorded $CI_COMMIT_SHA as the last completed nightly"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  allow_failure: true  # Remove once a full-codebase baseline is confirmed
 
 self-analysis:
   stage: analysis

@@ -36,5 +36,8 @@ mutants.out.old/
 cosign.key
 field-test/archive/
 
+# Python bytecode from scripts/
+__pycache__/
+
 # Field-test corpus clones made by CI (BARAD_DUR_CORPUS_ROOT=$CI_PROJECT_DIR/.corpus)
 .corpus/

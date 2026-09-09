@@ -23,7 +23,10 @@ fn merge_result_is_resolved_once_and_verified_by_every_consumer() {
     );
 
     for job in ["test", "coverage", "self-analysis", "field-test"] {
-        let marker = format!("{job}:\n");
+        // Anchored on a line start: an unanchored "test:\n" also matches the
+        // tail of a job named `...-selftest:` (or `field-test:`), and would
+        // then assert against whichever job happens to come first in the file.
+        let marker = format!("\n{job}:\n");
         let section = CI.split_once(&marker).unwrap().1;
         let section = section.split_once("\n\n").unwrap().0;
         assert!(
