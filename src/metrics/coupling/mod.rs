@@ -269,12 +269,15 @@ fn efferent_coupling(snapshot: &RepoSnapshot) -> MetricValue {
 /// Cross-boundary co-change pairs that qualify as change-coupling smells:
 /// different components, both files have commit history, and their
 /// co-change ratio meets the configured threshold. Single source of truth
-/// for "a meaningful co-change" — consumed by both the smell metric and
-/// corroboration (M5).
-fn qualifying_smell_pairs<'a>(
+/// for "a meaningful co-change" — consumed by the smell metric,
+/// corroboration (M5), and (as of the per-entity trend feature) the
+/// backfill sampler that persists coupling-degree history. Yields the raw
+/// `co_changes` count alongside the pair so downstream consumers don't
+/// need a second lookup into `snapshot.file_change_pairs`.
+pub(crate) fn qualifying_smell_pairs<'a>(
     snapshot: &'a RepoSnapshot,
     thresholds: &'a CouplingThresholds,
-) -> impl Iterator<Item = (&'a PathBuf, &'a PathBuf)> + 'a {
+) -> impl Iterator<Item = (&'a PathBuf, &'a PathBuf, usize)> + 'a {
     snapshot
         .file_change_pairs
         .iter()
@@ -292,7 +295,7 @@ fn qualifying_smell_pairs<'a>(
                 commits_b,
                 thresholds.change_coupling_min_ratio,
             )
-            .then_some((path_a, path_b))
+            .then_some((path_a, path_b, *co_changes))
         })
 }
 
@@ -304,7 +307,7 @@ pub(crate) fn corroboration_degree(
     thresholds: &CouplingThresholds,
 ) -> HashMap<PathBuf, usize> {
     let mut partners: HashMap<PathBuf, HashSet<PathBuf>> = HashMap::new();
-    for (a, b) in qualifying_smell_pairs(snapshot, thresholds) {
+    for (a, b, _co_changes) in qualifying_smell_pairs(snapshot, thresholds) {
         partners.entry(a.clone()).or_default().insert(b.clone());
         partners.entry(b.clone()).or_default().insert(a.clone());
     }
@@ -316,7 +319,7 @@ pub(crate) fn corroboration_degree(
 ///
 /// Scored on smell count: 0 → 100, 1–2 → 75, 3–5 → 50, >5 → 25
 fn change_coupling_smells(snapshot: &RepoSnapshot, thresholds: &CouplingThresholds) -> MetricValue {
-    let smell_pairs: Vec<(&PathBuf, &PathBuf)> =
+    let smell_pairs: Vec<(&PathBuf, &PathBuf, usize)> =
         qualifying_smell_pairs(snapshot, thresholds).collect();
     let smell_count = smell_pairs.len();
 
@@ -336,12 +339,12 @@ fn change_coupling_smells(snapshot: &RepoSnapshot, thresholds: &CouplingThreshol
         };
     let corroborated_count = smell_pairs
         .iter()
-        .filter(|(a, b)| community_verdict(a, b) == Some(true))
+        .filter(|(a, b, _)| community_verdict(a, b) == Some(true))
         .count();
     let scored_pairs: Vec<_> = if thresholds.community_corroboration {
         smell_pairs
             .iter()
-            .filter(|(a, b)| community_verdict(a, b) != Some(false))
+            .filter(|(a, b, _)| community_verdict(a, b) != Some(false))
             .collect()
     } else {
         smell_pairs.iter().collect()
@@ -349,7 +352,7 @@ fn change_coupling_smells(snapshot: &RepoSnapshot, thresholds: &CouplingThreshol
     let refuted_count = smell_count - scored_pairs.len();
     let affected: HashSet<&PathBuf> = scored_pairs
         .iter()
-        .flat_map(|(a, b)| [*a, *b])
+        .flat_map(|(a, b, _)| [*a, *b])
         .filter(|path| classify(path) == FileRole::Source)
         .collect();
     let source_total = source_population(snapshot).len();
@@ -515,9 +518,16 @@ const JS_EXTS: &[&str] = &["ts", "tsx", "js", "jsx", "mjs", "cjs"];
 const DETECTABLE_EXTS: &[&str] = &["rs", "ts", "tsx", "js", "jsx", "mjs", "cjs"];
 
 /// True when the collector's AST pass actually ran on this snapshot.
-/// `collect_snapshot_at` (ADR-005, backfill) skips it, leaving
-/// `file_metrics` empty — an empty findings list there means "not
-/// collected", never "clean".
+/// Every production collection path (`collect_snapshot`/
+/// `collect_snapshot_with_options` for live `analyze`/`watch`, and
+/// `gate`'s and `backfill`'s baseline sampling via
+/// `collect_snapshot_at_with_ast`) runs the AST pass unconditionally, so
+/// `file_metrics` is always populated in practice. The AST-free
+/// `collect_snapshot_at` has no production callers left — it's kept
+/// `#[cfg(test)]`-only as this module's own AST-free coverage — so this
+/// guard now exists for snapshots built directly (e.g. `RepoSnapshot::new`
+/// in unit tests) without going through a collector at all: an empty
+/// findings list there means "not collected", never "clean".
 pub(crate) fn detection_ran(snapshot: &RepoSnapshot) -> bool {
     !snapshot.file_metrics.is_empty()
 }

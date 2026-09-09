@@ -13,7 +13,11 @@ use crate::scorer;
 use crate::snapshot::TimeWindow;
 
 // `args` currently carries only `--no-blame`, which was always a no-op here:
-// ADR-005 baseline collection skips blame unconditionally.
+// ADR-005 baseline collection skips blame unconditionally. Blame is the
+// expensive part ADR-005 exists to avoid; the AST pass is NOT skipped as
+// of the per-entity trend feature (Decision 5) — it's needed for
+// per-sample complexity, and it's the same cost `analyze`/`gate` already
+// pay on every normal invocation, amortized across `sample_count` points.
 pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
     let cfg = config::load(repo_path)?;
     config::validate(&cfg)?;
@@ -49,6 +53,32 @@ pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
     }
     let existing_heads: HashSet<String> = existing_entries.into_iter().map(|e| e.head).collect();
 
+    // Tracked separately from `existing_heads`: the two files are written and
+    // reset independently. `analyze` appends HEAD to trends.json on every run,
+    // and a corrupt entity_trends.json is archived and replaced with an empty
+    // one — in both cases a SHA present in trends.json says nothing about
+    // whether this sample's entity data exists.
+    let entity_input_fingerprint = crate::cache::entity_history::entity_history_input_fingerprint(
+        repo_path,
+        cfg.backfill.sample_count,
+        cfg.backfill.entity_trend_top_n,
+        &cfg.thresholds.coupling,
+        cfg.exclude_use_defaults,
+    );
+    let (existing_entity_entries, warning) =
+        crate::cache::entity_history::load_entity_history_checked(
+            repo_path,
+            entity_input_fingerprint,
+        )?;
+    if let Some(warning) = warning {
+        println!("{warning}");
+    }
+    crate::cache::entity_history::save_input_fingerprint(repo_path, entity_input_fingerprint)?;
+    let existing_entity_heads: HashSet<String> = existing_entity_entries
+        .into_iter()
+        .map(|e| e.head)
+        .collect();
+
     let total = selected_shas.len();
     let mut written = 0usize;
 
@@ -58,11 +88,18 @@ pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
     for (idx, sha) in selected_shas.iter().enumerate() {
         println!("[{}/{}] Analyzing {}...", idx + 1, total, &sha[..8]);
 
-        if existing_heads.contains(sha) {
+        let needs_trend_entry = !existing_heads.contains(sha);
+        let needs_entity_entry = !existing_entity_heads.contains(sha);
+        if !needs_trend_entry && !needs_entity_entry {
             continue;
         }
 
-        let snapshot = Collector::collect_snapshot_at(repo_path, sha, &ignore, true)?;
+        let snapshot = Collector::collect_snapshot_at_with_ast(
+            repo_path,
+            sha,
+            &ignore,
+            cfg.exclude_use_defaults,
+        )?;
 
         // Computed once, shared by the Health category's "God objects"
         // metric and by build_report's refactoring-action generator.
@@ -99,7 +136,23 @@ pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
             entry.timestamp = ts;
         }
 
-        history::append_if_new_head(&entry, repo_path)?;
+        if needs_trend_entry {
+            history::append_if_new_head(&entry, repo_path)?;
+        }
+
+        if needs_entity_entry {
+            let entity_entry = crate::cache::entity_history::build_entity_trend_entry(
+                &snapshot,
+                &report.file_hotspots,
+                &cfg.thresholds.coupling,
+                cfg.backfill.entity_trend_top_n,
+                sha,
+                entry.timestamp,
+                &report.branch,
+            );
+            crate::cache::entity_history::append_entity_entry(&entity_entry, repo_path)?;
+        }
+
         written += 1;
     }
 

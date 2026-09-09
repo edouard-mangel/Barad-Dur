@@ -22,7 +22,11 @@ pub fn select_samples(commits: &[CommitRef], count: usize) -> Vec<String> {
         return Vec::new();
     }
     if count >= len {
-        return commits.iter().map(|(sha, _)| sha.clone()).collect();
+        // `commits` is newest-first, but every caller appends samples in the
+        // order returned here and every consumer reads that order as
+        // chronological — so this shortcut must yield oldest-first, matching
+        // the sampled path below.
+        return commits.iter().rev().map(|(sha, _)| sha.clone()).collect();
     }
     if count == 1 {
         return vec![commits[0].0.clone()];
@@ -96,6 +100,35 @@ mod tests {
         let commits = make_dated_commits(5);
         let result = select_samples(&commits, 10);
         assert_eq!(result.len(), 5, "count >= len should return all commits");
+    }
+
+    #[test]
+    fn select_samples_count_ge_len_returns_oldest_first() {
+        // The count < len path already guarantees oldest-first
+        // (`select_samples_anchors_oldest_and_newest`), and both
+        // `trends.json` and `entity_trends.json` are appended in the order
+        // this function yields. `compute_trend` reads that file order
+        // directly (`same_branch.first()` = oldest, `.last()` = newest,
+        // no sort), and `attach_entity_trends` sorts by a second-resolution
+        // timestamp with a STABLE sort, so tied timestamps fall back to the
+        // same file order. A newest-first shortcut therefore inverts every
+        // trend direction on any repo with fewer commits than
+        // `sample_count` (default 10) — i.e. most young repositories.
+        let commits = make_dated_commits(5);
+        let result = select_samples(&commits, 10);
+
+        let oldest_sha = &commits[4].0;
+        let newest_sha = &commits[0].0;
+        assert_eq!(
+            result.first().unwrap(),
+            oldest_sha,
+            "count >= len must still yield oldest-first, like the sampled path"
+        );
+        assert_eq!(
+            result.last().unwrap(),
+            newest_sha,
+            "count >= len must still end on the newest commit"
+        );
     }
 
     #[test]

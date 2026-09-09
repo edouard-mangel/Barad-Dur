@@ -119,6 +119,8 @@ pub(crate) fn build_hotspots(
                         second_half_partners: second,
                     }
                 }),
+                complexity_trend: None,
+                churn_trend: None,
             }
         })
         .collect();

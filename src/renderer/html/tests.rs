@@ -184,6 +184,8 @@ fn html_hotspots_embed_structured_coupling_trend() {
         control_findings: 0,
         inheritance_findings: 0,
         churn_timeline: vec![],
+        complexity_trend: None,
+        churn_trend: None,
     }];
     let html = render(&report).unwrap();
     assert!(
@@ -405,6 +407,8 @@ fn make_treemap_report() -> AnalysisReport {
             control_findings: 0,
             inheritance_findings: 0,
             churn_timeline: vec![],
+            complexity_trend: None,
+            churn_trend: None,
         },
         HotspotFile {
             path: "src/lib.rs".into(),
@@ -423,6 +427,8 @@ fn make_treemap_report() -> AnalysisReport {
             control_findings: 0,
             inheritance_findings: 0,
             churn_timeline: vec![],
+            complexity_trend: None,
+            churn_trend: None,
         },
         HotspotFile {
             path: "tests/test_a.rs".into(),
@@ -441,6 +447,8 @@ fn make_treemap_report() -> AnalysisReport {
             control_findings: 0,
             inheritance_findings: 0,
             churn_timeline: vec![],
+            complexity_trend: None,
+            churn_trend: None,
         },
         HotspotFile {
             path: "tests/test_b.rs".into(),
@@ -459,6 +467,8 @@ fn make_treemap_report() -> AnalysisReport {
             control_findings: 0,
             inheritance_findings: 0,
             churn_timeline: vec![],
+            complexity_trend: None,
+            churn_trend: None,
         },
     ];
     report.file_ages = vec![

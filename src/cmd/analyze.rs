@@ -122,6 +122,37 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<()> {
         eprintln!("  Scoring: {}ms", t.elapsed().as_millis());
     }
 
+    // An Err here is a genuine I/O failure (unreadable cache dir, a failed
+    // archive rename), distinct from "no history yet", which comes back as an
+    // empty Vec. Degrading both to silence hid the reason every direction was
+    // missing, so say so and carry on without trends.
+    let entity_input_fingerprint = cache::entity_history::entity_history_input_fingerprint(
+        &local_path,
+        cfg.backfill.sample_count,
+        cfg.backfill.entity_trend_top_n,
+        &cfg.thresholds.coupling,
+        cfg.exclude_use_defaults,
+    );
+    let (entity_history, entity_history_warning) =
+        match cache::entity_history::load_entity_history_checked(
+            &local_path,
+            entity_input_fingerprint,
+        ) {
+            Ok(loaded) => loaded,
+            Err(e) => {
+                eprintln!("Warning: could not read entity trend history: {e}");
+                Default::default()
+            }
+        };
+    if let Some(ref warning) = entity_history_warning {
+        eprintln!("{}", warning);
+    }
+    cache::entity_history::attach_entity_trends(
+        &mut report.file_hotspots,
+        &mut report.coupling_pairs,
+        &entity_history,
+    );
+
     let trend_summary = compute_trend_and_update_history(&mut report, &local_path, &current_head);
 
     render_and_write(&report, &args, &cfg, &trend_summary, &local_path)?;
@@ -222,6 +253,11 @@ pub fn compute_trend_and_update_history(
     // On corruption, archive the file and start fresh.
     let (prior_history, history_warning) =
         cache::history::load_history_checked(local_path).unwrap_or_default();
+    // Stays on stdout: AC-01.4 (`tests/trend_milestone_1.rs`) specifies this
+    // warning as stdout output. That makes `analyze --json` emit unparseable
+    // output when trends.json is corrupt — a real but pre-existing conflict
+    // between that acceptance criterion and the stdout-purity convention,
+    // and a spec decision rather than something to change in passing.
     if let Some(ref warning) = history_warning {
         println!("{}", warning);
     }

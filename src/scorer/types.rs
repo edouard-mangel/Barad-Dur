@@ -4,6 +4,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::metrics::CategoryResult;
 
+/// Direction of a per-entity metric series (complexity, coupling degree,
+/// churn) across backfill samples — distinct from `VelocityDirection`,
+/// which classifies the aggregate report score on an absolute scale.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EntityTrendDirection {
+    Growing,
+    Shrinking,
+    Stable,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[non_exhaustive]
 pub struct HotspotFile {
@@ -34,6 +45,17 @@ pub struct HotspotFile {
     pub inheritance_findings: usize,
     /// Commits touching the file per 1/12 of the analysis window (oldest first).
     pub churn_timeline: Vec<u32>,
+    /// Complexity trend across backfill history (Ch. 6), if any exists for
+    /// this file. `None` when no `entity_trends.json` history exists yet,
+    /// or this file has never been in the top-N hotspots of a backfill
+    /// sample.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub complexity_trend: Option<EntityTrendDirection>,
+    /// Churn-count trend across backfill history (Ch. 14) — independent of
+    /// `complexity_trend`; a file can grow in complexity while its churn
+    /// stays flat, or vice versa. Same `None` contract.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub churn_trend: Option<EntityTrendDirection>,
 }
 
 /// Half-over-half distinct co-change partner counts for a file flagged as
@@ -57,6 +79,16 @@ pub struct CouplingPair {
     /// only — Ch. 14's "which coupled member actually grew" (trends M1).
     pub growth_a: i64,
     pub growth_b: i64,
+    /// Coupling-degree trend across backfill history (Ch. 8), if any
+    /// exists for this pair. `None` when no history exists yet, or this
+    /// pair has never qualified as a change-coupling smell in a backfill
+    /// sample.
+    ///
+    /// Distinct from `HotspotFile::coupling_trend`, which is the within-run
+    /// half-over-half reach decay of a single file: this one is a
+    /// cross-backfill-sample direction for a *pair*'s co-change degree.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coupling_trend: Option<EntityTrendDirection>,
 }
 
 #[derive(Debug, Clone, Serialize)]

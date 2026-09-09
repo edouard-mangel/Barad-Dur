@@ -398,16 +398,22 @@ impl Collector {
 
     /// Collect a snapshot at a specific commit SHA without touching the
     /// working tree or running the AST pass —
-    /// `file_metrics`/`import_graph`/`coupling_findings` stay empty
-    /// (ADR-005: backfill's historical sweep skips the AST pass for
-    /// performance; blame is always skipped too).
+    /// `file_metrics`/`import_graph`/`coupling_findings` stay empty.
     ///
-    /// `ignore` is passed in (not loaded here) so a `backfill` run parses the
-    /// repo's `.baraddurignore` once and reuses it across every historical sample.
+    /// `ignore` is passed in (not loaded here) so a caller doing a historical
+    /// sweep can parse the repo's `.baraddurignore` once and reuse it across
+    /// every sample.
     ///
     /// `use_default_excludes` mirrors the caller's `cfg.exclude_use_defaults` —
     /// callers must pass the same value they use for their live/HEAD snapshot
     /// so a baseline snapshot is comparable to it.
+    ///
+    /// No production caller remains as of the per-entity trend feature —
+    /// `backfill` switched to [`Self::collect_snapshot_at_with_ast`] to get
+    /// per-sample complexity, matching `gate`'s baseline collection. Kept
+    /// `#[cfg(test)]` as the AST-free half of this module's own coverage
+    /// (e.g. `collect_snapshot_at_without_ast_stays_empty`).
+    #[cfg(test)]
     pub(crate) fn collect_snapshot_at(
         repo_path: &Path,
         sha: &str,
@@ -419,8 +425,9 @@ impl Collector {
         })
     }
 
-    /// [`collect_snapshot_at`], plus the AST pass over blob contents — the
-    /// gate ratchet's baseline needs coupling findings to ratchet against.
+    /// Same as the AST-free collection above, plus the AST pass over blob
+    /// contents — both `gate`'s baseline and `backfill`'s per-sample
+    /// collection need coupling/complexity findings from it.
     pub(crate) fn collect_snapshot_at_with_ast(
         repo_path: &Path,
         sha: &str,

@@ -1,11 +1,17 @@
 //! Pure trend analytics — no I/O, no imports from cache:: or renderer::.
 //! Dependency direction: renderer → trend → scorer → snapshot.
+//!
+//! `EntityTrendDirection` lives in `scorer::types` alongside the
+//! `HotspotFile`/`CouplingPair` fields that hold it, and the code that
+//! reads `entity_trends.json` to attach directions lives in
+//! `cache::entity_history` — both so this module keeps the direction
+//! above and never imports `cache::`.
 
 use std::collections::HashMap;
 
 use serde::Serialize;
 
-use crate::scorer::HistoryEntry;
+use crate::scorer::{EntityTrendDirection, HistoryEntry};
 
 /// Number of same-branch history entries used to compute velocity and sparkline.
 /// 8 entries covers ~2 months at weekly cadence — enough signal to detect
@@ -24,6 +30,61 @@ pub enum VelocityDirection {
     Improving,
     Declining,
     Stable,
+}
+
+/// Relative threshold for classifying an entity's series as growing or
+/// shrinking — percent change from the oldest to the newest available
+/// point. Unlike `DIRECTION_THRESHOLD` (tuned for 0-100 integer scores),
+/// entity series (complexity, coupling degree, churn) have unrelated
+/// natural scales, so classification uses percent change, not an absolute
+/// delta (Decision 6).
+const ENTITY_TREND_THRESHOLD_PCT: f64 = 0.15;
+
+/// Classify a per-entity metric series by percent change from its oldest
+/// to its newest point. Fewer than 2 points, or a zero baseline with no
+/// growth, classifies as `Stable` (no signal yet / undefined percent
+/// change). A zero baseline with growth classifies as `Growing`.
+pub fn compute_entity_trend(series: &[f64]) -> EntityTrendDirection {
+    // One guard, not two: `first`/`last` are only `None` when the series is
+    // empty, which `len() < 2` already covers.
+    if series.len() < 2 {
+        return EntityTrendDirection::Stable;
+    }
+    let (first, last) = (series[0], series[series.len() - 1]);
+    if first == 0.0 {
+        return if last > 0.0 {
+            EntityTrendDirection::Growing
+        } else {
+            EntityTrendDirection::Stable
+        };
+    }
+    let pct_change = (last - first) / first;
+    if pct_change > ENTITY_TREND_THRESHOLD_PCT {
+        EntityTrendDirection::Growing
+    } else if pct_change < -ENTITY_TREND_THRESHOLD_PCT {
+        EntityTrendDirection::Shrinking
+    } else {
+        EntityTrendDirection::Stable
+    }
+}
+
+/// Per-period rates from a running total. `churn_count` and `co_changes` are
+/// recorded as all-time totals up to each sampled commit (backfill collects
+/// every sample over `TimeWindow::full_history()`), so those series are
+/// monotonically non-decreasing by construction: classifying them directly
+/// makes `Shrinking` unreachable and turns `Growing` into "this file is still
+/// alive". Differencing recovers the quantity a reader actually means by a
+/// churn or coupling trend — how much activity each period carried — and with
+/// it the ability to report a genuine slowdown.
+///
+/// A gap in the series (an entity that dropped out of a sample's top-N) makes
+/// the next delta span two periods; that is the same sparse-window tolerance
+/// `take_velocity_window` already accepts, not a special case.
+pub(crate) fn period_rates(cumulative: &[f64]) -> Vec<f64> {
+    cumulative
+        .windows(2)
+        .map(|w| (w[1] - w[0]).max(0.0))
+        .collect()
 }
 
 /// One point on the sparkline: score at a given commit.
@@ -235,6 +296,77 @@ mod tests {
     use super::*;
     use crate::scorer::HistoryCounts;
     use chrono::Utc;
+
+    #[test]
+    fn compute_entity_trend_50_percent_increase_is_growing() {
+        assert_eq!(
+            compute_entity_trend(&[10.0, 15.0]),
+            EntityTrendDirection::Growing
+        );
+    }
+
+    #[test]
+    fn compute_entity_trend_20_percent_decrease_is_shrinking() {
+        assert_eq!(
+            compute_entity_trend(&[10.0, 8.0]),
+            EntityTrendDirection::Shrinking
+        );
+    }
+
+    #[test]
+    fn compute_entity_trend_5_percent_increase_is_stable() {
+        // Under the ±15% threshold.
+        assert_eq!(
+            compute_entity_trend(&[10.0, 10.5]),
+            EntityTrendDirection::Stable
+        );
+    }
+
+    #[test]
+    fn compute_entity_trend_empty_series_is_stable() {
+        assert_eq!(compute_entity_trend(&[]), EntityTrendDirection::Stable);
+    }
+
+    #[test]
+    fn compute_entity_trend_single_point_is_stable() {
+        assert_eq!(compute_entity_trend(&[10.0]), EntityTrendDirection::Stable);
+    }
+
+    #[test]
+    fn compute_entity_trend_zero_baseline_with_growth_is_growing() {
+        assert_eq!(
+            compute_entity_trend(&[0.0, 5.0]),
+            EntityTrendDirection::Growing
+        );
+    }
+
+    #[test]
+    fn compute_entity_trend_zero_baseline_no_growth_is_stable() {
+        assert_eq!(
+            compute_entity_trend(&[0.0, 0.0]),
+            EntityTrendDirection::Stable
+        );
+    }
+
+    #[test]
+    fn compute_entity_trend_uses_oldest_and_newest_only() {
+        // A dip in the middle must not affect the classification — only the
+        // first and last points of the available window matter (Decision 6).
+        assert_eq!(
+            compute_entity_trend(&[10.0, 2.0, 14.0]),
+            EntityTrendDirection::Growing
+        );
+    }
+
+    #[test]
+    fn compute_entity_trend_exactly_at_threshold_boundary_is_stable() {
+        // 15.0% change is NOT > 15% — boundary is exclusive, matching
+        // trend.rs's own DIRECTION_THRESHOLD comparison style (`>`, not `>=`).
+        assert_eq!(
+            compute_entity_trend(&[100.0, 115.0]),
+            EntityTrendDirection::Stable
+        );
+    }
 
     fn make_entry(branch: &str, overall_score: u32, head: &str) -> HistoryEntry {
         let mut categories = HashMap::new();

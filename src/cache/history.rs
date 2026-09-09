@@ -67,6 +67,33 @@ const STALE_SCORING_REASON: &str =
     "trends.json holds scores from an older scoring formula; run `barad-dur backfill` to \
      regenerate the series";
 
+/// Rename `file_name` to `bak_name` (overwriting any prior backup) and
+/// create a fresh empty `file_name`. Returns a warning string opening with
+/// `reason` that the caller should emit via println!/eprintln! — shared by
+/// `trends.json` (`archive_and_replace`) and `entity_trends.json`
+/// (`cache::entity_history::load_entity_history_checked`), whose recovery is
+/// otherwise byte-for-byte identical. `reason` rather than a bare file name
+/// because a file is also set aside when it is merely stale, not corrupt
+/// (see `STALE_SCORING_REASON`), and the warning has to say which.
+pub(crate) fn archive_corrupt_file(
+    repo_path: &Path,
+    file_name: &str,
+    bak_name: &str,
+    reason: &str,
+) -> Result<String> {
+    let cache_dir = repo_path.join(CACHE_DIR);
+    let file_path = cache_dir.join(file_name);
+    let bak_path = cache_dir.join(bak_name);
+
+    std::fs::rename(&file_path, &bak_path)?;
+    std::fs::File::create(&file_path)?;
+
+    Ok(format!(
+        "Warning: {reason}. The previous file has been archived to \
+         {bak_name} and a fresh history has been started."
+    ))
+}
+
 /// Rename trends.json to trends.json.bak (overwriting any prior .bak) and
 /// create a fresh empty trends.json. Returns a warning string that the caller
 /// should emit via println!/eprintln!.
@@ -75,17 +102,7 @@ const STALE_SCORING_REASON: &str =
 /// that tells the user whether anything is wrong or the history simply needs
 /// regenerating. Nothing is deleted: the previous file remains as .bak.
 pub fn archive_and_replace(repo_path: &Path, reason: &str) -> Result<String> {
-    let cache_dir = repo_path.join(CACHE_DIR);
-    let trends_path = cache_dir.join(HISTORY_FILE);
-    let bak_path = cache_dir.join(BAK_FILE);
-
-    std::fs::rename(&trends_path, &bak_path)?;
-    std::fs::File::create(&trends_path)?;
-
-    Ok(format!(
-        "Warning: {reason}. The previous file has been archived to \
-         trends.json.bak and a fresh history has been started."
-    ))
+    archive_corrupt_file(repo_path, HISTORY_FILE, BAK_FILE, reason)
 }
 
 pub fn append_if_new_head(entry: &HistoryEntry, repo_path: &Path) -> Result<()> {
