@@ -191,7 +191,7 @@ test:
 
 dashboard-contract:
   stage: test
-  image: node:22-slim
+  image: node:22
   needs:
     - build
   before_script:
