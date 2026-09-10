@@ -26,6 +26,7 @@ This is the P0 inventory before definitions or clocks move. Production definitio
 | `metrics::callgraph` | `scorer::{CallGraphReport, FunctionHub}` | display-only model | Metric code constructs report DTOs, creating the reverse metrics-to-scorer edge. |
 | `metrics::churn` | `scorer::{ChurnBucket, ChurnTimelineReport}` | display-only model | Metric code constructs report DTOs, also creating the reverse edge. |
 | `metrics::coupling` | `scorer::CouplingFindingCounts` | display-only model | Coupling calculation constructs a report DTO, the third reverse edge. |
+| `metrics::coupling` | `scorer::SCORE_GOOD_MIN` | score policy | `SEVERITY_CAP` is `SCORE_GOOD_MIN - 1`, keeping a category with critical/major Pressman evidence below the inclusive good band. This is a reverse policy edge in addition to the DTO edge. |
 
 The category calculation entry points (`health`, `team`, `evolution`, `hygiene`, `coupling`) are invoked by command/backfill code and passed into scorer; scorer does not own their calculation. `callgraph`, `churn`, and Pressman counts are exceptional because scorer invokes them internally while those metric modules import scorer DTOs.
 
@@ -40,13 +41,12 @@ Wall-clock reads:
 | `snapshot::RepoSnapshot::new`, `collector::snapshot_builder` (normal and pinned assembly) | acquisition metadata | Stamp snapshot creation. This is also the fallback reference stored for authors/files without history. |
 | `metrics::evolution::code_age` | calculation reference | Compute signed median blame age at evaluation time. |
 | `scorer::builders::files`, `scorer::builders::authors`, `scorer::audit::build_dead_files` | calculation reference | Compute file age, contributor inactivity, and dead-file age. |
-| `contributors::build_contributor_report` | calculation reference | Compute contributor recency for the standalone contributor view. |
+| `contributors::resolve_time_window` | evidence filtering | Anchor an optional relative `--since` and its inclusive `until`; absent or invalid `since` deliberately selects full history. |
 | `coupling::collector` | evidence filtering | Anchor its rolling 90-day temporal-coupling window. |
-| `scorer::build_history_entry`, `cache::history::append` fallback, `trend` history creation | history-point time | Timestamp persisted score/history samples. Backfill overwrites the initially generated history timestamp with the sampled commit time, so sampled history remains historical. |
+| `scorer::build_history_entry` | history-point time | Timestamp persisted score/history samples. Backfill overwrites the initially generated timestamp with the sampled commit time, so sampled history remains historical. The apparent reads in `cache/history.rs` and `trend.rs` are test fixture helpers, not production clocks. |
 | `registry::{fetch_dep_network, resolve test-independent fetch path}` | acquisition metadata | Stamp dependency registry data when fetched. |
 | `registry::cache::is_fresh` | evidence filtering | Compare `now - cached_at < 7 days`; future cache timestamps are fresh because the signed duration is negative. |
 | `cmd::analyze` and `collector::snapshot_builder` `Instant::now()` | operational timing | Monotonic elapsed-time/progress measurement only; no report calculation meaning. |
-| `registry::client` `Instant::now()` | operational timing | Request/diagnostic duration only. |
 
 The field-test entry point deliberately contributes no wall clock: `field_test::runner` always invokes analysis with fixed `--since 2026-03-01`, pinned commits, fresh worktrees, and `--no-cache`. However, the analyzed binary still supplies its ordinary implicit `until = now` and generation/acquisition timestamps; decision-surface extraction is intended to omit volatile metadata. Watch installs a post-commit hook that launches a fresh analyze process, so each run obtains fresh clocks; there is no long-lived iteration reference clock.
 
@@ -66,15 +66,17 @@ The field-test entry point deliberately contributes no wall clock: `field_test::
 
 ## Public paths and compatibility attributes before moves
 
-`scorer.rs` privately declares `types` and publicly glob-re-exports it, so every public item below is reachable as `barad_dur::scorer::<Type>`; `barad_dur::scorer::types::<Type>` is not public. Relevant calculation-output DTOs are `CallGraphReport`, `FunctionHub`, `ChurnTimelineReport`, `ChurnBucket`, and `CouplingFindingCounts`. Other public DTOs in the same module are `EntityTrendDirection`, `HotspotFile`, `CouplingTrend`, `CouplingPair`, `AuthorShare`, `FileOwnership`, `FileAge`, `AuthorCard`, `CrisisFile`, `DirConcentration`, `DeadFile`, `VelocityBucket`, `AuditReport`, `FileCouplingMetrics`, `ImportEdge`, `RemoteMeta`, `ActionItem`, `AnalysisReport`, `LongMethodThresholds`, `HistoryCounts`, `HistoryEntry`, `ScoreBand`, and `ScoreThresholds`. `metrics::coupling::CouplingReach` is a public type alias at `barad_dur::metrics::coupling::CouplingReach`.
+`scorer.rs` privately declares `types` and publicly glob-re-exports it, so every public item below is reachable as `barad_dur::scorer::<Type>`; `barad_dur::scorer::types::<Type>` is not public. Relevant calculation-output DTOs are `CallGraphReport`, `FunctionHub`, `ChurnTimelineReport`, `ChurnBucket`, and `CouplingFindingCounts`. Other public DTOs in the same module are `EntityTrendDirection`, `HotspotFile`, `CouplingTrend`, `CouplingPair`, `AuthorShare`, `FileOwnership`, `FileAge`, `AuthorCard`, `CrisisFile`, `DirConcentration`, `DeadFile`, `VelocityBucket`, `AuditReport`, `FileCouplingMetrics`, `ImportEdge`, `RemoteMeta`, `ActionItem`, `AnalysisReport`, `LongMethodThresholds`, `HistoryCounts`, `HistoryEntry`, `ScoreBand`, and `ScoreThresholds`. Public policy paths are `barad_dur::scorer::{SCORE_GOOD_MIN, SCORE_WARN_MIN, score_band}`. `metrics::coupling::CouplingReach` is a public type alias at `barad_dur::metrics::coupling::CouplingReach`.
 
 All five calculation-output DTOs derive `Debug`, `Clone`, `PartialEq`, `Serialize`, plus conditional `ts_rs::TS` under `export-types`; `CouplingFindingCounts` additionally derives `Copy`. None derives `Deserialize`, has `#[non_exhaustive]`, or has a type-level serde rename. Their fields are serialized verbatim. On `AnalysisReport`, `coupling_finding_counts`, `call_graph`, and `churn_timeline` use `skip_serializing_if = "Option::is_none"` and conditional `ts(optional)`; preserving this distinguishes unavailable data from measured zero/empty results. Moving a DTO must preserve both its `scorer::<Type>` compatibility path (via re-export if necessary) and these derives/attributes so JSON and generated TypeScript remain stable.
 
 Additional compatibility-sensitive attributes in the containing model: `EntityTrendDirection` uses lowercase serde names; several optional trend/action fields skip `None` (actions and report optionals also use `ts(optional)`); `HistoryCounts` optional coupling counts use `serde(default, skip_serializing_if)` plus `ts(optional)`; `HistoryEntry` retains aliases/renames (`head`/`commit`, `category_scores`/`categories`), defaults for evolved fields, and optional `source`; `HotspotFile`, `CouplingPair`, `AnalysisReport`, and `LongMethodThresholds` are `#[non_exhaustive]`.
 
+The neutral policy surface is deliberately different from the DTOs: `ScoreBand` derives only `Debug`, `Clone`, `Copy`, `PartialEq`, and `Eq` (no serde or TypeScript generation), while `ScoreThresholds` derives `Debug`, `Clone`, and `Serialize` plus conditional `ts_rs::TS`. `score_band` uses inclusive `>= 71` for Good and `>= 41` for Warn; `ScoreThresholds::default` serializes those two public constants as `good_min` and `warn_min`.
+
 ## P0 conclusions
 
-1. The boundary to break is specifically the three metric-to-scorer DTO imports, not the legitimate scorer consumption of metric calculations.
+1. The boundary to break includes the three metric-to-scorer DTO imports and coupling's reverse dependency on scorer score policy; it does not include legitimate scorer consumption of metric calculations.
 2. A single injected analysis reference time can govern filtering and calculation, but acquisition timestamps, history-point timestamps, registry-cache time, monotonic operational timing, and pinned field-test boundaries have distinct owners and must not be conflated.
 3. Current future-date behavior is intentionally/non-uniformly observable: normal window filtering excludes it, code age preserves negative values, file/author display clamps to zero, dead-file classification naturally excludes it, dependency drift clamps to zero, and cache freshness accepts it.
 4. `None` is semantic in category scores and the three optional report sections. Refactoring must preserve it rather than manufacturing zero/empty measured results.
