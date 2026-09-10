@@ -7,6 +7,11 @@ WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
 
 COPY src/ src/
+# Cargo.toml declares two `[[example]]` targets (export_report_types,
+# export_report_fixture). Cargo resolves every declared target before building,
+# even ones it will not build and even behind `required-features`, so omitting
+# this directory fails the manifest rather than silently skipping them.
+COPY examples/ examples/
 RUN OPENSSL_STATIC=1 cargo build --release --target x86_64-unknown-linux-musl
 
 # --- Git stage: grab statically-linked git from alpine ---
