@@ -22,6 +22,11 @@ variables:
   CARGO_HOME: ${CI_PROJECT_DIR}/.cargo
   SECRET_DETECTION_ENABLED: 'true'
   GIT_DEPTH: "0"
+  # Nights in one full pass of the nightly mutation sweep. Tonight's slice is
+  # (day-of-year - 1) % NIGHTLY_SLICES, cut `parallel:` ways. Raise it if
+  # shards start timing out, lower it to finish a pass sooner; see the sizing
+  # note on `mutation-nightly` for the measurements behind 24.
+  NIGHTLY_SLICES: "24"
 
 # Froggit's shared runners intermittently fail with Docker bridge networking
 # errors ("bridge port not forwarding") — retry infrastructure-level failures
@@ -401,14 +406,28 @@ mutation-nightly-guard:
       - .mutation-nightly/
   script:
     - |
+      # Tonight's slice of the mutant list. Rotating by day-of-year means a
+      # full pass takes NIGHTLY_SLICES nights and every night finishes.
+      # `date +%j` is zero-padded and $(( )) reads a leading zero as octal,
+      # so day 008 aborts with "Illegal number". Strip the padding with sed
+      # rather than bash's 10# prefix: this job runs on alpine:3, whose
+      # busybox sh rejects 10# outright.
+      DOY=$(date -u +%j | sed 's/^0*//')
+      SLICE=$(( (DOY - 1) % NIGHTLY_SLICES ))
       LAST=$(cat .mutation-nightly/last-sha 2>/dev/null || echo "none")
-      if [ "$LAST" = "$CI_COMMIT_SHA" ]; then
-        echo "main unchanged since the last completed nightly ($LAST) — skipping"
+      LAST_SLICE=$(cat .mutation-nightly/last-slice 2>/dev/null || echo "none")
+      if [ "$LAST" = "$CI_COMMIT_SHA" ] && [ "$LAST_SLICE" = "$SLICE" ]; then
+        # Same tree AND same slice: this exact work already completed. Any
+        # other combination adds coverage — a new slice reaches mutants the
+        # last night never got to, even when main has not moved, which is why
+        # the SHA alone is no longer the skip condition.
+        echo "slice $SLICE of $CI_COMMIT_SHA already swept — skipping"
         echo "RUN_MUTATION=false" > guard.env
       else
-        echo "main moved ($LAST -> $CI_COMMIT_SHA) — running the sweep"
+        echo "sweeping slice $SLICE of $NIGHTLY_SLICES (last: slice $LAST_SLICE of $LAST)"
         echo "RUN_MUTATION=true" > guard.env
       fi
+      echo "NIGHTLY_SLICE=$SLICE" >> guard.env
       echo "LAST_NIGHTLY_SHA=$LAST" >> guard.env
   artifacts:
     reports:
@@ -420,14 +439,29 @@ mutation-nightly:
   stage: analysis
   <<: *rust-tools-base
   timeout: 6 hours
-  # Sized so a shard fits the 6h wall at both ends of the per-mutant cost
-  # seen on the two MR shards that completed (176 and 324 job-seconds on
-  # different runners): ~2.8h at the optimistic end, ~4.8h at the pessimistic.
-  # Sixteen fit the optimistic estimate only, and timed out under the other.
-  # More shards is not better — each one repeats a ~19min unmutated baseline,
-  # so total runner time grows with the count while throughput does not.
-  # Tune against a completed run: this is the one number to change, the gate
-  # globs whatever logs it finds.
+  # Resized from the first sharded run (pipeline 129672), which measured what
+  # the original estimate had guessed at, and got it wrong by 8.5x:
+  #
+  #   mutants in the codebase   3672   (153 per shard across 24)
+  #   unmutated baseline          43min average, paid once per shard
+  #   cost of one mutant        1706s build + up to 3978s test
+  #   completed in 6h           0, 0, 1, 1, 7, 19 per shard — median 1
+  #   shards that finished      0 of 24
+  #
+  # Sharding alone cannot fix that: it divides the mutants but multiplies the
+  # baseline. At the best observed rate, covering 3672 mutants would need ~194
+  # shards and 139 runner-hours of baseline before a single mutant runs.
+  #
+  # So the scope is bounded instead. Each night sweeps 1/NIGHTLY_SLICES of the
+  # mutant list, cut CI_NODE_TOTAL ways, and a full pass completes over
+  # NIGHTLY_SLICES nights. Budget per shard: 360min wall - 43min baseline =
+  # 317min for mutants, and at ~45min each that is 7. 3672/(24*24) = 6.4 fits
+  # with margin.
+  #
+  # Per-mutant cost varies widely (16min to 95min observed), so some shards
+  # will still time out. That is now cheap: a lost shard costs ~6 mutants
+  # rather than the 153 it used to, and allow_failure keeps the gate reporting
+  # on whatever completed.
   parallel: 24
   needs:
     - job: mutation-nightly-guard
@@ -441,14 +475,17 @@ mutation-nightly:
       fi
     - cargo binstall --no-confirm --locked cargo-mutants cargo-nextest
     - |
-      # cargo-mutants shards are 0-based; CI_NODE_INDEX is 1-based. An
-      # off-by-one here silently drops a slice of the codebase instead of
-      # erroring, so it is computed once, here, and nowhere else.
-      SHARD=$((CI_NODE_INDEX - 1))
+      # Tonight's slice, cut CI_NODE_TOTAL ways, addressed as one shard of the
+      # whole rotation: slice 3 node 5 of 24 is shard 3*24+4 out of 24*24.
+      # cargo-mutants shards are 0-based while CI_NODE_INDEX is 1-based, and an
+      # off-by-one silently drops part of the codebase instead of erroring, so
+      # the conversion happens once, here, and nowhere else.
+      SHARD=$(( NIGHTLY_SLICE * CI_NODE_TOTAL + CI_NODE_INDEX - 1 ))
+      SHARD_TOTAL=$(( NIGHTLY_SLICES * CI_NODE_TOTAL ))
       # --test-tool nextest matches the per-MR shards; the unsharded nightly
       # omitted it and paid for the slower runner on every mutant.
       BARAD_DUR_TEST_REPO=${CI_PROJECT_DIR} cargo mutants \
-        --shard ${SHARD}/${CI_NODE_TOTAL} \
+        --shard ${SHARD}/${SHARD_TOTAL} \
         --test-tool nextest \
         --timeout-multiplier 3 --jobs 4 \
         --output mutants-out-${CI_NODE_INDEX} \
@@ -474,11 +511,17 @@ mutation-nightly-gate:
   needs:
     - job: mutation-nightly
       artifacts: true
+    # For the dotenv: NIGHTLY_SLICE only reaches jobs that name its producer.
+    - job: mutation-nightly-guard
+      artifacts: true
   script:
     - python3 scripts/mutation_gate.py 'mutants-*.log'
     - mkdir -p .mutation-nightly
     - echo "$CI_COMMIT_SHA" > .mutation-nightly/last-sha
-    - echo "recorded $CI_COMMIT_SHA as the last completed nightly"
+    # The slice is recorded alongside the SHA: the guard skips only when both
+    # match, so an unchanged main still gets tomorrow's slice swept.
+    - echo "$NIGHTLY_SLICE" > .mutation-nightly/last-slice
+    - echo "recorded slice $NIGHTLY_SLICE of $CI_COMMIT_SHA as the last completed nightly"
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
   allow_failure: true  # Remove once a full-codebase baseline is confirmed
