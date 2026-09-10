@@ -290,15 +290,28 @@ semver-check:
     - when: always
 
 # Mutation testing — per-feature: scoped to the MR diff or last commit on main.
-# Split into 3 parallel shards + an aggregating gate. Blocking (allow_failure: false on gate).
-# Each shard runs ~1/3 of the mutant list concurrently; nextest speeds up each test invocation.
-.mutation-shard: &mutation-shard
+# Split into parallel shards + an aggregating gate. Blocking (allow_failure:
+# false on the gate). Each shard runs 1/CI_NODE_TOTAL of the mutant list
+# concurrently; nextest speeds up each test invocation.
+mutation:
   stage: analysis
   <<: *rust-tools-base
-  # 4h: a large MR diff can carry ~50 mutants across 3 shards, and the
-  # unmutated baseline alone costs ~30min (integration suites dogfood the
-  # real repo). Two shards of the Pressman-coupling MR timed out at ~118min
-  # under the previous 2h limit with zero surviving mutants.
+  # 6, raised from 3: cargo-mutants splits the mutant list evenly by COUNT,
+  # never by cost, so one slice can carry most of the expensive mutants. On
+  # !135 the three shards ran 2.2h, 4.0h and 3.1h, and the 4.0h one was killed
+  # at 14,408s against the ceiling below with zero surviving mutants; two
+  # shards of the Pressman-coupling MR had already timed out the same way.
+  # Halving the slice buys margin on the outlier. Raising the ceiling instead
+  # would only make a stuck shard fail later, and 6h is the runner's own limit.
+  #
+  # More shards is not free and 6 is not a floor to keep raising: every shard
+  # repeats the unmutated baseline, ~30min here because the integration suites
+  # dogfood the real repo, so total runner time grows with the count while
+  # throughput does not. That is the same trade-off the nightly weighed before
+  # settling at 24 for a full-codebase sweep.
+  parallel: 6
+  # 4h: a large MR diff can carry ~50 mutants, and the unmutated baseline alone
+  # costs ~30min (integration suites dogfood the real repo).
   timeout: 4 hours
   script:
     - |
@@ -308,70 +321,47 @@ semver-check:
         git diff HEAD~1..HEAD > recent.diff
       fi
       if [ ! -s recent.diff ]; then
-        echo "skipping mutation run" > mutants-${SHARD_INDEX}.log
+        echo "skipping mutation run" > mutants-${CI_NODE_INDEX}.log
         exit 0
       fi
       cargo binstall --no-confirm --locked cargo-mutants cargo-nextest
+      # cargo-mutants shards are 0-based; CI_NODE_INDEX is 1-based. An
+      # off-by-one here silently drops a slice of the codebase instead of
+      # erroring, so it is computed once, here, and nowhere else.
+      SHARD=$((CI_NODE_INDEX - 1))
       # --in-diff: only mutate code touched by the feature diff (per-feature strategy).
       # --timeout-multiplier instead of a fixed cap: the suite's clean runtime grows
       # with the codebase and already outran a hardcoded 300s once (baseline timeout).
+      # --shard denominator is CI_NODE_TOTAL, so changing `parallel:` above is
+      # the only edit a reshard needs.
       # || true: shard exit codes (missed/timeout mutants) must not fail the job —
       # the mutation-gate aggregates all shards and is the single blocking decision.
       BARAD_DUR_TEST_REPO=${CI_PROJECT_DIR} cargo mutants \
         --in-diff recent.diff \
-        --shard ${SHARD_INDEX}/3 \
+        --shard ${SHARD}/${CI_NODE_TOTAL} \
         --test-tool nextest \
         --timeout-multiplier 3 --jobs 2 \
-        --output mutants-out-${SHARD_INDEX} \
-        2>&1 | tee mutants-${SHARD_INDEX}.log || true
+        --output mutants-out-${CI_NODE_INDEX} \
+        2>&1 | tee mutants-${CI_NODE_INDEX}.log || true
+  artifacts:
+    paths:
+      - mutants-${CI_NODE_INDEX}.log
+      - mutants-out-${CI_NODE_INDEX}/
+    when: always
+    expire_in: 1 week
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
   allow_failure: false
 
-mutation-0:
-  <<: *mutation-shard
-  variables:
-    SHARD_INDEX: "0"
-  artifacts:
-    paths:
-      - mutants-0.log
-      - mutants-out-0/
-    when: always
-    expire_in: 1 week
-
-mutation-1:
-  <<: *mutation-shard
-  variables:
-    SHARD_INDEX: "1"
-  artifacts:
-    paths:
-      - mutants-1.log
-      - mutants-out-1/
-    when: always
-    expire_in: 1 week
-
-mutation-2:
-  <<: *mutation-shard
-  variables:
-    SHARD_INDEX: "2"
-  artifacts:
-    paths:
-      - mutants-2.log
-      - mutants-out-2/
-    when: always
-    expire_in: 1 week
-
 # Gate: aggregates all shard logs and enforces the ≥80% kill rate.
 mutation-gate:
   stage: analysis
   image: python:3.12-slim
+  # One entry covers every parallel instance: GitLab downloads all of the
+  # matrix children's artifacts, which is what the 'mutants-*.log' glob needs.
   needs:
-    - job: mutation-0
-      artifacts: true
-    - job: mutation-1
-      artifacts: true
-    - job: mutation-2
+    - job: mutation
       artifacts: true
   script:
     - python3 scripts/mutation_gate.py 'mutants-*.log'
