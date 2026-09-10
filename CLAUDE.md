@@ -99,4 +99,4 @@ Concretely for Rust:
 
 ## Mutation Testing Strategy
 
-Hybrid — per-MR via `cargo mutants --in-diff` (scoped to the MR diff vs `$CI_MERGE_REQUEST_DIFF_BASE_SHA`, kill rate ≥ 80% enforced by the aggregating `mutation-gate` job; the 6 parallel shards themselves fail only on wall-clock timeout), full-codebase nightly (scheduled CI job).
+Hybrid — per-MR via `cargo mutants --in-diff` (scoped to the MR diff vs `$CI_MERGE_REQUEST_DIFF_BASE_SHA`, kill rate ≥ 80% enforced by the aggregating `mutation-gate` job; the 6 parallel shards themselves fail only on wall-clock timeout), nightly sweep of the whole codebase (scheduled CI job), covered a slice at a time: each night sweeps `(day-of-year - 1) % NIGHTLY_SLICES` of the mutant list cut `parallel:` ways, so a full pass completes every `NIGHTLY_SLICES` nights and every night finishes. Sweeping it all in one night is not viable here — a single mutant costs 30-90min, and 3672 of them never fit a 6h wall however many shards you cut them into.
