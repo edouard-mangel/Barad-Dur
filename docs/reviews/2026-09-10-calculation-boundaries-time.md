@@ -1,7 +1,7 @@
-# Calculation boundaries and time — Task 1 inventory
+# Calculation boundaries and time — implementation evidence
 
 Date: 2026-09-10
-Baseline: `ff64353` (inventory only; the controller owns the baseline test run)
+Implementation base: `47b6c26` (includes the pre-existing CI shard change).
 
 ## Scope and method
 
@@ -81,3 +81,57 @@ The neutral policy surface is deliberately different from the DTOs: `ScoreBand` 
 3. Current future-date behavior is intentionally/non-uniformly observable: normal window filtering excludes it, code age preserves negative values, file/author display clamps to zero, dead-file classification naturally excludes it, dependency drift clamps to zero, and cache freshness accepts it.
 4. `None` is semantic in category scores and the three optional report sections. Refactoring must preserve it rather than manufacturing zero/empty measured results.
 5. Clock-taking function signatures may change and their callers may be updated mechanically; compatibility is required for public type paths and serialized/generated contracts, not for retaining hidden-clock convenience wrappers. The default boundary must still represent the same inclusive 180-day filtering window.
+
+## Type ownership verification
+
+The five calculation outputs now belong to `metrics::callgraph`, `metrics::churn`, and `metrics::coupling`. Band constants, classification, and serialized thresholds belong to `scoring`. Original `scorer::*` type and policy paths are public re-exports. Display structures remain in scorer.
+
+At `df29c25`, focused tests passed: scoring (2), public-path compatibility (1), callgraph (13), churn (8), coupling (102), current serialized fixture (1), and declaration generation (4). `cargo run --features export-types --example export_report_types -- --check` confirmed exact agreement with committed declarations. Formatting and whitespace checks passed. The independent task review checked fields, derives, serde/TypeScript annotations, threshold values, and import ownership against the prior definitions. It identified only two stale source-location comments, to be corrected in the next slice.
+
+`pnpm -C dashboard check` passed 38 tests across 8 files and the TypeScript/Vite production build. No frontend files or generated declarations changed.
+
+## Baseline verification
+
+Before source edits, `cargo test --no-fail-fast` ran all targets. All integration targets passed. The library reported 1477 passed, 7 ignored, and one failure: the sandbox denied the local TCP listener used by `registry::client::tests::client_times_out_on_unresponsive_server`. Re-running that exact test with the required permission passed (1 test, 0.31 seconds). No production fix or test relaxation was needed.
+
+## Time semantics retained by this refactor
+
+The analysis reference is invocation time, including cached snapshots and date-filtered analyses. Snapshot acquisition timestamps remain metadata and preserve their existing missing-history fallback roles. Backfill age scoring uses the backfill invocation reference; history points still belong at their selected commit timestamps. Watch launches a new analyze process after each commit, so each run captures a fresh reference. Scoring historical code as of the selected commit would be a separate behavioral change.
+
+Capturing before collection can change values at whole-day thresholds compared with the former independent later clock reads. For example, a newly collected snapshot can have `created_at` just after the invocation reference; the unchanged missing-file fallback of `created_at - 1825 days` then truncates to 1824 elapsed days. This is the consequence of the chosen single-invocation reference and preserved fallback, not a new age formula or use of acquisition time as the calculation clock. Fixed-reference tests document the retained rounding behavior.
+
+The pinned corpus keeps its existing commit pins and `--since 2026-03-01` lower boundary. That bounds evidence consistently, but does not freeze wall-clock-based code age across different invocations. No baseline acceptance or history/cache schema change is part of this work.
+
+## Final automated checks
+
+- `RUSTFLAGS='-D warnings' cargo test --all-features --no-fail-fast`: exit 0. Library: 1483 passed, 7 ignored; all integration, feature-gated binary, and documentation targets passed. This includes the current serialized fixture and report declaration-generation tests.
+- `cargo fmt -- --check && cargo clippy --all-targets --all-features -- -D warnings`: exit 0, no issues.
+- `target/release/barad-dur analyze . --html -o /tmp/barad-dur-calculation-time-smoke.html && node scripts/report-smoke.mjs /tmp/barad-dur-calculation-time-smoke.html`: exit 0; all 11 tabs rendered without JavaScript errors.
+- Full-branch source review of `47b6c26..3b33f14`: no required fixes. Individual ownership and time-plumbing reviews also approved; both stale threshold-source comments were corrected.
+
+`make field-test` exited 0: **field test clean across 11 repositories**, with two passes per repository and no regression, nondeterminism, or baseline acceptance. `make field-audit` exited 0 and emitted five unchanged rotation recommendations. The [completed worksheet](../../field-test/audit/2026-09-10-calculation-boundaries-time.md) records no Safe failures and explicitly tracks the recurring inline-test responsibility-clustering Actionable defect, including an additional affected `analyze.rs` row identified by source inspection.
+
+## Explicit-time implementation checks
+
+At `3b33f14`, focused tests passed: 4 fixed-reference tests, 3 `calculation_time_milestone_1` integration tests, 18 evolution tests, and 125 scorer tests. These checks exercise whole-day and score/format thresholds, UTC midnight, future timestamps, unavailable evidence, acquisition-based fallbacks, repeated report output, real fresh/cache-only resolution, a later reference advancing age, and real backfill history timestamps. They are implementation evidence, not substitutes for the full final suite.
+
+## P1 invariant sweep
+
+| Invariant | Consumers inspected | Evidence |
+|---|---|---|
+| Metrics depend on their own calculation types and neutral score policy | `metrics::callgraph`, `metrics::churn`, `metrics::coupling`; scorer types, report contract exporter, gate, CLI formatting | No `scorer` references remain in metrics. Old scorer paths remain explicit compatibility re-exports and are compile-tested. |
+| Calculations receive their reference; they do not read the clock | `evolution::compute_evolution` → `code_age`; `scorer::build_report` → file ages, author cards, audit → dead files | Production clock reads removed from these functions; signed/clamped arithmetic and thresholds unchanged. |
+| One invocation supplies filtering, metrics, report details and current history | `cmd::analyze::run_analyze` → runner window, selected metrics, report, history; `cmd::gate::run_gate` → default window, evolution, report, trend gate | Each command captures once before collection. `TimeWindow::at` preserves the inclusive 180-day default; custom date windows still use existing parsing. |
+| Cache acquisition time is not reused as the scoring clock | `runner::resolve_snapshot` cache-hit and collection branches; analyze/gate callers; `calculation_time_milestone_1` | Same explicit reference produces equal full reports from actual fresh/cache-only snapshots; advancing it changes ages while keeping the cached snapshot. Existing `created_at` fallback semantics are retained. |
+| Backfill scoring reference differs from history-point placement | `backfill::run` sample loop; `scorer::build_history_entry`; score and entity-history append paths | One reference captured before the loop feeds all calculations. Selected commit timestamp feeds both history representations; absent-commit fallback is explicit invocation time. Integration test reads persisted history dates. |
+| Watch obtains fresh invocation time | `cmd::watch::install_hook` script → new `barad-dur analyze` process | No long-lived analysis loop or process-start scoring reference exists. |
+| All changed signatures are supplied by their consumers | Production paths above; scorer/audit tests; Pressman milestones 2 and 4; new time integration suite | Focused compilation covered all targets. Full all-feature execution is recorded separately. |
+| Wire shape, persisted versions and corpus policy remain stable | `scorer::types`, `report_contract`, snapshot/cache/history definitions, field-test driver/runner, generated declarations | No field, cache-version, history-schema, committed fixture, generated declaration, corpus pin or baseline change. |
+
+Legitimate wall clocks remain in invocation boundaries; `TimeWindow::default` compatibility construction; snapshot acquisition; malformed Git timestamp fallback; independent contributors/coupling window construction; registry acquisition/freshness; and test fixtures. Monotonic timing reads remain diagnostic only. The malformed Git timestamp fallback is synthesized evidence, not a scoring-clock service; changing it is outside this refactor.
+
+## Completion and scope
+
+M06's five tasks are implemented and verified. The next roadmap item is M02 (shared analysis orchestration). This branch preserves its original base and is not merged or published by this work.
+
+The plan-execution workflow supplied the isolated branch, task reviews, final source review, and evidence ledger. Implementation decisions were to treat the new user request as authorization beyond the former planning-only phase; preserve acquisition-based fallbacks; combine signature changes with their callers in one coherent time slice; and retain a narrow argument-count lint allowance on the existing report builder until orchestration is addressed separately. No calculation or historical scoring policy was changed to simplify these choices.
