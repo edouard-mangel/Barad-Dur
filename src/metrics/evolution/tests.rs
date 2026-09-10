@@ -5,6 +5,63 @@ use chrono::Duration;
 use std::path::PathBuf;
 
 #[test]
+fn code_age_fixed_reference_preserves_whole_days_scores_and_formatting() {
+    use chrono::TimeZone;
+    let reference = Utc.with_ymd_and_hms(2026, 9, 10, 0, 0, 1).unwrap();
+    let thresholds = crate::config::EvolutionThresholds::default();
+    for (days, score) in [
+        (89, 70),
+        (90, 70),
+        (91, 90),
+        (359, 90),
+        (360, 90),
+        (361, 60),
+        (719, 60),
+        (720, 60),
+        (721, 40),
+        (-31, 70),
+        (0, 70),
+    ] {
+        for seconds in [-1, 0, 1] {
+            let mut snapshot = make_snapshot();
+            snapshot.blame_map.insert(
+                "a.rs".into(),
+                vec![BlameLine::new(
+                    0,
+                    reference - Duration::days(days) - Duration::seconds(seconds),
+                )],
+            );
+            let result = code_age(reference, &snapshot, &thresholds);
+            let whole_days = (Duration::days(days) + Duration::seconds(seconds)).num_days();
+            let months = whole_days as f64 / 30.0;
+            assert!(matches!(result.raw_value, RawValue::Float(value) if value == months));
+            let expected_score = match whole_days {
+                d if d > 720 => 40,
+                d if d > 360 => 60,
+                d if d > 90 => 90,
+                _ => 70,
+            };
+            assert_eq!(result.score, Some(expected_score));
+            if seconds == 0 {
+                assert_eq!(result.score, Some(score));
+            }
+            let expected = if months > 12.0 {
+                format!("{months:.0}")
+            } else {
+                format!("{months:.1}")
+            };
+            assert_eq!(
+                result.description,
+                format!("{expected} months (median code age)")
+            );
+        }
+    }
+    let missing = code_age(reference, &make_snapshot(), &thresholds);
+    assert_eq!(missing.score, None);
+    assert!(matches!(missing.raw_value, RawValue::Text(value) if value == "N/A"));
+}
+
+#[test]
 fn growth_trend_detects_net_growth() {
     let mut snapshot = RepoSnapshot::new(
         PathBuf::from("/tmp"),
@@ -209,7 +266,11 @@ fn code_age_computes_median() {
     }
     snapshot.blame_map.insert(PathBuf::from("f.rs"), blame);
 
-    let result = code_age(&snapshot, &crate::config::EvolutionThresholds::default());
+    let result = code_age(
+        chrono::Utc::now(),
+        &snapshot,
+        &crate::config::EvolutionThresholds::default(),
+    );
     match result.raw_value {
         RawValue::Float(months) => {
             assert!(

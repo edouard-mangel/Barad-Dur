@@ -861,7 +861,7 @@ pub(crate) fn barrel_bypass_findings(
 }
 
 /// Category score ceiling applied when a critical/major Pressman finding is
-/// present. Derived from `SCORE_GOOD_MIN` (scorer/types.rs — the single
+/// present. Derived from `SCORE_GOOD_MIN` (scoring.rs — the single
 /// source of truth for score-band thresholds; the CLAUDE.md project rule is
 /// that band thresholds are never re-hardcoded) rather than a bare literal,
 /// so the cap tracks the "good" band boundary if it ever moves.

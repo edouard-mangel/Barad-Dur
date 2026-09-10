@@ -33,7 +33,11 @@ fn live_analysis_records_finding_counts_in_history_entry() {
             &default_cfg.thresholds.team,
             &default_cfg.thresholds.coupling,
         ),
-        evolution::compute_evolution(&snapshot, &default_cfg.thresholds.evolution),
+        evolution::compute_evolution(
+            chrono::Utc::now(),
+            &snapshot,
+            &default_cfg.thresholds.evolution,
+        ),
         hygiene::compute_hygiene(&snapshot, &default_cfg.thresholds.hygiene),
         coupling::compute_coupling(
             &snapshot,
@@ -42,6 +46,7 @@ fn live_analysis_records_finding_counts_in_history_entry() {
         ),
     ];
     let report = scorer::build_report(
+        chrono::Utc::now(),
         &snapshot,
         categories,
         None,
@@ -54,7 +59,7 @@ fn live_analysis_records_finding_counts_in_history_entry() {
     let counts = report
         .coupling_finding_counts
         .expect("live analysis must produce counts");
-    let entry = scorer::build_history_entry(&report, "test-head", None);
+    let entry = scorer::build_history_entry(chrono::Utc::now(), &report, "test-head", None);
     assert_eq!(entry.counts.content_coupling, Some(counts.content));
     assert_eq!(entry.counts.common_coupling, Some(counts.common));
     assert_eq!(entry.counts.control_coupling, Some(counts.control));
@@ -110,10 +115,15 @@ fn backfill_style_snapshot_records_no_counts_and_unscored_metrics() {
             &default_cfg.thresholds.team,
             &default_cfg.thresholds.coupling,
         ),
-        evolution::compute_evolution(&snapshot, &default_cfg.thresholds.evolution),
+        evolution::compute_evolution(
+            chrono::Utc::now(),
+            &snapshot,
+            &default_cfg.thresholds.evolution,
+        ),
         hygiene::compute_hygiene(&snapshot, &default_cfg.thresholds.hygiene),
     ];
     let report = scorer::build_report(
+        chrono::Utc::now(),
         &snapshot,
         categories,
         None,
@@ -123,6 +133,7 @@ fn backfill_style_snapshot_records_no_counts_and_unscored_metrics() {
         &Default::default(),
     );
     assert_eq!(report.coupling_finding_counts, None);
-    let entry = scorer::build_history_entry(&report, &head, Some("backfill".into()));
+    let entry =
+        scorer::build_history_entry(chrono::Utc::now(), &report, &head, Some("backfill".into()));
     assert_eq!(entry.counts.content_coupling, None);
 }

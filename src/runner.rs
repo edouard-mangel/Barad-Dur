@@ -95,12 +95,16 @@ fn collect_and_cache(
     Ok(snapshot)
 }
 
-pub fn build_time_window_from_config(cfg: &RepoConfig, args: &AnalyzeArgs) -> TimeWindow {
+pub fn build_time_window_from_config(
+    reference_time: chrono::DateTime<chrono::Utc>,
+    cfg: &RepoConfig,
+    args: &AnalyzeArgs,
+) -> TimeWindow {
     if args.all {
         return TimeWindow::full_history();
     }
 
-    let now = chrono::Utc::now();
+    let now = reference_time;
 
     // config.since already has the merged value (TOML + CLI override)
     let since = cfg.since.as_ref().and_then(|s| parse_time_spec(s, now));
@@ -113,7 +117,7 @@ pub fn build_time_window_from_config(cfg: &RepoConfig, args: &AnalyzeArgs) -> Ti
             default_months: 0,
         }
     } else {
-        TimeWindow::default()
+        TimeWindow::at(reference_time)
     }
 }
 

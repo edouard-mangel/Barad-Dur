@@ -24,6 +24,7 @@ use crate::metrics::CategoryResult;
 use crate::snapshot::RepoSnapshot;
 
 pub fn build_history_entry(
+    history_timestamp: chrono::DateTime<chrono::Utc>,
     report: &AnalysisReport,
     head: &str,
     source: Option<String>,
@@ -42,7 +43,7 @@ pub fn build_history_entry(
     }
 
     HistoryEntry {
-        timestamp: chrono::Utc::now(),
+        timestamp: history_timestamp,
         head: head.to_string(),
         overall_score: report.overall_score,
         categories,
@@ -62,7 +63,10 @@ pub fn build_history_entry(
     }
 }
 
+// Keep the existing report inputs explicit; application orchestration is a separate concern.
+#[allow(clippy::too_many_arguments)]
 pub fn build_report(
+    reference_time: chrono::DateTime<chrono::Utc>,
     snapshot: &RepoSnapshot,
     categories: Vec<CategoryResult>,
     remote_meta: Option<RemoteMeta>,
@@ -84,10 +88,10 @@ pub fn build_report(
     let file_hotspots = build_hotspots(snapshot, coupling, coupling_reach);
     let coupling_pairs = build_coupling_pairs(snapshot, coupling.component_depth);
     let author_ownership = build_author_ownership(snapshot);
-    let file_ages = build_file_ages(snapshot);
-    let author_cards = build_author_cards(snapshot);
+    let file_ages = build_file_ages(reference_time, snapshot);
+    let author_cards = build_author_cards(reference_time, snapshot);
 
-    let audit = Some(audit::build_audit_report(snapshot));
+    let audit = Some(audit::build_audit_report(reference_time, snapshot));
     let per_file_coupling = build_per_file_coupling(snapshot);
     let import_edges = build_import_edges(snapshot);
     let import_cycles = build_import_cycles(snapshot);
@@ -141,6 +145,90 @@ mod tests {
         ("Git Hygiene", 0.20),
         ("Coupling", 0.20),
     ];
+
+    #[test]
+    fn fixed_reference_preserves_age_fallbacks_and_independent_history_time() {
+        use crate::metrics::testutil::{make_file, make_snapshot, two_authors};
+        use crate::snapshot::{Commit, CommitId};
+        use chrono::{Duration, TimeZone, Utc};
+        let reference = Utc.with_ymd_and_hms(2026, 9, 10, 0, 0, 1).unwrap();
+        for (age, expected_days) in [
+            (Duration::seconds(2), 0),
+            (Duration::days(1) - Duration::seconds(1), 0),
+            (Duration::days(1), 1),
+            (Duration::days(1) + Duration::seconds(1), 1),
+            (Duration::days(-2), 0),
+        ] {
+            let mut snapshot = make_snapshot();
+            snapshot.created_at = reference - Duration::days(10);
+            snapshot.files = vec![make_file("known.rs"), make_file("missing.rs")];
+            snapshot.authors = two_authors();
+            snapshot.commits = vec![Commit {
+                id: CommitId(0),
+                author: 0,
+                timestamp: reference - age,
+                message: "change".into(),
+                files_changed: vec![],
+                is_merge: false,
+                parent_count: 1,
+            }];
+            snapshot
+                .commits_by_file
+                .insert("known.rs".into(), vec![CommitId(0)]);
+            snapshot.commits_by_author.insert(0, vec![CommitId(0)]);
+            let thresholds = crate::config::Thresholds::default();
+            let build = || {
+                build_report(
+                    reference,
+                    &snapshot,
+                    vec![],
+                    None,
+                    WEIGHTS,
+                    &thresholds,
+                    &[],
+                    &Default::default(),
+                )
+            };
+            let report = build();
+            assert_eq!(
+                serde_json::to_value(&report).unwrap(),
+                serde_json::to_value(build()).unwrap()
+            );
+            let known = report
+                .file_ages
+                .iter()
+                .find(|f| f.path == "known.rs")
+                .unwrap();
+            assert_eq!(known.days_since_modified, expected_days);
+            let missing = report
+                .file_ages
+                .iter()
+                .find(|f| f.path == "missing.rs")
+                .unwrap();
+            assert_eq!(
+                missing.last_modified,
+                snapshot.created_at - Duration::days(1825)
+            );
+            assert_eq!(missing.days_since_modified, 1835);
+            let alice = report
+                .author_cards
+                .iter()
+                .find(|a| a.name == "Alice")
+                .unwrap();
+            let bob = report
+                .author_cards
+                .iter()
+                .find(|a| a.name == "Bob")
+                .unwrap();
+            assert_eq!(alice.days_since_active, expected_days);
+            assert_eq!(bob.days_since_active, 10);
+            let history_time = reference - Duration::days(400);
+            let entry =
+                build_history_entry(history_time, &report, "historical", Some("backfill".into()));
+            assert_eq!(entry.timestamp, history_time);
+            assert_eq!(entry.overall_score, report.overall_score);
+        }
+    }
 
     #[test]
     fn moved_types_remain_available_from_scorer() {
@@ -203,6 +291,7 @@ mod tests {
             &thresholds.hygiene,
         )];
         build_report(
+            chrono::Utc::now(),
             &snapshot,
             categories,
             None,
@@ -263,6 +352,7 @@ mod tests {
 
         let categories = vec![make_category("Health", 80)];
         let report = build_report(
+            chrono::Utc::now(),
             &snapshot,
             categories,
             None,
@@ -304,6 +394,7 @@ mod tests {
             TimeWindow::default(),
         );
         build_report(
+            chrono::Utc::now(),
             &snapshot,
             categories,
             None,
@@ -383,6 +474,7 @@ mod tests {
         let categories = vec![make_category("Team", 80)];
         let flagged = crate::metrics::health::god_object_files(&snapshot, &Default::default());
         let report = build_report(
+            chrono::Utc::now(),
             &snapshot,
             categories,
             None,
@@ -411,6 +503,7 @@ mod tests {
         );
         let categories = vec![make_category("Health", 80)];
         let report = build_report(
+            chrono::Utc::now(),
             &snapshot,
             categories,
             None,
@@ -542,7 +635,7 @@ mod tests {
         snapshot
             .commits_by_file
             .insert("old.rs".into(), vec![CommitId(1)]);
-        let ages = build_file_ages(&snapshot);
+        let ages = build_file_ages(chrono::Utc::now(), &snapshot);
         assert_eq!(ages[0].path, "old.rs");
         assert!(ages[0].days_since_modified > ages[1].days_since_modified);
     }
@@ -572,6 +665,7 @@ mod tests {
         );
         let categories = vec![make_category("Health", 80)];
         let report = build_report(
+            chrono::Utc::now(),
             &snapshot,
             categories,
             None,
@@ -580,7 +674,7 @@ mod tests {
             &[],
             &Default::default(),
         );
-        let entry = build_history_entry(&report, "abc123", None);
+        let entry = build_history_entry(chrono::Utc::now(), &report, "abc123", None);
 
         assert_eq!(entry.head, "abc123");
         assert_eq!(entry.overall_score, report.overall_score);
@@ -600,6 +694,7 @@ mod tests {
         );
         let categories = vec![make_category("Health", 80)];
         let report = build_report(
+            chrono::Utc::now(),
             &snapshot,
             categories,
             None,
@@ -620,7 +715,7 @@ mod tests {
             "main".into(),
             TimeWindow::default(),
         );
-        let cards = build_author_cards(&snapshot);
+        let cards = build_author_cards(chrono::Utc::now(), &snapshot);
         assert!(cards.is_empty());
     }
 
@@ -634,6 +729,7 @@ mod tests {
         );
         let categories = vec![make_category("Health", 80)];
         let report = build_report(
+            chrono::Utc::now(),
             &snapshot,
             categories,
             None,
@@ -658,6 +754,7 @@ mod tests {
         );
         let categories = vec![make_category("Health", 80)];
         let report = build_report(
+            chrono::Utc::now(),
             &snapshot,
             categories,
             None,
@@ -685,6 +782,7 @@ mod tests {
             crate::snapshot::FileComplexity::default(),
         );
         build_report(
+            chrono::Utc::now(),
             &snapshot,
             vec![make_category("Health", 80)],
             None,
@@ -703,6 +801,7 @@ mod tests {
             TimeWindow::default(),
         );
         build_report(
+            chrono::Utc::now(),
             &snapshot,
             vec![make_category("Health", 80)],
             None,
@@ -726,6 +825,7 @@ mod tests {
             count: 2,
         }];
         let report = build_report(
+            chrono::Utc::now(),
             &snapshot,
             vec![make_category("Health", 80)],
             None,
@@ -770,7 +870,7 @@ mod tests {
     #[test]
     fn history_entry_carries_finding_counts() {
         let report = report_with_detection();
-        let entry = build_history_entry(&report, "abc123", None);
+        let entry = build_history_entry(chrono::Utc::now(), &report, "abc123", None);
         assert_eq!(entry.counts.content_coupling, Some(0));
         assert_eq!(entry.counts.common_coupling, Some(0));
         assert_eq!(entry.counts.inheritance_coupling, Some(0));
@@ -780,7 +880,12 @@ mod tests {
     #[test]
     fn history_entry_counts_none_without_detection() {
         let report = report_without_detection();
-        let entry = build_history_entry(&report, "abc123", Some("backfill".into()));
+        let entry = build_history_entry(
+            chrono::Utc::now(),
+            &report,
+            "abc123",
+            Some("backfill".into()),
+        );
         assert_eq!(entry.counts.content_coupling, None);
         assert_eq!(entry.counts.common_coupling, None);
         assert_eq!(entry.counts.inheritance_coupling, None);
@@ -896,7 +1001,7 @@ mod tests {
         );
         snapshot.build_indexes();
 
-        let cards = build_author_cards(&snapshot);
+        let cards = build_author_cards(chrono::Utc::now(), &snapshot);
         assert_eq!(cards.len(), 2);
 
         let alice = cards.iter().find(|c| c.name == "Alice").unwrap();

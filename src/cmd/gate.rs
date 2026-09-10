@@ -14,12 +14,13 @@ use crate::snapshot::{CouplingFinding, TimeWindow};
 use crate::trend::{self, VelocityDirection};
 
 pub fn run_gate(args: GateArgs) -> Result<i32> {
+    let reference_time = chrono::Utc::now();
     let local_path = PathBuf::from(&args.target);
     let cfg = config::load(&local_path)?;
     config::validate(&cfg)?;
     let skip_blame = args.skip_blame.unwrap_or(cfg.skip_blame);
 
-    let time_window = TimeWindow::default();
+    let time_window = TimeWindow::at(reference_time);
     let collector = Collector::open(&local_path, time_window)?;
 
     let use_default_excludes = cfg.exclude_use_defaults;
@@ -54,13 +55,14 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
     let categories = vec![
         health::compute_health(&snapshot, &cfg.thresholds.health, &flagged_god_objects),
         team::compute_team(&snapshot, &cfg.thresholds.team, &cfg.thresholds.coupling),
-        evolution::compute_evolution(&snapshot, &cfg.thresholds.evolution),
+        evolution::compute_evolution(reference_time, &snapshot, &cfg.thresholds.evolution),
         hygiene::compute_hygiene(&snapshot, &cfg.thresholds.hygiene),
         coupling::compute_coupling(&snapshot, &cfg.thresholds.coupling, &coupling_reach),
     ];
 
     let weight_pairs = cfg.weights.as_weight_pairs();
     let report = scorer::build_report(
+        reference_time,
         &snapshot,
         categories,
         None,
@@ -74,9 +76,13 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
     let score_failed = check_gate_categories(&report, &args, threshold);
 
     let trend_failed = match args.max_decline {
-        Some(max_decline) => {
-            check_trend_gate_against_history(&local_path, &report, &current_head, max_decline)
-        }
+        Some(max_decline) => check_trend_gate_against_history(
+            reference_time,
+            &local_path,
+            &report,
+            &current_head,
+            max_decline,
+        ),
         None => false,
     };
 
@@ -205,6 +211,7 @@ fn print_ratchet(verdict: &RatchetVerdict, baseline_ref: &str, max_new: usize) -
 
 /// Load prior history and decide whether the trend gate fails.
 fn check_trend_gate_against_history(
+    reference_time: chrono::DateTime<chrono::Utc>,
     local_path: &Path,
     report: &AnalysisReport,
     current_head: &str,
@@ -217,7 +224,7 @@ fn check_trend_gate_against_history(
     if let Some(warning) = warning {
         println!("{warning}");
     }
-    let current_entry = scorer::build_history_entry(report, current_head, None);
+    let current_entry = scorer::build_history_entry(reference_time, report, current_head, None);
     let summary = trend::compute_trend(&history, &report.branch, &current_entry);
     check_trend_gate(&summary, max_decline)
 }
@@ -632,7 +639,13 @@ mod tests {
         write_history_entry(dir.path(), 95, crate::scorer::HISTORY_SCHEMA_VERSION - 1);
 
         let report = make_report(40, &[]);
-        let failed = check_trend_gate_against_history(dir.path(), &report, "deadbeef", 2.0);
+        let failed = check_trend_gate_against_history(
+            chrono::Utc::now(),
+            dir.path(),
+            &report,
+            "deadbeef",
+            2.0,
+        );
 
         assert!(
             !failed,
@@ -655,7 +668,13 @@ mod tests {
         write_history_entry(dir.path(), 95, crate::scorer::HISTORY_SCHEMA_VERSION);
 
         let report = make_report(40, &[]);
-        let failed = check_trend_gate_against_history(dir.path(), &report, "deadbeef", 2.0);
+        let failed = check_trend_gate_against_history(
+            chrono::Utc::now(),
+            dir.path(),
+            &report,
+            "deadbeef",
+            2.0,
+        );
 
         assert!(
             failed,

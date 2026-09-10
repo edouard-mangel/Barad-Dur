@@ -89,6 +89,7 @@ fn report_hotspots_carry_counts_and_multiplied_score() {
     let cfg = RepoConfig::default();
     let flagged_god_objects = health::god_object_files(&snapshot, &cfg.thresholds.health);
     let report = scorer::build_report(
+        chrono::Utc::now(),
         &snapshot,
         Vec::new(),
         None,
@@ -137,6 +138,7 @@ fn hotspot_json_contract_for_renderers() {
     let cfg = RepoConfig::default();
     let flagged_god_objects = health::god_object_files(&snapshot, &cfg.thresholds.health);
     let report = scorer::build_report(
+        chrono::Utc::now(),
         &snapshot,
         Vec::new(),
         None,

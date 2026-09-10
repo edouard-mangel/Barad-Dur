@@ -4,8 +4,10 @@ use crate::snapshot::RepoSnapshot;
 
 use super::super::types::FileAge;
 
-pub(crate) fn build_file_ages(snapshot: &RepoSnapshot) -> Vec<FileAge> {
-    let now = chrono::Utc::now();
+pub(crate) fn build_file_ages(
+    reference_time: chrono::DateTime<chrono::Utc>,
+    snapshot: &RepoSnapshot,
+) -> Vec<FileAge> {
     let fallback = snapshot.created_at - chrono::Duration::days(365 * 5);
     let mut ages: Vec<FileAge> = snapshot
         .files
@@ -23,7 +25,7 @@ pub(crate) fn build_file_ages(snapshot: &RepoSnapshot) -> Vec<FileAge> {
                         .max()
                 })
                 .unwrap_or(fallback);
-            let days = (now - last_modified).num_days().max(0);
+            let days = (reference_time - last_modified).num_days().max(0);
             FileAge {
                 path: f.path.to_string_lossy().to_string(),
                 last_modified,

@@ -45,9 +45,10 @@ pub(crate) fn build_author_ownership(snapshot: &RepoSnapshot) -> Vec<FileOwnersh
         .collect()
 }
 
-pub(crate) fn build_author_cards(snapshot: &RepoSnapshot) -> Vec<AuthorCard> {
-    let now = chrono::Utc::now();
-
+pub(crate) fn build_author_cards(
+    reference_time: chrono::DateTime<chrono::Utc>,
+    snapshot: &RepoSnapshot,
+) -> Vec<AuthorCard> {
     // Pre-compute per-author blame lines across all files
     let mut author_lines: HashMap<usize, usize> = HashMap::new();
     let mut author_file_pcts: HashMap<usize, Vec<(String, f64)>> = HashMap::new();
@@ -98,7 +99,7 @@ pub(crate) fn build_author_cards(snapshot: &RepoSnapshot) -> Vec<AuthorCard> {
                 .map(|c| c.timestamp)
                 .max()
                 .unwrap_or(snapshot.created_at);
-            let days_since_active = (now - last_active).num_days().max(0);
+            let days_since_active = (reference_time - last_active).num_days().max(0);
 
             let avg_commit_quality = if author_commits.is_empty() {
                 0.0

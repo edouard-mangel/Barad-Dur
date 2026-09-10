@@ -1075,7 +1075,7 @@ fn severity_cap_triggers_on_many_common_findings() {
 
 #[test]
 fn severity_cap_is_derived_from_score_good_min_not_a_bare_literal() {
-    // Locks the cap to scorer/types.rs's single source of truth
+    // Locks the cap to scoring.rs's single source of truth
     // (SCORE_GOOD_MIN) rather than a magic number duplicated in this
     // module. Currently SCORE_GOOD_MIN - 1 == 70, the same value the old
     // hardcoded literal produced, so this does not go red on its own —
