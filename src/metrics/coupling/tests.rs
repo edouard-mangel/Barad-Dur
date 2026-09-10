@@ -1080,7 +1080,7 @@ fn severity_cap_is_derived_from_score_good_min_not_a_bare_literal() {
     // module. Currently SCORE_GOOD_MIN - 1 == 70, the same value the old
     // hardcoded literal produced, so this does not go red on its own —
     // it's a contract test that fails the moment the two drift apart.
-    let expected_cap = crate::scorer::SCORE_GOOD_MIN - 1;
+    let expected_cap = crate::scoring::SCORE_GOOD_MIN - 1;
     let snapshot = snapshot_with_findings(vec![make_finding(CouplingKind::Content)]);
     let result = compute_coupling(
         &snapshot,
@@ -1412,7 +1412,7 @@ fn corroboration_can_trip_the_severity_cap() {
     assert_eq!(common.score, Some(25));
     assert!(
         c.score
-            .is_some_and(|score| score < crate::scorer::SCORE_GOOD_MIN),
+            .is_some_and(|score| score < crate::scoring::SCORE_GOOD_MIN),
         "category must be capped"
     );
 }

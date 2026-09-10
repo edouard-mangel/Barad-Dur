@@ -17,5 +17,6 @@ pub mod renderer;
 pub mod report_contract;
 pub mod runner;
 pub mod scorer;
+pub mod scoring;
 pub mod snapshot;
 pub mod trend;

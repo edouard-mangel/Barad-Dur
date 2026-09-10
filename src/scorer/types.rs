@@ -2,7 +2,11 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::metrics::callgraph::CallGraphReport;
+use crate::metrics::churn::ChurnTimelineReport;
+use crate::metrics::coupling::CouplingFindingCounts;
 use crate::metrics::CategoryResult;
+use crate::scoring::ScoreThresholds;
 
 /// Direction of a per-entity metric series (complexity, coupling degree,
 /// churn) across backfill samples — distinct from `VelocityDirection`,
@@ -294,69 +298,6 @@ impl Default for LongMethodThresholds {
     }
 }
 
-/// Repo-level day-bucketed churn shape (Crime Scene Ch. 14, trends M1).
-/// `None` on the report = no non-merge commits in the window.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
-pub struct ChurnTimelineReport {
-    /// Bucket width in days (always 1 in v1; field future-proofs wider buckets).
-    pub bucket_days: u32,
-    pub merge_commits_excluded: bool,
-    /// One entry per UTC day from first to last active day, zero-filled.
-    pub buckets: Vec<ChurnBucket>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
-pub struct ChurnBucket {
-    /// UTC day, `YYYY-MM-DD`.
-    pub date: String,
-    pub added: u64,
-    pub deleted: u64,
-}
-
-/// Call-graph summary for one analysis run (design D7). `None` on the
-/// report means no call data — the AST pass did not run (ADR-005) or no
-/// supported-language file produced call edges — never "zero calls".
-/// `resolution_rate` counts same-file callees as resolved.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
-pub struct CallGraphReport {
-    pub resolution_rate: f64,
-    pub edges_resolved: usize,
-    pub edges_same_file: usize,
-    pub edges_unresolved: usize,
-    /// The trust floor `resolution_rate` was checked against — lets a
-    /// reader tell "no hubs exist" apart from "hubs were suppressed below
-    /// this threshold" instead of guessing from an empty list alone.
-    pub call_resolution_floor: f64,
-    /// Top functions by distinct-caller in-degree (barrel-chased), empty
-    /// when the resolution rate sits below the configured trust floor.
-    pub function_hubs: Vec<FunctionHub>,
-}
-
-/// One function-hub row: a call target and how many distinct functions
-/// call it through resolved (or same-file) edges.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
-pub struct FunctionHub {
-    pub path: String,
-    pub name: String,
-    pub resolved_in_degree: usize,
-}
-
-/// Per-kind Pressman coupling finding counts for one analysis run.
-/// `None` on the report means detection did not run (e.g. backfill's
-/// ADR-005 snapshot) — distinct from all-zero, which means "clean".
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
-#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
-pub struct CouplingFindingCounts {
-    pub content: usize,
-    pub common: usize,
-    pub inheritance: usize,
-    pub control: usize,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct HistoryCounts {
@@ -425,68 +366,6 @@ pub struct HistoryEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "export-types", ts(optional))]
     pub source: Option<String>,
-}
-
-/// Minimum score (inclusive) for the "good" band.
-pub const SCORE_GOOD_MIN: u32 = 71;
-/// Minimum score (inclusive) for the "warn" band; below is "danger".
-pub const SCORE_WARN_MIN: u32 = 41;
-
-/// Qualitative band for a 0–100 score. Single source of truth for every
-/// renderer (CLI colors, HTML report, dashboard) — renderers must not
-/// re-derive thresholds.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ScoreBand {
-    Good,
-    Warn,
-    Danger,
-}
-
-pub fn score_band(score: u32) -> ScoreBand {
-    match score {
-        s if s >= SCORE_GOOD_MIN => ScoreBand::Good,
-        s if s >= SCORE_WARN_MIN => ScoreBand::Warn,
-        _ => ScoreBand::Danger,
-    }
-}
-
-/// Band thresholds serialized into every report so JS/TS consumers read the
-/// verdict boundaries instead of hardcoding them.
-#[derive(Debug, Clone, Serialize)]
-#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
-pub struct ScoreThresholds {
-    pub good_min: u32,
-    pub warn_min: u32,
-}
-
-impl Default for ScoreThresholds {
-    fn default() -> Self {
-        Self {
-            good_min: SCORE_GOOD_MIN,
-            warn_min: SCORE_WARN_MIN,
-        }
-    }
-}
-
-#[cfg(test)]
-mod band_tests {
-    use super::*;
-
-    #[test]
-    fn band_boundaries_match_documented_thresholds() {
-        assert_eq!(score_band(100), ScoreBand::Good);
-        assert_eq!(score_band(SCORE_GOOD_MIN), ScoreBand::Good);
-        assert_eq!(score_band(SCORE_GOOD_MIN - 1), ScoreBand::Warn);
-        assert_eq!(score_band(SCORE_WARN_MIN), ScoreBand::Warn);
-        assert_eq!(score_band(SCORE_WARN_MIN - 1), ScoreBand::Danger);
-        assert_eq!(score_band(0), ScoreBand::Danger);
-    }
-
-    #[test]
-    fn default_thresholds_serialize_for_consumers() {
-        let json = serde_json::to_string(&ScoreThresholds::default()).unwrap();
-        assert_eq!(json, r#"{"good_min":71,"warn_min":41}"#);
-    }
 }
 
 #[cfg(test)]

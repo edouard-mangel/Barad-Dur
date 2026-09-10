@@ -5,10 +5,11 @@ use crate::cache;
 use crate::cli::GateArgs;
 use crate::collector::Collector;
 use crate::config;
+use crate::metrics::coupling::CouplingFindingCounts;
 use crate::metrics::CategoryResult;
 use crate::metrics::{coupling, evolution, health, hygiene, team};
 use crate::runner::{self, CollectOptions};
-use crate::scorer::{self, AnalysisReport, CouplingFindingCounts};
+use crate::scorer::{self, AnalysisReport};
 use crate::snapshot::{CouplingFinding, TimeWindow};
 use crate::trend::{self, VelocityDirection};
 

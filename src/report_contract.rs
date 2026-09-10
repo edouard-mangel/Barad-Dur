@@ -6,15 +6,18 @@ use anyhow::{bail, Context, Result};
 use ts_rs::{Config, TS};
 
 use crate::deps::{DepAge, DepTier, Ecosystem, EcosystemReport, Vuln};
+use crate::metrics::callgraph::{CallGraphReport, FunctionHub};
+use crate::metrics::churn::{ChurnBucket, ChurnTimelineReport};
+use crate::metrics::coupling::CouplingFindingCounts;
 use crate::metrics::file_role::FileRole;
 use crate::metrics::{CategoryResult, MetricValue, RawValue};
 use crate::scorer::{
-    ActionItem, AnalysisReport, AuditReport, AuthorCard, AuthorShare, CallGraphReport, ChurnBucket,
-    ChurnTimelineReport, CouplingFindingCounts, CouplingPair, CouplingTrend, CrisisFile, DeadFile,
-    DirConcentration, EntityTrendDirection, FileAge, FileCouplingMetrics, FileOwnership,
-    FunctionHub, HistoryCounts, HistoryEntry, HotspotFile, ImportEdge, LongMethodThresholds,
-    RemoteMeta, ScoreThresholds, VelocityBucket, HISTORY_SCHEMA_VERSION,
+    ActionItem, AnalysisReport, AuditReport, AuthorCard, AuthorShare, CouplingPair, CouplingTrend,
+    CrisisFile, DeadFile, DirConcentration, EntityTrendDirection, FileAge, FileCouplingMetrics,
+    FileOwnership, HistoryCounts, HistoryEntry, HotspotFile, ImportEdge, LongMethodThresholds,
+    RemoteMeta, VelocityBucket, HISTORY_SCHEMA_VERSION,
 };
+use crate::scoring::ScoreThresholds;
 
 pub fn export_report_types(output: &Path) -> Result<()> {
     let generated =

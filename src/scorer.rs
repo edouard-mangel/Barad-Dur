@@ -5,6 +5,10 @@ mod builders;
 mod report_contract_tests;
 mod types;
 
+pub use crate::metrics::callgraph::{CallGraphReport, FunctionHub};
+pub use crate::metrics::churn::{ChurnBucket, ChurnTimelineReport};
+pub use crate::metrics::coupling::CouplingFindingCounts;
+pub use crate::scoring::{score_band, ScoreBand, ScoreThresholds, SCORE_GOOD_MIN, SCORE_WARN_MIN};
 pub use actions::compute_overall_score_with_weights;
 pub use types::*;
 
@@ -137,6 +141,31 @@ mod tests {
         ("Git Hygiene", 0.20),
         ("Coupling", 0.20),
     ];
+
+    #[test]
+    fn moved_types_remain_available_from_scorer() {
+        let call_graph: Option<crate::metrics::callgraph::CallGraphReport> =
+            None::<crate::scorer::CallGraphReport>;
+        let churn: Option<crate::metrics::churn::ChurnTimelineReport> =
+            None::<crate::scorer::ChurnTimelineReport>;
+        let counts: Option<crate::metrics::coupling::CouplingFindingCounts> =
+            None::<crate::scorer::CouplingFindingCounts>;
+        let thresholds: Option<crate::scoring::ScoreThresholds> =
+            None::<crate::scorer::ScoreThresholds>;
+
+        assert!(call_graph.is_none());
+        assert!(churn.is_none());
+        assert!(counts.is_none());
+        assert!(thresholds.is_none());
+        assert_eq!(
+            crate::scorer::SCORE_GOOD_MIN,
+            crate::scoring::SCORE_GOOD_MIN
+        );
+        assert_eq!(
+            crate::scorer::score_band(71),
+            crate::scoring::ScoreBand::Good
+        );
+    }
 
     fn make_category(name: &str, score: u32) -> CategoryResult {
         CategoryResult {
@@ -723,7 +752,7 @@ mod tests {
         let report = report_with_detection();
         assert_eq!(
             report.coupling_finding_counts,
-            Some(crate::scorer::CouplingFindingCounts {
+            Some(crate::metrics::coupling::CouplingFindingCounts {
                 content: 0,
                 common: 0,
                 inheritance: 0,
