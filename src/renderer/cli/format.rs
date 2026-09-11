@@ -1,4 +1,4 @@
-use crate::scorer::{score_band, ScoreBand};
+use crate::scoring::{score_band, ScoreBand};
 use colored::Colorize;
 
 pub(crate) fn colorize_by_score(s: &str, score: u32) -> colored::ColoredString {
@@ -63,7 +63,7 @@ pub(crate) fn direction_word(direction: &crate::trend::VelocityDirection) -> &'s
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scorer::{SCORE_GOOD_MIN, SCORE_WARN_MIN};
+    use crate::scoring::{SCORE_GOOD_MIN, SCORE_WARN_MIN};
     use colored::Color;
 
     #[test]

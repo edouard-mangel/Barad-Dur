@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use chrono::{Datelike, NaiveDate, Utc};
+use chrono::{Datelike, NaiveDate};
 
 use crate::snapshot::{CommitId, RepoSnapshot};
 
@@ -18,11 +18,14 @@ const CRISIS_KEYWORDS: &[&str] = &[
     "crash",
 ];
 
-pub fn build_audit_report(snapshot: &RepoSnapshot) -> AuditReport {
+pub fn build_audit_report(
+    reference_time: chrono::DateTime<chrono::Utc>,
+    snapshot: &RepoSnapshot,
+) -> AuditReport {
     AuditReport {
         crisis_files: build_crisis_files(snapshot),
         dir_concentration: build_dir_concentration(snapshot),
-        dead_files: build_dead_files(snapshot),
+        dead_files: build_dead_files(reference_time, snapshot),
         velocity_buckets: build_velocity_buckets(snapshot),
     }
 }
@@ -107,9 +110,10 @@ fn build_dir_concentration(snapshot: &RepoSnapshot) -> Vec<DirConcentration> {
     dirs
 }
 
-fn build_dead_files(snapshot: &RepoSnapshot) -> Vec<DeadFile> {
-    let now = Utc::now();
-
+fn build_dead_files(
+    reference_time: chrono::DateTime<chrono::Utc>,
+    snapshot: &RepoSnapshot,
+) -> Vec<DeadFile> {
     let mut files: Vec<DeadFile> = snapshot
         .commits_by_file
         .iter()
@@ -130,7 +134,7 @@ fn build_dead_files(snapshot: &RepoSnapshot) -> Vec<DeadFile> {
                 })
                 .max()?;
 
-            let days = (now - last_ts).num_days();
+            let days = (reference_time - last_ts).num_days();
             if days <= 180 {
                 return None;
             }
@@ -191,6 +195,41 @@ mod tests {
         )
     }
 
+    #[test]
+    fn dead_files_fixed_reference_requires_181_whole_days_and_resolved_low_churn() {
+        use chrono::{Duration, TimeZone, Utc};
+        let reference = Utc.with_ymd_and_hms(2026, 9, 10, 0, 0, 1).unwrap();
+        for (age, expected) in [
+            (Duration::days(180) - Duration::seconds(1), false),
+            (Duration::days(180), false),
+            (Duration::days(180) + Duration::seconds(1), false),
+            (Duration::days(181) - Duration::seconds(1), false),
+            (Duration::days(181), true),
+            (Duration::days(181) + Duration::seconds(1), true),
+            (Duration::seconds(2), false),
+            (Duration::days(-200), false),
+        ] {
+            let mut snapshot = empty_snapshot();
+            snapshot.commits = vec![make_commit(0, 0, reference - age, "change")];
+            snapshot
+                .commits_by_file
+                .insert("one.rs".into(), vec![CommitId(0)]);
+            snapshot
+                .commits_by_file
+                .insert("many.rs".into(), vec![CommitId(0), CommitId(0)]);
+            snapshot
+                .commits_by_file
+                .insert("unknown.rs".into(), vec![CommitId(99)]);
+            snapshot.commits_by_file.insert("empty.rs".into(), vec![]);
+            let dead = build_dead_files(reference, &snapshot);
+            assert_eq!(dead.len(), usize::from(expected), "age {age}");
+            if expected {
+                assert_eq!(dead[0].path, "one.rs");
+                assert_eq!(dead[0].days_since_modified, 181);
+            }
+        }
+    }
+
     fn make_commit(id: u32, author: usize, ts: chrono::DateTime<chrono::Utc>, msg: &str) -> Commit {
         Commit {
             id: CommitId(id),
@@ -206,7 +245,7 @@ mod tests {
     #[test]
     fn empty_snapshot_returns_empty_audit() {
         let snap = empty_snapshot();
-        let report = build_audit_report(&snap);
+        let report = build_audit_report(chrono::Utc::now(), &snap);
         assert!(report.crisis_files.is_empty());
         assert!(report.dir_concentration.is_empty());
         assert!(report.dead_files.is_empty());
@@ -246,7 +285,7 @@ mod tests {
         snap.commits_by_file
             .insert(path, vec![CommitId(0), CommitId(1)]);
 
-        let report = build_audit_report(&snap);
+        let report = build_audit_report(chrono::Utc::now(), &snap);
         assert_eq!(report.crisis_files.len(), 1);
         let cf = &report.crisis_files[0];
         assert_eq!(cf.crisis_commit_count, 1);
@@ -344,7 +383,7 @@ mod tests {
         snap.commits_by_file
             .insert(std::path::PathBuf::from("new.rs"), vec![CommitId(1)]);
 
-        let dead = build_dead_files(&snap);
+        let dead = build_dead_files(chrono::Utc::now(), &snap);
         assert_eq!(dead.len(), 1);
         assert_eq!(dead[0].path, "old.rs");
     }
@@ -356,7 +395,7 @@ mod tests {
         snap.commits_by_file
             .insert("orphaned.rs".into(), vec![CommitId(99)]);
 
-        let dead = build_dead_files(&snap);
+        let dead = build_dead_files(chrono::Utc::now(), &snap);
         assert!(
             dead.is_empty(),
             "file referencing an unknown CommitId must be silently skipped"
@@ -651,7 +690,7 @@ mod tests {
         snap.commits_by_file
             .insert("active.rs".into(), vec![CommitId(0), CommitId(1)]);
 
-        let dead = build_dead_files(&snap);
+        let dead = build_dead_files(chrono::Utc::now(), &snap);
         assert!(
             dead.is_empty(),
             "churn=2 file must not be classified as dead"
@@ -669,7 +708,7 @@ mod tests {
         snap.commits_by_file
             .insert("boundary.rs".into(), vec![CommitId(0)]);
 
-        let dead = build_dead_files(&snap);
+        let dead = build_dead_files(chrono::Utc::now(), &snap);
         assert!(
             dead.is_empty(),
             "exactly 180 days must NOT be dead (threshold is strictly > 180)"
@@ -694,7 +733,7 @@ mod tests {
         snap.commits_by_file
             .insert("stale.rs".into(), vec![CommitId(1)]);
 
-        let dead = build_dead_files(&snap);
+        let dead = build_dead_files(chrono::Utc::now(), &snap);
         assert_eq!(dead.len(), 2);
         assert!(
             dead[0].days_since_modified > dead[1].days_since_modified,

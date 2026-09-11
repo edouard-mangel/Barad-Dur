@@ -15,6 +15,7 @@ use crate::snapshot::RepoSnapshot;
 use crate::trend;
 
 pub fn run_analyze(args: AnalyzeArgs) -> Result<()> {
+    let reference_time = chrono::Utc::now();
     use anyhow::bail;
     use std::io::IsTerminal;
 
@@ -34,7 +35,7 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<()> {
     let cfg = config::merge_with_cli(cfg, &args);
     config::validate(&cfg)?;
 
-    let time_window = runner::build_time_window_from_config(&cfg, &args);
+    let time_window = runner::build_time_window_from_config(reference_time, &cfg, &args);
     let collector = Collector::open(&local_path, time_window)?;
 
     // Warn about shallow clones
@@ -84,6 +85,7 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<()> {
     // Compute selected metrics
     let t = std::time::Instant::now();
     let mut categories = compute_selected_metrics(
+        reference_time,
         &snapshot,
         &args,
         &cfg,
@@ -109,6 +111,7 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<()> {
     }
     let weight_pairs = cfg_weights.as_weight_pairs();
     let mut report = scorer::build_report(
+        reference_time,
         &snapshot,
         categories,
         remote_meta,
@@ -153,7 +156,8 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<()> {
         &entity_history,
     );
 
-    let trend_summary = compute_trend_and_update_history(&mut report, &local_path, &current_head);
+    let trend_summary =
+        compute_trend_and_update_history(reference_time, &mut report, &local_path, &current_head);
 
     render_and_write(&report, &args, &cfg, &trend_summary, &local_path)?;
 
@@ -245,6 +249,7 @@ fn load_dep_reports(
 /// Load prior history, compute the trend summary, append the current entry,
 /// and populate `report.history` for the HTML Trends tab.
 pub fn compute_trend_and_update_history(
+    reference_time: chrono::DateTime<chrono::Utc>,
     report: &mut AnalysisReport,
     local_path: &Path,
     current_head: &str,
@@ -262,7 +267,7 @@ pub fn compute_trend_and_update_history(
         println!("{}", warning);
     }
 
-    let history_entry = scorer::build_history_entry(report, current_head, None);
+    let history_entry = scorer::build_history_entry(reference_time, report, current_head, None);
     let trend_summary = trend::compute_trend(&prior_history, &report.branch, &history_entry);
 
     if let Err(e) = cache::history::append_if_new_head(&history_entry, local_path) {
@@ -338,6 +343,7 @@ pub fn render_and_write(
 }
 
 pub fn compute_selected_metrics(
+    reference_time: chrono::DateTime<chrono::Utc>,
     snapshot: &RepoSnapshot,
     args: &AnalyzeArgs,
     cfg: &RepoConfig,
@@ -364,6 +370,7 @@ pub fn compute_selected_metrics(
     }
     if args.should_run("evolution") {
         categories.push(evolution::compute_evolution(
+            reference_time,
             snapshot,
             &cfg.thresholds.evolution,
         ));

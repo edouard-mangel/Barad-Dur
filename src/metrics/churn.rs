@@ -7,8 +7,10 @@
 use chrono::NaiveDate;
 use std::collections::BTreeMap;
 
-use crate::scorer::{ChurnBucket, ChurnTimelineReport};
 use crate::snapshot::RepoSnapshot;
+
+mod types;
+pub use types::{ChurnBucket, ChurnTimelineReport};
 
 /// Build the report's `churn_timeline` section. `None` when the window
 /// holds no non-merge commits — no shape to report.

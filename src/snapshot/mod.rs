@@ -264,16 +264,19 @@ pub struct TimeWindow {
 
 impl Default for TimeWindow {
     fn default() -> Self {
-        let now = Utc::now();
-        TimeWindow {
-            since: Some(now - Duration::days(180)),
-            until: Some(now),
-            default_months: 6,
-        }
+        Self::at(Utc::now())
     }
 }
 
 impl TimeWindow {
+    /// The inclusive default 180-day evidence window at an invocation's reference time.
+    pub fn at(reference_time: DateTime<Utc>) -> Self {
+        TimeWindow {
+            since: Some(reference_time - Duration::days(180)),
+            until: Some(reference_time),
+            default_months: 6,
+        }
+    }
     pub fn full_history() -> Self {
         TimeWindow {
             since: None,

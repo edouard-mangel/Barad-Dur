@@ -835,7 +835,7 @@ They are never hardcoded in the renderer.
 </div>
 
 <!--
-The band thresholds live in scorer/types.rs and are serialised into every
+The band thresholds live in src/scoring.rs and are serialised into every
 report. The renderer reads them from the report — it never hardcodes 71 or 41.
 This means you can tune them and the HTML report will reflect your thresholds
 automatically.

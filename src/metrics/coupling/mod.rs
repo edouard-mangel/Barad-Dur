@@ -1,8 +1,10 @@
 mod community;
 mod inheritance;
 mod test_safety_net;
+mod types;
 pub(crate) use inheritance::inheritance_findings;
 pub(crate) use test_safety_net::test_safety_net;
+pub use types::CouplingFindingCounts;
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -11,7 +13,6 @@ use crate::config::CouplingThresholds;
 use crate::metrics::complexity::{detect_language, import_query};
 use crate::metrics::file_role::{classify, FileRole};
 use crate::metrics::{median, score_prevalence, CategoryResult, MetricValue, RawValue};
-use crate::scorer::CouplingFindingCounts;
 use crate::snapshot::{CouplingFinding, CouplingKind, RepoSnapshot};
 
 /// path → (first-half partners, second-half partners) for files whose
@@ -872,11 +873,11 @@ pub(crate) fn barrel_bypass_findings(
 }
 
 /// Category score ceiling applied when a critical/major Pressman finding is
-/// present. Derived from `SCORE_GOOD_MIN` (scorer/types.rs — the single
+/// present. Derived from `SCORE_GOOD_MIN` (scoring.rs — the single
 /// source of truth for score-band thresholds; the CLAUDE.md project rule is
 /// that band thresholds are never re-hardcoded) rather than a bare literal,
 /// so the cap tracks the "good" band boundary if it ever moves.
-const SEVERITY_CAP: u32 = crate::scorer::SCORE_GOOD_MIN - 1;
+const SEVERITY_CAP: u32 = crate::scoring::SCORE_GOOD_MIN - 1;
 
 /// Cap triggers derive from the band table itself: Content triggers on any
 /// finding (its count-1 band), Common on its 4+ band. Re-tuning

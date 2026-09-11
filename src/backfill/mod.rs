@@ -19,6 +19,7 @@ use crate::snapshot::TimeWindow;
 // per-sample complexity, and it's the same cost `analyze`/`gate` already
 // pay on every normal invocation, amortized across `sample_count` points.
 pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
+    let reference_time = chrono::Utc::now();
     let cfg = config::load(repo_path)?;
     config::validate(&cfg)?;
     let sample_count = cfg.backfill.sample_count as usize;
@@ -108,13 +109,14 @@ pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
         let categories = vec![
             health::compute_health(&snapshot, &cfg.thresholds.health, &flagged_god_objects),
             team::compute_team(&snapshot, &cfg.thresholds.team, &cfg.thresholds.coupling),
-            evolution::compute_evolution(&snapshot, &cfg.thresholds.evolution),
+            evolution::compute_evolution(reference_time, &snapshot, &cfg.thresholds.evolution),
             hygiene::compute_hygiene(&snapshot, &cfg.thresholds.hygiene),
         ];
 
         // Backfill keeps only scores from the report — skip the coupling
         // reach computation whose hotspot annotations it would discard.
         let report = scorer::build_report(
+            reference_time,
             &snapshot,
             categories,
             None,
@@ -123,18 +125,16 @@ pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
             &flagged_god_objects,
             &Default::default(),
         );
-        let mut entry = scorer::build_history_entry(&report, sha, Some("backfill".to_string()));
-
         // Use the commit's actual timestamp instead of "now" so the trend
         // chart spaces backfill points by their real dates.
         let commit_ts = snapshot
             .commits
             .iter()
             .find(|c| snapshot.resolve_commit(c.id) == sha.as_str())
-            .map(|c| c.timestamp);
-        if let Some(ts) = commit_ts {
-            entry.timestamp = ts;
-        }
+            .map(|c| c.timestamp)
+            .unwrap_or(reference_time);
+        let entry =
+            scorer::build_history_entry(commit_ts, &report, sha, Some("backfill".to_string()));
 
         if needs_trend_entry {
             history::append_if_new_head(&entry, repo_path)?;

@@ -8,8 +8,10 @@ use std::path::PathBuf;
 
 use crate::config::HealthThresholds;
 use crate::metrics::reexport::{chase_named, reexport_index, resolve_symbol};
-use crate::scorer::{CallGraphReport, FunctionHub};
 use crate::snapshot::{CalleeRef, RepoSnapshot};
+
+mod types;
+pub use types::{CallGraphReport, FunctionHub};
 
 /// Build the report's `call_graph` section. `None` means "no call data" —
 /// either the AST pass did not run (ADR-005 backfill snapshot) or no file

@@ -1,18 +1,20 @@
 use std::collections::HashMap;
 
+#[cfg(test)]
 use chrono::Utc;
 
 use crate::metrics::{CategoryResult, MetricValue, RawValue};
 use crate::snapshot::{ChangeType, RepoSnapshot};
 
 pub fn compute_evolution(
+    reference_time: chrono::DateTime<chrono::Utc>,
     snapshot: &RepoSnapshot,
     thresholds: &crate::config::EvolutionThresholds,
 ) -> CategoryResult {
     let metrics = vec![
         growth_trend(snapshot, thresholds),
         refactoring_ratio(snapshot, thresholds),
-        code_age(snapshot, thresholds),
+        code_age(reference_time, snapshot, thresholds),
         commit_cadence(snapshot, thresholds),
         growth_balance(snapshot),
     ];
@@ -209,6 +211,7 @@ fn age_description(_age_months: f64) -> &'static str {
 
 /// Median age of code based on blame timestamps.
 fn code_age(
+    reference_time: chrono::DateTime<chrono::Utc>,
     snapshot: &RepoSnapshot,
     _thresholds: &crate::config::EvolutionThresholds,
 ) -> MetricValue {
@@ -240,8 +243,7 @@ fn code_age(
         })
         .map(|&(ts, _)| ts)
         .unwrap_or(weighted[0].0);
-    let now = Utc::now();
-    let age_days = (now - median).num_days();
+    let age_days = (reference_time - median).num_days();
     let age_months = age_days as f64 / 30.0;
 
     let description = if age_months > 12.0 {
