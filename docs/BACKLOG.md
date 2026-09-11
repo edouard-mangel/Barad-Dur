@@ -292,3 +292,95 @@ the boundary so the renderer can break the sparkline. History is derived
 entries are a stale computation, not a record. Keeping them buys nothing
 over a re-backfill and pays for it with a renderer that must reason about
 two scoring regimes at once.
+
+### End-of-life map — dependencies, language runtime, framework
+
+**Priority**: Medium
+**Depends on**: the deps category (`src/registry/`, `src/collector/deps.rs`)
+
+Two layers, one question: what here is past upstream support?
+
+- **Dependencies.** The deps category already measures libyear drift and CVEs,
+  neither of which answers "is this release still supported". A dependency can
+  be current-ish and CVE-free while its major line is unmaintained.
+- **Runtime and framework.** The socle itself — Rust edition and toolchain,
+  Node `engines`, `<TargetFramework>`, `python_requires`, and the framework
+  pinned in the manifest. Report the version in use and its status: actively
+  maintained, supported until a date, or ended.
+
+The language detection in `src/collector/` maps extension → tree-sitter grammar
+for complexity; it does not carry a version. Versions live in manifests, so this
+is manifest parsing (see the "Richer manifest parsing" idea in `Ideas.md`, where
+`engines` is already listed as unmined signal), not a collector change.
+
+Open question: support windows come from an external dataset (endoflife.date or
+equivalent). That means a second network dependency with the same caching and
+offline-degradation questions `src/registry/` already answers for OSV — reuse
+that 7-day cache pattern rather than inventing a second one.
+
+### Per-commit score gate against a baseline ref
+
+**Priority**: Medium
+**Depends on**: nothing; the baseline plumbing exists
+
+`gate` has two mechanisms and neither compares two commits:
+
+- `--max-decline` (`src/cli/mod.rs`) compares against prior *runs* on the branch
+  via `trends.json`, averaged over the last 8. A single regressing commit hides
+  inside the average.
+- `--no-new-coupling` / `--max-new-coupling` do exactly the right gesture — a
+  ratchet against `--baseline-ref` — but only over Pressman coupling findings.
+
+So the work is extending that ratchet from coupling findings to the score.
+
+Two things the coupling flags already got right and this must inherit: baseline
+at the *merge base* (`$CI_MERGE_REQUEST_DIFF_BASE_SHA`), not the parent commit,
+so the gate is immune to the target branch moving; and a cost check, since
+analysing two refs in one job means two collections — the snapshot cache is
+keyed on HEAD, so the second pass leans on `blame_cache.bin` or `--skip-blame`
+to stay viable in CI.
+
+### Analysis data in a dedicated repository
+
+**Priority**: Medium
+**Depends on**: nothing
+
+Move `.repository-analysis/` out of the analyzed repo so a repo can be scored
+without being written to. Unblocks two things at once: the multi-repo dashboard
+needs somewhere to aggregate per-repo history, and `src/remote/` currently
+discards everything it computes because the temp clone dies with the run.
+
+The split to decide first: `snapshot.bin` and `blame_cache.bin` are invalidable
+cache (keyed on HEAD + time window + exclusion fingerprint), while `trends.json`
+is the only artifact that cannot be recomputed from the current working tree.
+Different storage needs — versioned history for the latter, ordinary cache for
+the former — so "store the directory elsewhere" is likely the wrong granularity.
+
+### Separate repository analysis from scoring
+
+**Priority**: Medium
+**Depends on**: nothing
+
+Collection should produce facts; the scorer should own every judgement. The
+boundary is already half-drawn — `score_band` and `ScoreThresholds`
+(`scorer/types.rs`) are defined once and serialized into each report so
+renderers and the dashboard never re-judge.
+
+The leak is upstream of the scorer: each `src/metrics/` function returns a
+`MetricValue` carrying an already-normalized 0–100 score, so normalization —
+a judgement — happens before the scorer sees it. A metric that returned its
+raw measurement and left banding to the scorer would make thresholds
+configurable in one place and keep the metric functions honestly pure.
+
+### `backfill` is broken
+
+**Priority**: High
+**Depends on**: a characterised repro
+
+Reported broken; the symptom is not yet written down. Nothing here should be
+taken as a diagnosis until someone records what was run, what was expected, and
+what happened — history walk producing no points, wrong points, a crash, or a
+regression against the version-aware `load_history_checked` path are all
+different bugs with different fixes.
+
+First step is a repro, not a patch.
