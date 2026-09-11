@@ -333,19 +333,22 @@
   /* The sortable, filterable hotspot table. Sort clicks mutate `state`
      and trigger `ui.rerender`. */
   function hsBuildTable(files, state, ui) {
+    var visibilityRules = [
+      function(f) { return !state.dismissed[f.path]; },
+      function(f) { return hsRoleMatches(f, state.roleFilter); },
+      function(f) {
+        return state.filterQuery ? f.path.toLowerCase().indexOf(state.filterQuery) !== -1 : true;
+      }
+    ];
     var visible = files.filter(function(f) {
-      if (state.dismissed[f.path]) return false;
-      if (!hsRoleMatches(f, state.roleFilter)) return false;
-      if (state.filterQuery && f.path.toLowerCase().indexOf(state.filterQuery) === -1) return false;
-      return true;
+      return visibilityRules.every(function(rule) { return rule(f); });
     });
+    var direction = state.sortAsc ? 1 : -1;
     var sorted = visible.slice().sort(function(a, b) {
-      var av = a[state.sortCol], bv = b[state.sortCol];
-      if (typeof av === 'string') av = av.toLowerCase();
-      if (typeof bv === 'string') bv = bv.toLowerCase();
-      if (av < bv) return state.sortAsc ? -1 : 1;
-      if (av > bv) return state.sortAsc ? 1 : -1;
-      return 0;
+      var values = [a[state.sortCol], b[state.sortCol]].map(function(value) {
+        return typeof value === 'string' ? value.toLowerCase() : value;
+      });
+      return direction * ((values[0] > values[1]) - (values[0] < values[1]));
     });
 
     var table = el('table');
@@ -353,16 +356,19 @@
     var tr = el('tr');
 
     function th(label, col, tip) {
-      var t = el('th', { className: 'th-sort' + (col === state.sortCol ? ' active-sort' : '') });
-      t.append(txt(label + (col === state.sortCol ? (state.sortAsc ? ' ▲' : ' ▼') : '')));
-      if (tip) {
-        var icon = tipIcon(tip);
+      var active = col === state.sortCol;
+      var arrows = { true: ' ▲', false: ' ▼' };
+      var t = el('th', { className: 'th-sort' + (active ? ' active-sort' : '') });
+      t.append(txt(label + (active ? arrows[String(state.sortAsc)] : '')));
+      [tip].filter(Boolean).forEach(function(text) {
+        var icon = tipIcon(text);
         // hovering explains, clicking should not also re-sort
         icon.addEventListener('click', function(ev) { ev.stopPropagation(); });
         t.append(icon);
-      }
+      });
       t.addEventListener('click', function() {
-        if (state.sortCol === col) { state.sortAsc = !state.sortAsc; } else { state.sortCol = col; state.sortAsc = false; }
+        state.sortAsc = state.sortCol === col ? !state.sortAsc : false;
+        state.sortCol = col;
         ui.rerender();
       });
       return t;
@@ -510,11 +516,11 @@
       var dot = scatter.querySelector('.hs-scatter-dot[data-path="' + CSS.escape(path) + '"]');
       if (!dot) {
         // File outside the initial render cap — plot its dot on demand
-        var match = files.find(function(x) { return x.path === path; });
-        if (match) {
-          dot = plot.makeDot(match);
-          scatter.append(dot);
-        }
+        [files.find(function(x) { return x.path === path; })].filter(Boolean).forEach(function(match) {
+          var addedDot = plot.makeDot(match);
+          scatter.append(addedDot);
+          dot = addedDot;
+        });
       }
       if (dot) dot.setAttribute('class', 'hs-scatter-dot active');
       var row = tableWrap.querySelector('tr[data-path="' + CSS.escape(path) + '"]');
@@ -524,13 +530,8 @@
 
     // Click scatter dot → highlight + scroll to matching table row
     scatter.addEventListener('click', function(e) {
-      var dot = e.target;
-      // Walk up for SVG elements (closest() unreliable on SVG)
-      while (dot && dot !== scatter) {
-        if (dot.classList && dot.classList.contains('hs-scatter-dot')) break;
-        dot = dot.parentNode;
-      }
-      if (!dot || dot === scatter) return;
+      var dot = e.target.closest('.hs-scatter-dot');
+      if (!dot) return;
       if (!selectHotspot(dot.getAttribute('data-path'))) return;
       var row = tableWrap.querySelector('.hs-row-highlight');
       if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -540,12 +541,8 @@
     // Delegated on tableWrap so it survives sort rebuilds; header rows carry
     // no data-path and fall through to their own sort handlers.
     tableWrap.addEventListener('click', function(e) {
-      var row = e.target;
-      while (row && row !== tableWrap) {
-        if (row.tagName === 'TR' && row.getAttribute('data-path')) break;
-        row = row.parentNode;
-      }
-      if (!row || row === tableWrap) return;
+      var row = e.target.closest('tr[data-path]');
+      if (!row) return;
       if (!selectHotspot(row.getAttribute('data-path'))) return;
       plot.card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
@@ -554,8 +551,10 @@
     registerFileFocus('hotspots', function(path) {
       // The focused file may be hidden by the role filter (e.g. a test file
       // under the default Code view) — widen to All before locating its row.
-      var target = files.find(function(x) { return x.path === path; });
-      if (target && !hsRoleMatches(target, state.roleFilter)) ui.setRoleFilter('all');
+      [files.find(function(x) { return x.path === path; })]
+        .filter(Boolean)
+        .filter(function(target) { return !hsRoleMatches(target, state.roleFilter); })
+        .forEach(function() { ui.setRoleFilter('all'); });
       if (state.selected !== path) selectHotspot(path);
       var row = tableWrap.querySelector('tr[data-path="' + CSS.escape(path) + '"]');
       if (!row) {

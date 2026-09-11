@@ -50,6 +50,13 @@ const CONVENTIONAL_PREFIXES: &[&str] = &[
     "revert(",
 ];
 
+fn score_for_first_match<const N: usize>(bands: [(bool, u32); N], fallback: u32) -> u32 {
+    bands
+        .into_iter()
+        .find_map(|(matches, score)| matches.then_some(score))
+        .unwrap_or(fallback)
+}
+
 /// Evaluate commit message quality.
 fn commit_message_quality(
     snapshot: &RepoSnapshot,
@@ -92,15 +99,14 @@ fn commit_message_quality(
     let quality_pct = (good as f64 / total as f64) * 100.0;
     let conventional_pct = (conventional as f64 / total as f64) * 100.0;
 
-    let score = if quality_pct > 80.0 {
-        90
-    } else if quality_pct > 60.0 {
-        70
-    } else if quality_pct > 40.0 {
-        50
-    } else {
-        30
-    };
+    let score = score_for_first_match(
+        [
+            (quality_pct > 80.0, 90),
+            (quality_pct > 60.0, 70),
+            (quality_pct > 40.0, 50),
+        ],
+        30,
+    );
 
     MetricValue {
         name: "Commit message quality".to_string(),
@@ -181,15 +187,14 @@ fn history_cleanliness(
 
     let issues = octopus_merges + empty_messages;
 
-    let score = if issues > 5 || merge_pct > 60.0 {
-        30
-    } else if issues > 2 || merge_pct > 40.0 {
-        55
-    } else if merge_pct > 20.0 {
-        75
-    } else {
-        90
-    };
+    let score = score_for_first_match(
+        [
+            (issues > 5 || merge_pct > 60.0, 30),
+            (issues > 2 || merge_pct > 40.0, 55),
+            (merge_pct > 20.0, 75),
+        ],
+        90,
+    );
 
     MetricValue {
         name: "History cleanliness".to_string(),
@@ -400,17 +405,15 @@ fn keyword_commit_ratio(
     let total = window_commits.len();
     let pct = (matched as f64 / total as f64) * 100.0;
 
-    let score = if pct < 2.0 {
-        90
-    } else if pct < 5.0 {
-        75
-    } else if pct < 10.0 {
-        55
-    } else if pct < 20.0 {
-        35
-    } else {
-        20
-    };
+    let score = score_for_first_match(
+        [
+            (pct < 2.0, 90),
+            (pct < 5.0, 75),
+            (pct < 10.0, 55),
+            (pct < 20.0, 35),
+        ],
+        20,
+    );
 
     MetricValue {
         name: metric_name.to_string(),
@@ -1451,5 +1454,155 @@ mod tests {
         ]);
         assert!(matches!(result.raw_value, RawValue::Count(0)));
         assert_eq!(result.score, Some(100));
+    }
+
+    // --- Boundary coverage for the three scoring ladders --------------------
+    //
+    // `score_for_first_match` turned these ladders into data, which makes a
+    // threshold easy to change and just as easy to get wrong. Mutation testing
+    // found every comparison in all three unpinned: 30 surviving mutants, a
+    // 38.8% kill rate, all of the form `>` -> `>=`/`==`/`<`, `<` -> `<=`, or
+    // `||` -> `&&`.
+    //
+    // Nothing was asserting a value sitting exactly ON a rung. Each ladder
+    // below therefore gets two probes per rung: one on the boundary, which must
+    // fall through to the next rung, and one past it, which must not.
+
+    fn commits_from_messages(messages: &[&str]) -> RepoSnapshot {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        let now = Utc::now();
+        for (i, message) in messages.iter().enumerate() {
+            snapshot.commits.push(Commit {
+                id: CommitId(i as u32),
+                author: 0,
+                timestamp: now - Duration::days(i as i64 + 1),
+                message: (*message).to_string(),
+                files_changed: vec![],
+                is_merge: false,
+                parent_count: 1,
+            });
+        }
+        snapshot
+    }
+
+    /// `good` well-formed messages then `bad` ones, so the quality percentage
+    /// is exactly `good / (good + bad) * 100`.
+    fn quality_snapshot(good: usize, bad: usize) -> RepoSnapshot {
+        let mut messages: Vec<&str> = Vec::new();
+        messages.resize(good, "Add login feature with OAuth support");
+        messages.resize(good + bad, "fix");
+        commits_from_messages(&messages)
+    }
+
+    #[test]
+    fn commit_message_quality_ladder_boundaries_fall_through() {
+        let thresholds = crate::config::HygieneThresholds::default();
+        for (good, bad, expected, why) in [
+            (5, 0, 90, "100% clears the 80 rung"),
+            (4, 1, 70, "exactly 80% falls to the 60 rung"),
+            (7, 3, 70, "70% clears the 60 rung"),
+            (3, 2, 50, "exactly 60% falls to the 40 rung"),
+            (5, 5, 50, "50% clears the 40 rung"),
+            (2, 3, 30, "exactly 40% falls to the default"),
+        ] {
+            let snapshot = quality_snapshot(good, bad);
+            let score = commit_message_quality(&snapshot, &thresholds).score;
+            assert_eq!(score, Some(expected), "{good} good / {bad} bad: {why}");
+        }
+    }
+
+    /// `merges` merge commits, `empty` blank-message commits (which is what
+    /// `issues` counts here), and `normal` ordinary ones. The merge percentage
+    /// is over the whole set, so every count matters to it.
+    fn history_snapshot(normal: usize, merges: usize, empty: usize) -> RepoSnapshot {
+        let mut snapshot = RepoSnapshot::new(
+            PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        let now = Utc::now();
+        let mut push = |i: usize, message: &str, is_merge: bool| {
+            snapshot.commits.push(Commit {
+                id: CommitId(i as u32),
+                author: 0,
+                timestamp: now - Duration::days(i as i64 + 1),
+                message: message.to_string(),
+                files_changed: vec![],
+                is_merge,
+                parent_count: if is_merge { 2 } else { 1 },
+            });
+        };
+        let mut i = 0;
+        for _ in 0..normal {
+            push(i, "Add a feature", false);
+            i += 1;
+        }
+        for _ in 0..merges {
+            push(i, "Merge branch 'x'", true);
+            i += 1;
+        }
+        for _ in 0..empty {
+            push(i, "   ", false);
+            i += 1;
+        }
+        snapshot
+    }
+
+    #[test]
+    fn history_cleanliness_ladder_boundaries_fall_through() {
+        let thresholds = crate::config::HygieneThresholds::default();
+        // (normal, merges, empty, expected, why)
+        for (normal, merges, empty, expected, why) in [
+            // The issues side of each rung, with no merges at all: the `||`
+            // has to fire on its left operand alone, which is what an `&&`
+            // mutant cannot do.
+            (4, 0, 6, 30, "6 issues clears the 5 rung on its own"),
+            (5, 0, 5, 55, "exactly 5 issues falls to the 2 rung"),
+            (7, 0, 3, 55, "3 issues clears the 2 rung on its own"),
+            (8, 0, 2, 90, "exactly 2 issues falls to the default"),
+            // The merge-percentage side, with no issues at all.
+            (3, 7, 0, 30, "70% merges clears the 60 rung on its own"),
+            (2, 3, 0, 55, "exactly 60% merges falls to the 40 rung"),
+            (3, 2, 0, 75, "exactly 40% merges falls to the 20 rung"),
+            (7, 3, 0, 75, "30% merges clears the 20 rung"),
+            (4, 1, 0, 90, "exactly 20% merges falls to the default"),
+        ] {
+            let snapshot = history_snapshot(normal, merges, empty);
+            let score = history_cleanliness(&snapshot, &thresholds).score;
+            assert_eq!(
+                score,
+                Some(expected),
+                "{normal} normal / {merges} merges / {empty} empty: {why}"
+            );
+        }
+    }
+
+    #[test]
+    fn keyword_commit_ratio_ladder_boundaries_do_not_round_down() {
+        // 100 commits so the percentage lands exactly on each rung.
+        for (matched, expected, why) in [
+            (1, 90, "1% stays under the 2 rung"),
+            (2, 75, "exactly 2% falls to the 5 rung"),
+            (5, 55, "exactly 5% falls to the 10 rung"),
+            (10, 35, "exactly 10% falls to the 20 rung"),
+            (20, 20, "exactly 20% falls to the default"),
+        ] {
+            let mut messages: Vec<&str> = Vec::new();
+            messages.resize(matched, "hotfix the thing");
+            messages.resize(100, "Add a feature");
+            let snapshot = commits_from_messages(&messages);
+
+            let score = keyword_commit_ratio(&snapshot, "Test ratio", &["hotfix"], |m, p, t| {
+                format!("{m}/{t} at {p:.0}%")
+            })
+            .score;
+            assert_eq!(score, Some(expected), "{matched}/100 matched: {why}");
+        }
     }
 }
