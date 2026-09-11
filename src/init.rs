@@ -179,10 +179,16 @@ fn generate_toml_inner(scan: &ScanResult, since: &str, format: &str, auto_open: 
             scan.distinct_authors
         ));
     }
-    out.push_str("health    = 30\n");
-    out.push_str("team      = 30\n");
-    out.push_str("evolution = 20\n");
-    out.push_str("hygiene   = 20\n\n");
+    let weights = crate::config::CategoryWeights::default();
+    out.push_str(&format!(
+        "health    = {}\nteam      = {}\nevolution = {}\nhygiene   = {}\ncoupling  = {}\ndeps      = {}\n\n",
+        weights.health,
+        weights.team,
+        weights.evolution,
+        weights.hygiene,
+        weights.coupling,
+        weights.deps,
+    ));
 
     // [thresholds]
     out.push_str("# ──────────────────────────────────────────────────\n");
@@ -330,9 +336,18 @@ fn run_advanced_wizard<R: BufRead>(reader: &mut R, scan: &ScanResult) -> Result<
     };
 
     // Q3: Weights
+    let weights = crate::config::CategoryWeights::default();
     let adjust_weights = prompt_yn(
         reader,
-        "Adjust category weights? (default: 30/30/20/20)",
+        &format!(
+            "Adjust category weights? (health={}, team={}, evolution={}, hygiene={}, coupling={}, deps={})",
+            weights.health,
+            weights.team,
+            weights.evolution,
+            weights.hygiene,
+            weights.coupling,
+            weights.deps,
+        ),
         false,
     );
     // For now, just use defaults if they don't want to adjust
@@ -700,6 +715,15 @@ mod tests {
         let (toml, write_ignore) = run_wizard(&mut input, &scan).unwrap();
         assert!(toml.contains("[analysis]"));
         assert!(write_ignore);
+    }
+
+    #[test]
+    fn initialized_config_passes_analysis_validation() {
+        let dir = temp_git_repo(&[("main.rs", "fn main() {}\n")]);
+        run_init(dir.path(), InitOptions::default()).unwrap();
+
+        let config = crate::config::load(dir.path()).unwrap();
+        crate::config::validate(&config).unwrap();
     }
 
     #[test]
