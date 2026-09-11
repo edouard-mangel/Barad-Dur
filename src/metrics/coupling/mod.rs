@@ -140,27 +140,35 @@ pub fn growing_coupling_reach(snapshot: &RepoSnapshot, min_partners: usize) -> C
     };
     let midpoint = min_ts + (max_ts - min_ts) / 2;
     let mut partners: [HashMap<&PathBuf, HashSet<&PathBuf>>; 2] = [HashMap::new(), HashMap::new()];
-    for c in &commits {
-        let half = usize::from(c.timestamp >= midpoint);
-        let files: Vec<&PathBuf> = c
-            .files_changed
-            .iter()
-            .filter_map(|fc| known.get(&fc.path).copied())
-            .collect();
-        if files.len() > MAX_CHANGESET_SIZE {
-            continue;
-        }
-        for i in 0..files.len() {
-            for j in i + 1..files.len() {
-                partners[half].entry(files[i]).or_default().insert(files[j]);
-                partners[half].entry(files[j]).or_default().insert(files[i]);
-            }
-        }
-    }
+    commits
+        .iter()
+        .filter_map(|commit| {
+            let half = usize::from(commit.timestamp >= midpoint);
+            let files: Vec<&PathBuf> = commit
+                .files_changed
+                .iter()
+                .filter_map(|change| known.get(&change.path).copied())
+                .collect();
+            (files.len() <= MAX_CHANGESET_SIZE).then_some((half, files))
+        })
+        .for_each(|(half, files)| {
+            files
+                .iter()
+                .enumerate()
+                .flat_map(|(index, path)| {
+                    files[index + 1..]
+                        .iter()
+                        .map(move |partner| (*path, *partner))
+                })
+                .for_each(|(path, partner)| {
+                    partners[half].entry(path).or_default().insert(partner);
+                    partners[half].entry(partner).or_default().insert(path);
+                });
+        });
     // A half without pair-forming activity is no baseline: raw commit
     // counts don't qualify (a half of only bulk sweeps or excluded-path
     // commits would fabricate a tree-wide 0 → N signal).
-    if partners[0].is_empty() || partners[1].is_empty() {
+    if partners.iter().any(HashMap::is_empty) {
         return std::collections::BTreeMap::new();
     }
     partners[1]
@@ -171,10 +179,14 @@ pub fn growing_coupling_reach(snapshot: &RepoSnapshot, min_partners: usize) -> C
             // `first >= 1`: a file with no first-half partners has no
             // baseline to have decayed from — new reach is not decay.
             // With that, `second >= first * 2` alone implies growth.
-            (first >= 1
-                && second >= min_partners
-                && second as f64 >= first as f64 * DECAY_GROWTH_FACTOR)
-                .then(|| ((*path).clone(), (first, second)))
+            [
+                first >= 1,
+                second >= min_partners,
+                second as f64 >= first as f64 * DECAY_GROWTH_FACTOR,
+            ]
+            .into_iter()
+            .all(|condition| condition)
+            .then(|| ((*path).clone(), (first, second)))
         })
         .collect()
 }
