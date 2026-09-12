@@ -6,21 +6,12 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use crate::metrics::complexity::{
-    self, RawBaseRef, RawCallEdge, RawCalleeRef, RawClassRecord, RawReExport, RawReExportKind,
-};
-use crate::snapshot::{
-    BaseRef, CallRecord, CalleeRef, ClassRecord, CouplingFinding, FileComplexity, FileEntry,
-    ReExportKind, ReExportRecord, RepoSnapshot, TimeWindow,
-};
+use crate::metrics::complexity;
+use crate::snapshot::{FileEntry, RepoSnapshot, TimeWindow};
 
-use super::composer::psr4_roots_from_tree;
 use super::ignore_file::{should_include, BaradDurIgnore};
-use super::import_resolver::{
-    index_import_files, resolve_imports, resolve_specifier, ImportFileIndex, RawImports,
-    RepoImportConfig,
-};
 use super::progress::{NoProgress, Progress};
+use super::source_assembly::{RawSourceChannels, ResolvedSourceChannels};
 use super::{Collector, CommitCollection, SnapshotOptions};
 
 /// Spinner for a fast phase; `None` when progress display is off.
@@ -113,39 +104,16 @@ fn announce_blame_plan(
     }
 }
 
-/// Working-tree AST pass output, pre-resolution: metrics plus raw imports,
-/// class records, re-exports, and call edges still keyed by unresolved
-/// specifiers.
-type RawAstOutput = (
-    HashMap<PathBuf, FileComplexity>,
-    RawImports,
-    Vec<CouplingFinding>,
-    HashMap<PathBuf, Vec<RawClassRecord>>,
-    HashMap<PathBuf, Vec<RawReExport>>,
-    HashMap<PathBuf, Vec<RawCallEdge>>,
-);
-
-/// Everything the AST pass produces for a baseline snapshot; `Default`
-/// gives the empty parts of an AST-less collection (ADR-005 backfill).
-type AstParts = (
-    HashMap<PathBuf, FileComplexity>,
-    HashMap<PathBuf, Vec<PathBuf>>,
-    // Specifiers extracted from files with a known-unreliable resolver.
-    usize,
-    Vec<CouplingFinding>,
-    Vec<ClassRecord>,
-    Vec<ReExportRecord>,
-    Vec<CallRecord>,
-);
-
 impl Collector {
     pub(super) fn collect_file_metrics_with_progress(
         &self,
         files: &[FileEntry],
         progress: &dyn Progress,
-    ) -> RawAstOutput {
+    ) -> RawSourceChannels {
         let root = self.repo_path();
-        let results: Vec<(PathBuf, complexity::SourceAnalysis)> = files
+        // Parallel read-and-parse; aggregation is shared with the
+        // historical reader and does not depend on completion order.
+        let analyses: Vec<(PathBuf, complexity::SourceAnalysis)> = files
             .par_iter()
             .filter(|entry| !entry.is_binary)
             .filter_map(|entry| {
@@ -156,37 +124,7 @@ impl Collector {
                 Some((entry.path.clone(), analysis))
             })
             .collect();
-        let mut file_metrics = HashMap::new();
-        let mut raw_imports = HashMap::new();
-        let mut coupling_findings = Vec::new();
-        let mut raw_classes = HashMap::new();
-        let mut raw_reexports = HashMap::new();
-        let mut raw_calls = HashMap::new();
-        for (path, analysis) in results {
-            file_metrics.insert(path.clone(), analysis.metrics);
-            if !analysis.imports.is_empty() {
-                raw_imports.insert(path.clone(), analysis.imports);
-            }
-            if !analysis.class_records.is_empty() {
-                raw_classes.insert(path.clone(), analysis.class_records);
-            }
-            if !analysis.call_edges.is_empty() {
-                raw_calls.insert(path.clone(), analysis.call_edges);
-            }
-            if !analysis.reexports.is_empty() {
-                raw_reexports.insert(path, analysis.reexports);
-            }
-            coupling_findings.extend(analysis.coupling_findings);
-        }
-        coupling_findings.sort_by(|a, b| (&a.path, a.line).cmp(&(&b.path, b.line)));
-        (
-            file_metrics,
-            raw_imports,
-            coupling_findings,
-            raw_classes,
-            raw_reexports,
-            raw_calls,
-        )
+        RawSourceChannels::aggregate(analyses)
     }
 
     /// Orchestrates the five collection phases; each phase manages its own
@@ -355,48 +293,22 @@ impl Collector {
         collection: CommitCollection,
         files: Vec<FileEntry>,
         blame_map: HashMap<PathBuf, Vec<crate::snapshot::BlameLine>>,
-        ast: RawAstOutput,
+        ast: RawSourceChannels,
     ) -> Result<RepoSnapshot> {
-        let (file_metrics, raw_imports, coupling_findings, raw_classes, raw_reexports, raw_calls) =
-            ast;
         let head = self.head_commit_hash()?;
         // Working-tree pass: manifests come from disk.
         let root = self.repo_path().to_path_buf();
-        let import_config = RepoImportConfig {
-            psr4: psr4_roots_from_tree(&files, |entry| {
-                std::fs::read_to_string(root.join(&entry.path)).ok()
-            }),
-        };
-        let unreliable_import_specifiers = count_unreliable_specifiers(&raw_imports);
-        let import_graph = resolve_imports(&raw_imports, &files, &import_config);
-        let class_records = resolve_class_records(raw_classes, &files);
-        let reexports = resolve_reexports(raw_reexports, &files);
-        let call_records = resolve_call_records(raw_calls, &files);
-        let mut snapshot = RepoSnapshot {
+        let resolved = ast.resolve(&files, |entry| {
+            std::fs::read_to_string(root.join(&entry.path)).ok()
+        });
+        let provenance = SnapshotProvenance {
             path: self.repo_path().to_path_buf(),
             name: self.repo_name(),
             default_branch: self.default_branch(),
             time_window: self.time_window.clone(),
             head_commit: head,
-            created_at: Utc::now(),
-            commits: collection.commits,
-            files,
-            authors: collection.authors,
-            blame_map,
-            commits_by_author: HashMap::new(),
-            commits_by_file: HashMap::new(),
-            file_change_pairs: Vec::new(),
-            file_metrics,
-            import_graph,
-            unreliable_import_specifiers,
-            coupling_findings,
-            class_records,
-            reexports,
-            call_records,
-            commit_interner: collection.interner,
         };
-        snapshot.build_indexes();
-        Ok(snapshot)
+        Ok(assemble(provenance, collection, files, blame_map, resolved))
     }
 
     /// Collect a snapshot at a specific commit SHA without touching the
@@ -424,7 +336,7 @@ impl Collector {
         use_default_excludes: bool,
     ) -> Result<RepoSnapshot> {
         Self::collect_snapshot_at_inner(repo_path, sha, ignore, use_default_excludes, |_, _| {
-            Ok(AstParts::default())
+            Ok(ResolvedSourceChannels::default())
         })
     }
 
@@ -445,7 +357,7 @@ impl Collector {
         sha: &str,
         ignore: &BaradDurIgnore,
         use_default_excludes: bool,
-        ast_pass: impl FnOnce(&git2::Repository, &[FileEntry]) -> Result<AstParts>,
+        ast_pass: impl FnOnce(&git2::Repository, &[FileEntry]) -> Result<ResolvedSourceChannels>,
     ) -> Result<RepoSnapshot> {
         let repo = git2::Repository::discover(repo_path)
             .with_context(|| format!("'{}' is not a git repository", repo_path.display()))?;
@@ -478,42 +390,64 @@ impl Collector {
             .and_then(|h| h.shorthand().ok().map(String::from))
             .unwrap_or_else(|| "main".to_string());
 
-        let (
-            file_metrics,
-            import_graph,
-            unreliable_import_specifiers,
-            coupling_findings,
-            class_records,
-            reexports,
-            call_records,
-        ) = ast_pass(&repo, &files)?;
-
-        let mut snapshot = RepoSnapshot {
+        let resolved = ast_pass(&repo, &files)?;
+        let provenance = SnapshotProvenance {
             path: repo_path.to_path_buf(),
             name: repo_name,
             default_branch: branch,
             time_window,
             head_commit: sha.to_string(),
-            created_at: Utc::now(),
-            commits: collection.commits,
-            files,
-            authors: collection.authors,
-            blame_map,
-            commits_by_author: HashMap::new(),
-            commits_by_file: HashMap::new(),
-            file_change_pairs: Vec::new(),
-            file_metrics,
-            import_graph,
-            unreliable_import_specifiers,
-            coupling_findings,
-            class_records,
-            reexports,
-            call_records,
-            commit_interner: collection.interner,
         };
-        snapshot.build_indexes();
-        Ok(snapshot)
+        Ok(assemble(provenance, collection, files, blame_map, resolved))
     }
+}
+
+/// What a reader knows about where a snapshot came from; the final
+/// assembly copies it verbatim and stamps `created_at` itself.
+struct SnapshotProvenance {
+    path: PathBuf,
+    name: String,
+    default_branch: String,
+    time_window: TimeWindow,
+    head_commit: String,
+}
+
+/// The one construction path for both readers: provenance, commit and
+/// author data, the exclusion-filtered file list, blame (empty when the
+/// reader skipped it), and the resolved source channels, with the derived
+/// indexes built once from that final core data.
+fn assemble(
+    provenance: SnapshotProvenance,
+    collection: CommitCollection,
+    files: Vec<FileEntry>,
+    blame_map: HashMap<PathBuf, Vec<crate::snapshot::BlameLine>>,
+    source: ResolvedSourceChannels,
+) -> RepoSnapshot {
+    let mut snapshot = RepoSnapshot {
+        path: provenance.path,
+        name: provenance.name,
+        default_branch: provenance.default_branch,
+        time_window: provenance.time_window,
+        head_commit: provenance.head_commit,
+        created_at: Utc::now(),
+        commits: collection.commits,
+        files,
+        authors: collection.authors,
+        blame_map,
+        commits_by_author: HashMap::new(),
+        commits_by_file: HashMap::new(),
+        file_change_pairs: Vec::new(),
+        file_metrics: source.file_metrics,
+        import_graph: source.import_graph,
+        unreliable_import_specifiers: source.unreliable_import_specifiers,
+        coupling_findings: source.coupling_findings,
+        class_records: source.class_records,
+        reexports: source.reexports,
+        call_records: source.call_records,
+        commit_interner: collection.interner,
+    };
+    snapshot.build_indexes();
+    snapshot
 }
 
 /// AST pass over blob contents at a historical commit — the object-DB
@@ -522,240 +456,34 @@ impl Collector {
 /// keeps this off per ADR-005. Runs sequentially (no rayon): baseline trees
 /// are collected once per gate run, not once per commit like backfill's
 /// historical sweep, so the parallelism isn't worth the added complexity here.
-fn ast_pass_at(repo: &git2::Repository, files: &[FileEntry]) -> Result<AstParts> {
-    let mut file_metrics = HashMap::new();
-    let mut raw_imports: RawImports = HashMap::new();
-    let mut coupling_findings = Vec::new();
-    let mut raw_classes: HashMap<PathBuf, Vec<RawClassRecord>> = HashMap::new();
-    let mut raw_reexports: HashMap<PathBuf, Vec<RawReExport>> = HashMap::new();
-    let mut raw_calls: HashMap<PathBuf, Vec<RawCallEdge>> = HashMap::new();
-    for entry in files.iter().filter(|f| !f.is_binary) {
-        let oid = match git2::Oid::from_str(&entry.blob_oid) {
-            Ok(o) => o,
-            Err(_) => continue,
-        };
-        let Ok(blob) = repo.find_blob(oid) else {
-            continue;
-        };
-        let Ok(content) = std::str::from_utf8(blob.content()) else {
-            continue;
-        };
-        let analysis = complexity::analyse_source(&entry.path, content);
-        file_metrics.insert(entry.path.clone(), analysis.metrics);
-        if !analysis.imports.is_empty() {
-            raw_imports.insert(entry.path.clone(), analysis.imports);
-        }
-        coupling_findings.extend(analysis.coupling_findings);
-        if !analysis.class_records.is_empty() {
-            raw_classes.insert(entry.path.clone(), analysis.class_records);
-        }
-        if !analysis.reexports.is_empty() {
-            raw_reexports.insert(entry.path.clone(), analysis.reexports);
-        }
-        if !analysis.call_edges.is_empty() {
-            raw_calls.insert(entry.path.clone(), analysis.call_edges);
-        }
-    }
-    coupling_findings.sort_by(|a, b| (&a.path, a.line).cmp(&(&b.path, b.line)));
+fn ast_pass_at(repo: &git2::Repository, files: &[FileEntry]) -> Result<ResolvedSourceChannels> {
+    // Bad object ids, missing blobs and non-UTF-8 content are skipped, not
+    // errors: a historical tree can legitimately hold what the working
+    // tree reader would also fail to read.
+    let blob_text = |entry: &FileEntry| -> Option<String> {
+        let oid = git2::Oid::from_str(&entry.blob_oid).ok()?;
+        let blob = repo.find_blob(oid).ok()?;
+        std::str::from_utf8(blob.content()).ok().map(str::to_owned)
+    };
+    let analyses = files
+        .iter()
+        .filter(|entry| !entry.is_binary)
+        .filter_map(|entry| {
+            let content = blob_text(entry)?;
+            Some((
+                entry.path.clone(),
+                complexity::analyse_source(&entry.path, &content),
+            ))
+        });
     // Historical pass: manifests must come from the tree AT THAT COMMIT.
     // Reading the working tree here would make gate baselines incomparable.
-    let import_config = RepoImportConfig {
-        psr4: psr4_roots_from_tree(files, |entry| {
-            let oid = git2::Oid::from_str(&entry.blob_oid).ok()?;
-            let blob = repo.find_blob(oid).ok()?;
-            std::str::from_utf8(blob.content()).ok().map(str::to_owned)
-        }),
-    };
-    let unreliable_import_specifiers = count_unreliable_specifiers(&raw_imports);
-    let import_graph = resolve_imports(&raw_imports, files, &import_config);
-    let class_records = resolve_class_records(raw_classes, files);
-    let reexports = resolve_reexports(raw_reexports, files);
-    let call_records = resolve_call_records(raw_calls, files);
-    Ok((
-        file_metrics,
-        import_graph,
-        unreliable_import_specifiers,
-        coupling_findings,
-        class_records,
-        reexports,
-        call_records,
-    ))
-}
-
-/// Shared skeleton of the three raw→snapshot resolvers: build the known
-/// file-set once, map every raw item (with `resolve_specifier` access via
-/// the known set), and sort deterministically. `map` returning `None`
-/// drops the item (re-exports drop unresolvable specifiers; the other
-/// resolvers never drop).
-fn resolve_against_files<R, T, K: Ord>(
-    raw: HashMap<PathBuf, Vec<R>>,
-    files: &[FileEntry],
-    map: impl Fn(&PathBuf, R, &ImportFileIndex<'_>) -> Option<T>,
-    sort_key: impl Fn(&T) -> K,
-) -> Vec<T> {
-    let known = index_import_files(files.iter().map(|f| &f.path));
-    let mut records: Vec<T> = raw
-        .into_iter()
-        .flat_map(|(path, items)| {
-            items
-                .into_iter()
-                .filter_map(|item| map(&path, item, &known))
-                .collect::<Vec<_>>()
-        })
-        .collect();
-    records.sort_by_key(sort_key);
-    records
-}
-
-/// Resolve raw re-export specifiers against the repo's file set, producing
-/// the snapshot's `reexports` (sorted by path). Unresolvable specifiers
-/// (external packages) are dropped — they can't lead to a project-local
-/// class record.
-fn resolve_reexports(
-    raw: HashMap<PathBuf, Vec<RawReExport>>,
-    files: &[FileEntry],
-) -> Vec<ReExportRecord> {
-    resolve_against_files(
-        raw,
-        files,
-        |path, r, known| {
-            let target =
-                resolve_specifier(&r.specifier, path, known, &RepoImportConfig::default())?;
-            let kind = match r.kind {
-                RawReExportKind::Named { exported, source } => {
-                    ReExportKind::Named { exported, source }
-                }
-                RawReExportKind::Star => ReExportKind::Star,
-            };
-            Some(ReExportRecord {
-                path: path.clone(),
-                target,
-                kind,
-            })
-        },
-        |r| (r.path.clone(), r.target.clone()),
-    )
-}
-
-/// Resolve raw call edges' import specifiers against the repo's file set,
-/// producing the snapshot's `call_records` (sorted by path, caller, callee).
-/// An unresolvable specifier (external package) becomes `Unresolved` —
-/// kept, never dropped, so unresolved calls stay countable (design §4).
-fn resolve_call_records(
-    raw: HashMap<PathBuf, Vec<RawCallEdge>>,
-    files: &[FileEntry],
-) -> Vec<CallRecord> {
-    resolve_against_files(
-        raw,
-        files,
-        |path, e, known| {
-            let callee = match e.callee {
-                RawCalleeRef::SameFile(name) => CalleeRef::SameFile(name),
-                RawCalleeRef::Unresolved { name } => CalleeRef::Unresolved { name },
-                RawCalleeRef::Specifier { specifier, name } => {
-                    match resolve_specifier(&specifier, path, known, &RepoImportConfig::default()) {
-                        Some(target) => CalleeRef::Resolved { path: target, name },
-                        None => CalleeRef::Unresolved { name },
-                    }
-                }
-            };
-            Some(CallRecord {
-                path: path.clone(),
-                caller: e.caller,
-                callee,
-                count: e.count,
-            })
-        },
-        |r| (r.path.clone(), r.caller.clone(), r.callee.clone()),
-    )
-}
-
-/// Count the specifiers that came from files whose resolver is known to be
-/// wrong. A zero here means every extracted specifier came from a resolver
-/// we trust, so an empty graph is evidence rather than a blind spot.
-fn count_unreliable_specifiers(raw_imports: &RawImports) -> usize {
-    raw_imports
-        .iter()
-        .filter(|(path, _)| {
-            path.extension()
-                .and_then(|ext| ext.to_str())
-                .is_some_and(super::resolver_is_unreliable)
-        })
-        .map(|(_, specifiers)| specifiers.len())
-        .sum()
-}
-
-/// Resolve raw class records' import specifiers against the repo's file
-/// set, producing the snapshot's `class_records` (sorted by path, line).
-fn resolve_class_records(
-    raw: HashMap<PathBuf, Vec<RawClassRecord>>,
-    files: &[FileEntry],
-) -> Vec<ClassRecord> {
-    resolve_against_files(
-        raw,
-        files,
-        |path, r, known| {
-            let base = match r.base {
-                RawBaseRef::SameFile(name) => BaseRef::SameFile(name),
-                RawBaseRef::Unresolvable => BaseRef::Unresolvable,
-                RawBaseRef::Specifier { specifier, name } => {
-                    match resolve_specifier(&specifier, path, known, &RepoImportConfig::default()) {
-                        Some(target) => BaseRef::Resolved { path: target, name },
-                        None => BaseRef::Unresolvable,
-                    }
-                }
-            };
-            Some(ClassRecord {
-                path: path.clone(),
-                line: r.line,
-                class_name: r.class_name,
-                base,
-            })
-        },
-        |r| (r.path.clone(), r.line),
-    )
+    Ok(RawSourceChannels::aggregate(analyses).resolve(files, blob_text))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::snapshot::TimeWindow;
-
-    #[test]
-    fn only_unreliable_resolvers_contribute_to_the_specifier_count() {
-        // The guard that blanks import metrics reads this number. Counting
-        // every specifier would let a working language's external-only
-        // imports trip it; counting none would let C# and Go score a
-        // perfect 100 on a repository nobody can measure.
-        let raw: RawImports = [
-            (
-                PathBuf::from("src/Domain.cs"),
-                vec!["System.Linq".to_string(), "Acme.Core".to_string()],
-            ),
-            (PathBuf::from("cmd/main.go"), vec!["fmt".to_string()]),
-            (
-                PathBuf::from("src/lib.rs"),
-                vec!["serde".to_string(), "std::fmt".to_string()],
-            ),
-            (PathBuf::from("src/app.ts"), vec!["react".to_string()]),
-        ]
-        .into_iter()
-        .collect();
-
-        assert_eq!(count_unreliable_specifiers(&raw), 3);
-    }
-
-    #[test]
-    fn a_repository_without_an_unreliable_resolver_counts_none() {
-        let raw: RawImports = [(
-            PathBuf::from("src/app.ts"),
-            vec!["react".to_string(), "./local".to_string()],
-        )]
-        .into_iter()
-        .collect();
-
-        assert_eq!(count_unreliable_specifiers(&raw), 0);
-    }
 
     fn test_repo_path() -> std::path::PathBuf {
         std::env::var("BARAD_DUR_TEST_REPO")
@@ -830,8 +558,9 @@ mod tests {
         // NoProgress is already imported at the top of snapshot_builder.rs
         // (`use super::progress::{NoProgress, Progress};`) and reaches the
         // tests module via `use super::*`.
-        let (_, _, findings, _, _, _) =
-            collector.collect_file_metrics_with_progress(&files, &NoProgress);
+        let findings = collector
+            .collect_file_metrics_with_progress(&files, &NoProgress)
+            .coupling_findings;
         // barad-dur's own code should produce a deterministic, sorted list
         let mut sorted = findings.clone();
         sorted.sort_by(|a, b| (&a.path, a.line).cmp(&(&b.path, b.line)));
@@ -1089,8 +818,11 @@ mod tests {
             ),
             entry("src/non_utf8.rs", non_utf8.to_string()),
         ];
-        let (metrics, _imports, _unreliable, findings, _classes, _reexports, _calls) =
-            ast_pass_at(&repo, &files).unwrap();
+        let ResolvedSourceChannels {
+            file_metrics: metrics,
+            coupling_findings: findings,
+            ..
+        } = ast_pass_at(&repo, &files).unwrap();
         assert_eq!(
             findings.len(),
             1,
@@ -1100,126 +832,6 @@ mod tests {
         assert!(!metrics.contains_key(Path::new("src/bad_oid.rs")));
         assert!(!metrics.contains_key(Path::new("src/missing.rs")));
         assert!(!metrics.contains_key(Path::new("src/non_utf8.rs")));
-    }
-
-    #[test]
-    fn resolve_call_records_resolves_specifiers_keeps_unresolved_and_sorts() {
-        use crate::metrics::complexity::{RawCallEdge, RawCalleeRef};
-        use crate::snapshot::CalleeRef;
-        let files = vec![
-            crate::metrics::testutil::make_file("src/a.ts"),
-            crate::metrics::testutil::make_file("src/b.ts"),
-        ];
-        let mut raw = HashMap::new();
-        raw.insert(
-            PathBuf::from("src/b.ts"),
-            vec![
-                RawCallEdge {
-                    caller: "g".into(),
-                    callee: RawCalleeRef::Specifier {
-                        specifier: "react".into(),
-                        name: "useState".into(),
-                    },
-                    count: 2,
-                },
-                RawCallEdge {
-                    caller: "f".into(),
-                    callee: RawCalleeRef::Specifier {
-                        specifier: "./a".into(),
-                        name: "helper".into(),
-                    },
-                    count: 3,
-                },
-            ],
-        );
-        let records = resolve_call_records(raw, &files);
-        assert_eq!(records.len(), 2);
-        // Sorted by (path, caller): f before g.
-        assert_eq!(records[0].caller, "f");
-        assert_eq!(records[0].count, 3);
-        assert_eq!(
-            records[0].callee,
-            CalleeRef::Resolved {
-                path: "src/a.ts".into(),
-                name: "helper".into()
-            }
-        );
-        // External package: kept as Unresolved for honest accounting —
-        // never dropped (unlike class records) and never Resolved.
-        assert_eq!(records[1].caller, "g");
-        assert_eq!(records[1].count, 2);
-        assert_eq!(
-            records[1].callee,
-            CalleeRef::Unresolved {
-                name: "useState".into()
-            }
-        );
-    }
-
-    #[test]
-    fn resolve_call_records_sort_uses_every_key_component() {
-        use crate::metrics::complexity::{RawCallEdge, RawCalleeRef};
-        use crate::snapshot::CalleeRef;
-        let files = vec![
-            crate::metrics::testutil::make_file("src/a.ts"),
-            crate::metrics::testutil::make_file("src/b.ts"),
-            crate::metrics::testutil::make_file("src/c.ts"),
-            crate::metrics::testutil::make_file("src/z.ts"),
-        ];
-        let edge = |callee: RawCalleeRef| RawCallEdge {
-            caller: "f".into(),
-            callee,
-            count: 1,
-        };
-        let spec = |s: &str, n: &str| RawCalleeRef::Specifier {
-            specifier: s.into(),
-            name: n.into(),
-        };
-        let mut raw = HashMap::new();
-        // Cross-file ordering must come from the sort, not HashMap luck.
-        raw.insert(
-            PathBuf::from("src/z.ts"),
-            vec![edge(RawCalleeRef::SameFile("a".into()))],
-        );
-        // Same (path, caller) throughout, input deliberately in REVERSE of
-        // the expected order: `sort_by` is stable, so a degenerate
-        // `callee_sort_key` (any constant) would keep this order and fail.
-        raw.insert(
-            PathBuf::from("src/a.ts"),
-            vec![
-                edge(RawCalleeRef::Unresolved { name: "z".into() }),
-                edge(spec("./c", "m")),
-                edge(spec("./b", "x")),
-                edge(spec("./b", "a")),
-                edge(RawCalleeRef::SameFile("z".into())),
-                edge(RawCalleeRef::SameFile("a".into())),
-            ],
-        );
-        let callees: Vec<(String, CalleeRef)> = resolve_call_records(raw, &files)
-            .into_iter()
-            .map(|r| (r.path.display().to_string(), r.callee))
-            .collect();
-        let resolved = |p: &str, n: &str| CalleeRef::Resolved {
-            path: p.into(),
-            name: n.into(),
-        };
-        assert_eq!(
-            callees,
-            vec![
-                // variant rank first: SameFile < Resolved < Unresolved,
-                // then path, then name within a path.
-                ("src/a.ts".into(), CalleeRef::SameFile("a".into())),
-                ("src/a.ts".into(), CalleeRef::SameFile("z".into())),
-                ("src/a.ts".into(), resolved("src/b.ts", "a")),
-                ("src/a.ts".into(), resolved("src/b.ts", "x")),
-                ("src/a.ts".into(), resolved("src/c.ts", "m")),
-                (
-                    "src/a.ts".into(),
-                    CalleeRef::Unresolved { name: "z".into() }
-                ),
-                ("src/z.ts".into(), CalleeRef::SameFile("a".into())),
-            ]
-        );
     }
 
     #[test]
@@ -1242,7 +854,7 @@ mod tests {
             entry("src/a.ts", caller_blob),
             entry("src/lib.ts", lib_blob),
         ];
-        let (_, _, _, _, _, _, calls) = ast_pass_at(&repo, &files).unwrap();
+        let calls = ast_pass_at(&repo, &files).unwrap().call_records;
         assert_eq!(
             calls,
             vec![CallRecord {
@@ -1257,52 +869,83 @@ mod tests {
             "the at-SHA AST pass must extract and resolve call records"
         );
     }
+}
+
+#[cfg(test)]
+mod assembly_tests {
+    use super::*;
+    use crate::snapshot::{ChangeType, Commit, FileChange};
 
     #[test]
-    fn resolve_class_records_resolves_specifiers_and_sorts() {
-        use crate::metrics::complexity::{RawBaseRef, RawClassRecord};
-        use crate::snapshot::BaseRef;
+    fn assemble_builds_indexes_once_from_final_core_data_and_keeps_provenance() {
+        let mut interner = crate::snapshot::CommitInterner::default();
+        let change = |path: &str| FileChange {
+            path: path.into(),
+            additions: 0,
+            deletions: 0,
+            change_type: ChangeType::Modified,
+        };
+        // Three co-changes: the pair index keeps pairs seen at least three times.
+        let ids: Vec<_> = ["abc123", "def456", "0123ab"]
+            .into_iter()
+            .map(|sha| interner.intern(sha))
+            .collect();
+        let commits = ids
+            .iter()
+            .map(|&id| Commit {
+                id,
+                author: 0,
+                timestamp: Utc::now(),
+                message: "m".into(),
+                files_changed: vec![
+                    change("src/a.rs"),
+                    change("src/b.rs"),
+                    change("excluded.rs"),
+                ],
+                is_merge: false,
+                parent_count: 1,
+            })
+            .collect();
+        let id = ids[0];
+        let collection = CommitCollection {
+            commits,
+            authors: vec![crate::snapshot::Author {
+                id: 0,
+                name: "a".into(),
+                email: "a@e".into(),
+            }],
+            interner,
+            raw_email_to_id: HashMap::new(),
+        };
         let files = vec![
-            crate::metrics::testutil::make_file("src/a.ts"),
-            crate::metrics::testutil::make_file("src/b.ts"),
+            crate::metrics::testutil::make_file("src/a.rs"),
+            crate::metrics::testutil::make_file("src/b.rs"),
         ];
-        let mut raw = HashMap::new();
-        raw.insert(
-            PathBuf::from("src/b.ts"),
-            vec![
-                RawClassRecord {
-                    line: 9,
-                    class_name: "X".into(),
-                    base: RawBaseRef::Specifier {
-                        specifier: "react".into(),
-                        name: "Component".into(),
-                    },
-                },
-                RawClassRecord {
-                    line: 2,
-                    class_name: "B".into(),
-                    base: RawBaseRef::Specifier {
-                        specifier: "./a".into(),
-                        name: "A".into(),
-                    },
-                },
-            ],
+        let provenance = SnapshotProvenance {
+            path: PathBuf::from("/tmp/repo"),
+            name: "repo".into(),
+            default_branch: "trunk".into(),
+            time_window: TimeWindow::full_history(),
+            head_commit: "abc123".into(),
+        };
+        let snapshot = assemble(
+            provenance,
+            collection,
+            files,
+            HashMap::new(),
+            ResolvedSourceChannels::default(),
         );
-        let records = resolve_class_records(raw, &files);
-        assert_eq!(records.len(), 2);
-        // sorted by (path, line): B (line 2) before X (line 9)
-        assert_eq!(records[0].class_name, "B");
+        assert_eq!(snapshot.name, "repo");
+        assert_eq!(snapshot.default_branch, "trunk");
+        assert_eq!(snapshot.head_commit, "abc123");
+        assert_eq!(snapshot.path, PathBuf::from("/tmp/repo"));
+        assert_eq!(snapshot.resolve_commit(id), "abc123");
+        assert_eq!(snapshot.commits_by_author[&0], ids);
+        assert_eq!(snapshot.commits_by_file.len(), 3, "index over commit data");
         assert_eq!(
-            records[0].base,
-            BaseRef::Resolved {
-                path: "src/a.ts".into(),
-                name: "A".into()
-            }
-        );
-        assert_eq!(
-            records[1].base,
-            BaseRef::Unresolvable,
-            "external package must not resolve"
+            snapshot.file_change_pairs,
+            vec![("src/a.rs".into(), "src/b.rs".into(), 3)],
+            "pairs only over listed files, excluded path dropped"
         );
     }
 }
