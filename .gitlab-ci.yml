@@ -52,7 +52,7 @@ default:
 
 # Shared base for Rust jobs that don't use CI tools
 .rust-base: &rust-base
-  image: rust:1.94
+  image: rust:1.98.1
   <<: *rust-cache
   before_script:
     - apt-get update -qq && apt-get install -y -qq cmake pkg-config libssl-dev
@@ -83,7 +83,7 @@ default:
 
 # Same as .rust-base, on the merge result.
 .rust-base-merged: &rust-base-merged
-  image: rust:1.94
+  image: rust:1.98.1
   <<: *rust-cache
   before_script:
     - *checkout-merge-result
@@ -93,7 +93,7 @@ default:
 # cargo-binstall downloads pre-built binaries in seconds — no source compilation,
 # no shared tool cache to manage. Each job installs only what it needs.
 .rust-tools-base: &rust-tools-base
-  image: rust:1.94
+  image: rust:1.98.1
   <<: *rust-cache
   before_script:
     - apt-get update -qq && apt-get install -y -qq cmake pkg-config libssl-dev
@@ -103,7 +103,7 @@ default:
 
 # Same as .rust-tools-base, on the merge result.
 .rust-tools-base-merged: &rust-tools-base-merged
-  image: rust:1.94
+  image: rust:1.98.1
   <<: *rust-cache
   before_script:
     - *checkout-merge-result
@@ -116,7 +116,7 @@ default:
 
 fmt-check:
   stage: lint
-  image: rust:1.94
+  image: rust:1.98.1
   cache: []
   before_script: []
   script:
@@ -160,7 +160,7 @@ build-presentation:
 # then the release build reuses the already-compiled dependency artifacts.
 build:
   stage: build
-  image: rust:1.94
+  image: rust:1.98.1
   <<: *rust-cache
   before_script:
     - *resolve-merge-result
@@ -562,7 +562,7 @@ self-analysis:
 # checkout, so the script selects a directory using the merged manifest hash.
 field-test:
   stage: analysis
-  image: rust:1.94
+  image: rust:1.98.1
   before_script:
     - *checkout-merge-result
   needs:
@@ -631,7 +631,7 @@ secret_detection:
 
 release-linux:
   stage: release
-  image: rust:1.94-alpine
+  image: rust:1.98.1-alpine
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
   cache:
@@ -653,7 +653,7 @@ release-linux:
 
 release-windows:
   stage: release
-  image: rust:1.94
+  image: rust:1.98.1
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
   cache:
@@ -728,7 +728,7 @@ release-publish:
 
 publish-crate:
   stage: release
-  image: rust:1.94
+  image: rust:1.98.1
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
   needs:

@@ -92,6 +92,9 @@ No external dependencies — all CSS, JS, and data are inlined. Works offline. D
 
 ## Installation
 
+Development and release builds use Rust **1.98.1**, pinned in `rust-toolchain.toml`.
+Rustup selects the pinned toolchain automatically when building this checkout.
+
 ### From crates.io
 
 ```bash

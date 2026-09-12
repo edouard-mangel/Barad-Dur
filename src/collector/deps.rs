@@ -22,7 +22,7 @@ pub fn parse_cargo_lock(repo_root: &Path) -> Vec<LockedDep> {
     let Ok(content) = std::fs::read_to_string(&path) else {
         return vec![];
     };
-    let Ok(table) = content.parse::<toml::Value>() else {
+    let Ok(table) = toml::from_str::<toml::Value>(&content) else {
         return vec![];
     };
     let Some(packages) = table.get("package").and_then(|v| v.as_array()) else {

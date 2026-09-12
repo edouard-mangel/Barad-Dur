@@ -56,7 +56,7 @@ fn corrupt_entity_trends_does_not_pollute_json_stdout() {
         panic!(
             "stdout must be parseable JSON when entity_trends.json is corrupt, \
              but parsing failed ({e}); stdout began: {:?}",
-            &stdout.chars().take(120).collect::<String>()
+            stdout.chars().take(120).collect::<String>()
         )
     });
 }

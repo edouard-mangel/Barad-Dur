@@ -509,7 +509,7 @@ mod tests {
         assert!(toml_str.contains("since ="));
         assert!(toml_str.contains("[output]"));
         // Verify it parses as valid TOML
-        assert!(toml_str.parse::<toml::Value>().is_ok());
+        assert!(toml::from_str::<toml::Value>(&toml_str).is_ok());
     }
 
     #[test]
@@ -517,7 +517,7 @@ mod tests {
         // The generated config must not pin values the code no longer uses:
         // every long-method key it writes has to equal the compiled default.
         let toml = generate_toml(&ScanResult::default());
-        let value: toml::Value = toml.parse().unwrap();
+        let value: toml::Value = toml::from_str(&toml).unwrap();
         let health = &value["thresholds"]["health"];
         let d = crate::config::HealthThresholds::default();
         for (key, expected) in [
@@ -560,7 +560,7 @@ mod tests {
         let toml_str = generate_toml(&scan);
         assert!(!toml_str.contains("[exclude]"));
         assert!(!toml_str.contains("*.resx"));
-        assert!(toml_str.parse::<toml::Value>().is_ok());
+        assert!(toml::from_str::<toml::Value>(&toml_str).is_ok());
     }
 
     #[test]

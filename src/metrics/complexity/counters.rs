@@ -188,7 +188,7 @@ pub(super) fn count_loc(
 
     let mut comment_lines = std::collections::HashSet::new();
     while let Some(m) = stream.next() {
-        for c in m.captures.iter() {
+        for c in m.captures().iter() {
             let start = c.node.start_position().row;
             let end = c.node.end_position().row;
             for line in start..=end {
@@ -302,12 +302,12 @@ pub(super) fn extract_functions(
     let mut functions = Vec::new();
     while let Some(m) = stream.next() {
         let func_node = m
-            .captures
+            .captures()
             .iter()
             .find(|c| c.index == func_idx)
             .map(|c| c.node);
         let name_node = m
-            .captures
+            .captures()
             .iter()
             .find(|c| c.index == name_idx)
             .map(|c| c.node);
@@ -393,7 +393,7 @@ fn compute_max_nesting(
     let mut max_depth = 0u32;
 
     while let Some(m) = stream.next() {
-        for cap in m.captures.iter() {
+        for cap in m.captures().iter() {
             let depth = nesting_ancestors_until(cap.node, func_id);
             if depth > max_depth {
                 max_depth = depth;
@@ -439,7 +439,7 @@ pub(super) fn compute_nesting_biomarkers(
     let mut max_depth = 0u32;
 
     while let Some(m) = stream.next() {
-        for cap in m.captures.iter() {
+        for cap in m.captures().iter() {
             let depth = nesting_ancestors_until(cap.node, root_id);
             if depth > max_depth {
                 max_depth = depth;

@@ -143,7 +143,7 @@ pub(super) fn collect_matches(
     let mut results = Vec::new();
     while let Some(m) = stream.next() {
         let captures: Vec<Capture> = m
-            .captures
+            .captures()
             .iter()
             .map(|c| (c.index, c.node.byte_range()))
             .collect();

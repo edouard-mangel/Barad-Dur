@@ -57,7 +57,7 @@ struct CargoDep {
 /// Parse dependency names from a Cargo.toml file content.
 /// Returns (regular dep names, direct-dep references to other repos).
 fn parse_cargo_toml(content: &str) -> (Vec<String>, Vec<CargoDep>) {
-    let parsed: toml::Value = match content.parse() {
+    let parsed: toml::Value = match toml::from_str(content) {
         Ok(v) => v,
         Err(_) => return (Vec::new(), Vec::new()),
     };
