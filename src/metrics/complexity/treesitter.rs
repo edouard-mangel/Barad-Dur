@@ -46,6 +46,7 @@ pub(super) fn imports_from_tree(
         None => return Vec::new(),
     };
     let path_idx = query.capture_index_for_name("path").unwrap_or(0);
+    let wildcard_idx = query.capture_index_for_name("wildcard");
     matches
         .iter()
         .flat_map(|caps| {
@@ -55,7 +56,12 @@ pub(super) fn imports_from_tree(
                     let text = std::str::from_utf8(&content.as_bytes()[range.clone()]).ok()?;
                     // Strip surrounding quotes from string literals
                     let cleaned = text.trim_matches('"').trim_matches('\'');
-                    Some(cleaned.to_string())
+                    let wildcard = caps.iter().any(|(idx, _)| Some(*idx) == wildcard_idx);
+                    Some(if wildcard {
+                        format!("{cleaned}.*")
+                    } else {
+                        cleaned.to_string()
+                    })
                 })
         })
         .collect()
@@ -563,9 +569,27 @@ mod tests {
 
     #[test]
     fn kotlin_extract_imports() {
-        let imports = extract_imports("import foo.bar", Language::Kotlin, "kt");
-        // Kotlin imports are now supported via tree-sitter
-        let _ = imports; // result depends on grammar; just verify no panic
+        let content = "import io.ktor.http.*\n\
+                       import io.ktor.http.HttpStatusCode as Status\n\
+                       import Foo\n";
+        for ext in ["kt", "kts"] {
+            assert_eq!(
+                extract_imports(content, Language::Kotlin, ext),
+                ["io.ktor.http.*", "io.ktor.http.HttpStatusCode", "Foo"]
+            );
+        }
+    }
+
+    #[test]
+    fn kotlin_wildcard_preserves_the_package_with_comments_and_spacing() {
+        assert_eq!(
+            extract_imports(
+                "import io.ktor.http. /* all members */ *\nimport io.ktor.util.*\n",
+                Language::Kotlin,
+                "kt"
+            ),
+            ["io.ktor.http.*", "io.ktor.util.*"]
+        );
     }
 
     // ── Per-function extraction ────────────────────────────────────

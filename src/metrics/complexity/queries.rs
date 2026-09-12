@@ -311,7 +311,7 @@ pub const PHP_IMPORTS: &str = r#"[
   (require_once_expression (binary_expression right: (string) @path))
 ] "#;
 
-pub const KOTLIN_IMPORTS: &str = r#"(import (identifier) @path)"#;
+pub const KOTLIN_IMPORTS: &str = r#"(import (qualified_identifier) @path "*"? @wildcard)"#;
 
 #[cfg(test)]
 mod tests {

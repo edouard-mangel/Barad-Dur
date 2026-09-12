@@ -6,6 +6,37 @@ use crate::snapshot::FileEntry;
 
 pub type RawImports = HashMap<PathBuf, Vec<String>>;
 
+/// Lookup state shared by every specifier in a resolution batch. Directory
+/// membership is indexed only for Kotlin wildcard targets.
+pub(crate) struct ImportFileIndex<'a> {
+    paths: HashSet<&'a PathBuf>,
+    kotlin_by_directory: HashMap<&'a Path, Vec<&'a PathBuf>>,
+}
+
+pub(crate) fn index_import_files<'a>(
+    paths: impl IntoIterator<Item = &'a PathBuf>,
+) -> ImportFileIndex<'a> {
+    let paths: HashSet<_> = paths.into_iter().collect();
+    let kotlin_by_directory = paths
+        .iter()
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|ext| ext == "kt" || ext == "kts")
+        })
+        .filter_map(|path| path.parent().map(|dir| (dir, *path)))
+        .fold(
+            HashMap::<_, Vec<_>>::new(),
+            |mut directories, (dir, path)| {
+                directories.entry(dir).or_default().push(path);
+                directories
+            },
+        );
+    ImportFileIndex {
+        paths,
+        kotlin_by_directory,
+    }
+}
+
 /// Repository-level configuration that import resolution needs beyond the
 /// specifier and the source path.
 ///
@@ -25,7 +56,7 @@ pub fn resolve_imports(
     files: &[FileEntry],
     config: &RepoImportConfig,
 ) -> HashMap<PathBuf, Vec<PathBuf>> {
-    let known: HashSet<&PathBuf> = files.iter().map(|f| &f.path).collect();
+    let known = index_import_files(files.iter().map(|f| &f.path));
 
     raw_imports
         .iter()
@@ -51,7 +82,7 @@ pub fn resolve_imports(
 pub(crate) fn resolve_specifier(
     raw: &str,
     source: &Path,
-    known: &HashSet<&PathBuf>,
+    known: &ImportFileIndex<'_>,
     config: &RepoImportConfig,
 ) -> Option<PathBuf> {
     resolve_single_import(raw, source, known, config)
@@ -111,7 +142,7 @@ pub(crate) fn resolver_is_unreliable(ext: &str) -> bool {
 fn resolve_single_import(
     raw: &str,
     source: &Path,
-    known: &HashSet<&PathBuf>,
+    known: &ImportFileIndex<'_>,
     config: &RepoImportConfig,
 ) -> Option<PathBuf> {
     let mut targets = resolve_import_targets(raw, source, known, config).into_iter();
@@ -122,7 +153,7 @@ fn resolve_single_import(
 fn resolve_import_targets(
     raw: &str,
     source: &Path,
-    known: &HashSet<&PathBuf>,
+    known: &ImportFileIndex<'_>,
     config: &RepoImportConfig,
 ) -> Vec<PathBuf> {
     let ext = source.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -133,7 +164,7 @@ fn resolve_import_targets(
         .into_iter()
         .flat_map(|candidate| candidate(raw, source, config))
         .map(|c| normalize_path(&c))
-        .find(|c| known.contains(c))
+        .find(|c| known.paths.contains(c))
         .into_iter()
         .collect()
 }
@@ -282,7 +313,7 @@ fn kotlin_source_root(source: &Path) -> Option<PathBuf> {
     Some(components[..=kotlin].iter().collect())
 }
 
-fn resolve_kotlin_wildcard(raw: &str, source: &Path, known: &HashSet<&PathBuf>) -> Vec<PathBuf> {
+fn resolve_kotlin_wildcard(raw: &str, source: &Path, known: &ImportFileIndex<'_>) -> Vec<PathBuf> {
     let package = raw.trim_end_matches(".*").replace('.', "/");
     let mut dirs = vec![
         PathBuf::from(&package),
@@ -291,23 +322,21 @@ fn resolve_kotlin_wildcard(raw: &str, source: &Path, known: &HashSet<&PathBuf>) 
     if let Some(root) = kotlin_source_root(source) {
         dirs.push(root.join(&package));
     }
-    let mut matches: Vec<PathBuf> = known
-        .iter()
-        // `import com.foo.*` inside com.foo is legal Kotlin; the package's
-        // other files are real edges, the importing file is not.
+    dirs.into_iter()
+        .flat_map(|dir| {
+            known
+                .kotlin_by_directory
+                .get(dir.as_path())
+                .into_iter()
+                .flatten()
+        })
+        // A wildcard in its own package names its peers, never itself.
         .filter(|path| path.as_path() != source)
-        .filter(|path| {
-            path.extension()
-                .is_some_and(|ext| ext == "kt" || ext == "kts")
-        })
-        .filter(|path| {
-            path.parent()
-                .is_some_and(|parent| dirs.iter().any(|dir| parent == dir))
-        })
         .map(|path| (*path).clone())
-        .collect();
-    matches.sort();
-    matches
+        // The conventional root can also be the source-derived root.
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 /// PHP has two import forms, and `candidates_for` dispatches on the source
@@ -369,6 +398,63 @@ fn resolve_csharp_import(raw: &str) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Run with KOTLIN_BENCH_REPO pointing to a checkout and
+    /// KOTLIN_BENCH_REPORT naming an output JSON file. Extraction and disk
+    /// reads are outside the timer; every pass includes index construction.
+    #[test]
+    #[ignore = "manual benchmark requiring a real Kotlin checkout"]
+    fn benchmark_kotlin_import_resolution() {
+        use crate::metrics::complexity::extract_file_imports;
+        use std::{hint::black_box, process::Command, time::Instant};
+
+        let repo = std::env::var("KOTLIN_BENCH_REPO").expect("set KOTLIN_BENCH_REPO");
+        let output = Command::new("git")
+            .args(["-C", &repo, "ls-files", "-z"])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let paths = String::from_utf8(output.stdout).unwrap();
+        let files: Vec<_> = paths
+            .split('\0')
+            .filter(|p| !p.is_empty())
+            .map(entry)
+            .collect();
+        let raw: RawImports = files
+            .iter()
+            .filter(|f| f.path.extension().is_some_and(|e| e == "kt" || e == "kts"))
+            .map(|f| {
+                let content = std::fs::read_to_string(Path::new(&repo).join(&f.path)).unwrap();
+                (f.path.clone(), extract_file_imports(&f.path, &content))
+            })
+            .collect();
+        let config = RepoImportConfig::default();
+        let expected = resolve_imports(&raw, &files, &config);
+        let mut times: Vec<_> = (0..7)
+            .map(|_| {
+                let start = Instant::now();
+                let graph = resolve_imports(black_box(&raw), black_box(&files), &config);
+                let elapsed = start.elapsed().as_secs_f64() * 1000.0;
+                assert_eq!(graph, expected);
+                elapsed
+            })
+            .collect();
+        times.sort_by(f64::total_cmp);
+        let graph: std::collections::BTreeMap<_, _> = expected.into_iter().collect();
+        let report = serde_json::json!({
+            "files": files.len(), "kotlin_files": raw.len(),
+            "imports": raw.values().map(Vec::len).sum::<usize>(),
+            "wildcards": raw.values().flatten().filter(|i| i.ends_with(".*")).count(),
+            "median_ms": times[3], "passes_ms": times,
+            "edges": graph.values().map(Vec::len).sum::<usize>(), "graph": graph
+        });
+        std::fs::write(
+            std::env::var("KOTLIN_BENCH_REPORT").expect("set KOTLIN_BENCH_REPORT"),
+            serde_json::to_vec_pretty(&report).unwrap(),
+        )
+        .unwrap();
+        println!("{}", report);
+    }
 
     fn entry(path: &str) -> FileEntry {
         FileEntry {
@@ -646,7 +732,7 @@ mod tests {
         // confidently wrong `Resolved` where `Unresolvable` is the truth.
         let a = PathBuf::from("src/main/kotlin/com/foo/A.kt");
         let b = PathBuf::from("src/main/kotlin/com/foo/B.kt");
-        let known: HashSet<&PathBuf> = [&a, &b].into_iter().collect();
+        let known = index_import_files([&a, &b]);
         assert_eq!(
             resolve_specifier(
                 "com.foo.*",
@@ -663,7 +749,7 @@ mod tests {
         // One member means one answer; there is nothing to be ambiguous
         // about, so the edge is still worth reporting.
         let a = PathBuf::from("src/main/kotlin/com/foo/A.kt");
-        let known: HashSet<&PathBuf> = [&a].into_iter().collect();
+        let known = index_import_files([&a]);
         assert_eq!(
             resolve_specifier(
                 "com.foo.*",
@@ -751,6 +837,59 @@ mod tests {
             vec![
                 PathBuf::from("app/src/main/kotlin/com/foo/A.kt"),
                 PathBuf::from("app/src/main/kotlin/com/foo/B.kt"),
+            ]
+        );
+    }
+
+    #[test]
+    fn kotlin_wildcard_keeps_only_direct_kotlin_members_once() {
+        let files = vec![
+            entry("src/main/kotlin/com/foo/App.kt"),
+            entry("src/main/kotlin/com/foo/A.kt"),
+            entry("src/main/kotlin/com/foo/Build.kts"),
+            entry("src/main/kotlin/com/foo/Java.java"),
+            entry("src/main/kotlin/com/foo/nested/Child.kt"),
+            entry("other/src/main/kotlin/com/foo/Other.kt"),
+        ];
+        let graph = resolve_imports(
+            &raw(
+                "src/main/kotlin/com/foo/App.kt",
+                vec!["com.foo.*", "com.foo.*"],
+            ),
+            &files,
+            &RepoImportConfig::default(),
+        );
+        assert_eq!(
+            graph[&PathBuf::from("src/main/kotlin/com/foo/App.kt")],
+            vec![
+                PathBuf::from("src/main/kotlin/com/foo/A.kt"),
+                PathBuf::from("src/main/kotlin/com/foo/Build.kts"),
+            ]
+        );
+    }
+
+    #[test]
+    fn kotlin_shared_parse_reaches_the_import_graph() {
+        let path = PathBuf::from("src/main/kotlin/io/ktor/client/Client.kt");
+        let analysis = crate::metrics::complexity::analyse_source(
+            &path,
+            "import io.ktor.http.*\nimport io.ktor.http.Headers as HeaderMap\n",
+        );
+        let files = vec![
+            entry(path.to_str().unwrap()),
+            entry("src/main/kotlin/io/ktor/http/Headers.kt"),
+            entry("src/main/kotlin/io/ktor/http/HttpStatusCode.kt"),
+        ];
+        let graph = resolve_imports(
+            &[(path.clone(), analysis.imports)].into_iter().collect(),
+            &files,
+            &RepoImportConfig::default(),
+        );
+        assert_eq!(
+            graph[&path],
+            vec![
+                PathBuf::from("src/main/kotlin/io/ktor/http/Headers.kt"),
+                PathBuf::from("src/main/kotlin/io/ktor/http/HttpStatusCode.kt"),
             ]
         );
     }

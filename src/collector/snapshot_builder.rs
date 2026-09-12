@@ -16,7 +16,10 @@ use crate::snapshot::{
 
 use super::composer::psr4_roots_from_tree;
 use super::ignore_file::{should_include, BaradDurIgnore};
-use super::import_resolver::{resolve_imports, resolve_specifier, RawImports, RepoImportConfig};
+use super::import_resolver::{
+    index_import_files, resolve_imports, resolve_specifier, ImportFileIndex, RawImports,
+    RepoImportConfig,
+};
 use super::progress::{NoProgress, Progress};
 use super::{Collector, CommitCollection, SnapshotOptions};
 
@@ -587,10 +590,10 @@ fn ast_pass_at(repo: &git2::Repository, files: &[FileEntry]) -> Result<AstParts>
 fn resolve_against_files<R, T, K: Ord>(
     raw: HashMap<PathBuf, Vec<R>>,
     files: &[FileEntry],
-    map: impl Fn(&PathBuf, R, &std::collections::HashSet<&PathBuf>) -> Option<T>,
+    map: impl Fn(&PathBuf, R, &ImportFileIndex<'_>) -> Option<T>,
     sort_key: impl Fn(&T) -> K,
 ) -> Vec<T> {
-    let known: std::collections::HashSet<&PathBuf> = files.iter().map(|f| &f.path).collect();
+    let known = index_import_files(files.iter().map(|f| &f.path));
     let mut records: Vec<T> = raw
         .into_iter()
         .flat_map(|(path, items)| {
