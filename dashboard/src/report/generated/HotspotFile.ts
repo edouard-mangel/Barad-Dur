@@ -19,7 +19,8 @@ coupling_trend?: CouplingTrend,
 /**
  * Pressman coupling findings in this file, per kind. Content includes
  * barrel-bypass findings when `content_barrel_rule` is on — the same
- * gating as `pressman_finding_counts`, so the two views never disagree.
+ * gating as `CouplingEvidence::finding_counts`, so the two views never
+ * disagree.
  */
 content_findings: number, common_findings: number, control_findings: number, inheritance_findings: number,
 /**

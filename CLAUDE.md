@@ -42,8 +42,9 @@ CLI (clap) → Collector (git2 + git CLI) → RepoSnapshot → Metrics → Score
 - `src/main.rs` — entry point; dispatches to `src/cmd/` (analyze, gate, coupling, watch)
 - `src/collector/` — git snapshot collection: git2 for commits/files, parallel `git blame --porcelain` (rayon), tree-sitter AST complexity (8 languages)
 - `src/snapshot/` — `RepoSnapshot`: shared data model with derived indexes; cached at `.repository-analysis/snapshot.bin` (invalidated when HEAD, the time window, or the exclusion fingerprint — CLI excludes + `use_defaults` + `.baraddurignore` bytes, in `cache/staleness.rs` + `cache/storage.rs` — changes; `--no-cache` to force re-collection)
+- `src/analysis/` — pure orchestration shared by analyze/gate/backfill: `calculate(&AnalysisInputs)` turns an explicit `CategorySelection`, thresholds, weights, acquired dependency evidence and the reference time into ordered categories, the weighted overall, and the once-derived `CouplingEvidence`; commands translate flags and own I/O, `scorer::build_report` enriches the result for display, `build_history_entry` records it
 - `src/metrics/` — pure functions `(snapshot) → MetricValue`; modules: health, team, evolution, hygiene, complexity, coupling, deps
-- `src/scorer.rs` + `src/scorer/` — `AnalysisReport` + `build_report()`: weighted category scores, action suggestions, file-level analysis (`HotspotFile`, `CouplingPair`, ownership, ages); `scorer/` holds actions, audit, builders, types
+- `src/scorer.rs` + `src/scorer/` — `AnalysisReport` + `build_report()`: enriches a finished `AnalysisResult` for display with action suggestions and file-level analysis (`HotspotFile`, `CouplingPair`, ownership, ages); it computes no category score; `scorer/` holds actions, audit, builders, types
 - `src/renderer/` — CLI / JSON / HTML outputs, all return `Result<String>`; the report's JS/CSS live as real files in `renderer/templates/` (one per tab), embedded via `include_str!` in `renderer/html.rs`; `renderer/escape.rs` owns `<script>`-safe JSON escaping
 - Score band thresholds (good ≥ 71, warn ≥ 41) are defined once in `src/scoring.rs` (`score_band`, `ScoreThresholds`) and serialized into every report as `score_thresholds` — renderers and the dashboard read them, never hardcode them. Calculation result types belong to `metrics/callgraph`, `metrics/churn`, and `metrics/coupling`; original `scorer::*` type paths remain compatibility re-exports.
 - Analyze/gate capture one reference time before collection; backfill captures one for its entire invocation. Age calculations receive it explicitly. History construction takes a separate timestamp, so backfill points retain their selected commit dates without changing age-scoring semantics.
@@ -59,7 +60,7 @@ Integration tests in `tests/` follow the feature workflow naming: `<feature>_wal
 ## Adding a Metric
 
 1. Pure function in the right `src/metrics/<module>.rs` — takes `&RepoSnapshot`, returns `MetricValue` (score 0–100 + optional detail), no I/O
-2. Register it in `src/scorer.rs` → `build_report()`
+2. Add it to that module's `compute_<category>()` metric list. A *new category* is registered in `src/analysis/mod.rs` → `calculate()` and in `CategorySelection` (`src/analysis/selection.rs`), never in `scorer::build_report()`, which only enriches a finished `AnalysisResult`
 3. Unit tests via helpers in `src/metrics/testutil.rs` (tests first — TDD)
 
 ## Gotchas

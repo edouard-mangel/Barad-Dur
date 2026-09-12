@@ -4,11 +4,13 @@ use anyhow::Result;
 use std::collections::HashSet;
 use std::path::Path;
 
+use crate::analysis::{self, AnalysisInputs, CategorySelection};
 use crate::cache::history;
 use crate::cli::BackfillArgs;
 use crate::collector::Collector;
 use crate::config;
-use crate::metrics::{evolution, health, hygiene, team};
+use crate::metrics::coupling::CouplingReach;
+use crate::metrics::health;
 use crate::scorer;
 use crate::snapshot::TimeWindow;
 
@@ -28,6 +30,7 @@ pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
     let collector = Collector::open(repo_path, time_window)?;
 
     let weight_pairs = cfg.weights.as_weight_pairs();
+    let no_reach = CouplingReach::default();
 
     // Collect all commits (newest-first) to get SHAs + timestamps for sampling
     let collection = collector.collect_commits()?;
@@ -102,29 +105,24 @@ pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
             cfg.exclude_use_defaults,
         )?;
 
-        // Computed once, shared by the Health category's "God objects"
-        // metric and by build_report's refactoring-action generator.
+        // Shared with the Health category's "God objects" metric.
         let flagged_god_objects = health::god_object_files(&snapshot, &cfg.thresholds.health);
 
-        let categories = vec![
-            health::compute_health(&snapshot, &cfg.thresholds.health, &flagged_god_objects),
-            team::compute_team(&snapshot, &cfg.thresholds.team, &cfg.thresholds.coupling),
-            evolution::compute_evolution(reference_time, &snapshot, &cfg.thresholds.evolution),
-            hygiene::compute_hygiene(&snapshot, &cfg.thresholds.hygiene),
-        ];
-
-        // Backfill keeps only scores from the report — skip the coupling
-        // reach computation whose hotspot annotations it would discard.
-        let report = scorer::build_report(
+        // Backfill records scores and the entity-trend hotspot rows only:
+        // Coupling is not scored (`CategorySelection::BACKFILL`), and no
+        // reach is computed since only hotspot trend annotations, which
+        // the entity trend discards, would consume it. The coupling
+        // evidence is still derived once, for the counts and the rows.
+        let analysis = analysis::calculate(&AnalysisInputs {
             reference_time,
-            &snapshot,
-            categories,
-            None,
-            &weight_pairs,
-            &cfg.thresholds,
-            &flagged_god_objects,
-            &Default::default(),
-        );
+            snapshot: &snapshot,
+            selection: CategorySelection::BACKFILL,
+            thresholds: &cfg.thresholds,
+            weights: &weight_pairs,
+            dependency_evidence: &[],
+            god_objects: &flagged_god_objects,
+            coupling_reach: &no_reach,
+        });
         // Use the commit's actual timestamp instead of "now" so the trend
         // chart spaces backfill points by their real dates.
         let commit_ts = snapshot
@@ -133,22 +131,35 @@ pub fn run(_args: &BackfillArgs, repo_path: &Path) -> Result<()> {
             .find(|c| snapshot.resolve_commit(c.id) == sha.as_str())
             .map(|c| c.timestamp)
             .unwrap_or(reference_time);
-        let entry =
-            scorer::build_history_entry(commit_ts, &report, sha, Some("backfill".to_string()));
+        let entry = scorer::build_history_entry(
+            commit_ts,
+            &analysis,
+            &snapshot,
+            sha,
+            Some("backfill".to_string()),
+        );
 
         if needs_trend_entry {
             history::append_if_new_head(&entry, repo_path)?;
         }
 
         if needs_entity_entry {
+            // The only display section backfill needs: hotspot rows carry
+            // the per-entity scores the trend history samples.
+            let hotspots = scorer::build_hotspots(
+                &snapshot,
+                &cfg.thresholds.coupling,
+                &no_reach,
+                &analysis.coupling_evidence,
+            );
             let entity_entry = crate::cache::entity_history::build_entity_trend_entry(
                 &snapshot,
-                &report.file_hotspots,
+                &hotspots,
                 &cfg.thresholds.coupling,
                 cfg.backfill.entity_trend_top_n,
                 sha,
                 entry.timestamp,
-                &report.branch,
+                &snapshot.default_branch,
             );
             crate::cache::entity_history::append_entity_entry(&entity_entry, repo_path)?;
         }

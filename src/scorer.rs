@@ -5,34 +5,40 @@ mod builders;
 mod report_contract_tests;
 mod types;
 
+pub use crate::analysis::compute_overall_score_with_weights;
 pub use crate::metrics::callgraph::{CallGraphReport, FunctionHub};
 pub use crate::metrics::churn::{ChurnBucket, ChurnTimelineReport};
 pub use crate::metrics::coupling::CouplingFindingCounts;
 pub use crate::scoring::{score_band, ScoreBand, ScoreThresholds, SCORE_GOOD_MIN, SCORE_WARN_MIN};
-pub use actions::compute_overall_score_with_weights;
 pub use types::*;
 
 use actions::{generate_coupling_actions, generate_refactoring_actions, generate_top_actions};
+pub(crate) use builders::build_hotspots;
 use builders::{
     build_author_cards, build_author_ownership, build_coupling_pairs, build_file_ages,
-    build_hotspots, build_import_cycles, build_import_edges, build_per_file_coupling,
+    build_import_cycles, build_import_edges, build_per_file_coupling,
 };
 
 use std::collections::HashMap;
 
-use crate::metrics::CategoryResult;
+use crate::analysis::AnalysisResult;
 use crate::snapshot::RepoSnapshot;
 
+/// The history record of one calculation: category and scored-metric
+/// scores, size counts, and coupling finding counts, with explicit
+/// provenance. Built from the analysis result and snapshot metadata so
+/// history never needs the display report.
 pub fn build_history_entry(
     history_timestamp: chrono::DateTime<chrono::Utc>,
-    report: &AnalysisReport,
+    analysis: &AnalysisResult,
+    snapshot: &RepoSnapshot,
     head: &str,
     source: Option<String>,
 ) -> HistoryEntry {
     let mut categories = HashMap::new();
     let mut metrics = HashMap::new();
 
-    for cat in &report.categories {
+    for cat in &analysis.categories {
         categories.insert(cat.name.clone(), cat.score);
         // Unscored metrics (insufficient data) carry no trend signal.
         for m in &cat.metrics {
@@ -42,41 +48,46 @@ pub fn build_history_entry(
         }
     }
 
+    let coupling_counts = analysis.coupling_evidence.finding_counts();
     HistoryEntry {
         timestamp: history_timestamp,
         head: head.to_string(),
-        overall_score: report.overall_score,
+        overall_score: analysis.overall_score,
         categories,
         metrics,
         counts: HistoryCounts {
-            commits: report.total_commits,
-            files: report.total_files,
-            authors: report.total_authors,
-            content_coupling: report.coupling_finding_counts.map(|c| c.content),
-            common_coupling: report.coupling_finding_counts.map(|c| c.common),
-            inheritance_coupling: report.coupling_finding_counts.map(|c| c.inheritance),
-            control_coupling: report.coupling_finding_counts.map(|c| c.control),
+            commits: snapshot.commits.len(),
+            files: snapshot.files.len(),
+            authors: snapshot.authors.len(),
+            content_coupling: coupling_counts.map(|c| c.content),
+            common_coupling: coupling_counts.map(|c| c.common),
+            inheritance_coupling: coupling_counts.map(|c| c.inheritance),
+            control_coupling: coupling_counts.map(|c| c.control),
         },
-        branch: report.branch.clone(),
+        branch: snapshot.default_branch.clone(),
         schema_version: HISTORY_SCHEMA_VERSION,
         source,
     }
 }
 
-// Keep the existing report inputs explicit; application orchestration is a separate concern.
-#[allow(clippy::too_many_arguments)]
+/// The full display report: the analysis result enriched with every
+/// file-, author-, and graph-level section the renderers show.
 pub fn build_report(
     reference_time: chrono::DateTime<chrono::Utc>,
     snapshot: &RepoSnapshot,
-    categories: Vec<CategoryResult>,
+    analysis: AnalysisResult,
     remote_meta: Option<RemoteMeta>,
-    weights: &[(&str, f64)],
     thresholds: &crate::config::Thresholds,
     flagged_god_objects: &[(std::path::PathBuf, String)],
     coupling_reach: &crate::metrics::coupling::CouplingReach,
 ) -> AnalysisReport {
     let coupling = &thresholds.coupling;
-    let overall_score = compute_overall_score_with_weights(&categories, weights);
+    let AnalysisResult {
+        categories,
+        overall_score,
+        coupling_evidence,
+    } = analysis;
+    let evidence = &coupling_evidence;
     let mut top_actions = generate_top_actions(&categories);
     // "[Health] ..." refactoring actions only belong in a report that
     // actually includes the Health category — a category-filtered run
@@ -84,8 +95,8 @@ pub fn build_report(
     if categories.iter().any(|c| c.name == "Health") {
         top_actions.extend(generate_refactoring_actions(snapshot, flagged_god_objects));
     }
-    let coupling_actions = generate_coupling_actions(snapshot, coupling);
-    let file_hotspots = build_hotspots(snapshot, coupling, coupling_reach);
+    let coupling_actions = generate_coupling_actions(evidence);
+    let file_hotspots = build_hotspots(snapshot, coupling, coupling_reach, evidence);
     let coupling_pairs = build_coupling_pairs(snapshot, coupling.component_depth);
     let author_ownership = build_author_ownership(snapshot);
     let file_ages = build_file_ages(reference_time, snapshot);
@@ -95,8 +106,7 @@ pub fn build_report(
     let per_file_coupling = build_per_file_coupling(snapshot);
     let import_edges = build_import_edges(snapshot);
     let import_cycles = build_import_cycles(snapshot);
-    let coupling_finding_counts =
-        crate::metrics::coupling::pressman_finding_counts(snapshot, coupling);
+    let coupling_finding_counts = evidence.finding_counts();
     let call_graph = crate::metrics::callgraph::call_graph_report(snapshot, &thresholds.health);
     let churn_timeline = crate::metrics::churn::churn_timeline_report(snapshot);
 
@@ -134,6 +144,7 @@ pub fn build_report(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metrics::CategoryResult;
     use crate::metrics::MetricValue;
     use crate::metrics::RawValue;
     use crate::snapshot::TimeWindow;
@@ -145,6 +156,20 @@ mod tests {
         ("Git Hygiene", 0.20),
         ("Coupling", 0.20),
     ];
+
+    /// An analysis result from precomputed categories, as `calculate`
+    /// would summarise them.
+    fn analysis_of(
+        categories: Vec<crate::metrics::CategoryResult>,
+        weights: &[(&str, f64)],
+        coupling_evidence: crate::metrics::coupling::CouplingEvidence,
+    ) -> AnalysisResult {
+        AnalysisResult {
+            overall_score: compute_overall_score_with_weights(&categories, weights),
+            categories,
+            coupling_evidence,
+        }
+    }
 
     #[test]
     fn fixed_reference_preserves_age_fallbacks_and_independent_history_time() {
@@ -181,9 +206,15 @@ mod tests {
                 build_report(
                     reference,
                     &snapshot,
-                    vec![],
+                    analysis_of(
+                        vec![],
+                        WEIGHTS,
+                        crate::metrics::coupling::CouplingEvidence::derive(
+                            &snapshot,
+                            &thresholds.coupling,
+                        ),
+                    ),
                     None,
-                    WEIGHTS,
                     &thresholds,
                     &[],
                     &Default::default(),
@@ -223,8 +254,20 @@ mod tests {
             assert_eq!(alice.days_since_active, expected_days);
             assert_eq!(bob.days_since_active, 10);
             let history_time = reference - Duration::days(400);
-            let entry =
-                build_history_entry(history_time, &report, "historical", Some("backfill".into()));
+            let entry = build_history_entry(
+                history_time,
+                &analysis_of(
+                    vec![],
+                    WEIGHTS,
+                    crate::metrics::coupling::CouplingEvidence::derive(
+                        &snapshot,
+                        &thresholds.coupling,
+                    ),
+                ),
+                &snapshot,
+                "historical",
+                Some("backfill".into()),
+            );
             assert_eq!(entry.timestamp, history_time);
             assert_eq!(entry.overall_score, report.overall_score);
         }
@@ -293,9 +336,12 @@ mod tests {
         build_report(
             chrono::Utc::now(),
             &snapshot,
-            categories,
+            analysis_of(
+                categories,
+                WEIGHTS,
+                crate::metrics::coupling::CouplingEvidence::derive(&snapshot, &thresholds.coupling),
+            ),
             None,
-            WEIGHTS,
             &thresholds,
             &[],
             &Default::default(),
@@ -354,9 +400,15 @@ mod tests {
         let report = build_report(
             chrono::Utc::now(),
             &snapshot,
-            categories,
+            analysis_of(
+                categories,
+                WEIGHTS,
+                crate::metrics::coupling::CouplingEvidence::derive(
+                    &snapshot,
+                    &crate::config::Thresholds::default().coupling,
+                ),
+            ),
             None,
-            WEIGHTS,
             &crate::config::Thresholds::default(),
             &[],
             &Default::default(),
@@ -396,9 +448,15 @@ mod tests {
         build_report(
             chrono::Utc::now(),
             &snapshot,
-            categories,
+            analysis_of(
+                categories,
+                WEIGHTS,
+                crate::metrics::coupling::CouplingEvidence::derive(
+                    &snapshot,
+                    &crate::config::Thresholds::default().coupling,
+                ),
+            ),
             None,
-            WEIGHTS,
             &crate::config::Thresholds::default(),
             &[],
             &Default::default(),
@@ -476,9 +534,15 @@ mod tests {
         let report = build_report(
             chrono::Utc::now(),
             &snapshot,
-            categories,
+            analysis_of(
+                categories,
+                WEIGHTS,
+                crate::metrics::coupling::CouplingEvidence::derive(
+                    &snapshot,
+                    &crate::config::Thresholds::default().coupling,
+                ),
+            ),
             None,
-            WEIGHTS,
             &crate::config::Thresholds::default(),
             &flagged,
             &Default::default(),
@@ -505,9 +569,15 @@ mod tests {
         let report = build_report(
             chrono::Utc::now(),
             &snapshot,
-            categories,
+            analysis_of(
+                categories,
+                WEIGHTS,
+                crate::metrics::coupling::CouplingEvidence::derive(
+                    &snapshot,
+                    &crate::config::Thresholds::default().coupling,
+                ),
+            ),
             None,
-            WEIGHTS,
             &crate::config::Thresholds::default(),
             &[],
             &Default::default(),
@@ -554,6 +624,10 @@ mod tests {
             &snapshot,
             &crate::config::CouplingThresholds::default(),
             &Default::default(),
+            &crate::metrics::coupling::CouplingEvidence::derive(
+                &snapshot,
+                &crate::config::CouplingThresholds::default(),
+            ),
         );
         assert_eq!(hotspots[0].path, "hot.rs");
         assert!(hotspots[0].hotspot_score > hotspots[1].hotspot_score);
@@ -664,17 +738,24 @@ mod tests {
             TimeWindow::default(),
         );
         let categories = vec![make_category("Health", 80)];
+        let analysis = analysis_of(
+            categories,
+            WEIGHTS,
+            crate::metrics::coupling::CouplingEvidence::derive(
+                &snapshot,
+                &crate::config::Thresholds::default().coupling,
+            ),
+        );
         let report = build_report(
             chrono::Utc::now(),
             &snapshot,
-            categories,
+            analysis.clone(),
             None,
-            WEIGHTS,
             &crate::config::Thresholds::default(),
             &[],
             &Default::default(),
         );
-        let entry = build_history_entry(chrono::Utc::now(), &report, "abc123", None);
+        let entry = build_history_entry(chrono::Utc::now(), &analysis, &snapshot, "abc123", None);
 
         assert_eq!(entry.head, "abc123");
         assert_eq!(entry.overall_score, report.overall_score);
@@ -696,9 +777,15 @@ mod tests {
         let report = build_report(
             chrono::Utc::now(),
             &snapshot,
-            categories,
+            analysis_of(
+                categories,
+                WEIGHTS,
+                crate::metrics::coupling::CouplingEvidence::derive(
+                    &snapshot,
+                    &crate::config::Thresholds::default().coupling,
+                ),
+            ),
             None,
-            WEIGHTS,
             &crate::config::Thresholds::default(),
             &[],
             &Default::default(),
@@ -731,9 +818,15 @@ mod tests {
         let report = build_report(
             chrono::Utc::now(),
             &snapshot,
-            categories,
+            analysis_of(
+                categories,
+                WEIGHTS,
+                crate::metrics::coupling::CouplingEvidence::derive(
+                    &snapshot,
+                    &crate::config::Thresholds::default().coupling,
+                ),
+            ),
             None,
-            WEIGHTS,
             &crate::config::Thresholds::default(),
             &[],
             &Default::default(),
@@ -756,9 +849,15 @@ mod tests {
         let report = build_report(
             chrono::Utc::now(),
             &snapshot,
-            categories,
+            analysis_of(
+                categories,
+                WEIGHTS,
+                crate::metrics::coupling::CouplingEvidence::derive(
+                    &snapshot,
+                    &crate::config::Thresholds::default().coupling,
+                ),
+            ),
             None,
-            WEIGHTS,
             &crate::config::Thresholds::default(),
             &[],
             &Default::default(),
@@ -769,7 +868,8 @@ mod tests {
         );
     }
 
-    fn report_with_detection() -> AnalysisReport {
+    /// A one-category analysis over a snapshot whose AST pass ran.
+    fn analysis_with_detection() -> (AnalysisResult, RepoSnapshot) {
         let mut snapshot = RepoSnapshot::new(
             std::path::PathBuf::from("/tmp"),
             "test".into(),
@@ -781,35 +881,54 @@ mod tests {
             std::path::PathBuf::from("src/a.rs"),
             crate::snapshot::FileComplexity::default(),
         );
-        build_report(
-            chrono::Utc::now(),
-            &snapshot,
+        let analysis = analysis_of(
             vec![make_category("Health", 80)],
-            None,
             WEIGHTS,
-            &crate::config::Thresholds::default(),
-            &[],
-            &Default::default(),
-        )
+            crate::metrics::coupling::CouplingEvidence::derive(
+                &snapshot,
+                &crate::config::Thresholds::default().coupling,
+            ),
+        );
+        (analysis, snapshot)
     }
 
-    fn report_without_detection() -> AnalysisReport {
+    /// The backfill-style shape: files listed, no file metrics.
+    fn analysis_without_detection() -> (AnalysisResult, RepoSnapshot) {
         let snapshot = RepoSnapshot::new(
             std::path::PathBuf::from("/tmp"),
             "test".into(),
             "main".into(),
             TimeWindow::default(),
         );
+        let analysis = analysis_of(
+            vec![make_category("Health", 80)],
+            WEIGHTS,
+            crate::metrics::coupling::CouplingEvidence::derive(
+                &snapshot,
+                &crate::config::Thresholds::default().coupling,
+            ),
+        );
+        (analysis, snapshot)
+    }
+
+    fn report_of((analysis, snapshot): (AnalysisResult, RepoSnapshot)) -> AnalysisReport {
         build_report(
             chrono::Utc::now(),
             &snapshot,
-            vec![make_category("Health", 80)],
+            analysis,
             None,
-            WEIGHTS,
             &crate::config::Thresholds::default(),
             &[],
             &Default::default(),
         )
+    }
+
+    fn report_with_detection() -> AnalysisReport {
+        report_of(analysis_with_detection())
+    }
+
+    fn report_without_detection() -> AnalysisReport {
+        report_of(analysis_without_detection())
     }
 
     #[test]
@@ -827,9 +946,15 @@ mod tests {
         let report = build_report(
             chrono::Utc::now(),
             &snapshot,
-            vec![make_category("Health", 80)],
+            analysis_of(
+                vec![make_category("Health", 80)],
+                WEIGHTS,
+                crate::metrics::coupling::CouplingEvidence::derive(
+                    &snapshot,
+                    &crate::config::Thresholds::default().coupling,
+                ),
+            ),
             None,
-            WEIGHTS,
             &crate::config::Thresholds::default(),
             &[],
             &Default::default(),
@@ -869,8 +994,8 @@ mod tests {
 
     #[test]
     fn history_entry_carries_finding_counts() {
-        let report = report_with_detection();
-        let entry = build_history_entry(chrono::Utc::now(), &report, "abc123", None);
+        let (analysis, snapshot) = analysis_with_detection();
+        let entry = build_history_entry(chrono::Utc::now(), &analysis, &snapshot, "abc123", None);
         assert_eq!(entry.counts.content_coupling, Some(0));
         assert_eq!(entry.counts.common_coupling, Some(0));
         assert_eq!(entry.counts.inheritance_coupling, Some(0));
@@ -879,10 +1004,11 @@ mod tests {
 
     #[test]
     fn history_entry_counts_none_without_detection() {
-        let report = report_without_detection();
+        let (analysis, snapshot) = analysis_without_detection();
         let entry = build_history_entry(
             chrono::Utc::now(),
-            &report,
+            &analysis,
+            &snapshot,
             "abc123",
             Some("backfill".into()),
         );

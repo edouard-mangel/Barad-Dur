@@ -12,7 +12,7 @@ pub(super) use coupling::{
     build_coupling_pairs, build_import_cycles, build_import_edges, build_per_file_coupling,
 };
 pub(super) use files::build_file_ages;
-pub(super) use hotspots::build_hotspots;
+pub(crate) use hotspots::build_hotspots;
 
 /// Snapshot scaffolding shared by the submodules' tests.
 #[cfg(test)]

@@ -1120,7 +1120,9 @@ fn finding_counts_match_metrics_including_barrel() {
         component_depth: 1,
         ..Default::default()
     };
-    let counts = pressman_finding_counts(&snapshot, &thresholds).expect("detection ran");
+    let counts = CouplingEvidence::derive(&snapshot, &thresholds)
+        .finding_counts()
+        .expect("detection ran");
     assert_eq!(counts.content, 1, "barrel bypass counted into content");
     assert_eq!(counts.common, 1);
     assert_eq!(counts.control, 2);
@@ -1130,7 +1132,13 @@ fn finding_counts_match_metrics_including_barrel() {
         content_barrel_rule: false,
         ..Default::default()
     };
-    assert_eq!(pressman_finding_counts(&snapshot, &off).unwrap().content, 0);
+    assert_eq!(
+        CouplingEvidence::derive(&snapshot, &off)
+            .finding_counts()
+            .unwrap()
+            .content,
+        0
+    );
 }
 
 #[test]
@@ -1138,7 +1146,9 @@ fn finding_counts_none_when_detection_did_not_run() {
     let mut snapshot = crate::metrics::testutil::make_snapshot();
     snapshot.files = vec![crate::metrics::testutil::make_file("src/a.rs")];
     assert!(
-        pressman_finding_counts(&snapshot, &crate::config::CouplingThresholds::default()).is_none()
+        CouplingEvidence::derive(&snapshot, &crate::config::CouplingThresholds::default())
+            .finding_counts()
+            .is_none()
     );
 }
 
@@ -1155,8 +1165,9 @@ fn finding_counts_include_inheritance_kind() {
         kind: CouplingKind::Inheritance,
         evidence: "class C extends B → A (depth 2)".into(),
     }];
-    let counts =
-        pressman_finding_counts(&snapshot, &crate::config::CouplingThresholds::default()).unwrap();
+    let counts = CouplingEvidence::derive(&snapshot, &crate::config::CouplingThresholds::default())
+        .finding_counts()
+        .unwrap();
     assert_eq!(
         (
             counts.content,
@@ -1170,8 +1181,8 @@ fn finding_counts_include_inheritance_kind() {
 
 #[test]
 fn finding_counts_agree_with_metric_finding_lists() {
-    // Guards the "single count source" contract: pressman_finding_counts
-    // must equal what the three metrics report. Fixture stays under 10
+    // Guards the "single count source" contract:
+    // `CouplingEvidence::finding_counts` must equal what the metrics report. Fixture stays under 10
     // findings per kind so RawValue::List length == the full count.
     let mut snapshot = snapshot_with_findings(vec![
         make_finding(CouplingKind::Content),
@@ -1193,7 +1204,9 @@ fn finding_counts_agree_with_metric_finding_lists() {
         ..Default::default()
     };
 
-    let counts = pressman_finding_counts(&snapshot, &thresholds).expect("detection ran");
+    let counts = CouplingEvidence::derive(&snapshot, &thresholds)
+        .finding_counts()
+        .expect("detection ran");
     let category = compute_coupling(&snapshot, &thresholds, &Default::default());
     let list_len = |name: &str| -> usize {
         let m = category.metrics.iter().find(|m| m.name == name).unwrap();
@@ -1521,7 +1534,9 @@ fn all_coupling_findings_and_counts_include_inheritance() {
         .filter(|f| f.kind == CouplingKind::Inheritance)
         .count();
     assert_eq!(inh, 1);
-    let counts = pressman_finding_counts(&snapshot, &cfg).unwrap();
+    let counts = CouplingEvidence::derive(&snapshot, &cfg)
+        .finding_counts()
+        .unwrap();
     assert_eq!(counts.inheritance, 1);
 }
 

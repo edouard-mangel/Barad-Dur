@@ -91,9 +91,15 @@ fn report_hotspots_carry_counts_and_multiplied_score() {
     let report = scorer::build_report(
         chrono::Utc::now(),
         &snapshot,
-        Vec::new(),
+        barad_dur::analysis::AnalysisResult {
+            categories: Vec::new(),
+            overall_score: None,
+            coupling_evidence: barad_dur::metrics::coupling::CouplingEvidence::derive(
+                &snapshot,
+                &cfg.thresholds.coupling,
+            ),
+        },
         None,
-        &cfg.weights.as_weight_pairs(),
         &cfg.thresholds,
         &flagged_god_objects,
         &Default::default(),
@@ -140,9 +146,15 @@ fn hotspot_json_contract_for_renderers() {
     let report = scorer::build_report(
         chrono::Utc::now(),
         &snapshot,
-        Vec::new(),
+        barad_dur::analysis::AnalysisResult {
+            categories: Vec::new(),
+            overall_score: None,
+            coupling_evidence: barad_dur::metrics::coupling::CouplingEvidence::derive(
+                &snapshot,
+                &cfg.thresholds.coupling,
+            ),
+        },
         None,
-        &cfg.weights.as_weight_pairs(),
         &cfg.thresholds,
         &flagged_god_objects,
         &Default::default(),

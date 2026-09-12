@@ -5,29 +5,6 @@ use crate::metrics::CategoryResult;
 
 use super::types::ActionItem;
 
-/// Weighted average of the *scored* categories, the weights renormalised
-/// over them so an unscored category neither counts as 100 nor drags the
-/// rest down. `None` when nothing is measurable.
-pub fn compute_overall_score_with_weights(
-    categories: &[CategoryResult],
-    weights: &[(&str, f64)],
-) -> Option<u32> {
-    let weight_of = |name: &str| {
-        weights
-            .iter()
-            .find(|(candidate, _)| *candidate == name)
-            .map(|(_, weight)| *weight)
-            .unwrap_or(0.25)
-    };
-    let (weighted_sum, total_weight) = categories
-        .iter()
-        .filter_map(|cat| cat.score.map(|score| (score as f64, weight_of(&cat.name))))
-        .fold((0.0, 0.0), |(sum, total), (score, weight)| {
-            (sum + score * weight, total + weight)
-        });
-    (total_weight > 0.0).then(|| (weighted_sum / total_weight).round() as u32)
-}
-
 pub(super) fn generate_top_actions(categories: &[CategoryResult]) -> Vec<ActionItem> {
     let mut low_metrics: Vec<(&str, &str, u32)> = Vec::new();
 
@@ -111,24 +88,21 @@ const INHERITANCE_ADVICE: &str =
 /// higher finding-count first, capped at 10. A file's action speaks to its
 /// most severe rung. Empty when detection did not run.
 pub(super) fn generate_coupling_actions(
-    snapshot: &crate::snapshot::RepoSnapshot,
-    thresholds: &crate::config::CouplingThresholds,
+    evidence: &crate::metrics::coupling::CouplingEvidence,
 ) -> Vec<ActionItem> {
-    use crate::metrics::coupling::{all_coupling_findings, corroboration_degree, detection_ran};
     use crate::snapshot::CouplingKind;
 
-    if !detection_ran(snapshot) {
+    if !evidence.detection_ran {
         return Vec::new();
     }
-    let findings = all_coupling_findings(snapshot, thresholds);
+    let findings = &evidence.findings;
     if findings.is_empty() {
         return Vec::new();
     }
-    let corr = corroboration_degree(snapshot, thresholds);
 
     // severity index: lower = worse. Group by file, tracking worst rung + count.
     let mut by_file: HashMap<&Path, (u8, usize)> = HashMap::new();
-    for f in &findings {
+    for f in findings {
         let sev = match f.kind {
             CouplingKind::Content => 0u8,
             CouplingKind::Common => 1,
@@ -142,7 +116,7 @@ pub(super) fn generate_coupling_actions(
 
     let mut rows: Vec<(&Path, u8, bool, usize)> = by_file
         .into_iter()
-        .map(|(path, (sev, count))| (path, sev, corr.contains_key(path), count))
+        .map(|(path, (sev, count))| (path, sev, evidence.is_corroborated(path), count))
         .collect();
     // worst rung asc → corroborated first → count desc → path asc.
     rows.sort_by(|a, b| {
@@ -538,105 +512,6 @@ mod tests {
     use crate::metrics::{CategoryResult, MetricValue, RawValue};
 
     #[test]
-    fn overall_score_averages_scored_categories_only_and_is_none_without_any() {
-        let scored = |name: &str, score: u32| CategoryResult {
-            name: name.to_string(),
-            score: Some(score),
-            metrics: vec![],
-        };
-        let unscored = CategoryResult {
-            name: "Team".to_string(),
-            score: None,
-            metrics: vec![],
-        };
-        let weights: &[(&str, f64)] = &[("Health", 0.35), ("Coupling", 0.20), ("Team", 0.10)];
-
-        assert_eq!(
-            compute_overall_score_with_weights(
-                &[
-                    scored("Health", 80),
-                    scored("Coupling", 40),
-                    unscored.clone()
-                ],
-                weights
-            ),
-            Some(65),
-            "weights renormalise over the measurable categories: (80*.35 + 40*.20) / .55"
-        );
-        assert_eq!(
-            compute_overall_score_with_weights(&[unscored], weights),
-            None
-        );
-        assert_eq!(compute_overall_score_with_weights(&[], weights), None);
-    }
-
-    const WEIGHTS: &[(&str, f64)] = &[
-        ("Health", 0.25),
-        ("Team", 0.10),
-        ("Evolution", 0.25),
-        ("Git Hygiene", 0.20),
-        ("Coupling", 0.20),
-    ];
-
-    fn make_category(name: &str, score: u32) -> CategoryResult {
-        CategoryResult {
-            name: name.to_string(),
-            score: Some(score),
-            metrics: vec![MetricValue {
-                name: format!("{} metric", name),
-                description: "test".to_string(),
-                raw_value: RawValue::Integer(0),
-                score: Some(score),
-            }],
-        }
-    }
-
-    #[test]
-    fn overall_score_weighted_average() {
-        let categories = vec![
-            make_category("Health", 80),
-            make_category("Team", 60),
-            make_category("Evolution", 70),
-            make_category("Git Hygiene", 50),
-            make_category("Coupling", 60),
-        ];
-        let score = compute_overall_score_with_weights(&categories, WEIGHTS);
-        // 80*0.25 + 60*0.10 + 70*0.25 + 50*0.20 + 60*0.20 = 20+6+17.5+10+12 = 65.5 → 66
-        assert_eq!(score, Some(66));
-    }
-
-    #[test]
-    fn overall_score_single_category() {
-        let categories = vec![make_category("Health", 75)];
-        let score = compute_overall_score_with_weights(&categories, WEIGHTS);
-        assert_eq!(score, Some(75));
-    }
-
-    #[test]
-    fn overall_score_empty_is_unscored() {
-        let score = compute_overall_score_with_weights(&[], WEIGHTS);
-        assert_eq!(score, None, "nothing measurable is not a zero");
-    }
-
-    #[test]
-    fn overall_score_custom_weights() {
-        let categories = vec![
-            make_category("Health", 100),
-            make_category("Team", 0),
-            make_category("Evolution", 0),
-            make_category("Git Hygiene", 0),
-        ];
-        let weights = vec![
-            ("Health", 1.0),
-            ("Team", 0.0),
-            ("Evolution", 0.0),
-            ("Git Hygiene", 0.0),
-        ];
-        let score = compute_overall_score_with_weights(&categories, &weights);
-        assert_eq!(score, Some(100));
-    }
-
-    #[test]
     fn top_actions_picks_worst() {
         let categories = vec![
             CategoryResult {
@@ -765,7 +640,13 @@ mod tests {
     #[test]
     fn coupling_actions_empty_when_no_findings() {
         let s = snap_with(vec![]);
-        assert!(generate_coupling_actions(&s, &CouplingThresholds::default()).is_empty());
+        assert!(
+            generate_coupling_actions(&crate::metrics::coupling::CouplingEvidence::derive(
+                &s,
+                &CouplingThresholds::default()
+            ))
+            .is_empty()
+        );
     }
 
     #[test]
@@ -775,7 +656,10 @@ mod tests {
             finding("src/glob.rs", CouplingKind::Common),
             finding("src/int.rs", CouplingKind::Content),
         ]);
-        let acts = generate_coupling_actions(&s, &CouplingThresholds::default());
+        let acts = generate_coupling_actions(&crate::metrics::coupling::CouplingEvidence::derive(
+            &s,
+            &CouplingThresholds::default(),
+        ));
         let files: Vec<&str> = acts.iter().map(|a| a.text.as_str()).collect();
         assert!(files[0].contains("src/int.rs") && files[0].contains("worst: content"));
         assert!(files[1].contains("src/glob.rs") && files[1].contains("worst: common"));
@@ -796,7 +680,10 @@ mod tests {
             finding("src/mix2.rs", CouplingKind::Common),
             finding("src/mix2.rs", CouplingKind::Control),
         ]);
-        let acts = generate_coupling_actions(&s, &CouplingThresholds::default());
+        let acts = generate_coupling_actions(&crate::metrics::coupling::CouplingEvidence::derive(
+            &s,
+            &CouplingThresholds::default(),
+        ));
         assert_eq!(acts.len(), 2);
         for a in &acts {
             assert!(a.text.contains("worst: common"), "{}", a.text);
@@ -823,7 +710,10 @@ mod tests {
                 (0u32..10).map(crate::snapshot::CommitId).collect(),
             );
         }
-        let acts = generate_coupling_actions(&s, &CouplingThresholds::default());
+        let acts = generate_coupling_actions(&crate::metrics::coupling::CouplingEvidence::derive(
+            &s,
+            &CouplingThresholds::default(),
+        ));
         assert!(acts[0].text.contains("src/live.rs"));
         assert!(acts[0].text.contains("corroborated by change history"));
         assert!(acts[1].text.contains("src/dormant.rs"));
@@ -841,7 +731,10 @@ mod tests {
             .map(|p| finding(p, CouplingKind::Control))
             .collect();
         let s = snap_with(findings);
-        let acts = generate_coupling_actions(&s, &CouplingThresholds::default());
+        let acts = generate_coupling_actions(&crate::metrics::coupling::CouplingEvidence::derive(
+            &s,
+            &CouplingThresholds::default(),
+        ));
         assert_eq!(acts.len(), 10);
         let mut expected = paths.clone();
         expected.sort();
@@ -860,7 +753,13 @@ mod tests {
         // backfill). Must return empty, never fabricated actions.
         let mut s = snap_with(vec![finding("src/a.rs", CouplingKind::Common)]);
         s.file_metrics.clear();
-        assert!(generate_coupling_actions(&s, &CouplingThresholds::default()).is_empty());
+        assert!(
+            generate_coupling_actions(&crate::metrics::coupling::CouplingEvidence::derive(
+                &s,
+                &CouplingThresholds::default()
+            ))
+            .is_empty()
+        );
     }
 
     #[test]
@@ -872,7 +771,11 @@ mod tests {
             (CouplingKind::Control, "intent-revealing"),
         ] {
             let s = snap_with(vec![finding("src/a.rs", kind)]);
-            let acts = generate_coupling_actions(&s, &CouplingThresholds::default());
+            let acts =
+                generate_coupling_actions(&crate::metrics::coupling::CouplingEvidence::derive(
+                    &s,
+                    &CouplingThresholds::default(),
+                ));
             assert!(
                 acts[0].text.contains(needle),
                 "kind {kind:?}: {}",
@@ -888,7 +791,11 @@ mod tests {
             finding("src/deep.ts", CouplingKind::Inheritance),
             finding("src/glob.rs", CouplingKind::Common),
         ]);
-        let actions = generate_coupling_actions(&s, &crate::config::CouplingThresholds::default());
+        let actions =
+            generate_coupling_actions(&crate::metrics::coupling::CouplingEvidence::derive(
+                &s,
+                &crate::config::CouplingThresholds::default(),
+            ));
         let texts: Vec<&str> = actions.iter().map(|a| a.text.as_str()).collect();
         assert!(texts[0].contains("src/glob.rs") && texts[0].contains("worst: common"));
         assert!(texts[1].contains("src/deep.ts") && texts[1].contains("worst: inheritance"));

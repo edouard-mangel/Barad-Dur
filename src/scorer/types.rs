@@ -45,7 +45,8 @@ pub struct HotspotFile {
     pub coupling_trend: Option<CouplingTrend>,
     /// Pressman coupling findings in this file, per kind. Content includes
     /// barrel-bypass findings when `content_barrel_rule` is on — the same
-    /// gating as `pressman_finding_counts`, so the two views never disagree.
+    /// gating as `CouplingEvidence::finding_counts`, so the two views never
+    /// disagree.
     pub content_findings: usize,
     pub common_findings: usize,
     pub control_findings: usize,

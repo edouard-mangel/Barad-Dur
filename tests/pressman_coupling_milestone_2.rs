@@ -1,9 +1,10 @@
 //! M2: finding counts flow into reports and history entries — and are
 //! honestly absent when detection did not run (ADR-005 backfill path).
 
+use barad_dur::analysis::{calculate, AnalysisInputs, CategorySelection};
 use barad_dur::collector::Collector;
 use barad_dur::config::RepoConfig;
-use barad_dur::metrics::{coupling, evolution, health, hygiene, team};
+use barad_dur::metrics::{coupling, health};
 use barad_dur::scorer;
 use barad_dur::snapshot::{FileEntry, RepoSnapshot, TimeWindow};
 use std::path::PathBuf;
@@ -22,35 +23,23 @@ fn live_analysis_records_finding_counts_in_history_entry() {
     let default_cfg = RepoConfig::default();
     let weight_pairs = default_cfg.weights.as_weight_pairs();
     let flagged_god_objects = health::god_object_files(&snapshot, &default_cfg.thresholds.health);
-    let categories = vec![
-        health::compute_health(
-            &snapshot,
-            &default_cfg.thresholds.health,
-            &flagged_god_objects,
-        ),
-        team::compute_team(
-            &snapshot,
-            &default_cfg.thresholds.team,
-            &default_cfg.thresholds.coupling,
-        ),
-        evolution::compute_evolution(
-            chrono::Utc::now(),
-            &snapshot,
-            &default_cfg.thresholds.evolution,
-        ),
-        hygiene::compute_hygiene(&snapshot, &default_cfg.thresholds.hygiene),
-        coupling::compute_coupling(
-            &snapshot,
-            &default_cfg.thresholds.coupling,
-            &Default::default(),
-        ),
-    ];
+    let analysis = calculate(&AnalysisInputs {
+        reference_time: chrono::Utc::now(),
+        snapshot: &snapshot,
+        selection: CategorySelection::GATE,
+        thresholds: &default_cfg.thresholds,
+        weights: &weight_pairs,
+        dependency_evidence: &[],
+        god_objects: &flagged_god_objects,
+        coupling_reach: &Default::default(),
+    });
+    let entry =
+        scorer::build_history_entry(chrono::Utc::now(), &analysis, &snapshot, "test-head", None);
     let report = scorer::build_report(
         chrono::Utc::now(),
         &snapshot,
-        categories,
+        analysis,
         None,
-        &weight_pairs,
         &default_cfg.thresholds,
         &flagged_god_objects,
         &Default::default(),
@@ -59,7 +48,6 @@ fn live_analysis_records_finding_counts_in_history_entry() {
     let counts = report
         .coupling_finding_counts
         .expect("live analysis must produce counts");
-    let entry = scorer::build_history_entry(chrono::Utc::now(), &report, "test-head", None);
     assert_eq!(entry.counts.content_coupling, Some(counts.content));
     assert_eq!(entry.counts.common_coupling, Some(counts.common));
     assert_eq!(entry.counts.control_coupling, Some(counts.control));
@@ -101,39 +89,35 @@ fn backfill_style_snapshot_records_no_counts_and_unscored_metrics() {
         );
     }
 
-    // …and the report/history carry no counts (mirroring backfill's category list).
+    // …and the report/history carry no counts (backfill's own selection).
     let weight_pairs = default_cfg.weights.as_weight_pairs();
     let flagged_god_objects = health::god_object_files(&snapshot, &default_cfg.thresholds.health);
-    let categories = vec![
-        health::compute_health(
-            &snapshot,
-            &default_cfg.thresholds.health,
-            &flagged_god_objects,
-        ),
-        team::compute_team(
-            &snapshot,
-            &default_cfg.thresholds.team,
-            &default_cfg.thresholds.coupling,
-        ),
-        evolution::compute_evolution(
-            chrono::Utc::now(),
-            &snapshot,
-            &default_cfg.thresholds.evolution,
-        ),
-        hygiene::compute_hygiene(&snapshot, &default_cfg.thresholds.hygiene),
-    ];
+    let analysis = calculate(&AnalysisInputs {
+        reference_time: chrono::Utc::now(),
+        snapshot: &snapshot,
+        selection: CategorySelection::BACKFILL,
+        thresholds: &default_cfg.thresholds,
+        weights: &weight_pairs,
+        dependency_evidence: &[],
+        god_objects: &flagged_god_objects,
+        coupling_reach: &Default::default(),
+    });
+    let entry = scorer::build_history_entry(
+        chrono::Utc::now(),
+        &analysis,
+        &snapshot,
+        &head,
+        Some("backfill".into()),
+    );
+    assert_eq!(entry.counts.content_coupling, None);
     let report = scorer::build_report(
         chrono::Utc::now(),
         &snapshot,
-        categories,
+        analysis,
         None,
-        &weight_pairs,
         &default_cfg.thresholds,
         &flagged_god_objects,
         &Default::default(),
     );
     assert_eq!(report.coupling_finding_counts, None);
-    let entry =
-        scorer::build_history_entry(chrono::Utc::now(), &report, &head, Some("backfill".into()));
-    assert_eq!(entry.counts.content_coupling, None);
 }
