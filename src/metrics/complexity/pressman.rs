@@ -47,7 +47,7 @@ pub(super) fn descendants(root: Node<'_>) -> Vec<Node<'_>> {
     while let Some(n) = stack.pop() {
         out.push(n);
         for i in (0..n.child_count()).rev() {
-            if let Some(c) = n.child(i as u32) {
+            if let Some(c) = n.child(i) {
                 stack.push(c);
             }
         }
@@ -82,7 +82,7 @@ fn same_scope_descendants<'a>(root: Node<'a>, boundaries: &[&str]) -> Vec<Node<'
             continue;
         }
         for i in (0..n.child_count()).rev() {
-            if let Some(c) = n.child(i as u32) {
+            if let Some(c) = n.child(i) {
                 stack.push(c);
             }
         }
@@ -175,7 +175,7 @@ fn contains_marker_with_left_boundary(hay: &str, marker: &str) -> bool {
 
 fn rust_common(node: Node<'_>, content: &str, path: &Path) -> Option<CouplingFinding> {
     let is_mut = (0..node.child_count())
-        .filter_map(|i| node.child(i as u32))
+        .filter_map(|i| node.child(i))
         .any(|c| c.kind() == "mutable_specifier");
     // Only `static mut` applies when the type field is missing (malformed
     // parse), since there is no type text to scan for interior mutability.
@@ -230,14 +230,14 @@ fn rust_content(node: Node<'_>, content: &str, path: &Path) -> Option<CouplingFi
 
 fn rust_control(node: Node<'_>, content: &str, path: &Path) -> Option<CouplingFinding> {
     let is_pub = (0..node.child_count())
-        .filter_map(|i| node.child(i as u32))
+        .filter_map(|i| node.child(i))
         .any(|c| c.kind() == "visibility_modifier");
     if !is_pub {
         return None;
     }
     let params = node.child_by_field_name("parameters")?;
     let bool_params: Vec<&str> = (0..params.child_count())
-        .filter_map(|i| params.child(i as u32))
+        .filter_map(|i| params.child(i))
         .filter(|p| p.kind() == "parameter")
         .filter(|p| {
             p.child_by_field_name("type")
@@ -360,10 +360,10 @@ fn js_global_write(node: Node<'_>, content: &str, path: &Path) -> Option<Couplin
 fn js_singleton(class_node: Node<'_>, content: &str, path: &Path) -> Option<CouplingFinding> {
     let body = class_node.child_by_field_name("body")?;
     (0..body.child_count())
-        .filter_map(|i| body.child(i as u32))
+        .filter_map(|i| body.child(i))
         .find_map(|member| {
             let is_static = (0..member.child_count())
-                .filter_map(|i| member.child(i as u32))
+                .filter_map(|i| member.child(i))
                 .any(|c| text(c, content) == "static");
             if !is_static {
                 return None;
@@ -373,7 +373,7 @@ fn js_singleton(class_node: Node<'_>, content: &str, path: &Path) -> Option<Coup
                 .child_by_field_name("name")
                 .or_else(|| {
                     (0..member.child_count())
-                        .filter_map(|i| member.child(i as u32))
+                        .filter_map(|i| member.child(i))
                         .find(|c| matches!(c.kind(), "property_identifier" | "identifier"))
                 })
                 .map(|n| text(n, content))?;
@@ -405,7 +405,7 @@ fn js_control(func: Node<'_>, content: &str, path: &Path) -> Option<CouplingFind
             // TS: required_parameter / optional_parameter with `: boolean`
             "required_parameter" | "optional_parameter" => {
                 let is_bool = (0..p.child_count())
-                    .filter_map(|i| p.child(i as u32))
+                    .filter_map(|i| p.child(i))
                     .filter(|c| c.kind() == "type_annotation")
                     .any(|c| annotation_is_exact_boolean(c, content));
                 let pat = p.child_by_field_name("pattern")?;

@@ -96,7 +96,7 @@ fn statement_reexports(
         // symbols are only reachable through the namespace).
         Some(specifier)
             if (0..stmt.child_count())
-                .filter_map(|i| stmt.child(i as u32))
+                .filter_map(|i| stmt.child(i))
                 .any(|c| c.kind() == "*") =>
         {
             vec![RawReExport {
@@ -305,7 +305,7 @@ fn binding(n: Node<'_>, content: &str, specifier: &str) -> Option<(String, (Stri
 
 fn child_of_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
     (0..node.child_count())
-        .filter_map(|i| node.child(i as u32))
+        .filter_map(|i| node.child(i))
         .find(|c| c.kind() == kind)
 }
 

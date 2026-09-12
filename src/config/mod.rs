@@ -223,7 +223,7 @@ pub fn load(repo_root: &Path) -> Result<RepoConfig> {
 /// unit-tested; the caller is responsible for reporting the result.
 fn unknown_top_level_keys(content: &str) -> Vec<String> {
     const KNOWN: &[&str] = &["analysis", "weights", "thresholds", "output", "backfill"];
-    let Ok(toml::Value::Table(table)) = content.parse::<toml::Value>() else {
+    let Ok(toml::Value::Table(table)) = toml::from_str::<toml::Value>(content) else {
         return Vec::new();
     };
     table
