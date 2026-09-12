@@ -12,7 +12,7 @@
 
 ## Global constraints
 
-- Prose-only planning; no implementation or probes.
+- Implementation began 2026-09-12 on `refactor/snapshot-assembly`.
 - Preserve serialized RepoSnapshot layout, bincode cache compatibility, exclusions, ordering, and unreadable-content behavior.
 - Historical source and manifest content comes from the selected commit; current ignore policy remains current where that is the existing behavior.
 - Retain live parallelism, historical collection modes, and backfill's no-AST/no-blame policy.
@@ -28,11 +28,11 @@ Prefer concrete data records and the existing resolver helpers over a generic re
 
 **Files:** src/collector/snapshot_builder.rs tests, tests/collector_tests.rs, relevant backfill and coupling suites; new tests/snapshot_assembly_walking_skeleton.rs.
 
-- [ ] Build equivalent-content cases for working-tree and historical collection; compare the applicable analysis channels rather than timestamps or path-specific metadata.
-- [ ] Include imports, re-exports, classes/inheritance, call records, file metrics, and any other current tuple fields.
-- [ ] Cover binary/non-UTF-8 content, unreadable files, invalid/missing blobs, empty input, duplicate references, and unresolved imports.
-- [ ] Include a historical manifest that differs from the working tree and changed current ignore rules.
-- [ ] Capture current ordering and index relationships before restructuring.
+- [x] Build equivalent-content cases for working-tree and historical collection; compare the applicable analysis channels rather than timestamps or path-specific metadata.
+- [x] Include imports, re-exports, classes/inheritance, call records, file metrics, and any other current tuple fields.
+- [x] Cover binary/non-UTF-8 content, unreadable files, invalid/missing blobs, empty input, duplicate references, and unresolved imports.
+- [x] Include a historical manifest that differs from the working tree and changed current ignore rules.
+- [x] Capture current ordering and index relationships before restructuring.
 
 **Acceptance:** Tests expose provenance and collection-mode differences; they do not incorrectly require AST-less backfill to equal AST-enabled collection.
 
@@ -42,10 +42,10 @@ Prefer concrete data records and the existing resolver helpers over a generic re
 
 **Contract:** Raw data contains collected but unresolved channels; resolved data contains exactly the channels needed for final snapshot assembly. Neither is serialized.
 
-- [ ] Inventory every tuple position and give it a domain-meaningful field name.
-- [ ] Update producers, destructuring, defaults, and tests together, keeping behavior unchanged.
-- [ ] Make skipped AST collection explicit through the existing mode and empty intermediate result; do not reinterpret it as measured absence of findings.
-- [ ] Keep each field's ownership and conversion visible; avoid an opaque catch-all payload.
+- [x] Inventory every tuple position and give it a domain-meaningful field name.
+- [x] Update producers, destructuring, defaults, and tests together, keeping behavior unchanged.
+- [x] Make skipped AST collection explicit through the existing mode and empty intermediate result; do not reinterpret it as measured absence of findings.
+- [x] Keep each field's ownership and conversion visible; avoid an opaque catch-all payload.
 
 **Acceptance:** No positional RawAstOutput/AstParts plumbing remains and no serialized snapshot field changes.
 
@@ -55,11 +55,11 @@ Prefer concrete data records and the existing resolver helpers over a generic re
 
 **Contract:** Aggregation consumes per-file SourceAnalysis results; resolution consumes aggregated raw channels, included files, and explicit manifest/resolver context.
 
-- [ ] Reuse the existing single-parse analyse_source flow; preserve which files are read and parsed.
-- [ ] Route live and historical outputs through one aggregation policy while retaining live parallel collection.
-- [ ] Share raw import, class, re-export, and call resolution using existing resolve_against_files behavior.
-- [ ] Require historical manifest input from the selected tree, never a hidden disk fallback.
-- [ ] Preserve deduplication, error handling, and deterministic ordering; do not introduce nondeterministic container traversal into output.
+- [x] Reuse the existing single-parse analyse_source flow; preserve which files are read and parsed.
+- [x] Route live and historical outputs through one aggregation policy while retaining live parallel collection.
+- [x] Share raw import, class, re-export, and call resolution using existing resolve_against_files behavior.
+- [x] Require historical manifest input from the selected tree, never a hidden disk fallback.
+- [x] Preserve deduplication, error handling, and deterministic ordering; do not introduce nondeterministic container traversal into output.
 
 **Acceptance:** Adding a new source-analysis channel has one aggregation/resolution path, with adapters responsible only for acquisition/provenance.
 
@@ -69,22 +69,22 @@ Prefer concrete data records and the existing resolver helpers over a generic re
 
 **Contract:** Final assembly consumes complete repository metadata, commit/author/file data, explicit blame/AST results, and acquisition metadata, then builds indexes from that final data once.
 
-- [ ] Replace duplicated RepoSnapshot construction with one internal assembly path.
-- [ ] Preserve branch, name, path, time-window, created-at, manifest, and collection-state provenance supplied by each caller.
-- [ ] Build indexes after core data is final; test that referenced files, commits, and authors resolve consistently.
-- [ ] Retain existing public entry points for lightweight and AST-enabled historical collection.
+- [x] Replace duplicated RepoSnapshot construction with one internal assembly path.
+- [x] Preserve branch, name, path, time-window, created-at, manifest, and collection-state provenance supplied by each caller.
+- [x] Build indexes after core data is final; test that referenced files, commits, and authors resolve consistently.
+- [x] Retain existing public entry points for lightweight and AST-enabled historical collection.
 
 **Acceptance:** One final construction path serves both adapters without altering the cache format or historical source provenance.
 
 ## Task 5: Complete behavior and cache review
 
-- [ ] Sweep every acquisition/assembly caller, including live cache misses, cache hits, backfill, and gate baselines.
-- [ ] Test cold versus warm collection output and disk/blob parity where collection modes match.
-- [ ] Check relevant collector, backfill, coupling, and call-graph integration suites; run the full Rust suite and formatting/Clippy.
-- [ ] Complete P1 for field propagation, provenance, ordering, and indexing, followed by required P2 corpus/audit checks.
-- [ ] Retain existing compatibility checks; if serialized changes become unavoidable, stop that expansion for a separate design instead of silently invalidating caches.
+- [x] Sweep every acquisition/assembly caller, including live cache misses, cache hits, backfill, and gate baselines.
+- [x] Test cold versus warm collection output and disk/blob parity where collection modes match.
+- [x] Check relevant collector, backfill, coupling, and call-graph integration suites; run the full Rust suite and formatting/Clippy.
+- [x] Complete P1 for field propagation, provenance, ordering, and indexing, followed by required P2 corpus/audit checks.
+- [x] Retain existing compatibility checks; if serialized changes become unavoidable, stop that expansion for a separate design instead of silently invalidating caches.
 
-**Completion:** Intermediate data is named, processing and final construction are shared, acquisition policy remains explicit, and no externally observable behavior changes.
+**Completion:** Intermediate data is named, processing and final construction are shared, acquisition policy remains explicit, and no externally observable behavior changes. Evidence: [implementation record](../../reviews/2026-09-12-snapshot-assembly.md).
 
 ## Dependencies and evidence
 

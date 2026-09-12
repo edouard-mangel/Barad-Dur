@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod assembly_parity_tests;
 mod composer;
 pub mod deps;
 mod exclude;
@@ -7,6 +9,7 @@ mod import_resolver;
 mod libgit;
 mod progress;
 mod snapshot_builder;
+mod source_assembly;
 mod types;
 
 use anyhow::{Context, Result};
@@ -157,8 +160,8 @@ impl Collector {
 
     /// Analyse working-tree files for static complexity metrics.
     pub fn collect_file_metrics(&self, files: &[FileEntry]) -> HashMap<PathBuf, FileComplexity> {
-        let (metrics, _, _, _, _, _) = self.collect_file_metrics_with_progress(files, &NoProgress);
-        metrics
+        self.collect_file_metrics_with_progress(files, &NoProgress)
+            .file_metrics
     }
 
     /// Build a complete RepoSnapshot with all data and derived indexes.
