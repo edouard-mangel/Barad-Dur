@@ -1,7 +1,9 @@
 mod community;
+pub mod evidence;
 mod inheritance;
 mod test_safety_net;
 mod types;
+pub use evidence::CouplingEvidence;
 pub(crate) use inheritance::inheritance_findings;
 pub(crate) use test_safety_net::test_safety_net;
 pub use types::CouplingFindingCounts;
@@ -21,24 +23,36 @@ use crate::snapshot::{CouplingFinding, CouplingKind, RepoSnapshot};
 /// category and the hotspot rows.
 pub type CouplingReach = std::collections::BTreeMap<PathBuf, (usize, usize)>;
 
+/// Derives the coupling evidence itself; callers that share the evidence
+/// with other consumers use [`compute_coupling_with_evidence`].
 pub fn compute_coupling(
     snapshot: &RepoSnapshot,
     thresholds: &CouplingThresholds,
     reach: &CouplingReach,
 ) -> CategoryResult {
-    let barrel = gated_barrel_findings(snapshot, thresholds);
-    let inh = inheritance_findings(snapshot, thresholds.inheritance_min_depth);
-    let corr = corroboration_degree(snapshot, thresholds);
+    let evidence = CouplingEvidence::derive(snapshot, thresholds);
+    compute_coupling_with_evidence(snapshot, thresholds, reach, &evidence)
+}
+
+/// The Coupling category over evidence derived once for this snapshot and
+/// threshold set, so the Pressman metrics list exactly the findings the
+/// counts, hotspots, actions, and gate ratchet see.
+pub fn compute_coupling_with_evidence(
+    snapshot: &RepoSnapshot,
+    thresholds: &CouplingThresholds,
+    reach: &CouplingReach,
+    evidence: &CouplingEvidence,
+) -> CategoryResult {
     let weight = thresholds.corroboration_weight;
     let metrics = vec![
         afferent_coupling(snapshot),
         efferent_coupling(snapshot),
         circular_dependencies(snapshot),
         change_coupling_smells(snapshot, thresholds),
-        pressman_metric(snapshot, CouplingKind::Content, barrel, &corr, weight),
-        pressman_metric(snapshot, CouplingKind::Common, Vec::new(), &corr, weight),
-        pressman_metric(snapshot, CouplingKind::Inheritance, inh, &corr, weight),
-        pressman_metric(snapshot, CouplingKind::Control, Vec::new(), &corr, weight),
+        pressman_metric(evidence, CouplingKind::Content, weight),
+        pressman_metric(evidence, CouplingKind::Common, weight),
+        pressman_metric(evidence, CouplingKind::Inheritance, weight),
+        pressman_metric(evidence, CouplingKind::Control, weight),
         coupling_reach_trend(reach),
         test_safety_net(snapshot, thresholds),
     ];
@@ -545,27 +559,6 @@ pub(crate) fn detection_ran(snapshot: &RepoSnapshot) -> bool {
     !snapshot.file_metrics.is_empty()
 }
 
-/// Single source of truth for per-kind finding counts. Must equal what the
-/// three Pressman metrics report (Content includes barrel-bypass findings
-/// when the rule is enabled). `None` when detection did not run or no
-/// detectable-language files exist.
-pub(crate) fn pressman_finding_counts(
-    snapshot: &RepoSnapshot,
-    thresholds: &CouplingThresholds,
-) -> Option<CouplingFindingCounts> {
-    if !detection_ran(snapshot) || !has_detectable_files(snapshot) {
-        return None;
-    }
-    let findings = all_coupling_findings(snapshot, thresholds);
-    let count_kind = |kind: CouplingKind| findings.iter().filter(|f| f.kind == kind).count();
-    Some(CouplingFindingCounts {
-        content: count_kind(CouplingKind::Content),
-        common: count_kind(CouplingKind::Common),
-        inheritance: count_kind(CouplingKind::Inheritance),
-        control: count_kind(CouplingKind::Control),
-    })
-}
-
 /// Why an empty import graph cannot be read as "clean", if it cannot.
 ///
 /// The three metrics whose only evidence is the import graph share this, so
@@ -687,13 +680,7 @@ pub(crate) const fn score_pressman(kind: CouplingKind, count: usize) -> u32 {
     }
 }
 
-fn pressman_metric(
-    snapshot: &RepoSnapshot,
-    kind: CouplingKind,
-    extra: Vec<CouplingFinding>,
-    corr: &HashMap<PathBuf, usize>,
-    weight: f64,
-) -> MetricValue {
+fn pressman_metric(evidence: &CouplingEvidence, kind: CouplingKind, weight: f64) -> MetricValue {
     let (name, rung) = match kind {
         CouplingKind::Content => (
             "Content coupling",
@@ -703,7 +690,7 @@ fn pressman_metric(
         CouplingKind::Inheritance => ("Inheritance coupling", "deep class inheritance chains"),
         CouplingKind::Control => ("Control coupling", "flag parameters steering callee logic"),
     };
-    if !detection_ran(snapshot) {
+    if !evidence.detection_ran {
         return MetricValue {
             name: name.to_string(),
             description: "Coupling detection did not run (no parsed files)".to_string(),
@@ -711,7 +698,7 @@ fn pressman_metric(
             score: None,
         };
     }
-    if !has_detectable_files(snapshot) {
+    if !evidence.has_detectable_files {
         return MetricValue {
             name: name.to_string(),
             description: "No files in detectable languages (Rust, TS/JS)".to_string(),
@@ -719,16 +706,10 @@ fn pressman_metric(
             score: None,
         };
     }
-    let findings: Vec<CouplingFinding> = snapshot
-        .coupling_findings
+    let findings: Vec<&CouplingFinding> = evidence
+        .findings
         .iter()
-        .filter(|f| f.kind == kind && classify(&f.path) == FileRole::Source)
-        .cloned()
-        .chain(
-            extra
-                .into_iter()
-                .filter(|f| classify(&f.path) == FileRole::Source),
-        )
+        .filter(|f| f.kind == kind)
         .collect();
     let count = findings.len();
 
@@ -738,7 +719,7 @@ fn pressman_metric(
     // reproduces pre-M5 scores exactly.
     let corroborated_count = findings
         .iter()
-        .filter(|f| corr.contains_key(&f.path))
+        .filter(|f| evidence.is_corroborated(&f.path))
         .count();
     let dormant_count = count - corroborated_count;
     let effective = (dormant_count as f64 + corroborated_count as f64 * weight).round() as usize;
@@ -751,7 +732,7 @@ fn pressman_metric(
                 Some(l) => format!("{}:{} — {}", f.path.display(), l, f.evidence),
                 None => format!("{} — {}", f.path.display(), f.evidence),
             };
-            match corr.get(&f.path) {
+            match evidence.corroboration.get(&f.path) {
                 Some(n) => format!("{base} — corroborated (co-changes with {n} file(s))"),
                 None => base,
             }

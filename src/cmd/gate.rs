@@ -1,16 +1,17 @@
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
+use crate::analysis::{self, AnalysisInputs, AnalysisResult, CategorySelection};
 use crate::cache;
 use crate::cli::GateArgs;
 use crate::collector::Collector;
 use crate::config;
-use crate::metrics::coupling::CouplingFindingCounts;
+use crate::metrics::coupling::{CouplingEvidence, CouplingFindingCounts};
 use crate::metrics::CategoryResult;
-use crate::metrics::{coupling, evolution, health, hygiene, team};
+use crate::metrics::{coupling, health};
 use crate::runner::{self, CollectOptions};
-use crate::scorer::{self, AnalysisReport};
-use crate::snapshot::{CouplingFinding, TimeWindow};
+use crate::scorer;
+use crate::snapshot::{CouplingFinding, RepoSnapshot, TimeWindow};
 use crate::trend::{self, VelocityDirection};
 
 pub fn run_gate(args: GateArgs) -> Result<i32> {
@@ -43,43 +44,34 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
         },
     )?;
 
-    // Computed once, shared by the Health category's "God objects" metric
-    // and by build_report's refactoring-action generator.
+    // Feeds the Health category's "God objects" metric; the gate builds no
+    // display report, so nothing else consumes it here.
     let flagged_god_objects = health::god_object_files(&snapshot, &cfg.thresholds.health);
 
-    // Computed once, shared by the Coupling category's reach-trend metric
-    // and by build_report's hotspot rows (the flagged_god_objects pattern).
+    // Feeds the Coupling category's reach-trend metric.
     let coupling_reach =
         coupling::growing_coupling_reach(&snapshot, cfg.thresholds.coupling.decay_min_partners);
 
-    let categories = vec![
-        health::compute_health(&snapshot, &cfg.thresholds.health, &flagged_god_objects),
-        team::compute_team(&snapshot, &cfg.thresholds.team, &cfg.thresholds.coupling),
-        evolution::compute_evolution(reference_time, &snapshot, &cfg.thresholds.evolution),
-        hygiene::compute_hygiene(&snapshot, &cfg.thresholds.hygiene),
-        coupling::compute_coupling(&snapshot, &cfg.thresholds.coupling, &coupling_reach),
-    ];
-
     let weight_pairs = cfg.weights.as_weight_pairs();
-    let report = scorer::build_report(
+    let analysis = analysis::calculate(&AnalysisInputs {
         reference_time,
-        &snapshot,
-        categories,
-        None,
-        &weight_pairs,
-        &cfg.thresholds,
-        &flagged_god_objects,
-        &coupling_reach,
-    );
-
+        snapshot: &snapshot,
+        selection: CategorySelection::GATE,
+        thresholds: &cfg.thresholds,
+        weights: &weight_pairs,
+        dependency_evidence: &[],
+        god_objects: &flagged_god_objects,
+        coupling_reach: &coupling_reach,
+    });
     let threshold = args.min_score;
-    let score_failed = check_gate_categories(&report, &args, threshold);
+    let score_failed = check_gate_categories(&analysis, &args, threshold);
 
     let trend_failed = match args.max_decline {
         Some(max_decline) => check_trend_gate_against_history(
             reference_time,
             &local_path,
-            &report,
+            &analysis,
+            &snapshot,
             &current_head,
             max_decline,
         ),
@@ -100,30 +92,33 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
             &ignore,
             use_default_excludes,
         )?;
-        let base_counts =
-            coupling::pressman_finding_counts(&base_snapshot, &cfg.thresholds.coupling).unwrap_or(
-                CouplingFindingCounts {
-                    content: 0,
-                    common: 0,
-                    inheritance: 0,
-                    control: 0,
-                },
-            );
-        let head_counts = report
-            .coupling_finding_counts
+        // One derivation per snapshot: the counts (increase summary) and
+        // the finding set (new-finding diff) cannot disagree about what
+        // "content coupling" means, barrel toggle included.
+        let base_evidence = CouplingEvidence::derive(&base_snapshot, &cfg.thresholds.coupling);
+        let base_counts = base_evidence
+            .finding_counts()
             .unwrap_or(CouplingFindingCounts {
                 content: 0,
                 common: 0,
                 inheritance: 0,
                 control: 0,
             });
-        let (base_findings, head_findings) =
-            ratchet_finding_sets(&cfg.thresholds.coupling, &base_snapshot, &snapshot);
+        let head_counts =
+            analysis
+                .coupling_evidence
+                .finding_counts()
+                .unwrap_or(CouplingFindingCounts {
+                    content: 0,
+                    common: 0,
+                    inheritance: 0,
+                    control: 0,
+                });
         let verdict = ratchet_verdict(
             &base_counts,
             &head_counts,
-            &base_findings,
-            &head_findings,
+            &base_evidence.findings,
+            &analysis.coupling_evidence.findings,
             max_new,
         );
         println!("{}", print_ratchet(&verdict, baseline_ref, max_new));
@@ -150,23 +145,6 @@ fn resolve_baseline_ref(repo_path: &Path, r: &str) -> anyhow::Result<String> {
         .peel_to_commit()
         .map_err(|e| anyhow::anyhow!("baseline ref '{r}' does not point at a commit: {e}"))?;
     Ok(commit.id().to_string())
-}
-
-/// Assemble the base/head finding sets the ratchet diffs. Barrel-bypass
-/// findings only join when the toggle is on — this must mirror
-/// `pressman_finding_counts`'s gating exactly, or the counts (used for the
-/// increase summary) and the finding set (used for the new-finding diff)
-/// disagree about what "content coupling" means.
-pub(crate) fn ratchet_finding_sets(
-    coupling_cfg: &crate::config::CouplingThresholds,
-    base: &crate::snapshot::RepoSnapshot,
-    head: &crate::snapshot::RepoSnapshot,
-) -> (Vec<CouplingFinding>, Vec<CouplingFinding>) {
-    use crate::metrics::coupling::all_coupling_findings;
-    (
-        all_coupling_findings(base, coupling_cfg),
-        all_coupling_findings(head, coupling_cfg),
-    )
 }
 
 /// Fold the three independent gate checks into a process exit code.
@@ -213,7 +191,8 @@ fn print_ratchet(verdict: &RatchetVerdict, baseline_ref: &str, max_new: usize) -
 fn check_trend_gate_against_history(
     reference_time: chrono::DateTime<chrono::Utc>,
     local_path: &Path,
-    report: &AnalysisReport,
+    analysis: &AnalysisResult,
+    snapshot: &RepoSnapshot,
     current_head: &str,
     max_decline: f64,
 ) -> bool {
@@ -224,8 +203,9 @@ fn check_trend_gate_against_history(
     if let Some(warning) = warning {
         println!("{warning}");
     }
-    let current_entry = scorer::build_history_entry(reference_time, report, current_head, None);
-    let summary = trend::compute_trend(&history, &report.branch, &current_entry);
+    let current_entry =
+        scorer::build_history_entry(reference_time, analysis, snapshot, current_head, None);
+    let summary = trend::compute_trend(&history, &snapshot.default_branch, &current_entry);
     check_trend_gate(&summary, max_decline)
 }
 
@@ -290,17 +270,17 @@ fn score_verdict(label: &str, score: Option<u32>, threshold: u32) -> (bool, Stri
     }
 }
 
-fn find_category<'a>(report: &'a AnalysisReport, cat_name: &str) -> Option<&'a CategoryResult> {
+fn find_category<'a>(analysis: &'a AnalysisResult, cat_name: &str) -> Option<&'a CategoryResult> {
     let cat_lower = cat_name.to_lowercase();
-    report.categories.iter().find(|c| {
+    analysis.categories.iter().find(|c| {
         let name_lower = c.name.to_lowercase();
         name_lower == cat_lower || name_lower.contains(&cat_lower)
     })
 }
 
 /// `(failed, line)` for a `--category` argument; unknown names never fail.
-fn category_verdict(report: &AnalysisReport, cat_name: &str, threshold: u32) -> (bool, String) {
-    match find_category(report, cat_name) {
+fn category_verdict(analysis: &AnalysisResult, cat_name: &str, threshold: u32) -> (bool, String) {
+    match find_category(analysis, cat_name) {
         Some(cat) => score_verdict(&cat.name, cat.score, threshold),
         None => (
             false,
@@ -310,20 +290,20 @@ fn category_verdict(report: &AnalysisReport, cat_name: &str, threshold: u32) -> 
 }
 
 #[cfg(test)]
-fn explain_category_gate(report: &AnalysisReport, cat_name: &str, threshold: u32) -> String {
-    category_verdict(report, cat_name, threshold).1
+fn explain_category_gate(analysis: &AnalysisResult, cat_name: &str, threshold: u32) -> String {
+    category_verdict(analysis, cat_name, threshold).1
 }
 
-fn check_gate_categories(report: &AnalysisReport, args: &GateArgs, threshold: u32) -> bool {
+fn check_gate_categories(analysis: &AnalysisResult, args: &GateArgs, threshold: u32) -> bool {
     let mut failed = false;
 
     if args.category.is_empty() {
-        let (overall_failed, line) = score_verdict("overall", report.overall_score, threshold);
+        let (overall_failed, line) = score_verdict("overall", analysis.overall_score, threshold);
         println!("{line}");
         failed = overall_failed;
     } else {
         for cat_name in &args.category {
-            let (cat_failed, line) = category_verdict(report, cat_name, threshold);
+            let (cat_failed, line) = category_verdict(analysis, cat_name, threshold);
             println!("{line}");
             failed |= cat_failed;
         }
@@ -396,50 +376,43 @@ pub(crate) fn ratchet_verdict(
 mod tests {
     use super::*;
     use crate::metrics::CategoryResult;
-    use crate::scorer::AnalysisReport;
     use crate::snapshot::CouplingKind;
     use crate::trend::{TrendDelta, TrendSummary, TrendVelocity, VelocityDirection};
     use std::collections::HashMap;
     use tempfile::TempDir;
 
-    fn make_report(overall: u32, categories: &[(&str, u32)]) -> AnalysisReport {
-        let cats: Vec<CategoryResult> = categories
-            .iter()
-            .map(|(name, score)| CategoryResult {
-                name: name.to_string(),
-                score: Some(*score),
-                metrics: vec![],
-            })
-            .collect();
-        AnalysisReport {
-            repo_name: "test".into(),
-            branch: "main".into(),
-            time_window_months: 6,
-            total_commits: 1,
-            total_authors: 1,
-            total_files: 1,
+    fn make_analysis(overall: u32, categories: &[(&str, u32)]) -> AnalysisResult {
+        let empty = RepoSnapshot::new(
+            std::path::PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        );
+        AnalysisResult {
+            categories: categories
+                .iter()
+                .map(|(name, score)| CategoryResult {
+                    name: name.to_string(),
+                    score: Some(*score),
+                    metrics: vec![],
+                })
+                .collect(),
             overall_score: Some(overall),
-            categories: cats,
-            top_actions: vec![],
-            coupling_actions: vec![],
-            remote_meta: None,
-            file_hotspots: vec![],
-            coupling_pairs: vec![],
-            author_ownership: vec![],
-            file_ages: vec![],
-            author_cards: vec![],
-            history: vec![],
-            dep_ecosystem_reports: vec![],
-            audit: None,
-            per_file_coupling: vec![],
-            import_edges: vec![],
-            import_cycles: vec![],
-            coupling_finding_counts: None,
-            call_graph: None,
-            churn_timeline: None,
-            score_thresholds: Default::default(),
-            long_method_thresholds: Default::default(),
+            coupling_evidence: crate::metrics::coupling::CouplingEvidence::derive(
+                &empty,
+                &crate::config::CouplingThresholds::default(),
+            ),
         }
+    }
+
+    /// The snapshot `make_analysis` results describe: branch `main`, empty.
+    fn main_snapshot() -> RepoSnapshot {
+        RepoSnapshot::new(
+            std::path::PathBuf::from("/tmp"),
+            "test".into(),
+            "main".into(),
+            TimeWindow::default(),
+        )
     }
 
     fn make_gate_args(min_score: u32, categories: Vec<String>) -> GateArgs {
@@ -493,35 +466,35 @@ mod tests {
 
     #[test]
     fn overall_pass() {
-        let report = make_report(75, &[]);
+        let report = make_analysis(75, &[]);
         let args = make_gate_args(60, vec![]);
         assert!(!check_gate_categories(&report, &args, 60));
     }
 
     #[test]
     fn overall_fail() {
-        let report = make_report(50, &[]);
+        let report = make_analysis(50, &[]);
         let args = make_gate_args(60, vec![]);
         assert!(check_gate_categories(&report, &args, 60));
     }
 
     #[test]
     fn category_pass() {
-        let report = make_report(80, &[("Health", 75)]);
+        let report = make_analysis(80, &[("Health", 75)]);
         let args = make_gate_args(60, vec!["health".into()]);
         assert!(!check_gate_categories(&report, &args, 60));
     }
 
     #[test]
     fn category_fail() {
-        let report = make_report(80, &[("Health", 40)]);
+        let report = make_analysis(80, &[("Health", 40)]);
         let args = make_gate_args(60, vec!["health".into()]);
         assert!(check_gate_categories(&report, &args, 60));
     }
 
     #[test]
     fn unscored_category_is_reported_as_not_measurable_and_does_not_fail() {
-        let mut report = make_report(80, &[("Health", 80)]);
+        let mut report = make_analysis(80, &[("Health", 80)]);
         report.categories.push(CategoryResult {
             name: "Team".into(),
             score: None,
@@ -537,7 +510,7 @@ mod tests {
 
     #[test]
     fn unscored_overall_is_reported_as_not_measurable_and_does_not_fail() {
-        let mut report = make_report(80, &[]);
+        let mut report = make_analysis(80, &[]);
         report.overall_score = None;
         let args = make_gate_args(60, vec![]);
         assert!(!check_gate_categories(&report, &args, 60));
@@ -545,7 +518,7 @@ mod tests {
 
     #[test]
     fn unknown_category_skipped() {
-        let report = make_report(80, &[("Health", 80)]);
+        let report = make_analysis(80, &[("Health", 80)]);
         let args = make_gate_args(60, vec!["nonexistent".into()]);
         assert!(!check_gate_categories(&report, &args, 60));
     }
@@ -638,11 +611,12 @@ mod tests {
         let dir = TempDir::new().unwrap();
         write_history_entry(dir.path(), 95, crate::scorer::HISTORY_SCHEMA_VERSION - 1);
 
-        let report = make_report(40, &[]);
+        let report = make_analysis(40, &[]);
         let failed = check_trend_gate_against_history(
             chrono::Utc::now(),
             dir.path(),
             &report,
+            &main_snapshot(),
             "deadbeef",
             2.0,
         );
@@ -667,11 +641,12 @@ mod tests {
         let dir = TempDir::new().unwrap();
         write_history_entry(dir.path(), 95, crate::scorer::HISTORY_SCHEMA_VERSION);
 
-        let report = make_report(40, &[]);
+        let report = make_analysis(40, &[]);
         let failed = check_trend_gate_against_history(
             chrono::Utc::now(),
             dir.path(),
             &report,
+            &main_snapshot(),
             "deadbeef",
             2.0,
         );
@@ -987,62 +962,5 @@ mod tests {
     #[test]
     fn gate_exit_code_one_when_all_fail() {
         assert_eq!(gate_exit_code(true, true, true), 1);
-    }
-
-    // ── ratchet_finding_sets ─────────────────────────────────────────
-
-    fn snapshot_with_barrel_bypass() -> crate::snapshot::RepoSnapshot {
-        use crate::snapshot::{FileEntry, RepoSnapshot, TimeWindow};
-        use std::path::PathBuf;
-        let mut s = RepoSnapshot::new(
-            PathBuf::from("/tmp/x"),
-            "x".into(),
-            "main".into(),
-            TimeWindow::default(),
-        );
-        for p in ["src/a/index.ts", "src/a/impl.ts", "src/b/user.ts"] {
-            s.files.push(FileEntry {
-                path: PathBuf::from(p),
-                size_bytes: 1,
-                is_binary: false,
-                depth: 3,
-                blob_oid: String::new(),
-            });
-        }
-        // Cross-component import that bypasses src/a's barrel.
-        s.import_graph.insert(
-            PathBuf::from("src/b/user.ts"),
-            vec![PathBuf::from("src/a/impl.ts")],
-        );
-        s
-    }
-
-    #[test]
-    fn ratchet_sets_include_barrel_findings_when_toggle_on() {
-        let cfg = crate::config::RepoConfig::default().thresholds.coupling;
-        assert!(cfg.content_barrel_rule, "default toggle must be on");
-        let base = crate::snapshot::RepoSnapshot::new(
-            std::path::PathBuf::from("/tmp/x"),
-            "x".into(),
-            "main".into(),
-            crate::snapshot::TimeWindow::default(),
-        );
-        let head = snapshot_with_barrel_bypass();
-        let (base_set, head_set) = ratchet_finding_sets(&cfg, &base, &head);
-        assert!(base_set.is_empty());
-        assert_eq!(head_set.len(), 1, "barrel bypass must join the head set");
-        assert!(head_set[0].evidence.contains("barrel"));
-    }
-
-    #[test]
-    fn ratchet_sets_exclude_barrel_findings_when_toggle_off() {
-        let mut cfg = crate::config::RepoConfig::default().thresholds.coupling;
-        cfg.content_barrel_rule = false;
-        let head = snapshot_with_barrel_bypass();
-        let (_, head_set) = ratchet_finding_sets(&cfg, &head.clone(), &head);
-        assert!(
-            head_set.is_empty(),
-            "toggle off: barrel findings must not enter the ratchet diff"
-        );
     }
 }

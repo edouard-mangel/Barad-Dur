@@ -1,3 +1,4 @@
+pub mod analysis;
 pub mod backfill;
 pub mod cache;
 pub mod cli;

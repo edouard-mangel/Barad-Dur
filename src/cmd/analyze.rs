@@ -2,16 +2,16 @@ use anyhow::Result;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use crate::analysis::{self, AnalysisInputs, CategorySelection};
 use crate::cache;
 use crate::cli::AnalyzeArgs;
 use crate::config::{self, RepoConfig};
 use crate::deps::{DepAge, EcosystemReport};
-use crate::metrics::{self, CategoryResult};
+use crate::metrics;
 use crate::remote;
 use crate::renderer;
 use crate::runner::{self, CollectOptions};
 use crate::scorer::{self, AnalysisReport, RemoteMeta};
-use crate::snapshot::RepoSnapshot;
 use crate::trend;
 
 pub fn run_analyze(args: AnalyzeArgs) -> Result<()> {
@@ -82,40 +82,54 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<()> {
         cfg.thresholds.coupling.decay_min_partners,
     );
 
-    // Compute selected metrics
-    let t = std::time::Instant::now();
-    let mut categories = compute_selected_metrics(
-        reference_time,
-        &snapshot,
-        &args,
-        &cfg,
-        &flagged_god_objects,
-        &coupling_reach,
-    );
-    if args.verbose > 0 {
-        eprintln!("  Metrics: {}ms", t.elapsed().as_millis());
-    }
-
     // Dependency analysis (opt-in via --deps, requires network on first run)
     let dep_reports = load_dep_reports(&args, &local_path, show_progress);
 
-    if args.deps && !dep_reports.is_empty() {
-        categories.push(metrics::deps::compute_deps(&dep_reports));
-    }
-
-    // Score
-    let t = std::time::Instant::now();
+    // The CLI filters become an explicit selection here; the calculation
+    // itself never sees arguments. Opting into dependencies also gives them
+    // a weight — the command's policy, not the calculation's.
+    let selection = CategorySelection::from_filters(
+        args.health,
+        args.team,
+        args.evolution,
+        args.hygiene,
+        args.deps,
+    );
     let mut cfg_weights = cfg.weights.clone();
     if args.deps {
         cfg_weights.deps = 20;
     }
     let weight_pairs = cfg_weights.as_weight_pairs();
+
+    // Compute selected metrics
+    let t = std::time::Instant::now();
+    let analysis = analysis::calculate(&AnalysisInputs {
+        reference_time,
+        snapshot: &snapshot,
+        selection,
+        thresholds: &cfg.thresholds,
+        weights: &weight_pairs,
+        dependency_evidence: &dep_reports,
+        god_objects: &flagged_god_objects,
+        coupling_reach: &coupling_reach,
+    });
+    if args.verbose > 0 {
+        eprintln!("  Metrics: {}ms", t.elapsed().as_millis());
+    }
+
+    // The history record needs only the result; build it before the
+    // report takes ownership of the categories.
+    let history_entry =
+        scorer::build_history_entry(reference_time, &analysis, &snapshot, &current_head, None);
+
+    // Enrich the result into the display report. Timed under the
+    // historical "Scoring" label, which `-v` consumers pin.
+    let t = std::time::Instant::now();
     let mut report = scorer::build_report(
         reference_time,
         &snapshot,
-        categories,
+        analysis,
         remote_meta,
-        &weight_pairs,
         &cfg.thresholds,
         &flagged_god_objects,
         &coupling_reach,
@@ -156,8 +170,7 @@ pub fn run_analyze(args: AnalyzeArgs) -> Result<()> {
         &entity_history,
     );
 
-    let trend_summary =
-        compute_trend_and_update_history(reference_time, &mut report, &local_path, &current_head);
+    let trend_summary = compute_trend_and_update_history(&mut report, &local_path, history_entry);
 
     render_and_write(&report, &args, &cfg, &trend_summary, &local_path)?;
 
@@ -249,10 +262,9 @@ fn load_dep_reports(
 /// Load prior history, compute the trend summary, append the current entry,
 /// and populate `report.history` for the HTML Trends tab.
 pub fn compute_trend_and_update_history(
-    reference_time: chrono::DateTime<chrono::Utc>,
     report: &mut AnalysisReport,
     local_path: &Path,
-    current_head: &str,
+    history_entry: scorer::HistoryEntry,
 ) -> trend::TrendSummary {
     // Load BEFORE appending so compute_trend sees only prior runs.
     // On corruption, archive the file and start fresh.
@@ -267,7 +279,6 @@ pub fn compute_trend_and_update_history(
         println!("{}", warning);
     }
 
-    let history_entry = scorer::build_history_entry(reference_time, report, current_head, None);
     let trend_summary = trend::compute_trend(&prior_history, &report.branch, &history_entry);
 
     if let Err(e) = cache::history::append_if_new_head(&history_entry, local_path) {
@@ -340,53 +351,6 @@ pub fn render_and_write(
     }
 
     Ok(())
-}
-
-pub fn compute_selected_metrics(
-    reference_time: chrono::DateTime<chrono::Utc>,
-    snapshot: &RepoSnapshot,
-    args: &AnalyzeArgs,
-    cfg: &RepoConfig,
-    flagged_god_objects: &[(std::path::PathBuf, String)],
-    coupling_reach: &crate::metrics::coupling::CouplingReach,
-) -> Vec<CategoryResult> {
-    use crate::metrics::{coupling, evolution, health, hygiene, team};
-
-    let mut categories = Vec::new();
-
-    if args.should_run("health") {
-        categories.push(health::compute_health(
-            snapshot,
-            &cfg.thresholds.health,
-            flagged_god_objects,
-        ));
-    }
-    if args.should_run("team") {
-        categories.push(team::compute_team(
-            snapshot,
-            &cfg.thresholds.team,
-            &cfg.thresholds.coupling,
-        ));
-    }
-    if args.should_run("evolution") {
-        categories.push(evolution::compute_evolution(
-            reference_time,
-            snapshot,
-            &cfg.thresholds.evolution,
-        ));
-    }
-    if args.should_run("hygiene") {
-        categories.push(hygiene::compute_hygiene(snapshot, &cfg.thresholds.hygiene));
-    }
-    if args.should_run("coupling") {
-        categories.push(coupling::compute_coupling(
-            snapshot,
-            &cfg.thresholds.coupling,
-            coupling_reach,
-        ));
-    }
-
-    categories
 }
 
 pub fn build_ecosystem_reports(dep_ages: Vec<DepAge>) -> Vec<EcosystemReport> {

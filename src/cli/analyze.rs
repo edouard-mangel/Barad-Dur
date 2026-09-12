@@ -180,27 +180,9 @@ pub struct AnalyzeArgs {
     pub cache_only: bool,
 }
 
-impl AnalyzeArgs {
-    /// Returns true if no specific category was selected (meaning run all).
-    pub fn all_categories(&self) -> bool {
-        !self.health && !self.team && !self.evolution && !self.hygiene
-    }
-
-    /// Returns true if the given category should be run.
-    pub fn should_run(&self, category: &str) -> bool {
-        if self.all_categories() {
-            return category != "deps"; // deps always requires explicit --deps
-        }
-        match category {
-            "health" => self.health,
-            "team" => self.team,
-            "evolution" => self.evolution,
-            "hygiene" => self.hygiene,
-            "deps" => self.deps,
-            _ => false,
-        }
-    }
-}
+// Which categories a run computes is decided by
+// `analysis::CategorySelection::from_filters`, built by `cmd::analyze` from
+// these flags; the flags carry no selection policy of their own.
 
 #[cfg(test)]
 mod tests {
@@ -220,7 +202,7 @@ mod tests {
     fn default_args() {
         let args = parse(&["barad-dur", "analyze", "."]);
         assert_eq!(args.target, ".");
-        assert!(args.all_categories());
+        assert!(!args.health && !args.team && !args.evolution && !args.hygiene);
         assert!(!args.json);
         assert!(!args.no_cache);
         assert_eq!(args.verbose, 0);
@@ -231,9 +213,6 @@ mod tests {
         let args = parse(&["barad-dur", "analyze", ".", "--health"]);
         assert!(args.health);
         assert!(!args.team);
-        assert!(!args.all_categories());
-        assert!(args.should_run("health"));
-        assert!(!args.should_run("team"));
     }
 
     #[test]
@@ -392,22 +371,13 @@ mod tests {
     }
 
     #[test]
-    fn all_categories_when_none_selected() {
-        let args = parse(&["barad-dur", "analyze", "."]);
-        assert!(args.should_run("health"));
-        assert!(args.should_run("team"));
-        assert!(args.should_run("evolution"));
-        assert!(args.should_run("hygiene"));
-    }
-
-    #[test]
     fn deps_flag() {
         let args = parse(&["barad-dur", "analyze", ".", "--deps"]);
         assert!(args.deps);
     }
 
     #[test]
-    fn deps_not_in_all_categories() {
+    fn deps_off_by_default() {
         let args = parse(&["barad-dur", "analyze", "."]);
         assert!(!args.deps);
     }

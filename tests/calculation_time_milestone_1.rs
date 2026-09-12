@@ -1,8 +1,8 @@
 //! One explicit reference drives evidence windows and report calculations.
 use barad_dur::{
+    analysis::{self, AnalysisInputs, CategorySelection},
     backfill, cache,
     cli::{AnalyzeArgs, BackfillArgs, Cli, Commands},
-    cmd::analyze,
     collector::Collector,
     config::RepoConfig,
     metrics,
@@ -36,20 +36,22 @@ fn report(snapshot: &RepoSnapshot, at: DateTime<Utc>) -> scorer::AnalysisReport 
         snapshot,
         cfg.thresholds.coupling.decay_min_partners,
     );
-    let categories = analyze::compute_selected_metrics(
-        at,
+    let weights = cfg.weights.as_weight_pairs();
+    let analysis = analysis::calculate(&AnalysisInputs {
+        reference_time: at,
         snapshot,
-        &args(&["--all"]),
-        &cfg,
-        &god_objects,
-        &reach,
-    );
+        selection: CategorySelection::GATE,
+        thresholds: &cfg.thresholds,
+        weights: &weights,
+        dependency_evidence: &[],
+        god_objects: &god_objects,
+        coupling_reach: &reach,
+    });
     scorer::build_report(
         at,
         snapshot,
-        categories,
+        analysis,
         None,
-        &cfg.weights.as_weight_pairs(),
         &cfg.thresholds,
         &god_objects,
         &reach,

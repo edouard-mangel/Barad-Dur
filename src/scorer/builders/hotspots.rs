@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::config::CouplingThresholds;
-use crate::metrics::coupling::all_coupling_findings;
+use crate::metrics::coupling::CouplingEvidence;
 use crate::metrics::file_role::classify;
 use crate::snapshot::{CouplingKind, RepoSnapshot};
 
@@ -43,6 +43,7 @@ pub(crate) fn build_hotspots(
     snapshot: &RepoSnapshot,
     coupling: &CouplingThresholds,
     reach: &crate::metrics::coupling::CouplingReach,
+    evidence: &CouplingEvidence,
 ) -> Vec<HotspotFile> {
     // Pre-classify bug-fix commits by ID to avoid O(files × commits) message scanning.
     let bug_commit_ids: HashSet<crate::snapshot::CommitId> = snapshot
@@ -64,7 +65,7 @@ pub(crate) fn build_hotspots(
         .values()
         .fold((i64::MAX, i64::MIN), |(lo, hi), &t| (lo.min(t), hi.max(t)));
 
-    let all_findings = all_coupling_findings(snapshot, coupling);
+    let all_findings = &evidence.findings;
     let finding_counts: HashMap<&Path, (usize, usize, usize, usize)> =
         all_findings.iter().fold(HashMap::new(), |mut acc, f| {
             let entry = acc.entry(f.path.as_path()).or_default();
@@ -188,6 +189,7 @@ mod tests {
             &snapshot,
             &crate::config::CouplingThresholds::default(),
             &Default::default(),
+            &CouplingEvidence::derive(&snapshot, &crate::config::CouplingThresholds::default()),
         );
         let role_of = |path: &str| {
             hotspots
@@ -222,6 +224,7 @@ mod tests {
             &snapshot,
             &crate::config::CouplingThresholds::default(),
             &Default::default(),
+            &CouplingEvidence::derive(&snapshot, &crate::config::CouplingThresholds::default()),
         );
         let timeline = &hotspots[0].churn_timeline;
         assert_eq!(timeline.len(), 12);
@@ -248,6 +251,7 @@ mod tests {
             &snapshot,
             &crate::config::CouplingThresholds::default(),
             &Default::default(),
+            &CouplingEvidence::derive(&snapshot, &crate::config::CouplingThresholds::default()),
         );
         let timeline = &hotspots[0].churn_timeline;
         assert_eq!(timeline.len(), 12);
@@ -273,6 +277,7 @@ mod tests {
             &snapshot,
             &crate::config::CouplingThresholds::default(),
             &Default::default(),
+            &CouplingEvidence::derive(&snapshot, &crate::config::CouplingThresholds::default()),
         );
         let timeline = &hotspots[0].churn_timeline;
         assert_eq!(timeline.len(), 12);
@@ -301,6 +306,7 @@ mod tests {
             &snapshot,
             &crate::config::CouplingThresholds::default(),
             &Default::default(),
+            &CouplingEvidence::derive(&snapshot, &crate::config::CouplingThresholds::default()),
         );
         assert_eq!(hotspots.len(), 1);
         assert_eq!(hotspots[0].bug_commit_count, 0);
@@ -330,6 +336,7 @@ mod tests {
                 &snapshot,
                 &crate::config::CouplingThresholds::default(),
                 &Default::default(),
+                &CouplingEvidence::derive(&snapshot, &crate::config::CouplingThresholds::default()),
             );
             assert_eq!(
                 hotspots[0].bug_commit_count, 1,
@@ -356,6 +363,7 @@ mod tests {
             &snapshot,
             &crate::config::CouplingThresholds::default(),
             &Default::default(),
+            &CouplingEvidence::derive(&snapshot, &crate::config::CouplingThresholds::default()),
         );
         assert_eq!(hotspots[0].bug_commit_count, 1);
     }
@@ -384,6 +392,7 @@ mod tests {
             &snapshot,
             &crate::config::CouplingThresholds::default(),
             &Default::default(),
+            &CouplingEvidence::derive(&snapshot, &crate::config::CouplingThresholds::default()),
         );
         let a = hotspots.iter().find(|f| f.path == "src/a.rs").unwrap();
         let b = hotspots.iter().find(|f| f.path == "src/b.rs").unwrap();
@@ -407,6 +416,7 @@ mod tests {
             &snapshot,
             &crate::config::CouplingThresholds::default(),
             &Default::default(),
+            &CouplingEvidence::derive(&snapshot, &crate::config::CouplingThresholds::default()),
         );
         assert_eq!(hotspots[0].bug_commit_count, 0);
     }
@@ -433,7 +443,12 @@ mod tests {
             },
         ];
         let cfg = crate::config::CouplingThresholds::default();
-        let hotspots = build_hotspots(&snapshot, &cfg, &Default::default());
+        let hotspots = build_hotspots(
+            &snapshot,
+            &cfg,
+            &Default::default(),
+            &CouplingEvidence::derive(&snapshot, &cfg),
+        );
         let dirty = hotspots.iter().find(|h| h.path == "src/dirty.rs").unwrap();
         assert_eq!(
             (
@@ -469,7 +484,12 @@ mod tests {
             evidence: "class C extends B → A (depth 2)".into(),
         }];
         let cfg = crate::config::CouplingThresholds::default();
-        let hotspots = build_hotspots(&snapshot, &cfg, &Default::default());
+        let hotspots = build_hotspots(
+            &snapshot,
+            &cfg,
+            &Default::default(),
+            &CouplingEvidence::derive(&snapshot, &cfg),
+        );
         let deep = hotspots.iter().find(|h| h.path == "src/deep.ts").unwrap();
         let clean = hotspots.iter().find(|h| h.path == "src/clean.ts").unwrap();
         assert_eq!(deep.inheritance_findings, 1);
@@ -482,7 +502,7 @@ mod tests {
     #[test]
     fn hotspot_content_counts_include_barrel_findings_only_when_toggle_on() {
         // Cross-component import bypassing src/a's barrel — the same shape
-        // the gate's ratchet_finding_sets tests use.
+        // the `CouplingEvidence` tests use.
         let mut snapshot = crate::metrics::testutil::make_snapshot();
         snapshot.files = vec![
             crate::metrics::testutil::make_file("src/a/index.ts"),
@@ -494,7 +514,12 @@ mod tests {
             .insert("src/b/user.ts".into(), vec!["src/a/impl.ts".into()]);
         let cfg = crate::config::CouplingThresholds::default();
         assert!(cfg.content_barrel_rule, "default toggle must be on");
-        let on = build_hotspots(&snapshot, &cfg, &Default::default());
+        let on = build_hotspots(
+            &snapshot,
+            &cfg,
+            &Default::default(),
+            &CouplingEvidence::derive(&snapshot, &cfg),
+        );
         let user_on = on.iter().find(|h| h.path == "src/b/user.ts").unwrap();
         assert_eq!(
             user_on.content_findings, 1,
@@ -505,11 +530,16 @@ mod tests {
             content_barrel_rule: false,
             ..crate::config::CouplingThresholds::default()
         };
-        let off = build_hotspots(&snapshot, &cfg_off, &Default::default());
+        let off = build_hotspots(
+            &snapshot,
+            &cfg_off,
+            &Default::default(),
+            &CouplingEvidence::derive(&snapshot, &cfg_off),
+        );
         let user_off = off.iter().find(|h| h.path == "src/b/user.ts").unwrap();
         assert_eq!(
             user_off.content_findings, 0,
-            "toggle off must mirror pressman_finding_counts' gating"
+            "toggle off must mirror CouplingEvidence::finding_counts' gating"
         );
     }
 
@@ -546,7 +576,12 @@ mod tests {
     fn common_finding_multiplies_hotspot_score() {
         let snapshot = twin_snapshot(crate::snapshot::CouplingKind::Common);
         let cfg = crate::config::CouplingThresholds::default();
-        let hotspots = build_hotspots(&snapshot, &cfg, &Default::default());
+        let hotspots = build_hotspots(
+            &snapshot,
+            &cfg,
+            &Default::default(),
+            &CouplingEvidence::derive(&snapshot, &cfg),
+        );
         let flagged = hotspots
             .iter()
             .find(|h| h.path == "src/flagged.rs")
@@ -564,7 +599,12 @@ mod tests {
     fn control_finding_does_not_multiply_hotspot_score() {
         let snapshot = twin_snapshot(crate::snapshot::CouplingKind::Control);
         let cfg = crate::config::CouplingThresholds::default();
-        let hotspots = build_hotspots(&snapshot, &cfg, &Default::default());
+        let hotspots = build_hotspots(
+            &snapshot,
+            &cfg,
+            &Default::default(),
+            &CouplingEvidence::derive(&snapshot, &cfg),
+        );
         let flagged = hotspots
             .iter()
             .find(|h| h.path == "src/flagged.rs")
@@ -585,7 +625,12 @@ mod tests {
             hotspot_multiplier: 10.0,
             ..crate::config::CouplingThresholds::default()
         };
-        let hotspots = build_hotspots(&snapshot, &cfg, &Default::default());
+        let hotspots = build_hotspots(
+            &snapshot,
+            &cfg,
+            &Default::default(),
+            &CouplingEvidence::derive(&snapshot, &cfg),
+        );
         let flagged = hotspots
             .iter()
             .find(|h| h.path == "src/flagged.rs")
@@ -614,6 +659,7 @@ mod tests {
             &snapshot,
             &crate::config::CouplingThresholds::default(),
             &reach,
+            &CouplingEvidence::derive(&snapshot, &crate::config::CouplingThresholds::default()),
         );
         let hub = hotspots
             .iter()
