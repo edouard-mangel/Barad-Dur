@@ -343,7 +343,9 @@ pub struct HistoryCounts {
 ///    categories (was: such a category counted as 100 at full weight).
 /// 5: Long Methods uses complexity-gated LOC thresholds, with a higher LOC
 ///    threshold for declarative .tsx/.jsx UI code.
-pub const HISTORY_SCHEMA_VERSION: u32 = 5;
+/// 6: Kotlin imports include qualified paths and wildcard package members,
+///    changing the structural evidence used by coupling and health scores.
+pub const HISTORY_SCHEMA_VERSION: u32 = 6;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "export-types", derive(ts_rs::TS))]

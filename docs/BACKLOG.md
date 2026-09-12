@@ -247,31 +247,29 @@ files, so resolving it needs either a symbol-level model or a deliberate
 choice about fan-out. Not yet measured against a real Go repository —
 do that first, as was done for PHP and C#.
 
-### Kotlin wildcard resolution scans the whole file tree per import
+### ~~Kotlin wildcard resolution scans the whole file tree per import~~ ✓ Done
 
 **Priority**: Medium
 **Depends on**: nothing
 
-`resolve_kotlin_wildcard` answers `import com.foo.*` by walking every known
-path in the repository and keeping the ones whose parent is the package
-directory:
+`index_import_files` now builds directory → Kotlin-file membership once per
+resolution batch. Wildcard imports probe their candidate directories and return
+only direct `.kt`/`.kts` members, deduplicated and sorted. Graph resolution and
+single-target class/call/re-export resolution use the same index.
 
-```rust
-known.iter()
-    .filter(|path| path.as_path() != source)
-    .filter(|path| path.extension().is_some_and(|e| e == "kt" || e == "kts"))
-    .filter(|path| path.parent().is_some_and(|p| dirs.iter().any(|d| p == d)))
-```
+The Ktor investigation also found that the import query matched the wrong
+node shape: it missed qualified paths and could capture aliases. Extraction now
+preserves the qualified path and wildcard marker. Snapshot and score-history
+versions invalidate results computed with the old extraction.
 
-That is O(files) per wildcard import, and Kotlin uses wildcards heavily. A
-5,000-file Kotlin module with ~3 wildcards per file against a 20,000-file
-tree is ~300M path comparisons in the collector's hot path. Every other
-resolver is O(1): it builds candidate paths and probes the `known` set.
+Measurements and limitations: see
+[`2026-09-12-kotlin-wildcard-resolution.md`](plans/2026-09-12-kotlin-wildcard-resolution.md).
 
-Fix: build a `HashMap<&Path, Vec<&PathBuf>>` of directory → files once in
-`resolve_imports` and pass it to the wildcard arm, restoring O(1) per
-import. Measure against a real Kotlin repository first — the cost is
-invisible on the mixed-language fixtures the tests use.
+**Still open:** Ktor uses multiplatform roots such as
+`ktor-http/common/src/`, which the conventional path resolver cannot map.
+Supporting these requires explicit module/source-set visibility; a global
+package-name fan-out would invent edges across unrelated targets. The wildcard
+lookup optimization preserves the existing root-selection semantics.
 
 ### ~~Score history survives a scoring-formula change that invalidates it~~ ✓ Done
 

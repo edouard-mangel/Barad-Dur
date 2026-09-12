@@ -9,7 +9,7 @@ pub const CACHE_DIR: &str = ".repository-analysis";
 const CACHE_FILE: &str = "snapshot.bin";
 const FINGERPRINT_FILE: &str = "exclude.fingerprint";
 
-/// Bumped whenever `RepoSnapshot`'s serialized shape changes. Bincode is
+/// Bumped whenever `RepoSnapshot`'s serialized shape or collected facts change. Bincode is
 /// positional: a mid-struct field addition can garbage-parse instead of
 /// failing, silently serving stale data. The explicit version makes
 /// invalidation deterministic. History: 1 = post-M1 shape (coupling_findings);
@@ -18,8 +18,9 @@ const FINGERPRINT_FILE: &str = "exclude.fingerprint";
 /// 5 = call-graph edges (call_records field);
 /// 6 = unknown-author sentinel in blame lines (same shape, new id
 ///     semantics — cached id-0 collapses must not masquerade as owners);
-/// 7 = unreliable import specifiers (unreliable_import_specifiers field).
-const CACHE_VERSION: u32 = 7;
+/// 7 = unreliable import specifiers (unreliable_import_specifiers field);
+/// 8 = Kotlin qualified and wildcard import extraction (same shape).
+const CACHE_VERSION: u32 = 8;
 
 /// Wire format for all cache files. Bincode 2's standard config (varint
 /// lengths) — not compatible with the bincode 1 fixint files of versions ≤ 2.

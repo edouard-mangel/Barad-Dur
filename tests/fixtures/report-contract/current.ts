@@ -185,7 +185,7 @@ const currentReport: AnalysisReport = {
         "control_coupling": 3
       },
       "branch": "main",
-      "schema_version": 5,
+      "schema_version": 6,
       "source": "fixture"
     }
   ],
