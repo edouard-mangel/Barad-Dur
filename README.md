@@ -599,16 +599,8 @@ Test quality is enforced with mutation testing (cargo-mutants): every push to `m
 
 ## Roadmap
 
-- PR/merge request analysis (review turnaround, approval patterns)
-- GitHub/GitLab API integration for PR data
-- Multi-repo dashboard (aggregate scores across repositories)
-- Interactive config editor — TUI wizard (see [backlog](docs/BACKLOG.md))
-- End-of-life map for dependencies, language runtime and framework (see [backlog](docs/BACKLOG.md))
-- Per-commit score gate in CI (see [backlog](docs/BACKLOG.md))
-- Analysis data stored in a dedicated repository (see [backlog](docs/BACKLOG.md))
-- File exclusion from the dashboard, with the matching config change suggested
-- Rust toolchain and dependency refresh
-- macOS support
+Planned items and their current status live in [docs/ROADMAP.md](docs/ROADMAP.md).
+Unscheduled ideas and rejected experiments are recorded in the [backlog](docs/BACKLOG.md).
 
 ## License
 
