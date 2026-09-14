@@ -39,9 +39,10 @@ pub(crate) struct RawSourceChannels {
 }
 
 /// The source channels in the exact shape the snapshot stores them.
-/// `Default` is the AST-free collection (ADR-005 backfill): empty metrics
-/// mean "not collected", never "clean" — `coupling::detection_ran` reads
-/// that emptiness.
+/// `Default` is the AST-free collection (`Collector::collect_snapshot_at`,
+/// which no command uses since backfill switched to the AST-enabled
+/// reader): empty metrics mean "not collected", never "clean" —
+/// `coupling::detection_ran` reads that emptiness.
 #[derive(Debug, Default)]
 pub(crate) struct ResolvedSourceChannels {
     pub file_metrics: HashMap<PathBuf, FileComplexity>,
@@ -63,20 +64,32 @@ impl RawSourceChannels {
         let mut raw = analyses
             .into_iter()
             .fold(Self::default(), |mut raw, (path, analysis)| {
-                raw.file_metrics.insert(path.clone(), analysis.metrics);
-                if !analysis.imports.is_empty() {
-                    raw.imports.insert(path.clone(), analysis.imports);
+                // Destructured on purpose, without `..`: a channel added to
+                // `SourceAnalysis` that this fold does not route is a
+                // compile error (E0027), never a silent drop the parity
+                // tests cannot see.
+                let SourceAnalysis {
+                    metrics,
+                    imports,
+                    coupling_findings,
+                    class_records,
+                    reexports,
+                    call_edges,
+                } = analysis;
+                raw.file_metrics.insert(path.clone(), metrics);
+                if !imports.is_empty() {
+                    raw.imports.insert(path.clone(), imports);
                 }
-                if !analysis.class_records.is_empty() {
-                    raw.classes.insert(path.clone(), analysis.class_records);
+                if !class_records.is_empty() {
+                    raw.classes.insert(path.clone(), class_records);
                 }
-                if !analysis.reexports.is_empty() {
-                    raw.reexports.insert(path.clone(), analysis.reexports);
+                if !reexports.is_empty() {
+                    raw.reexports.insert(path.clone(), reexports);
                 }
-                if !analysis.call_edges.is_empty() {
-                    raw.calls.insert(path, analysis.call_edges);
+                if !call_edges.is_empty() {
+                    raw.calls.insert(path, call_edges);
                 }
-                raw.coupling_findings.extend(analysis.coupling_findings);
+                raw.coupling_findings.extend(coupling_findings);
                 raw
             });
         raw.coupling_findings
@@ -97,36 +110,37 @@ impl RawSourceChannels {
         let import_config = RepoImportConfig {
             psr4: psr4_roots_from_tree(files, read_manifest),
         };
+        // One file index for the three record resolvers (`resolve_imports`
+        // keeps its own, its signature being shared with other callers).
+        let known = index_import_files(files.iter().map(|f| &f.path));
         ResolvedSourceChannels {
             file_metrics: self.file_metrics,
             import_graph: resolve_imports(&self.imports, files, &import_config),
             unreliable_import_specifiers: count_unreliable_specifiers(&self.imports),
             coupling_findings: self.coupling_findings,
-            class_records: resolve_class_records(self.classes, files),
-            reexports: resolve_reexports(self.reexports, files),
-            call_records: resolve_call_records(self.calls, files),
+            class_records: resolve_class_records(self.classes, &known, &import_config),
+            reexports: resolve_reexports(self.reexports, &known, &import_config),
+            call_records: resolve_call_records(self.calls, &known, &import_config),
         }
     }
 }
 
-/// Shared skeleton of the three raw→snapshot resolvers: build the known
-/// file-set once, map every raw item (with `resolve_specifier` access via
-/// the known set), and sort deterministically. `map` returning `None`
-/// drops the item (re-exports drop unresolvable specifiers; the other
-/// resolvers never drop).
+/// Shared skeleton of the three raw→snapshot resolvers: map every raw item
+/// against the caller's file index (with `resolve_specifier` access), and
+/// sort deterministically. `map` returning `None` drops the item
+/// (re-exports drop unresolvable specifiers; the other resolvers never drop).
 fn resolve_against_files<R, T, K: Ord>(
     raw: HashMap<PathBuf, Vec<R>>,
-    files: &[FileEntry],
+    known: &ImportFileIndex<'_>,
     map: impl Fn(&PathBuf, R, &ImportFileIndex<'_>) -> Option<T>,
     sort_key: impl Fn(&T) -> K,
 ) -> Vec<T> {
-    let known = index_import_files(files.iter().map(|f| &f.path));
     let mut records: Vec<T> = raw
         .into_iter()
         .flat_map(|(path, items)| {
             items
                 .into_iter()
-                .filter_map(|item| map(&path, item, &known))
+                .filter_map(|item| map(&path, item, known))
                 .collect::<Vec<_>>()
         })
         .collect();
@@ -140,14 +154,14 @@ fn resolve_against_files<R, T, K: Ord>(
 /// class record.
 fn resolve_reexports(
     raw: HashMap<PathBuf, Vec<RawReExport>>,
-    files: &[FileEntry],
+    known: &ImportFileIndex<'_>,
+    config: &RepoImportConfig,
 ) -> Vec<ReExportRecord> {
     resolve_against_files(
         raw,
-        files,
+        known,
         |path, r, known| {
-            let target =
-                resolve_specifier(&r.specifier, path, known, &RepoImportConfig::default())?;
+            let target = resolve_specifier(&r.specifier, path, known, config)?;
             let kind = match r.kind {
                 RawReExportKind::Named { exported, source } => {
                     ReExportKind::Named { exported, source }
@@ -170,17 +184,18 @@ fn resolve_reexports(
 /// kept, never dropped, so unresolved calls stay countable (design §4).
 fn resolve_call_records(
     raw: HashMap<PathBuf, Vec<RawCallEdge>>,
-    files: &[FileEntry],
+    known: &ImportFileIndex<'_>,
+    config: &RepoImportConfig,
 ) -> Vec<CallRecord> {
     resolve_against_files(
         raw,
-        files,
+        known,
         |path, e, known| {
             let callee = match e.callee {
                 RawCalleeRef::SameFile(name) => CalleeRef::SameFile(name),
                 RawCalleeRef::Unresolved { name } => CalleeRef::Unresolved { name },
                 RawCalleeRef::Specifier { specifier, name } => {
-                    match resolve_specifier(&specifier, path, known, &RepoImportConfig::default()) {
+                    match resolve_specifier(&specifier, path, known, config) {
                         Some(target) => CalleeRef::Resolved { path: target, name },
                         None => CalleeRef::Unresolved { name },
                     }
@@ -216,17 +231,18 @@ fn count_unreliable_specifiers(raw_imports: &RawImports) -> usize {
 /// set, producing the snapshot's `class_records` (sorted by path, line).
 fn resolve_class_records(
     raw: HashMap<PathBuf, Vec<RawClassRecord>>,
-    files: &[FileEntry],
+    known: &ImportFileIndex<'_>,
+    config: &RepoImportConfig,
 ) -> Vec<ClassRecord> {
     resolve_against_files(
         raw,
-        files,
+        known,
         |path, r, known| {
             let base = match r.base {
                 RawBaseRef::SameFile(name) => BaseRef::SameFile(name),
                 RawBaseRef::Unresolvable => BaseRef::Unresolvable,
                 RawBaseRef::Specifier { specifier, name } => {
-                    match resolve_specifier(&specifier, path, known, &RepoImportConfig::default()) {
+                    match resolve_specifier(&specifier, path, known, config) {
                         Some(target) => BaseRef::Resolved { path: target, name },
                         None => BaseRef::Unresolvable,
                     }
@@ -362,6 +378,84 @@ mod tests {
     }
 
     #[test]
+    fn record_resolvers_share_the_import_graphs_psr4_roots() {
+        // `resolve_specifier`'s contract is "the exact same candidate rules
+        // as the import graph". A PHP class extending a PSR-4-mapped class,
+        // or calling into one, must therefore resolve wherever the import
+        // edge does — through the manifest the reader supplied, not through
+        // a default config that knows no roots.
+        use crate::metrics::complexity::{RawCallEdge, RawCalleeRef, RawClassRecord};
+        use crate::metrics::testutil::make_file;
+        use crate::snapshot::{BaseRef, CalleeRef};
+        let files = vec![
+            make_file("api/composer.json"),
+            make_file("api/app/Foo.php"),
+            make_file("api/app/Bar.php"),
+        ];
+        let raw = RawSourceChannels {
+            imports: [(
+                PathBuf::from("api/app/Foo.php"),
+                vec!["App\\Bar".to_string()],
+            )]
+            .into_iter()
+            .collect(),
+            classes: [(
+                PathBuf::from("api/app/Foo.php"),
+                vec![RawClassRecord {
+                    line: 4,
+                    class_name: "Foo".into(),
+                    base: RawBaseRef::Specifier {
+                        specifier: "App\\Bar".into(),
+                        name: "Bar".into(),
+                    },
+                }],
+            )]
+            .into_iter()
+            .collect(),
+            calls: [(
+                PathBuf::from("api/app/Foo.php"),
+                vec![RawCallEdge {
+                    caller: "run".into(),
+                    callee: RawCalleeRef::Specifier {
+                        specifier: "App\\Bar".into(),
+                        name: "make".into(),
+                    },
+                    count: 1,
+                }],
+            )]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        };
+        let manifest = "{\"autoload\":{\"psr-4\":{\"App\\\\\":\"app/\"}}}";
+        let resolved = raw.resolve(&files, |entry| {
+            (entry.path.ends_with("composer.json")).then(|| manifest.to_string())
+        });
+        let bar = PathBuf::from("api/app/Bar.php");
+        assert_eq!(
+            resolved.import_graph.get(Path::new("api/app/Foo.php")),
+            Some(&vec![bar.clone()]),
+            "the import graph resolves through the manifest"
+        );
+        assert_eq!(
+            resolved.class_records[0].base,
+            BaseRef::Resolved {
+                path: bar.clone(),
+                name: "Bar".into()
+            },
+            "the class record must resolve through the same roots"
+        );
+        assert_eq!(
+            resolved.call_records[0].callee,
+            CalleeRef::Resolved {
+                path: bar,
+                name: "make".into()
+            },
+            "the call record must resolve through the same roots"
+        );
+    }
+
+    #[test]
     fn only_unreliable_resolvers_contribute_to_the_specifier_count() {
         // The guard that blanks import metrics reads this number. Counting
         // every specifier would let a working language's external-only
@@ -401,7 +495,7 @@ mod tests {
     fn resolve_call_records_resolves_specifiers_keeps_unresolved_and_sorts() {
         use crate::metrics::complexity::{RawCallEdge, RawCalleeRef};
         use crate::snapshot::CalleeRef;
-        let files = vec![
+        let files = [
             crate::metrics::testutil::make_file("src/a.ts"),
             crate::metrics::testutil::make_file("src/b.ts"),
         ];
@@ -427,7 +521,8 @@ mod tests {
                 },
             ],
         );
-        let records = resolve_call_records(raw, &files);
+        let known = index_import_files(files.iter().map(|f| &f.path));
+        let records = resolve_call_records(raw, &known, &RepoImportConfig::default());
         assert_eq!(records.len(), 2);
         // Sorted by (path, caller): f before g.
         assert_eq!(records[0].caller, "f");
@@ -455,7 +550,7 @@ mod tests {
     fn resolve_call_records_sort_uses_every_key_component() {
         use crate::metrics::complexity::{RawCallEdge, RawCalleeRef};
         use crate::snapshot::CalleeRef;
-        let files = vec![
+        let files = [
             crate::metrics::testutil::make_file("src/a.ts"),
             crate::metrics::testutil::make_file("src/b.ts"),
             crate::metrics::testutil::make_file("src/c.ts"),
@@ -490,10 +585,12 @@ mod tests {
                 edge(RawCalleeRef::SameFile("a".into())),
             ],
         );
-        let callees: Vec<(String, CalleeRef)> = resolve_call_records(raw, &files)
-            .into_iter()
-            .map(|r| (r.path.display().to_string(), r.callee))
-            .collect();
+        let known = index_import_files(files.iter().map(|f| &f.path));
+        let callees: Vec<(String, CalleeRef)> =
+            resolve_call_records(raw, &known, &RepoImportConfig::default())
+                .into_iter()
+                .map(|r| (r.path.display().to_string(), r.callee))
+                .collect();
         let resolved = |p: &str, n: &str| CalleeRef::Resolved {
             path: p.into(),
             name: n.into(),
@@ -521,7 +618,7 @@ mod tests {
     fn resolve_class_records_resolves_specifiers_and_sorts() {
         use crate::metrics::complexity::{RawBaseRef, RawClassRecord};
         use crate::snapshot::BaseRef;
-        let files = vec![
+        let files = [
             crate::metrics::testutil::make_file("src/a.ts"),
             crate::metrics::testutil::make_file("src/b.ts"),
         ];
@@ -547,7 +644,8 @@ mod tests {
                 },
             ],
         );
-        let records = resolve_class_records(raw, &files);
+        let known = index_import_files(files.iter().map(|f| &f.path));
+        let records = resolve_class_records(raw, &known, &RepoImportConfig::default());
         assert_eq!(records.len(), 2);
         // sorted by (path, line): B (line 2) before X (line 9)
         assert_eq!(records[0].class_name, "B");

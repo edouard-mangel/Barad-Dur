@@ -8,6 +8,26 @@ pub fn barad_dur() -> Command {
     Command::cargo_bin("barad-dur").unwrap()
 }
 
+/// Run one git command in `dir`, isolated from the host's configuration:
+/// global and system config masked, explicit identity, so `commit.gpgsign`
+/// or a hook path on the developer's machine cannot fail a fixture.
+#[allow(dead_code)]
+pub fn git(dir: &Path, args: &[&str]) {
+    let status = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_AUTHOR_NAME", "t")
+        .env("GIT_AUTHOR_EMAIL", "t@e")
+        .env("GIT_COMMITTER_NAME", "t")
+        .env("GIT_COMMITTER_EMAIL", "t@e")
+        .status()
+        .unwrap();
+    assert!(status.success(), "git {args:?}");
+}
+
 /// Build a minimal git repository in `dir` with one commit on `branch`.
 /// Returns the HEAD commit SHA (40 hex chars).
 #[allow(dead_code)]

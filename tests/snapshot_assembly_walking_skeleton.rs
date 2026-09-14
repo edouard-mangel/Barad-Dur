@@ -10,23 +10,7 @@ use std::path::Path;
 use tempfile::TempDir;
 
 mod common;
-use common::{barad_dur, read_trends_entries};
-
-fn git(dir: &Path, args: &[&str]) {
-    let status = std::process::Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("GIT_AUTHOR_NAME", "t")
-        .env("GIT_AUTHOR_EMAIL", "t@e")
-        .env("GIT_COMMITTER_NAME", "t")
-        .env("GIT_COMMITTER_EMAIL", "t@e")
-        .status()
-        .unwrap();
-    assert!(status.success(), "git {args:?}");
-}
+use common::{barad_dur, git, read_trends_entries};
 
 /// A Rust file with a Common finding and a TS barrel bypass, committed once.
 fn fixture() -> TempDir {

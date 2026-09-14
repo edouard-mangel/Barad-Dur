@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use crate::snapshot::{BaseRef, CalleeRef, CouplingKind, ReExportKind, RepoSnapshot, TimeWindow};
 
 use super::ignore_file::BaradDurIgnore;
+use super::testutil::{git, head, repository, snapshot_paths as paths, write_tree};
 use super::{Collector, SnapshotOptions};
 
 /// Every language the collector treats differently, in one tree:
@@ -58,51 +59,6 @@ const TREE: &[(&str, &[u8])] = &[
     ("Cargo.lock", b"# lock\n"),
 ];
 
-fn git(dir: &Path, args: &[&str]) {
-    let status = std::process::Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("GIT_AUTHOR_NAME", "t")
-        .env("GIT_AUTHOR_EMAIL", "t@e")
-        .env("GIT_COMMITTER_NAME", "t")
-        .env("GIT_COMMITTER_EMAIL", "t@e")
-        .status()
-        .unwrap();
-    assert!(status.success(), "git {args:?}");
-}
-
-fn head(dir: &Path) -> String {
-    let out = std::process::Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .unwrap();
-    String::from_utf8(out.stdout).unwrap().trim().to_string()
-}
-
-fn write_tree(dir: &Path, tree: &[(&str, &[u8])]) {
-    for (name, bytes) in tree {
-        let path = dir.join(name);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, bytes).unwrap();
-    }
-}
-
-/// One commit holding `tree`; returns the directory and the commit SHA.
-fn repository(tree: &[(&str, &[u8])]) -> (tempfile::TempDir, String) {
-    let dir = tempfile::TempDir::new().unwrap();
-    git(dir.path(), &["init", "-q", "-b", "main"]);
-    write_tree(dir.path(), tree);
-    git(dir.path(), &["add", "-A"]);
-    git(dir.path(), &["commit", "-q", "-m", "init"]);
-    let sha = head(dir.path());
-    (dir, sha)
-}
-
 fn live(dir: &Path, skip_blame: bool) -> RepoSnapshot {
     Collector::open(dir, TimeWindow::full_history())
         .unwrap()
@@ -117,14 +73,6 @@ fn live(dir: &Path, skip_blame: bool) -> RepoSnapshot {
 fn historical(dir: &Path, sha: &str) -> RepoSnapshot {
     let ignore = BaradDurIgnore::load(dir).unwrap();
     Collector::collect_snapshot_at_with_ast(dir, sha, &ignore, true).unwrap()
-}
-
-fn paths(snapshot: &RepoSnapshot) -> Vec<String> {
-    snapshot
-        .files
-        .iter()
-        .map(|f| f.path.to_string_lossy().into_owned())
-        .collect()
 }
 
 fn sorted_graph(snapshot: &RepoSnapshot) -> Vec<(String, Vec<String>)> {
@@ -198,13 +146,13 @@ fn the_fixture_exercises_every_channel() {
         !snapshot
             .file_metrics
             .contains_key(Path::new("data/blob.bin")),
-        "non-UTF-8 content is skipped, not measured"
+        "flagged binary by libgit2 (UTF-16 BOM): never parsed"
     );
     assert!(
         !snapshot
             .file_metrics
             .contains_key(Path::new("assets/logo.png")),
-        "binary entries are never parsed"
+        "not flagged binary, but 0x89 is not UTF-8: skipped, not measured"
     );
 
     let graph = sorted_graph(&snapshot);
@@ -227,10 +175,9 @@ fn the_fixture_exercises_every_channel() {
     );
     assert_eq!(
         edges_of("src/lib.rs"),
-        Vec::<String>::new(),
-        "a Rust symbol import (`use crate::util::helper`) resolves no edge: the \
-         resolver maps the whole path to a module file; the call channel below \
-         resolves the same symbol independently"
+        ["src/util.rs"],
+        "a Rust symbol import (`use crate::util::helper`) resolves to the module \
+         that declares the symbol, like the call channel below"
     );
     assert_eq!(
         edges_of("api/app/Foo.php"),
@@ -363,13 +310,11 @@ fn resolved_channels_are_deterministically_ordered_on_both_paths() {
             "call records (path, caller, callee)",
         );
         assert_sorted(paths(&snapshot), "file entries");
-        let counts: Vec<usize> = snapshot.file_change_pairs.iter().map(|p| p.2).collect();
-        let mut descending = counts.clone();
-        descending.sort_by(|a, b| b.cmp(a));
-        assert_eq!(
-            counts, descending,
-            "co-change pairs sort by count descending"
-        );
+        // Co-change pair ordering is not observable here: the fixture has one
+        // commit and the pair index keeps pairs seen at least three times, so
+        // `file_change_pairs` is empty on both paths. The descending sort is
+        // pinned by `assemble_builds_indexes_once_from_final_core_data_and_keeps_provenance`.
+        assert!(snapshot.file_change_pairs.is_empty());
     }
 }
 
@@ -419,12 +364,49 @@ fn historical_collection_never_blames_even_where_live_does() {
     );
     assert!(
         historical.blame_map.is_empty(),
-        "ADR-005: no blame at a commit"
+        "ADR-005: blame is what the historical path skips, never the AST pass"
     );
     assert_eq!(
         channels(&live),
         channels(&historical),
         "blame does not change the AST channels"
+    );
+}
+
+#[test]
+fn live_collection_pins_every_phase_to_one_head_observation() {
+    // HEAD can move while a multi-minute collection runs (a pull, a commit,
+    // a checkout). Commits, files and the stamped `head_commit` must all
+    // come from the head the collection observed once at its start, never
+    // from whatever HEAD points at when a later phase happens to read it:
+    // the cache keys on `head_commit`, so a mixed snapshot would be served
+    // as fresh for a tree it does not describe.
+    let (dir, first) = repository(TREE);
+    let collector = Collector::open(dir.path(), TimeWindow::full_history()).unwrap();
+    write_tree(dir.path(), &[("src/late.rs", b"pub fn late() {}\n")]);
+    git(dir.path(), &["add", "-A"]);
+    git(dir.path(), &["commit", "-q", "-m", "late"]);
+    assert_ne!(head(dir.path()), first, "HEAD moved after the observation");
+
+    let snapshot = collector
+        .collect_snapshot_inner(
+            &first,
+            &SnapshotOptions {
+                skip_blame: true,
+                no_cache: true,
+                ..SnapshotOptions::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(snapshot.head_commit, first);
+    assert_eq!(
+        snapshot.commits.len(),
+        1,
+        "commits walked from the pinned head"
+    );
+    assert!(
+        !paths(&snapshot).contains(&"src/late.rs".to_string()),
+        "files listed from the pinned head's tree"
     );
 }
 
@@ -479,25 +461,24 @@ fn the_current_ignore_file_applies_to_both_readers() {
 #[test]
 fn an_unreadable_working_tree_file_is_skipped_live_but_read_from_its_blob() {
     let (dir, sha) = repository(TREE);
-    let target = dir.path().join("src/lib.rs");
-    let mut perms = std::fs::metadata(&target).unwrap().permissions();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o000);
-    std::fs::set_permissions(&target, perms).unwrap();
-    // Root reads regardless of mode bits; only assert the skip when the
-    // read genuinely fails on this machine.
-    let readable = std::fs::read_to_string(&target).is_ok();
+    // Deleting the file, rather than chmod'ing it, makes the read fail for
+    // every uid (root ignores mode bits) and on every platform: the file
+    // list comes from HEAD's tree, so the entry stays listed, and its blob
+    // is still in the object database for the historical reader.
+    std::fs::remove_file(dir.path().join("src/lib.rs")).unwrap();
     let live = live(dir.path(), true);
     let historical = historical(dir.path(), &sha);
-    assert_eq!(
-        live.file_metrics.contains_key(Path::new("src/lib.rs")),
-        readable
+    assert!(
+        live.files.iter().any(|f| f.path == Path::new("src/lib.rs")),
+        "the entry is listed from HEAD's tree even though the file is gone"
+    );
+    assert!(
+        !live.file_metrics.contains_key(Path::new("src/lib.rs")),
+        "an unreadable working-tree file is skipped, not analysed as empty"
     );
     assert!(historical
         .file_metrics
         .contains_key(Path::new("src/lib.rs")));
-    let mut perms = std::fs::metadata(&target).unwrap().permissions();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o644);
-    std::fs::set_permissions(&target, perms).unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -524,6 +505,43 @@ fn an_empty_tree_yields_empty_channels_and_no_detection_on_both_paths() {
         assert!(snapshot.call_records.is_empty());
         assert!(snapshot.file_change_pairs.is_empty());
         assert_eq!(snapshot.commits.len(), 1);
+    }
+}
+
+#[test]
+fn a_binary_flagged_blob_is_never_parsed_even_when_it_decodes_as_utf8() {
+    // The two fixture "binaries" are skipped for different reasons: the
+    // UTF-16 BOM makes libgit2 flag `data/blob.bin` binary, while
+    // `assets/logo.png` is short enough to pass libgit2's heuristic and is
+    // dropped only because 0x89 is not valid UTF-8. Neither pins the
+    // `!is_binary` filter itself. A NUL byte inside otherwise plain text
+    // does: libgit2 flags it binary, `from_utf8` accepts it, so only the
+    // filter keeps it out of the metrics — on both readers.
+    let mut tree = TREE.to_vec();
+    tree.push(("src/nul.rs", b"pub fn g() {}\0\n"));
+    let (dir, sha) = repository(&tree);
+    for snapshot in [live(dir.path(), true), historical(dir.path(), &sha)] {
+        let flag = |name: &str| {
+            snapshot
+                .files
+                .iter()
+                .find(|f| f.path == Path::new(name))
+                .unwrap_or_else(|| panic!("{name} listed"))
+                .is_binary
+        };
+        assert!(flag("src/nul.rs"), "NUL byte: flagged binary by libgit2");
+        assert!(
+            flag("data/blob.bin"),
+            "UTF-16 BOM: flagged binary by libgit2"
+        );
+        assert!(
+            !flag("assets/logo.png"),
+            "six printable-ish bytes: NOT flagged binary, skipped by from_utf8 instead"
+        );
+        assert!(
+            !snapshot.file_metrics.contains_key(Path::new("src/nul.rs")),
+            "a binary-flagged entry is never parsed, even though it decodes as UTF-8"
+        );
     }
 }
 
@@ -564,21 +582,37 @@ fn ast_free_historical_collection_is_an_explicit_mode_not_a_measured_absence() {
 #[test]
 fn provenance_fields_follow_the_reader() {
     let (dir, sha) = repository(TREE);
+    // The name comes from the origin remote when there is one, on both
+    // readers: a gate baseline or a backfill entry must name the repository
+    // the way `analyze` does, whatever directory it was cloned into.
+    git(
+        dir.path(),
+        &[
+            "remote",
+            "add",
+            "origin",
+            "https://example.test/team/acme.git",
+        ],
+    );
     let live = live(dir.path(), true);
     let historical = historical(dir.path(), &sha);
-    let expected_name = dir.path().file_name().unwrap().to_str().unwrap();
     for snapshot in [&live, &historical] {
-        assert_eq!(snapshot.name, expected_name);
+        assert_eq!(snapshot.name, "acme");
         assert_eq!(snapshot.default_branch, "main");
         let window = TimeWindow::full_history();
         assert_eq!(snapshot.time_window.since, window.since);
         assert_eq!(snapshot.time_window.until, window.until);
         assert_eq!(snapshot.time_window.default_months, window.default_months);
-        assert_eq!(snapshot.path, dir.path());
+        // The live path is what libgit2 discovered (realpath'd); the
+        // historical one is the caller's. Compare canonical forms so a
+        // symlinked temp directory (macOS `/var` -> `/private/var`) does not
+        // fail the live iteration alone.
+        assert_eq!(
+            snapshot.path.canonicalize().unwrap(),
+            dir.path().canonicalize().unwrap()
+        );
     }
-    assert!(
-        historical.created_at >= live.created_at,
-        "each reader stamps its own time"
-    );
+    // `created_at` stamping is pinned in `assemble`'s unit test; ordering the
+    // two readers' wall-clock stamps here would only make this test flaky.
     let _: HashMap<PathBuf, Vec<PathBuf>> = live.import_graph;
 }
