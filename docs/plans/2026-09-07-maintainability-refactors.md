@@ -6,6 +6,8 @@ Source: [structure review](../reviews/2026-09-07-structure-maintainability.md).
 
 Status: all six prose-only plans are written. Implementation, probes, commits, and releases are not authorized. Plan completion does not mean implementation verification has passed.
 
+Implementation status per refactor is tracked in the [roadmap](../ROADMAP.md); the line above describes the planning phase only.
+
 ## Plan index
 
 | Finding | Plan | Intended result |
