@@ -479,25 +479,24 @@ fn the_current_ignore_file_applies_to_both_readers() {
 #[test]
 fn an_unreadable_working_tree_file_is_skipped_live_but_read_from_its_blob() {
     let (dir, sha) = repository(TREE);
-    let target = dir.path().join("src/lib.rs");
-    let mut perms = std::fs::metadata(&target).unwrap().permissions();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o000);
-    std::fs::set_permissions(&target, perms).unwrap();
-    // Root reads regardless of mode bits; only assert the skip when the
-    // read genuinely fails on this machine.
-    let readable = std::fs::read_to_string(&target).is_ok();
+    // Deleting the file, rather than chmod'ing it, makes the read fail for
+    // every uid (root ignores mode bits) and on every platform: the file
+    // list comes from HEAD's tree, so the entry stays listed, and its blob
+    // is still in the object database for the historical reader.
+    std::fs::remove_file(dir.path().join("src/lib.rs")).unwrap();
     let live = live(dir.path(), true);
     let historical = historical(dir.path(), &sha);
-    assert_eq!(
-        live.file_metrics.contains_key(Path::new("src/lib.rs")),
-        readable
+    assert!(
+        live.files.iter().any(|f| f.path == Path::new("src/lib.rs")),
+        "the entry is listed from HEAD's tree even though the file is gone"
+    );
+    assert!(
+        !live.file_metrics.contains_key(Path::new("src/lib.rs")),
+        "an unreadable working-tree file is skipped, not analysed as empty"
     );
     assert!(historical
         .file_metrics
         .contains_key(Path::new("src/lib.rs")));
-    let mut perms = std::fs::metadata(&target).unwrap().permissions();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o644);
-    std::fs::set_permissions(&target, perms).unwrap();
 }
 
 // ---------------------------------------------------------------------------
