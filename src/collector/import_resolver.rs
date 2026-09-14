@@ -207,10 +207,24 @@ fn resolve_rust_import(raw: &str) -> Vec<PathBuf> {
         .unwrap_or(path_part)
         .trim_end_matches("::*");
     let segments = path_part.replace("::", "/");
-    vec![
-        PathBuf::from(format!("src/{}.rs", segments)),
-        PathBuf::from(format!("src/{}/mod.rs", segments)),
+    // The path may name a module (`src/foo/bar.rs`) or a symbol declared
+    // in its parent module (`fn bar` in `src/foo.rs`); the module reading
+    // is tried first so an existing module file always wins. A symbol at
+    // the crate root (`use crate::helper;`) is declared in the root file.
+    let parent = match segments.rsplit_once('/') {
+        Some((parent, _)) => vec![
+            PathBuf::from(format!("src/{parent}.rs")),
+            PathBuf::from(format!("src/{parent}/mod.rs")),
+        ],
+        None => vec![PathBuf::from("src/lib.rs"), PathBuf::from("src/main.rs")],
+    };
+    [
+        PathBuf::from(format!("src/{segments}.rs")),
+        PathBuf::from(format!("src/{segments}/mod.rs")),
     ]
+    .into_iter()
+    .chain(parent)
+    .collect()
 }
 
 fn resolve_js_import(raw: &str, source: &Path) -> Vec<PathBuf> {
@@ -995,6 +1009,43 @@ mod tests {
             .get(&PathBuf::from("src/other.rs"))
             .expect("bare crate specifier must resolve to the crate root");
         assert_eq!(targets[0].to_string_lossy(), "src/lib.rs");
+    }
+
+    #[test]
+    fn rust_symbol_import_resolves_to_the_declaring_module() {
+        // `use crate::util::helper;` names a function declared in
+        // src/util.rs. There is no src/util/helper.rs, so the path-as-module
+        // candidates miss; the parent module's file is the declaring one.
+        let files = vec![entry("src/lib.rs"), entry("src/util.rs")];
+        let graph = resolve_imports(
+            &raw("src/lib.rs", vec!["crate::util::helper"]),
+            &files,
+            &RepoImportConfig::default(),
+        );
+        let targets = graph
+            .get(&PathBuf::from("src/lib.rs"))
+            .expect("a symbol import must resolve to the module that declares it");
+        assert_eq!(targets[0].to_string_lossy(), "src/util.rs");
+    }
+
+    #[test]
+    fn rust_module_import_still_prefers_the_module_file() {
+        // When both src/util/helper.rs and src/util.rs exist, `crate::util::helper`
+        // is the module, not a symbol of util: the deeper candidate wins.
+        let files = vec![
+            entry("src/lib.rs"),
+            entry("src/util.rs"),
+            entry("src/util/helper.rs"),
+        ];
+        let graph = resolve_imports(
+            &raw("src/lib.rs", vec!["crate::util::helper"]),
+            &files,
+            &RepoImportConfig::default(),
+        );
+        assert_eq!(
+            graph[&PathBuf::from("src/lib.rs")][0].to_string_lossy(),
+            "src/util/helper.rs"
+        );
     }
 
     #[test]

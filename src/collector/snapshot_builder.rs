@@ -129,14 +129,21 @@ impl Collector {
 
     /// Orchestrates the five collection phases; each phase manages its own
     /// progress display and the orchestrator keeps the timing spine.
+    ///
+    /// `head` is the one HEAD observation for the whole collection: commits
+    /// are walked from it, files are listed from its tree, and it is the
+    /// stamped `head_commit`. HEAD may move while blame or the AST pass
+    /// runs; nothing here re-reads it, so the snapshot cannot describe two
+    /// trees at once (the cache keys on that stamp).
     pub(super) fn collect_snapshot_inner(
         &self,
+        head: &str,
         opts: &SnapshotOptions<'_>,
     ) -> Result<RepoSnapshot> {
         // Phase 1: commits (fast, spinner only)
         let sp = phase_spinner(opts.show_progress, "Walking commits...");
         let t = Instant::now();
-        let collection = self.collect_commits()?;
+        let collection = super::libgit::collect_commits_at(&self.repo, head, &self.time_window)?;
         let commits_ms = t.elapsed().as_millis();
         finish_spinner(sp);
 
@@ -149,7 +156,7 @@ impl Collector {
             ),
         );
         let t = Instant::now();
-        let files = self.collect_filtered_files(opts)?;
+        let files = self.collect_filtered_files(head, opts)?;
         let files_ms = t.elapsed().as_millis();
         finish_spinner(sp);
 
@@ -178,7 +185,7 @@ impl Collector {
         // Phase 5: indexes (fast, spinner only)
         let sp = phase_spinner(opts.show_progress, "Building indexes...");
         let t = Instant::now();
-        let snapshot = self.assemble_snapshot(collection, files, blame_map, ast)?;
+        let snapshot = self.assemble_snapshot(head, collection, files, blame_map, ast);
         let indexes_ms = t.elapsed().as_millis();
         finish_spinner(sp);
 
@@ -198,8 +205,12 @@ impl Collector {
     /// re-include default-excluded files. When nothing excludes a path
     /// `should_include` returns true, so no separate short-circuit is needed.
     /// See `ignore_file::should_include` for the precedence composition.
-    fn collect_filtered_files(&self, opts: &SnapshotOptions<'_>) -> Result<Vec<FileEntry>> {
-        let all_files = self.collect_files()?;
+    fn collect_filtered_files(
+        &self,
+        head: &str,
+        opts: &SnapshotOptions<'_>,
+    ) -> Result<Vec<FileEntry>> {
+        let all_files = super::libgit::collect_files_at(&self.repo, head)?;
         let ignore = BaradDurIgnore::load(self.repo_path())?;
         let before = all_files.len();
         let files: Vec<FileEntry> = all_files
@@ -290,12 +301,12 @@ impl Collector {
     /// and assemble the snapshot with derived indexes.
     fn assemble_snapshot(
         &self,
+        head: &str,
         collection: CommitCollection,
         files: Vec<FileEntry>,
         blame_map: HashMap<PathBuf, Vec<crate::snapshot::BlameLine>>,
         ast: RawSourceChannels,
-    ) -> Result<RepoSnapshot> {
-        let head = self.head_commit_hash()?;
+    ) -> RepoSnapshot {
         // Working-tree pass: manifests come from disk.
         let root = self.repo_path().to_path_buf();
         let resolved = ast.resolve(&files, |entry| {
@@ -306,9 +317,9 @@ impl Collector {
             name: self.repo_name(),
             default_branch: self.default_branch(),
             time_window: self.time_window.clone(),
-            head_commit: head,
+            head_commit: head.to_string(),
         };
-        Ok(assemble(provenance, collection, files, blame_map, resolved))
+        assemble(provenance, collection, files, blame_map, resolved)
     }
 
     /// Collect a snapshot at a specific commit SHA without touching the
@@ -379,16 +390,12 @@ impl Collector {
         // ADR-005: backfill always skips blame for performance.
         let blame_map: HashMap<_, _> = HashMap::new();
 
-        let repo_name = repo_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown")
-            .to_string();
-        let branch = repo
-            .head()
-            .ok()
-            .and_then(|h| h.shorthand().ok().map(String::from))
-            .unwrap_or_else(|| "main".to_string());
+        // Same derivation as the live reader (`Collector::repo_name` /
+        // `default_branch`): origin-first name, so gate baselines and
+        // backfill entries name the repository the way `analyze` does, and
+        // `barad-dur backfill .` no longer reports "unknown".
+        let repo_name = super::repo_name_of(&repo);
+        let branch = super::default_branch_of(&repo);
 
         let resolved = ast_pass(&repo, &files)?;
         let provenance = SnapshotProvenance {
@@ -452,32 +459,41 @@ fn assemble(
 
 /// AST pass over blob contents at a historical commit — the object-DB
 /// equivalent of `collect_file_metrics_with_progress` (which reads the
-/// working tree). Used by the gate ratchet's baseline collection; backfill
-/// keeps this off per ADR-005. Runs sequentially (no rayon): baseline trees
-/// are collected once per gate run, not once per commit like backfill's
-/// historical sweep, so the parallelism isn't worth the added complexity here.
+/// working tree). Used by the gate ratchet's baseline collection and by
+/// backfill, once per sampled commit (ADR-005 keeps blame, not the AST
+/// pass, off the historical path). Runs sequentially (no rayon):
+/// `git2::Repository` is not `Sync`, and the live reader already carries
+/// the parallel variant for the case where it pays.
 fn ast_pass_at(repo: &git2::Repository, files: &[FileEntry]) -> Result<ResolvedSourceChannels> {
     // Bad object ids, missing blobs and non-UTF-8 content are skipped, not
     // errors: a historical tree can legitimately hold what the working
     // tree reader would also fail to read.
-    let blob_text = |entry: &FileEntry| -> Option<String> {
+    let blob_of = |entry: &FileEntry| -> Option<git2::Blob<'_>> {
         let oid = git2::Oid::from_str(&entry.blob_oid).ok()?;
-        let blob = repo.find_blob(oid).ok()?;
-        std::str::from_utf8(blob.content()).ok().map(str::to_owned)
+        repo.find_blob(oid).ok()
     };
+    // Source is borrowed from the blob for the duration of its parse; only
+    // manifests, read once per repository by `resolve`, are copied out.
     let analyses = files
         .iter()
         .filter(|entry| !entry.is_binary)
         .filter_map(|entry| {
-            let content = blob_text(entry)?;
+            let blob = blob_of(entry)?;
+            let content = std::str::from_utf8(blob.content()).ok()?;
             Some((
                 entry.path.clone(),
-                complexity::analyse_source(&entry.path, &content),
+                complexity::analyse_source(&entry.path, content),
             ))
         });
     // Historical pass: manifests must come from the tree AT THAT COMMIT.
     // Reading the working tree here would make gate baselines incomparable.
-    Ok(RawSourceChannels::aggregate(analyses).resolve(files, blob_text))
+    Ok(
+        RawSourceChannels::aggregate(analyses).resolve(files, |entry| {
+            std::str::from_utf8(blob_of(entry)?.content())
+                .ok()
+                .map(str::to_owned)
+        }),
+    )
 }
 
 #[cfg(test)]
@@ -627,17 +643,8 @@ mod tests {
         // Add a committed binary file so the !is_binary filter has something
         // to reject.
         std::fs::write(dir.path().join("blob.bin"), [0u8, 159, 146, 150, 0, 7]).unwrap();
-        let git = |args: &[&str]| {
-            assert!(std::process::Command::new("git")
-                .arg("-C")
-                .arg(dir.path())
-                .args(args)
-                .status()
-                .unwrap()
-                .success());
-        };
-        git(&["add", "-A"]);
-        git(&["commit", "-q", "-m", "add binary"]);
+        crate::collector::testutil::git(dir.path(), &["add", "-A"]);
+        crate::collector::testutil::git(dir.path(), &["commit", "-q", "-m", "add binary"]);
 
         let collector = Collector::open(dir.path(), TimeWindow::default()).unwrap();
         let collection = collector.collect_commits().unwrap();
@@ -665,46 +672,13 @@ mod tests {
     }
 
     /// A throwaway git repo with one commit, for `collect_snapshot_at` (backfill
-    /// and the gate ratchet's baseline collection).
+    /// and the gate ratchet's baseline collection). Runs git isolated from the
+    /// host's configuration, see `collector::testutil`.
     fn make_single_commit_repo_with(files: &[(&str, &str)]) -> (tempfile::TempDir, String) {
-        let dir = tempfile::TempDir::new().unwrap();
-        let git = |args: &[&str]| {
-            assert!(std::process::Command::new("git")
-                .arg("-C")
-                .arg(dir.path())
-                .args(args)
-                .status()
-                .unwrap()
-                .success());
-        };
-        git(&["init", "-q"]);
-        git(&["config", "user.email", "t@e"]);
-        git(&["config", "user.name", "t"]);
-        for (name, contents) in files {
-            let p = dir.path().join(name);
-            if let Some(parent) = p.parent() {
-                std::fs::create_dir_all(parent).unwrap();
-            }
-            std::fs::write(p, contents).unwrap();
-        }
-        git(&["add", "-A"]);
-        git(&["commit", "-q", "-m", "init"]);
-        let out = std::process::Command::new("git")
-            .arg("-C")
-            .arg(dir.path())
-            .args(["rev-parse", "HEAD"])
-            .output()
-            .unwrap();
-        let head = String::from_utf8(out.stdout).unwrap().trim().to_string();
-        (dir, head)
+        crate::collector::testutil::repository_of_text(files)
     }
 
-    fn snapshot_paths(snap: &RepoSnapshot) -> Vec<String> {
-        snap.files
-            .iter()
-            .map(|f| f.path.to_string_lossy().into_owned())
-            .collect()
-    }
+    use crate::collector::testutil::snapshot_paths;
 
     #[test]
     fn collect_snapshot_at_applies_default_exclusions() {
@@ -885,21 +859,28 @@ mod assembly_tests {
             deletions: 0,
             change_type: ChangeType::Modified,
         };
-        // Three co-changes: the pair index keeps pairs seen at least three times.
-        let ids: Vec<_> = ["abc123", "def456", "0123ab"]
-            .into_iter()
-            .map(|sha| interner.intern(sha))
-            .collect();
+        // The pair index keeps pairs seen at least three times and sorts
+        // them by count descending: four co-changes of (a, b), then three of
+        // (a, c), with distinct counts so the expected order is total. `b`
+        // and `c` never co-change, so that pair is dropped, and the excluded
+        // path is changed in every commit but is not a listed file.
+        let ids: Vec<_> = [
+            "abc123", "def456", "0123ab", "456def", "789abc", "abcdef", "fedcba",
+        ]
+        .into_iter()
+        .map(|sha| interner.intern(sha))
+        .collect();
         let commits = ids
             .iter()
-            .map(|&id| Commit {
+            .enumerate()
+            .map(|(i, &id)| Commit {
                 id,
                 author: 0,
                 timestamp: Utc::now(),
                 message: "m".into(),
                 files_changed: vec![
                     change("src/a.rs"),
-                    change("src/b.rs"),
+                    change(if i < 4 { "src/b.rs" } else { "src/c.rs" }),
                     change("excluded.rs"),
                 ],
                 is_merge: false,
@@ -920,6 +901,7 @@ mod assembly_tests {
         let files = vec![
             crate::metrics::testutil::make_file("src/a.rs"),
             crate::metrics::testutil::make_file("src/b.rs"),
+            crate::metrics::testutil::make_file("src/c.rs"),
         ];
         let provenance = SnapshotProvenance {
             path: PathBuf::from("/tmp/repo"),
@@ -928,6 +910,7 @@ mod assembly_tests {
             time_window: TimeWindow::full_history(),
             head_commit: "abc123".into(),
         };
+        let before = Utc::now();
         let snapshot = assemble(
             provenance,
             collection,
@@ -935,17 +918,24 @@ mod assembly_tests {
             HashMap::new(),
             ResolvedSourceChannels::default(),
         );
+        assert!(
+            snapshot.created_at >= before,
+            "assembly stamps its own acquisition time"
+        );
         assert_eq!(snapshot.name, "repo");
         assert_eq!(snapshot.default_branch, "trunk");
         assert_eq!(snapshot.head_commit, "abc123");
         assert_eq!(snapshot.path, PathBuf::from("/tmp/repo"));
         assert_eq!(snapshot.resolve_commit(id), "abc123");
         assert_eq!(snapshot.commits_by_author[&0], ids);
-        assert_eq!(snapshot.commits_by_file.len(), 3, "index over commit data");
+        assert_eq!(snapshot.commits_by_file.len(), 4, "index over commit data");
         assert_eq!(
             snapshot.file_change_pairs,
-            vec![("src/a.rs".into(), "src/b.rs".into(), 3)],
-            "pairs only over listed files, excluded path dropped"
+            vec![
+                ("src/a.rs".into(), "src/b.rs".into(), 4),
+                ("src/a.rs".into(), "src/c.rs".into(), 3),
+            ],
+            "pairs only over listed files, excluded path dropped, count descending"
         );
     }
 }

@@ -132,7 +132,7 @@
     },
     {
       "name": "Coupling",
-      "score": 82,
+      "score": 80,
       "metrics": [
         {
           "name": "Afferent coupling",
@@ -144,7 +144,7 @@
         },
         {
           "name": "Circular dependencies",
-          "score": 86
+          "score": 69
         },
         {
           "name": "Change coupling smells",
@@ -204,7 +204,7 @@
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] src/context/mod.rs — 951 loc; structural hub — 11 connections (threshold 8) — consider splitting by responsibility: get_* (11), has_* (11), is_* (2), parse_* (3), set_* (8)"
+      "text": "[Health] src/context/mod.rs — 951 loc; structural hub — 26 connections (threshold 8) — consider splitting by responsibility: get_* (11), has_* (11), is_* (2), parse_* (3), set_* (8)"
     },
     {
       "target_tab": "hotspots",
@@ -212,7 +212,7 @@
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] src/modules/git_status.rs — 1912 loc — consider splitting by responsibility: get_* (21), is_* (8), set_* (2)"
+      "text": "[Health] src/modules/git_status.rs — 1912 loc; structural hub — 8 connections (threshold 8) — consider splitting by responsibility: get_* (21), is_* (8), set_* (2)"
     },
     {
       "target_tab": "hotspots",
@@ -220,7 +220,7 @@
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] src/utils/mod.rs — 990 loc; structural hub — 17 connections (threshold 8); generic name suggests broad responsibility — consider splitting by responsibility: render_* (9)"
+      "text": "[Health] src/utils/mod.rs — 990 loc; structural hub — 50 connections (threshold 8); generic name suggests broad responsibility — consider splitting by responsibility: render_* (9)"
     },
     {
       "target_tab": "ownership",

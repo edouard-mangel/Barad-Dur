@@ -4,7 +4,7 @@ Plan: [M03](../superpowers/plans/2026-09-07-snapshot-assembly.md). Implementatio
 
 ## Task 1 — characterization
 
-`src/collector/assembly_parity_tests.rs` (13 tests, crate-internal because the historical readers are `pub(crate)`) and `tests/snapshot_assembly_walking_skeleton.rs` (3 tests through the binary). One fixture tree exercises every channel across Rust, TypeScript (barrel with star and named re-exports, `extends` of an imported class, same-file and external calls, two imports of one file), PHP with PSR-4 roots from a nested `composer.json`, Go (an unreliable resolver), non-UTF-8 and binary content, and a default-excluded lockfile.
+`src/collector/assembly_parity_tests.rs` (13 tests, crate-internal because the historical readers are `pub(crate)`) and `tests/snapshot_assembly_walking_skeleton.rs` (3 tests: two through the binary, one through the library's `resolve_snapshot`). One fixture tree exercises every channel across Rust, TypeScript (barrel with star and named re-exports, `extends` of an imported class, same-file and external calls, two imports of one file), PHP with PSR-4 roots from a nested `composer.json`, Go (an unreliable resolver), non-UTF-8 and binary content, and a default-excluded lockfile.
 
 Pinned: the working-tree and at-commit readers agree on every analysis channel for the same committed content; every resolved channel is emitted sorted; indexes reference only listed files, known commits and known authors; an empty tree, an unresolvable import, and AST-free collection each keep their shape. Pinned as intentional differences: historical collection never blames; manifests and source come from disk live and from the commit historically; the current ignore file filters both; an unreadable working-tree file is skipped live but read from its blob.
 
@@ -66,3 +66,33 @@ Gates re-run on the rebased head, from the same worktree, corpus root `~/WS` (al
 - `cargo run --features export-types --example export_report_types -- --check`: exact.
 - `make report-smoke`: 11 tabs rendered without JavaScript errors.
 - P2: `make field-test` clean across 11 repositories, no baseline accepted, worktree clean afterwards. `make field-audit` was not re-run: the corpus pins and the recommendation surface are unchanged by the rebase (the field test compares full decision surfaces), so the worksheet above stands.
+
+## Review !146 fixes (2026-09-12/13, commits after `da05eca5`)
+
+The MR was reviewed with the `/review` workflow (own MR: nothing posted, every finding fixed here). Twenty findings, none CRITICAL or HIGH: one blocking conflict the rebase above had already cleared, seven MEDIUM (coverage gaps proven by hand mutation, and pre-existing defects the refactor moved without fixing), the rest LOW. Each fix carries its red test or its mutation proof; commits are one per finding.
+
+| Commit | Finding | Red |
+|---|---|---|
+| `5e073ef` | the three record resolvers used `RepoImportConfig::default()` while `resolve` had built the PSR-4 config one screen above | PHP `extends` on a PSR-4-mapped class stayed `Unresolvable` |
+| `dfd0d89` | `aggregate` read `SourceAnalysis` by field: a new channel compiled unrouted and was dropped by both readers, invisible to the parity oracle | a probe field compiled before; `E0027` after destructuring |
+| `82bcdf3` | the `!is_binary` filter was pinned by nothing (the fixture's binaries were skipped by BOM and by UTF-8 instead); removing it on either reader left 121/121 green | a NUL-bearing `src/nul.rs`: red against both filter-removed mutants |
+| `a4f80a7` | both `file_change_pairs` pins ran over an empty vector (one commit, pairs need three); the descending sort survived a mutation on the whole `--lib` suite | `assemble` test with pairs (4, 3); red against the ascending mutant |
+| `e8a4799` | the unreadable-file test conditioned on `readable`, vacuous under root (the CI image), and used `std::os::unix` ungated | `remove_file` instead of chmod; red against an analyse-empty mutant |
+| `be40467` | `created_at` stamping unpinned; the wall-clock `historical >= live` assertion flaky | red against an epoch-stamp mutant |
+| `d4070fc` | provenance test compared uncanonicalised paths (fails where TMPDIR is a symlink) | portability, refactor with green |
+| `d541cd0` | every blob copied into a `String` before parsing where the base borrowed | borrow restored; parity green |
+| `b7505ac` | three comments said backfill skips the AST pass; ADR-005's resolution is "blame is skipped" | docs |
+| `f8d2d1f` | the live reader read HEAD three times (revwalk, tree, stamp); a HEAD move mid-collection produced a snapshot describing two trees, which the cache then served as fresh | HEAD moved between observation and collection: commits, files and stamp must follow the pinned SHA |
+| `2f55956` | `use crate::util::helper` resolved no import edge (recorded as "not fixed" above): a symbol-importing crate scored clean instead of unmeasured | `None` -> `src/util.rs`; module precedence pinned |
+| `1629456` | historical `name` came from the target path's basename (`unknown` for `.`), live from the origin URL | fixture with an `origin` remote: both readers report `acme` |
+| `88f3cff` | two byte-identical hardened `git()` runners while the builder fixture ran git bare | 7 failures under a global `commit.gpgsign` through `/bin/false`, then 0 |
+| `0276e4a` | the file index was rebuilt on each of the three record-resolver calls | refactor, parity green |
+| `5b8b837` | P2 consequence of `2f55956`: two Rust corpus entries moved | baselines accepted in their own commit, see below |
+
+Verification on the final head: `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` before every commit; `cargo test --no-fail-fast`: 1700 passed, 0 failed, 8 ignored (37 suites with tests). Renderer, contract types and dashboard are untouched by these commits, so `make report-smoke` and the contract `--check` stand as run on `da05eca5`.
+
+### P2 after the resolver change
+
+`make field-test` reported `2 repository/repositories differ from baseline`: `barad-dur` at its pin and `starship`, both Rust; `ripgrep`, `helix` and the eight non-Rust entries unchanged, both passes identical. The differences are the intended effect of `2f55956`: symbol-level `use` lines now produce import edges, so starship's real `utils` <-> `context` module cycle becomes visible (Coupling 82 -> 80, Circular dependencies 86 -> 69) and hub connection counts rise on both repositories. Baselines accepted with `make field-test-accept` in `5b8b837`; `make field-test` is then `clean across 11 repositories`. `make field-audit`: no Safe failure, no recommendation withdrawn — [worksheet](../../field-test/audit/2026-09-13-review-146-rust-symbol-imports.md).
+
+The "Recorded, not fixed" paragraph in Task 1 above is superseded for the Rust import: it is fixed and the parity assertion expects the edge. The re-export sort-stability note stands.

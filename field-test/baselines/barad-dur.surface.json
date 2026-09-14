@@ -188,11 +188,11 @@
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] src/cmd/analyze.rs — 510 loc; structural hub — 10 connections (threshold 8) — consider splitting by responsibility: build_* (6), compute_* (2)"
+      "text": "[Health] src/cmd/analyze.rs — 510 loc; structural hub — 16 connections (threshold 11) — consider splitting by responsibility: build_* (6), compute_* (2)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] src/config/mod.rs — 677 loc — consider splitting by responsibility: validate_* (22)"
+      "text": "[Health] src/config/mod.rs — 677 loc; structural hub — 17 connections (threshold 11) — consider splitting by responsibility: validate_* (22)"
     },
     {
       "target_tab": "hotspots",
@@ -200,7 +200,7 @@
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] src/scorer.rs — 694 loc; structural hub — 9 connections (threshold 8) — consider splitting by responsibility: build_* (14)"
+      "text": "[Health] src/scorer.rs — 694 loc; structural hub — 17 connections (threshold 11) — consider splitting by responsibility: build_* (14)"
     },
     {
       "target_tab": "hotspots",

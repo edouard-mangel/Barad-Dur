@@ -10,6 +10,8 @@ mod libgit;
 mod progress;
 mod snapshot_builder;
 mod source_assembly;
+#[cfg(test)]
+pub(crate) mod testutil;
 mod types;
 
 use anyhow::{Context, Result};
@@ -58,6 +60,36 @@ impl Default for SnapshotOptions<'_> {
     }
 }
 
+/// The repository's name as every reader reports it: the `origin` remote's
+/// last URL segment when there is one (stable across worktrees and
+/// checkout directories), else the work directory's basename.
+pub(crate) fn repo_name_of(repo: &git2::Repository) -> String {
+    if let Ok(remote) = repo.find_remote("origin") {
+        if let Ok(url) = remote.url() {
+            let segment = url.rsplit('/').next().unwrap_or(url);
+            let segment = segment.rsplit(':').next().unwrap_or(segment);
+            let name = segment.trim_end_matches(".git");
+            if !name.is_empty() {
+                return name.to_string();
+            }
+        }
+    }
+    repo.workdir()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string()
+}
+
+/// The checked-out branch's short name, `main` when HEAD is detached or
+/// unborn; one definition for both readers.
+pub(crate) fn default_branch_of(repo: &git2::Repository) -> String {
+    repo.head()
+        .ok()
+        .and_then(|h| h.shorthand().ok().map(String::from))
+        .unwrap_or_else(|| "main".to_string())
+}
+
 pub struct Collector {
     repo: git2::Repository,
     pub time_window: TimeWindow,
@@ -75,32 +107,11 @@ impl Collector {
     }
 
     pub fn repo_name(&self) -> String {
-        // Prefer remote URL so the name is stable across worktrees.
-        if let Ok(remote) = self.repo.find_remote("origin") {
-            if let Ok(url) = remote.url() {
-                let segment = url.rsplit('/').next().unwrap_or(url);
-                let segment = segment.rsplit(':').next().unwrap_or(segment);
-                let name = segment.trim_end_matches(".git");
-                if !name.is_empty() {
-                    return name.to_string();
-                }
-            }
-        }
-        // Fallback for repos with no remote.
-        self.repo
-            .workdir()
-            .and_then(|p| p.file_name())
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown")
-            .to_string()
+        repo_name_of(&self.repo)
     }
 
     pub fn default_branch(&self) -> String {
-        self.repo
-            .head()
-            .ok()
-            .and_then(|h| h.shorthand().ok().map(String::from))
-            .unwrap_or_else(|| "main".to_string())
+        default_branch_of(&self.repo)
     }
 
     pub fn head_commit_hash(&self) -> Result<String> {
@@ -171,10 +182,13 @@ impl Collector {
 
     /// Build a complete RepoSnapshot, optionally showing progress indicators.
     pub fn collect_snapshot_with_progress(&self, show_progress: bool) -> Result<RepoSnapshot> {
-        self.collect_snapshot_inner(&SnapshotOptions {
-            show_progress,
-            ..SnapshotOptions::default()
-        })
+        self.collect_snapshot_inner(
+            &self.head_commit_hash()?,
+            &SnapshotOptions {
+                show_progress,
+                ..SnapshotOptions::default()
+            },
+        )
     }
 
     /// Build a complete RepoSnapshot with full control over display and phases.
@@ -182,7 +196,8 @@ impl Collector {
         &self,
         opts: &SnapshotOptions<'_>,
     ) -> Result<RepoSnapshot> {
-        self.collect_snapshot_inner(opts)
+        // HEAD is observed here, once; every phase below reads from this SHA.
+        self.collect_snapshot_inner(&self.head_commit_hash()?, opts)
     }
 
     pub fn repo_path(&self) -> &Path {
