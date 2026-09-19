@@ -50,27 +50,31 @@ fn render_repo_info(report: &AnalysisReport) -> String {
         out.push_str(&format!("  {} full history\n", "Window:".dimmed()));
     }
     if let Some(meta) = &report.remote_meta {
-        out.push_str(&format!("  {} {}\n", "Source:".dimmed(), meta.url.bold()));
-        let mut details = Vec::new();
-        if let Some(stars) = meta.stars {
-            details.push(format!("Stars: {}", stars));
-        }
-        if let Some(lang) = &meta.language {
-            details.push(format!("Language: {}", lang));
-        }
-        if let Some(issues) = meta.open_issues {
-            details.push(format!("Issues: {}", issues));
-        }
-        if !details.is_empty() {
-            out.push_str(&format!("  {}\n", details.join("   ").dimmed()));
-        }
-        if let Some(desc) = &meta.description {
-            if !desc.is_empty() {
-                out.push_str(&format!("  {}\n", desc.dimmed()));
-            }
-        }
+        out.push_str(&render_remote_meta(meta));
     }
 
+    out
+}
+
+fn render_remote_meta(meta: &crate::scorer::RemoteMeta) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("  {} {}\n", "Source:".dimmed(), meta.url.bold()));
+    let details: Vec<String> = [
+        meta.stars.map(|s| format!("Stars: {}", s)),
+        meta.language.as_ref().map(|l| format!("Language: {}", l)),
+        meta.open_issues.map(|i| format!("Issues: {}", i)),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    if !details.is_empty() {
+        out.push_str(&format!("  {}\n", details.join("   ").dimmed()));
+    }
+    if let Some(desc) = &meta.description {
+        if !desc.is_empty() {
+            out.push_str(&format!("  {}\n", desc.dimmed()));
+        }
+    }
     out
 }
 
@@ -80,12 +84,10 @@ fn render_trend_line(trend: &TrendSummary, report: &AnalysisReport) -> String {
     if !trend.delta.is_first && !trend.branch_mismatch_warning {
         // No delta line when either run had nothing measurable.
         if let Some(delta) = trend.delta.overall {
-            let delta_str = if delta >= 0 {
-                format!("+{} vs last run", delta)
-            } else {
-                format!("{} vs last run", delta)
-            };
-            out.push_str(&format!("  {}\n", delta_str.dimmed()));
+            out.push_str(&format!(
+                "  {} vs last run\n",
+                format_delta_prefix(delta).dimmed()
+            ));
         }
 
         if let Some(velocity) = &trend.velocity {
@@ -99,26 +101,20 @@ fn render_trend_line(trend: &TrendSummary, report: &AnalysisReport) -> String {
     out
 }
 
+fn format_delta_prefix(delta: i32) -> String {
+    if delta >= 0 {
+        format!("+{}", delta)
+    } else {
+        format!("{}", delta)
+    }
+}
+
 fn render_score_and_trend(report: &AnalysisReport, trend: Option<&TrendSummary>) -> String {
     let mut out = String::new();
 
     // Branch mismatch warning — suppresses delta and notifies the user.
     if let Some(summary) = trend {
-        if summary.branch_mismatch_warning {
-            let prior_branch = summary
-                .history
-                .last()
-                .map(|e| e.branch.as_str())
-                .unwrap_or("unknown");
-            out.push_str(&format!(
-                "  {}\n",
-                format!(
-                    "Warning: prior history on '{}'; current branch is '{}'",
-                    prior_branch, report.branch
-                )
-                .yellow()
-            ));
-        }
+        out.push_str(&render_branch_mismatch_warning(summary, &report.branch));
     }
 
     // First-run notice or trend delta
@@ -147,6 +143,25 @@ fn render_score_and_trend(report: &AnalysisReport, trend: Option<&TrendSummary>)
     out
 }
 
+fn render_branch_mismatch_warning(summary: &TrendSummary, current_branch: &str) -> String {
+    if !summary.branch_mismatch_warning {
+        return String::new();
+    }
+    let prior_branch = summary
+        .history
+        .last()
+        .map(|e| e.branch.as_str())
+        .unwrap_or("unknown");
+    format!(
+        "  {}\n",
+        format!(
+            "Warning: prior history on '{}'; current branch is '{}'",
+            prior_branch, current_branch
+        )
+        .yellow()
+    )
+}
+
 fn render_single_category(
     cat: &crate::metrics::CategoryResult,
     delta: Option<i32>,
@@ -155,13 +170,7 @@ fn render_single_category(
     let mut out = String::new();
 
     let delta_suffix = delta
-        .map(|d| {
-            if d >= 0 {
-                format!("  (+{})", d)
-            } else {
-                format!("  ({})", d)
-            }
-        })
+        .map(|d| format!("  ({})", format_delta_prefix(d)))
         .unwrap_or_default();
 
     out.push_str(&format!(
@@ -174,32 +183,38 @@ fn render_single_category(
 
     if verbosity > 0 {
         for metric in &cat.metrics {
-            // Unscored metric (insufficient data): dimmed dot + dash.
-            let score_indicator = metric
-                .score
-                .map(format_score_dot)
-                .unwrap_or_else(|| "○".dimmed().to_string());
-            let score_label = metric
-                .score
-                .map(format_score_number)
-                .unwrap_or_else(|| "—".dimmed().to_string());
-            out.push_str(&format!(
-                "    {} {} {}  {}\n",
-                score_indicator,
-                metric.name,
-                score_label,
-                metric.description.dimmed()
-            ));
-            if verbosity > 1 {
-                out.push_str(&format!(
-                    "      {} {}\n",
-                    "value:".dimmed(),
-                    metric.raw_value.to_string().bold()
-                ));
-            }
+            out.push_str(&render_metric_line(metric, verbosity));
         }
     }
 
+    out
+}
+
+fn render_metric_line(metric: &crate::metrics::MetricValue, verbosity: u8) -> String {
+    let mut out = String::new();
+    // Unscored metric (insufficient data): dimmed dot + dash.
+    let score_indicator = metric
+        .score
+        .map(format_score_dot)
+        .unwrap_or_else(|| "○".dimmed().to_string());
+    let score_label = metric
+        .score
+        .map(format_score_number)
+        .unwrap_or_else(|| "—".dimmed().to_string());
+    out.push_str(&format!(
+        "    {} {} {}  {}\n",
+        score_indicator,
+        metric.name,
+        score_label,
+        metric.description.dimmed()
+    ));
+    if verbosity > 1 {
+        out.push_str(&format!(
+            "      {} {}\n",
+            "value:".dimmed(),
+            metric.raw_value.to_string().bold()
+        ));
+    }
     out
 }
 
@@ -543,6 +558,80 @@ mod tests {
             !output.contains("Trend: first snapshot recorded"),
             "subsequent run should not show first-run trend notice"
         );
+    }
+
+    fn make_remote_meta() -> crate::scorer::RemoteMeta {
+        crate::scorer::RemoteMeta {
+            url: "https://github.com/user/repo".into(),
+            stars: Some(42),
+            description: Some("A test repository".into()),
+            language: Some("Rust".into()),
+            open_issues: Some(7),
+        }
+    }
+
+    #[test]
+    fn render_remote_meta_shows_all_details() {
+        let mut report = make_report();
+        report.remote_meta = Some(make_remote_meta());
+        let output = render(&report, 0, None);
+        assert!(output.contains("https://github.com/user/repo"));
+        assert!(output.contains("Stars: 42"));
+        assert!(output.contains("Language: Rust"));
+        assert!(output.contains("Issues: 7"));
+        assert!(output.contains("A test repository"));
+    }
+
+    #[test]
+    fn render_remote_meta_omits_absent_details() {
+        let mut report = make_report();
+        report.remote_meta = Some(crate::scorer::RemoteMeta {
+            url: "https://example.com/repo".into(),
+            stars: None,
+            description: None,
+            language: None,
+            open_issues: None,
+        });
+        let output = render(&report, 0, None);
+        assert!(output.contains("Source:"));
+        assert!(!output.contains("Stars:"));
+        assert!(!output.contains("Language:"));
+        assert!(!output.contains("Issues:"));
+    }
+
+    #[test]
+    fn render_remote_meta_omits_empty_description() {
+        let mut with_empty = make_report();
+        let mut meta = make_remote_meta();
+        meta.description = Some(String::new());
+        with_empty.remote_meta = Some(meta);
+
+        let mut without = make_report();
+        let mut meta = make_remote_meta();
+        meta.description = None;
+        without.remote_meta = Some(meta);
+
+        assert_eq!(
+            render(&with_empty, 0, None),
+            render(&without, 0, None),
+            "an empty description renders exactly like an absent one"
+        );
+    }
+
+    #[test]
+    fn render_full_history_window_when_months_is_zero() {
+        let mut report = make_report();
+        report.time_window_months = 0;
+        let output = render(&report, 0, None);
+        assert!(output.contains("full history"));
+        assert!(!output.contains("last 0 months"));
+    }
+
+    #[test]
+    fn render_window_shows_months_when_positive() {
+        let report = make_report();
+        let output = render(&report, 0, None);
+        assert!(output.contains("last 6 months"));
     }
 
     #[test]
