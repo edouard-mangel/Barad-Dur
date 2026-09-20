@@ -188,7 +188,7 @@
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] src/apps/blazor/infrastructure/Api/ApiClient.cs — 3749 loc — consider splitting by responsibility: get_* (60)"
+      "text": "[Health] src/apps/blazor/infrastructure/Api/ApiClient.cs — 3749 loc — consider splitting by responsibility: IApiClient (line 27): get_* (15) | ApiClient (line 986): get_* (15)"
     }
   ],
   "top_hotspots": [

@@ -20,7 +20,9 @@ const FINGERPRINT_FILE: &str = "exclude.fingerprint";
 ///     semantics — cached id-0 collapses must not masquerade as owners);
 /// 7 = unreliable import specifiers (unreliable_import_specifiers field);
 /// 8 = Kotlin qualified and wildcard import extraction (same shape).
-const CACHE_VERSION: u32 = 8;
+/// 9 = per-function test-context evidence.
+/// 10 = per-function structural responsibility provenance.
+const CACHE_VERSION: u32 = 10;
 
 /// Wire format for all cache files. Bincode 2's standard config (varint
 /// lengths) — not compatible with the bincode 1 fixint files of versions ≤ 2.
@@ -249,6 +251,49 @@ mod tests {
     }
 
     #[test]
+    fn version_eight_cache_is_rejected_and_deleted() {
+        let dir = TempDir::new().unwrap();
+        let cache_dir = dir.path().join(CACHE_DIR);
+        fs::create_dir_all(&cache_dir).unwrap();
+        let old =
+            bincode::serde::encode_to_vec((8u32, "old positional shape"), wire_config()).unwrap();
+        fs::write(cache_dir.join(CACHE_FILE), old).unwrap();
+        assert!(load(dir.path()).unwrap().is_none());
+        assert!(!cache_dir.join(CACHE_FILE).exists());
+    }
+
+    #[test]
+    fn function_evidence_roundtrips_and_missing_json_evidence_defaults_to_unknown() {
+        let dir = TempDir::new().unwrap();
+        let mut snapshot = make_test_snapshot();
+        let metrics = crate::metrics::complexity::analyse_content(
+            "#[test] fn render_case() {} fn render_prod() {}",
+            crate::metrics::complexity::Language::Rust,
+        );
+        assert_eq!(
+            metrics
+                .functions
+                .iter()
+                .map(|f| f.is_test)
+                .collect::<Vec<_>>(),
+            [true, false]
+        );
+        snapshot.file_metrics.insert("src/lib.rs".into(), metrics);
+        save(&snapshot, dir.path()).unwrap();
+        assert_eq!(
+            load(dir.path()).unwrap().unwrap().file_metrics,
+            snapshot.file_metrics
+        );
+        let legacy: crate::snapshot::FunctionMetrics = serde_json::from_str(
+            r#"{"name":"render_prod","loc":1,"cyclomatic_complexity":0,"max_nesting_depth":0}"#,
+        )
+        .unwrap();
+        assert!(!legacy.is_test);
+        assert!(legacy.responsibility.is_none());
+        assert!(!crate::snapshot::FunctionMetrics::default().is_test);
+    }
+
+    #[test]
     fn load_rejects_unversioned_legacy_cache() {
         let dir = TempDir::new().unwrap();
         let cache_dir = dir.path().join(CACHE_DIR);
@@ -256,5 +301,51 @@ mod tests {
         let legacy = bincode::serde::encode_to_vec(make_test_snapshot(), wire_config()).unwrap();
         fs::write(cache_dir.join(CACHE_FILE), legacy).unwrap();
         assert!(load(dir.path()).unwrap().is_none());
+    }
+    #[test]
+    fn version_nine_is_rejected_even_with_a_decodable_payload() {
+        let dir = TempDir::new().unwrap();
+        let cache_dir = dir.path().join(CACHE_DIR);
+        fs::create_dir_all(&cache_dir).unwrap();
+        let stale =
+            bincode::serde::encode_to_vec((9u32, make_test_snapshot()), wire_config()).unwrap();
+        fs::write(cache_dir.join(CACHE_FILE), stale).unwrap();
+        assert!(load(dir.path()).unwrap().is_none());
+        assert!(!cache_dir.join(CACHE_FILE).exists());
+    }
+
+    #[test]
+    fn direct_responsibility_provenance_survives_cache_reload() {
+        use crate::snapshot::ResponsibilityDependency;
+        let dir = TempDir::new().unwrap();
+        let mut snapshot = make_test_snapshot();
+        let metrics = crate::metrics::complexity::analyse_content(
+            "struct State { ready: bool } impl State { fn helper(&self) -> bool { true } fn is_ready(&self) -> bool { self.ready && self.helper() } }",
+            crate::metrics::complexity::Language::Rust,
+        );
+        let provenance = metrics
+            .functions
+            .iter()
+            .find(|f| f.name == "is_ready")
+            .unwrap()
+            .responsibility
+            .as_ref()
+            .unwrap();
+        assert!(!provenance.owner_id.is_empty());
+        assert!(provenance.owner_label.contains("State"));
+        assert!(provenance
+            .dependencies
+            .iter()
+            .any(|d| matches!(d, ResponsibilityDependency::Field { .. })));
+        assert!(provenance
+            .dependencies
+            .iter()
+            .any(|d| matches!(d, ResponsibilityDependency::Callee { .. })));
+        snapshot.file_metrics.insert("src/lib.rs".into(), metrics);
+        save(&snapshot, dir.path()).unwrap();
+        assert_eq!(
+            load(dir.path()).unwrap().unwrap().file_metrics,
+            snapshot.file_metrics
+        );
     }
 }

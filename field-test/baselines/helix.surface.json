@@ -228,23 +228,23 @@
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] helix-term/src/application.rs — 1135 loc — consider splitting by responsibility: handle_* (10)"
+      "text": "[Health] helix-term/src/application.rs — 1135 loc — consider splitting by responsibility: Application (line 93): handle_* (9)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] helix-term/src/ui/statusline.rs — 515 loc — consider splitting by responsibility: get_* (2), render_* (24)"
+      "text": "[Health] helix-term/src/ui/statusline.rs — 515 loc — consider splitting by responsibility: file: get_* (2), render_* (24)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] helix-tui/src/buffer.rs — 890 loc — consider splitting by responsibility: set_* (17)"
+      "text": "[Health] helix-tui/src/buffer.rs — 890 loc — consider splitting by responsibility: Cell (line 27): set_* (6) | Buffer (line 170): set_* (11)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] helix-view/src/document.rs — 2033 loc — consider splitting by responsibility: get_* (3), set_* (13)"
+      "text": "[Health] helix-view/src/document.rs — 2033 loc — consider splitting by responsibility: Document (line 721): get_* (3), set_* (13)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] helix-view/src/editor.rs — 1933 loc — consider splitting by responsibility: get_* (5), is_* (3), set_* (8)"
+      "text": "[Health] helix-view/src/editor.rs — 1933 loc — consider splitting by responsibility: Editor (line 1412): get_* (3), set_* (8)"
     },
     {
       "target_tab": "ownership",

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 
 use crate::metrics::CategoryResult;
@@ -181,7 +181,10 @@ fn matches_group_prefix(name: &str, prefix_with_underscore: &str) -> bool {
     // Case-insensitive on the verb itself — Go/C# capitalize exported
     // methods (`GetUserData`, not `getUserData`), so the verb has to match
     // regardless of case; only the boundary check below cares about case.
-    if name.len() < verb.len() || !name[..verb.len()].eq_ignore_ascii_case(verb) {
+    if !name
+        .get(..verb.len())
+        .is_some_and(|start| start.eq_ignore_ascii_case(verb))
+    {
         return false;
     }
     match name.as_bytes().get(verb.len()) {
@@ -191,37 +194,150 @@ fn matches_group_prefix(name: &str, prefix_with_underscore: &str) -> bool {
     }
 }
 
-/// Group a file's function names by a known verb prefix — a cheap split-
-/// boundary suggestion for a god-object file (Appendix 1). Only groups with
-/// ≥2 members are returned; a lone `handle_x` isn't a split boundary.
-fn group_methods_by_prefix(
-    functions: &[crate::snapshot::FunctionMetrics],
-) -> Vec<(&'static str, Vec<&str>)> {
-    let groups: HashMap<&'static str, Vec<&str>> =
-        functions.iter().fold(HashMap::new(), |mut groups, f| {
-            if let Some(prefix) = GROUPING_PREFIXES
-                .iter()
-                .find(|p| matches_group_prefix(&f.name, p))
-            {
-                groups.entry(prefix).or_default().push(f.name.as_str());
-            }
-            groups
-        });
+/// One owner-local group. Predicates additionally name the direct dependency
+/// shared by every member; matching names alone do not establish that evidence.
+#[derive(Debug, PartialEq, Eq)]
+struct MethodGroup<'a> {
+    owner_id: &'a str,
+    owner_label: &'a str,
+    prefix: &'static str,
+    names: Vec<&'a str>,
+    dependency: Option<&'a crate::snapshot::ResponsibilityDependency>,
+}
 
-    let mut result: Vec<(&'static str, Vec<&str>)> = groups
+type MethodGroups<'a> = Vec<MethodGroup<'a>>;
+
+/// One owner-local member name with the evidence of every declaration carrying it.
+type GroupMember<'a> = (
+    &'a str,
+    BTreeSet<&'a crate::snapshot::ResponsibilityDependency>,
+);
+
+/// Partition every prefix by declaration identity before considering evidence.
+/// Unknown owners and recognized tests cannot participate in advice. Accessor
+/// pairs and overloads share one member name, so each name counts once.
+fn group_methods_by_prefix(functions: &[crate::snapshot::FunctionMetrics]) -> MethodGroups<'_> {
+    let groups = functions
+        .iter()
+        .filter(|function| !function.is_test)
+        .filter_map(|function| {
+            let owner = function.responsibility.as_ref()?;
+            let prefix = GROUPING_PREFIXES
+                .iter()
+                .copied()
+                .find(|prefix| matches_group_prefix(&function.name, prefix))?;
+            Some((
+                (owner.owner_id.as_str(), prefix),
+                (function.name.as_str(), owner),
+            ))
+        })
+        .fold(
+            BTreeMap::<_, (&str, BTreeMap<&str, BTreeSet<_>>)>::new(),
+            |mut groups, (key, (name, owner))| {
+                let (_, members) = groups
+                    .entry(key)
+                    .or_insert_with(|| (owner.owner_label.as_str(), BTreeMap::new()));
+                members
+                    .entry(name)
+                    .or_default()
+                    .extend(owner.dependencies.iter());
+                groups
+            },
+        );
+
+    // Functions arrive in extraction order, so an owner's first member marks
+    // its source position; byte offsets inside owner ids do not sort as text.
+    let source_order = functions
+        .iter()
+        .filter_map(|function| function.responsibility.as_ref())
+        .enumerate()
+        .fold(HashMap::new(), |mut order, (index, owner)| {
+            order.entry(owner.owner_id.as_str()).or_insert(index);
+            order
+        });
+    let mut result: MethodGroups<'_> = groups
         .into_iter()
-        .filter(|(_, names)| names.len() >= 2)
-        .map(|(prefix, mut names)| {
-            names.sort();
-            (prefix, names)
+        .filter(|(_, (_, members))| members.len() >= 2)
+        .flat_map(|((owner_id, prefix), (owner_label, members))| {
+            let members: Vec<GroupMember<'_>> = members.into_iter().collect();
+            if matches!(prefix, "has_" | "is_") {
+                predicate_groups(owner_id, prefix, owner_label, &members)
+            } else {
+                vec![MethodGroup {
+                    owner_id,
+                    owner_label,
+                    prefix,
+                    names: members.iter().map(|(name, _)| *name).collect(),
+                    dependency: None,
+                }]
+            }
         })
         .collect();
-    result.sort_by_key(|(prefix, _)| *prefix);
+    result.sort_by_key(|group| {
+        (
+            source_order.get(group.owner_id).copied(),
+            group.prefix,
+            group.dependency.map(dependency_key),
+        )
+    });
     result
 }
 
-/// A file's clustering groups: (shared verb prefix, sorted matching function names).
-type MethodGroups<'a> = Vec<(&'static str, Vec<&'a str>)>;
+/// Evidence identity: fields before callees, then the file-local identity.
+fn dependency_key(dependency: &crate::snapshot::ResponsibilityDependency) -> (u8, &str) {
+    use crate::snapshot::ResponsibilityDependency;
+    match dependency {
+        ResponsibilityDependency::Field { identity, .. } => (0, identity.as_str()),
+        ResponsibilityDependency::Callee { identity, .. } => (1, identity.as_str()),
+    }
+}
+
+/// Select the largest remaining group sharing one identical dependency. Sorting
+/// by kind then source identity makes overlapping evidence deterministic; removing
+/// assigned members prevents transitive chains and counts each function once.
+fn predicate_groups<'a>(
+    owner_id: &'a str,
+    prefix: &'static str,
+    owner_label: &'a str,
+    members: &[GroupMember<'a>],
+) -> MethodGroups<'a> {
+    let mut candidates = BTreeMap::new();
+    for (index, (_, dependencies)) in members.iter().enumerate() {
+        for &dependency in dependencies {
+            let key = dependency_key(dependency);
+            let (_, indexes) = candidates
+                .entry(key)
+                .or_insert_with(|| (dependency, BTreeSet::new()));
+            indexes.insert(index);
+        }
+    }
+    let mut groups = Vec::new();
+    loop {
+        candidates.retain(|_, (_, indexes)| indexes.len() >= 2);
+        let selected = candidates
+            .iter()
+            .min_by(|(a_key, (_, a)), (b_key, (_, b))| {
+                b.len().cmp(&a.len()).then_with(|| a_key.cmp(b_key))
+            })
+            .map(|(key, _)| *key);
+        let Some(key) = selected else { break };
+        let (dependency, assigned) = candidates.remove(&key).expect("selected dependency exists");
+        let mut names: Vec<_> = assigned.iter().map(|index| members[*index].0).collect();
+        names.sort_unstable();
+        groups.push(MethodGroup {
+            owner_id,
+            owner_label,
+            prefix,
+            names,
+            dependency: Some(dependency),
+        });
+        for (_, indexes) in candidates.values_mut() {
+            indexes.retain(|index| !assigned.contains(index));
+        }
+    }
+    groups
+}
+
 /// A god-object file paired with its reason and its clustering groups —
 /// the raw material `generate_refactoring_actions` ranks and formats.
 type RefactorCandidate<'a> = (std::path::PathBuf, String, MethodGroups<'a>);
@@ -251,7 +367,7 @@ pub(super) fn generate_refactoring_actions(
             if groups.is_empty() {
                 return None;
             }
-            let count: usize = groups.iter().map(|(_, names)| names.len()).sum();
+            let count: usize = groups.iter().map(|group| group.names.len()).sum();
             Some((count, (path.clone(), reason.clone(), groups)))
         })
         .collect();
@@ -270,11 +386,7 @@ pub(super) fn generate_refactoring_actions(
         .into_iter()
         .take(5)
         .map(|(_, (path, reason, groups))| {
-            let groups_text = groups
-                .iter()
-                .map(|(prefix, names)| format!("{prefix}* ({})", names.len()))
-                .collect::<Vec<_>>()
-                .join(", ");
+            let groups_text = responsibility_text(&groups);
             ActionItem {
                 text: format!(
                     "[Health] {} — {} — consider splitting by responsibility: {}",
@@ -287,6 +399,76 @@ pub(super) fn generate_refactoring_actions(
             }
         })
         .collect()
+}
+
+/// Owners shown in one refactoring action; the rest are summarised as a count.
+const MAX_ADVICE_OWNERS: usize = 5;
+
+/// One segment per owner, each listing that owner's groups: the
+/// `MAX_ADVICE_OWNERS` owners with the most grouped names, shown in source
+/// order, then a count of the groups left out.
+fn responsibility_text(groups: &[MethodGroup<'_>]) -> String {
+    use crate::snapshot::ResponsibilityDependency;
+
+    let owners = groups
+        .iter()
+        .fold(Vec::<Vec<&MethodGroup<'_>>>::new(), |mut owners, group| {
+            match owners
+                .last_mut()
+                .filter(|owner| owner[0].owner_id == group.owner_id)
+            {
+                Some(owner) => owner.push(group),
+                None => owners.push(vec![group]),
+            }
+            owners
+        });
+    // Keep the owners with the most grouped names (earlier owner on a tie), then
+    // render the kept ones in source order.
+    let kept: BTreeSet<usize> = owners
+        .iter()
+        .enumerate()
+        .map(|(index, owner)| {
+            let names: usize = owner.iter().map(|group| group.names.len()).sum();
+            (std::cmp::Reverse(names), index)
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(MAX_ADVICE_OWNERS)
+        .map(|(_, index)| index)
+        .collect();
+    let (shown, hidden_owners): (Vec<_>, Vec<_>) = owners
+        .iter()
+        .enumerate()
+        .partition(|(index, _)| kept.contains(index));
+    let segments = shown.into_iter().map(|(_, owner)| {
+        let listed = owner
+            .iter()
+            .map(|group| {
+                let evidence = match group.dependency {
+                    Some(ResponsibilityDependency::Field { label, .. }) => {
+                        format!(" shared field {label}")
+                    }
+                    Some(ResponsibilityDependency::Callee { label, .. }) => {
+                        format!(" shared callee {label}")
+                    }
+                    None => String::new(),
+                };
+                format!("{}* ({}){evidence}", group.prefix, group.names.len())
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("{}: {listed}", owner[0].owner_label)
+    });
+    let hidden: usize = hidden_owners.iter().map(|(_, owner)| owner.len()).sum();
+    segments
+        .chain((hidden > 0).then(|| {
+            format!(
+                "+{hidden} more {}",
+                if hidden == 1 { "group" } else { "groups" }
+            )
+        }))
+        .collect::<Vec<_>>()
+        .join(" | ")
 }
 
 fn target_tab_for_metric(metric_name: &str) -> (Option<&'static str>, Option<&'static str>) {
@@ -804,10 +986,672 @@ mod tests {
 
     fn fm(name: &str) -> crate::snapshot::FunctionMetrics {
         crate::snapshot::FunctionMetrics {
+            responsibility: Some(crate::snapshot::ResponsibilityProvenance {
+                owner_id: "module:0".into(),
+                owner_label: "module".into(),
+                dependencies: Vec::new(),
+            }),
+            is_test: false,
             name: name.to_string(),
             loc: 10,
             cyclomatic_complexity: 2,
             max_nesting_depth: 1,
+        }
+    }
+
+    fn expected_group<'a>(prefix: &'static str, names: Vec<&'a str>) -> MethodGroup<'a> {
+        MethodGroup {
+            owner_id: "module:0",
+            owner_label: "module",
+            prefix,
+            names,
+            dependency: None,
+        }
+    }
+
+    fn owned(name: &str, owner_id: &str) -> crate::snapshot::FunctionMetrics {
+        crate::snapshot::FunctionMetrics {
+            responsibility: Some(crate::snapshot::ResponsibilityProvenance {
+                owner_id: owner_id.into(),
+                // Equal labels deliberately model separate declarations of one type.
+                owner_label: "Widget".into(),
+                dependencies: Vec::new(),
+            }),
+            ..fm(name)
+        }
+    }
+
+    fn field(identity: &str) -> crate::snapshot::ResponsibilityDependency {
+        crate::snapshot::ResponsibilityDependency::Field {
+            identity: identity.into(),
+            label: format!("self.{identity}"),
+        }
+    }
+
+    fn callee(identity: &str) -> crate::snapshot::ResponsibilityDependency {
+        crate::snapshot::ResponsibilityDependency::Callee {
+            identity: identity.into(),
+            label: format!("{identity}()"),
+        }
+    }
+
+    fn dependent(
+        name: &str,
+        dependencies: Vec<crate::snapshot::ResponsibilityDependency>,
+    ) -> crate::snapshot::FunctionMetrics {
+        let mut function = fm(name);
+        function.responsibility.as_mut().unwrap().dependencies = dependencies;
+        function
+    }
+
+    #[test]
+    fn every_prefix_respects_owner_identity_including_separate_declarations() {
+        for prefix in GROUPING_PREFIXES {
+            let mut functions = vec![
+                owned(&format!("{prefix}a"), "impl:10"),
+                owned(&format!("{prefix}b"), "impl:50"),
+            ];
+            for function in &mut functions {
+                function.responsibility.as_mut().unwrap().dependencies = vec![field("state")];
+            }
+            assert!(group_methods_by_prefix(&functions).is_empty(), "{prefix}");
+            functions.push(functions[0].clone());
+            functions[2].name = format!("{prefix}c");
+            let groups = group_methods_by_prefix(&functions);
+            assert_eq!(groups.len(), 1, "{prefix}");
+            assert_eq!(
+                groups[0].names,
+                vec![format!("{prefix}a"), format!("{prefix}c")]
+            );
+            assert_eq!(groups[0].owner_label, "Widget");
+        }
+    }
+
+    #[test]
+    fn unknown_owners_and_predicates_without_shared_evidence_are_ineligible() {
+        let functions = vec![
+            crate::snapshot::FunctionMetrics {
+                responsibility: None,
+                ..fm("render_a")
+            },
+            crate::snapshot::FunctionMetrics {
+                responsibility: None,
+                ..fm("render_b")
+            },
+            fm("is_ready"),
+            fm("is_active"),
+            dependent("has_state", vec![field("state")]),
+            dependent("has_cache", vec![field("cache")]),
+        ];
+        assert!(group_methods_by_prefix(&functions).is_empty());
+    }
+
+    #[test]
+    fn predicates_need_the_same_dependency_identity_and_kind() {
+        let functions = vec![
+            dependent("has_field", vec![field("shared")]),
+            dependent("has_callee", vec![callee("shared")]),
+            dependent(
+                "is_first",
+                vec![crate::snapshot::ResponsibilityDependency::Field {
+                    identity: "first:state".into(),
+                    label: "state".into(),
+                }],
+            ),
+            dependent(
+                "is_second",
+                vec![crate::snapshot::ResponsibilityDependency::Field {
+                    identity: "second:state".into(),
+                    label: "state".into(),
+                }],
+            ),
+        ];
+        assert!(group_methods_by_prefix(&functions).is_empty());
+    }
+
+    #[test]
+    fn duplicate_dependency_entries_do_not_satisfy_group_minimum() {
+        let functions = vec![
+            dependent("has_a", vec![field("state"), field("state")]),
+            fm("has_b"),
+        ];
+        assert!(group_methods_by_prefix(&functions).is_empty());
+    }
+
+    #[test]
+    fn predicate_transitive_chain_selects_one_pair_and_removes_singletons() {
+        let functions = vec![
+            dependent("is_a", vec![field("x")]),
+            dependent("is_b", vec![field("x"), field("y")]),
+            dependent("is_c", vec![field("y")]),
+        ];
+        let groups = group_methods_by_prefix(&functions);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].names, vec!["is_a", "is_b"]);
+        assert_eq!(groups[0].dependency, Some(&field("x")));
+    }
+
+    #[test]
+    fn largest_dependency_group_wins_then_remaining_members_can_form_a_group() {
+        let functions = vec![
+            dependent("has_a", vec![field("a"), field("z")]),
+            dependent("has_b", vec![field("z")]),
+            dependent("has_c", vec![field("z")]),
+            dependent("has_d", vec![field("a")]),
+            dependent("has_e", vec![field("a")]),
+            dependent("has_f", vec![field("z")]),
+        ];
+        let groups = group_methods_by_prefix(&functions);
+        assert_eq!(groups.len(), 2);
+        let sharing = |name: &str| {
+            groups
+                .iter()
+                .find(|group| group.dependency == Some(&field(name)))
+                .map(|group| group.names.clone())
+        };
+        // has_a shares both fields; the larger `z` group claims it first.
+        assert_eq!(sharing("z"), Some(vec!["has_a", "has_b", "has_c", "has_f"]));
+        assert_eq!(sharing("a"), Some(vec!["has_d", "has_e"]));
+        assert_eq!(
+            groups.iter().map(|group| group.names.len()).sum::<usize>(),
+            6
+        );
+    }
+
+    #[test]
+    fn overlapping_ties_prefer_fields_then_source_identity_and_ignore_input_order() {
+        let mut functions = vec![
+            dependent("is_a", vec![callee("a"), field("z"), field("b")]),
+            dependent("is_b", vec![callee("a")]),
+            dependent("is_c", vec![field("z")]),
+            dependent("is_d", vec![field("b")]),
+        ];
+        let before: Vec<_> = group_methods_by_prefix(&functions)
+            .iter()
+            .map(|group| {
+                (
+                    group
+                        .names
+                        .iter()
+                        .map(|name| name.to_string())
+                        .collect::<Vec<_>>(),
+                    group.dependency.cloned(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            before,
+            vec![(vec!["is_a".into(), "is_d".into()], Some(field("b")))]
+        );
+        functions.reverse();
+        for function in &mut functions {
+            function
+                .responsibility
+                .as_mut()
+                .unwrap()
+                .dependencies
+                .reverse();
+        }
+        let after: Vec<_> = group_methods_by_prefix(&functions)
+            .iter()
+            .map(|group| {
+                (
+                    group
+                        .names
+                        .iter()
+                        .map(|name| name.to_string())
+                        .collect::<Vec<_>>(),
+                    group.dependency.cloned(),
+                )
+            })
+            .collect();
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn recognized_tests_cannot_complete_a_predicate_group() {
+        let functions = vec![
+            dependent("is_ready", vec![callee("check")]),
+            crate::snapshot::FunctionMetrics {
+                is_test: true,
+                ..dependent("is_ready_test", vec![callee("check")])
+            },
+        ];
+        assert!(group_methods_by_prefix(&functions).is_empty());
+    }
+
+    #[test]
+    fn advice_names_the_owner_and_direct_field_or_callee() {
+        let mut snapshot = crate::snapshot::RepoSnapshot::new(
+            "/tmp".into(),
+            "test".into(),
+            "main".into(),
+            Default::default(),
+        );
+        snapshot.file_metrics.insert(
+            "god.rs".into(),
+            crate::snapshot::FileComplexity {
+                functions: vec![
+                    dependent("has_a", vec![field("state")]),
+                    dependent("has_b", vec![field("state")]),
+                    dependent("is_a", vec![callee("check")]),
+                    dependent("is_b", vec![callee("check")]),
+                ],
+                ..Default::default()
+            },
+        );
+        let actions =
+            generate_refactoring_actions(&snapshot, &[("god.rs".into(), "520 loc".into())]);
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].text, "[Health] god.rs — 520 loc — consider splitting by responsibility: module: has_* (2) shared field self.state, is_* (2) shared callee check()");
+        assert_eq!(actions[0].sort_by.as_deref(), Some("complexity"));
+    }
+
+    fn owned_by(name: &str, owner_id: &str, owner_label: &str) -> crate::snapshot::FunctionMetrics {
+        crate::snapshot::FunctionMetrics {
+            responsibility: Some(crate::snapshot::ResponsibilityProvenance {
+                owner_id: owner_id.into(),
+                owner_label: owner_label.into(),
+                dependencies: Vec::new(),
+            }),
+            ..fm(name)
+        }
+    }
+
+    fn advice_for(functions: Vec<crate::snapshot::FunctionMetrics>) -> String {
+        let mut snapshot = crate::snapshot::RepoSnapshot::new(
+            "/tmp".into(),
+            "test".into(),
+            "main".into(),
+            Default::default(),
+        );
+        snapshot.file_metrics.insert(
+            "god.rs".into(),
+            crate::snapshot::FileComplexity {
+                functions,
+                ..Default::default()
+            },
+        );
+        let actions =
+            generate_refactoring_actions(&snapshot, &[("god.rs".into(), "520 loc".into())]);
+        assert_eq!(actions.len(), 1);
+        actions[0]
+            .text
+            .strip_prefix("[Health] god.rs — 520 loc — consider splitting by responsibility: ")
+            .expect("advice prefix")
+            .to_owned()
+    }
+
+    #[test]
+    fn advice_orders_owners_by_source_position_and_merges_each_owners_groups() {
+        // Byte offset 120 precedes 1000 in the source, though "impl_item:1000"
+        // sorts first as a string.
+        let advice = advice_for(vec![
+            owned_by("set_a", "impl_item:120", "Early (line 5)"),
+            owned_by("get_a", "impl_item:120", "Early (line 5)"),
+            owned_by("get_b", "impl_item:120", "Early (line 5)"),
+            owned_by("set_b", "impl_item:120", "Early (line 5)"),
+            owned_by("get_c", "impl_item:1000", "Later (line 40)"),
+            owned_by("get_d", "impl_item:1000", "Later (line 40)"),
+        ]);
+
+        assert_eq!(
+            advice,
+            "Early (line 5): get_* (2), set_* (2) | Later (line 40): get_* (2)"
+        );
+    }
+
+    #[test]
+    fn advice_shows_at_most_five_owners_and_counts_the_remaining_groups() {
+        let functions = (0..7)
+            .flat_map(|owner| {
+                let id = format!("impl_item:{owner}");
+                let label = format!("Owner{owner} (line {owner})");
+                let mut members = vec![
+                    owned_by(&format!("get_a{owner}"), &id, &label),
+                    owned_by(&format!("get_b{owner}"), &id, &label),
+                ];
+                if owner == 5 {
+                    members.push(owned_by("set_a5", &id, &label));
+                    members.push(owned_by("set_b5", &id, &label));
+                }
+                members
+            })
+            .collect();
+
+        assert_eq!(
+            advice_for(functions),
+            "Owner0 (line 0): get_* (2) | Owner1 (line 1): get_* (2) | Owner2 (line 2): get_* (2) | Owner3 (line 3): get_* (2) | Owner5 (line 5): get_* (2), set_* (2) | +2 more groups"
+        );
+    }
+
+    fn owners_with_get_groups(sizes: &[usize]) -> Vec<crate::snapshot::FunctionMetrics> {
+        sizes
+            .iter()
+            .enumerate()
+            .flat_map(|(owner, size)| {
+                let id = format!("impl_item:{owner}");
+                let label = format!("Owner{owner} (line {owner})");
+                (0..*size)
+                    .map(|member| owned_by(&format!("get_m{owner}_{member}"), &id, &label))
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn advice_keeps_the_largest_owners_even_when_they_come_last_in_source() {
+        assert_eq!(
+            advice_for(owners_with_get_groups(&[2, 2, 2, 2, 2, 2, 6])),
+            "Owner0 (line 0): get_* (2) | Owner1 (line 1): get_* (2) | Owner2 (line 2): get_* (2) | Owner3 (line 3): get_* (2) | Owner6 (line 6): get_* (6) | +2 more groups"
+        );
+    }
+
+    #[test]
+    fn advice_counts_every_group_of_a_hidden_owner() {
+        let mut functions = owners_with_get_groups(&[5, 5, 5, 5, 5]);
+        functions.extend(
+            ["get_a", "get_b", "set_a", "set_b"]
+                .map(|name| owned_by(name, "impl_item:9", "Owner9 (line 9)")),
+        );
+        assert_eq!(
+            advice_for(functions),
+            "Owner0 (line 0): get_* (5) | Owner1 (line 1): get_* (5) | Owner2 (line 2): get_* (5) | Owner3 (line 3): get_* (5) | Owner4 (line 4): get_* (5) | +2 more groups"
+        );
+    }
+
+    #[test]
+    fn advice_names_a_single_hidden_group_in_the_singular() {
+        assert_eq!(
+            advice_for(owners_with_get_groups(&[2, 2, 2, 2, 2, 2])),
+            "Owner0 (line 0): get_* (2) | Owner1 (line 1): get_* (2) | Owner2 (line 2): get_* (2) | Owner3 (line 3): get_* (2) | Owner4 (line 4): get_* (2) | +1 more group"
+        );
+    }
+
+    #[test]
+    fn prefix_matching_accepts_unicode_names_without_panicking() {
+        for name in ["éé", "日", "has日", "is日", "get_日", "évalidate"] {
+            let _ = group_methods_by_prefix(&[fm(name)]);
+        }
+        assert!(matches_group_prefix("get_日", "get_"));
+        assert!(!matches_group_prefix("has日", "has_"));
+    }
+
+    #[test]
+    fn pinned_barad_dur_dc23fbd6_does_not_group_unrelated_has_predicates() {
+        // Exact function excerpts from dc23fbd6:src/metrics/coupling/mod.rs.
+        // External helper declarations and unrelated functions are omitted.
+        let source = r#"
+fn has_edge(graph: &HashMap<PathBuf, Vec<PathBuf>>, from: &PathBuf, to: &PathBuf) -> bool {
+    graph.get(from).is_some_and(|targets| targets.contains(to))
+}
+fn has_import_extractable_files(snapshot: &RepoSnapshot) -> bool {
+    snapshot.files.iter().any(|file| {
+        let ext = file.path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        import_query(detect_language(&file.path.to_string_lossy()), ext).is_some()
+            && crate::collector::resolves_imports(ext)
+    })
+}
+fn has_detectable_files(snapshot: &RepoSnapshot) -> bool {
+    snapshot.files.iter().any(|f| {
+        f.path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| DETECTABLE_EXTS.contains(&e))
+    })
+}
+"#;
+        let metrics =
+            crate::metrics::complexity::analyse_source(Path::new("mod.rs"), source).metrics;
+        assert_eq!(metrics.functions.len(), 3, "nonempty pinned extraction");
+        assert!(metrics
+            .functions
+            .iter()
+            .all(|function| function.responsibility.is_some()));
+        assert!(
+            group_methods_by_prefix(&metrics.functions).is_empty(),
+            "the previous has_* (3) mixed unrelated predicates"
+        );
+    }
+
+    #[test]
+    fn pinned_ripgrep_3fce3b5b_does_not_group_eight_is_predicates_across_owners() {
+        // Exact method bodies and containing declaration headers from
+        // 3fce3b5b:crates/matcher/src/lib.rs. Unrelated members/docs omitted.
+        let source = r#"
+pub struct Match { start: usize, end: usize }
+impl Match {
+    pub fn len(&self) -> usize {
+        self.end - self.start
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+pub struct LineTerminator(LineTerminatorImp);
+impl LineTerminator {
+    pub fn is_crlf(&self) -> bool {
+        self.0 == LineTerminatorImp::CRLF
+    }
+    pub fn is_suffix(&self, slice: &[u8]) -> bool {
+        slice.last().map_or(false, |&b| b == self.as_byte())
+    }
+}
+pub trait Captures {
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+pub trait Matcher {
+    fn is_match(&self, haystack: &[u8]) -> Result<bool, Self::Error> {
+        self.is_match_at(haystack, 0)
+    }
+    fn is_match_at(
+        &self,
+        haystack: &[u8],
+        at: usize,
+    ) -> Result<bool, Self::Error> {
+        Ok(self.shortest_match_at(haystack, at)?.is_some())
+    }
+}
+impl<'a, M: Matcher> Matcher for &'a M {
+    fn is_match(&self, haystack: &[u8]) -> Result<bool, Self::Error> {
+        (*self).is_match(haystack)
+    }
+    fn is_match_at(
+        &self,
+        haystack: &[u8],
+        at: usize,
+    ) -> Result<bool, Self::Error> {
+        (*self).is_match_at(haystack, at)
+    }
+}
+"#;
+        let metrics =
+            crate::metrics::complexity::analyse_source(Path::new("lib.rs"), source).metrics;
+        assert_eq!(
+            metrics
+                .functions
+                .iter()
+                .filter(|function| function.name.starts_with("is_"))
+                .count(),
+            8,
+            "nonempty pinned extraction"
+        );
+        assert!(metrics
+            .functions
+            .iter()
+            .all(|function| function.responsibility.is_some()));
+        assert!(
+            group_methods_by_prefix(&metrics.functions).is_empty(),
+            "the previous is_* (8) crossed containing declarations and shared no direct dependency"
+        );
+    }
+
+    /// Groups from a real extraction, as (owner label, prefix, names, evidence label).
+    fn extracted_groups(
+        path: &str,
+        source: &str,
+    ) -> Vec<(String, &'static str, Vec<String>, Option<String>)> {
+        use crate::snapshot::ResponsibilityDependency;
+        let metrics = crate::metrics::complexity::analyse_source(Path::new(path), source).metrics;
+        assert!(!metrics.functions.is_empty(), "nonempty extraction: {path}");
+        group_methods_by_prefix(&metrics.functions)
+            .into_iter()
+            .map(|group| {
+                (
+                    group.owner_label.to_owned(),
+                    group.prefix,
+                    group.names.iter().map(|name| (*name).to_owned()).collect(),
+                    group.dependency.map(|dependency| match dependency {
+                        ResponsibilityDependency::Field { label, .. }
+                        | ResponsibilityDependency::Callee { label, .. } => label.clone(),
+                    }),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn same_named_members_of_one_owner_count_once() {
+        let accessor =
+            "class A { #r; get isReady(){ return this.#r } set isReady(v){ this.#r = v } }";
+        assert_eq!(extracted_groups("src/a.js", accessor), vec![]);
+        let overloads = "class A { Object state; boolean isValid() { return state != null; } boolean isValid(int limit) { return state != null && limit > 0; } }";
+        assert_eq!(extracted_groups("src/A.java", overloads), vec![]);
+        let with_sibling = "class A { #r; get isReady(){ return this.#r } set isReady(v){ this.#r = v } isReadyLater(){ return this.#r } }";
+        assert_eq!(
+            extracted_groups("src/a.js", with_sibling),
+            vec![(
+                "A (line 1)".to_owned(),
+                "is_",
+                vec!["isReady".to_owned(), "isReadyLater".to_owned()],
+                Some("#r".to_owned()),
+            )]
+        );
+    }
+
+    #[test]
+    fn a_local_named_like_a_field_does_not_complete_a_field_group() {
+        let source = "class Cache { string value; Dictionary<string,string> store; bool IsLoaded() => value != null; bool IsFresh(string k) => store.TryGetValue(k, out var value) && value != null; }";
+        assert_eq!(extracted_groups("src/Cache.cs", source), vec![]);
+    }
+
+    #[test]
+    fn a_call_with_a_different_argument_count_is_not_shared_callee_evidence() {
+        let mismatched = "class Widget extends Base { boolean ready; boolean check(){ return ready; } boolean isA(){ return check(); } boolean isB(){ return check(2); } }";
+        assert_eq!(extracted_groups("src/Widget.java", mismatched), vec![]);
+        let matched = "class Widget extends Base { boolean ready; boolean check(){ return ready; } boolean isA(){ return check(); } boolean isB(){ return check(); } }";
+        assert_eq!(
+            extracted_groups("src/Widget.java", matched),
+            vec![(
+                "Widget (line 1)".to_owned(),
+                "is_",
+                vec!["isA".to_owned(), "isB".to_owned()],
+                Some("check".to_owned()),
+            )]
+        );
+    }
+
+    #[test]
+    fn tagged_template_calls_are_not_shared_callee_evidence() {
+        let source = "class A { tag(s){ return s } isA(){ return this.tag`${x}`; } isB(){ return this.tag`${y}`; } }";
+        assert_eq!(extracted_groups("src/a.js", source), vec![]);
+    }
+
+    #[test]
+    fn a_recursive_call_is_not_evidence_shared_with_its_caller() {
+        let source = "fn is_sorted(v:&[i32])->bool{ v.len()<2 || (v[0]<=v[1] && is_sorted(&v[1..])) }\nfn is_strictly_sorted(v:&[i32])->bool{ is_sorted(v) && v.windows(2).all(|w| w[0]!=w[1]) }\n";
+        assert_eq!(extracted_groups("src/lib.rs", source), vec![]);
+    }
+
+    #[test]
+    fn go_methods_keep_their_group_when_the_receiver_type_lives_in_another_file() {
+        let source = "package api\nfunc (s *Server) handleA() {}\nfunc (s *Server) handleB() {}\nfunc (s *Server) handleC() {}\n";
+        assert_eq!(
+            extracted_groups("src/handlers.go", source),
+            vec![(
+                "*Server".to_owned(),
+                "handle_",
+                vec![
+                    "handleA".to_owned(),
+                    "handleB".to_owned(),
+                    "handleC".to_owned()
+                ],
+                None,
+            )]
+        );
+    }
+
+    #[test]
+    fn test_functions_are_removed_before_group_minimum_counts_and_ranking() {
+        let test = |name: &str| crate::snapshot::FunctionMetrics {
+            is_test: true,
+            ..fm(name)
+        };
+        let functions = vec![
+            fm("render_a"),
+            fm("render_b"),
+            test("render_case"),
+            fm("build_a"),
+            test("build_case"),
+        ];
+        assert_eq!(
+            group_methods_by_prefix(&functions),
+            vec![expected_group("render_", vec!["render_a", "render_b"])]
+        );
+        let mut snapshot = crate::snapshot::RepoSnapshot::new(
+            "/tmp".into(),
+            "test".into(),
+            "main".into(),
+            crate::snapshot::TimeWindow::default(),
+        );
+        for (path, count) in [
+            ("a.rs", 2),
+            ("b.rs", 3),
+            ("c.rs", 4),
+            ("d.rs", 5),
+            ("e.rs", 6),
+            ("f.rs", 7),
+        ] {
+            let mut functions: Vec<_> = (0..count).map(|i| fm(&format!("render_{i}"))).collect();
+            if path == "a.rs" {
+                functions.extend((0..50).map(|i| test(&format!("render_test_{i}"))));
+                functions.extend((0..50).map(|i| fm(&format!("has_unknown_{i}"))));
+                functions.extend((0..50).map(|i| crate::snapshot::FunctionMetrics {
+                    responsibility: None,
+                    ..fm(&format!("build_unknown_{i}"))
+                }));
+            }
+            snapshot.file_metrics.insert(
+                path.into(),
+                crate::snapshot::FileComplexity {
+                    loc: 520,
+                    cyclomatic_complexity: 1,
+                    functions,
+                    ..Default::default()
+                },
+            );
+        }
+        snapshot.file_metrics.insert(
+            "all.rs".into(),
+            crate::snapshot::FileComplexity {
+                loc: 520,
+                cyclomatic_complexity: 1,
+                functions: (0..100).map(|i| test(&format!("render_{i}"))).collect(),
+                ..Default::default()
+            },
+        );
+        let flagged = crate::metrics::health::god_object_files(
+            &snapshot,
+            &crate::config::HealthThresholds::default(),
+        );
+        assert_eq!(flagged.len(), 7);
+        let actions = generate_refactoring_actions(&snapshot, &flagged);
+        assert_eq!(actions.len(), 5);
+        for (action, path) in actions.iter().zip(["f.rs", "e.rs", "d.rs", "c.rs", "b.rs"]) {
+            assert!(action.text.contains(path), "{}", action.text);
         }
     }
 
@@ -825,8 +1669,8 @@ mod tests {
         assert_eq!(
             groups,
             vec![
-                ("handle_", vec!["handle_a", "handle_b", "handle_c"]),
-                ("validate_", vec!["validate_x", "validate_y"]),
+                expected_group("handle_", vec!["handle_a", "handle_b", "handle_c"]),
+                expected_group("validate_", vec!["validate_x", "validate_y"]),
             ]
         );
     }
@@ -852,7 +1696,10 @@ mod tests {
         let groups = group_methods_by_prefix(&functions);
         assert_eq!(
             groups,
-            vec![("get_", vec!["getUserData", "getUserProfile"])]
+            vec![expected_group(
+                "get_",
+                vec!["getUserData", "getUserProfile"]
+            )]
         );
     }
 
@@ -871,7 +1718,10 @@ mod tests {
         let groups = group_methods_by_prefix(&functions);
         assert_eq!(
             groups,
-            vec![("handle_", vec!["handleSubmit", "handle_click"])]
+            vec![expected_group(
+                "handle_",
+                vec!["handleSubmit", "handle_click"]
+            )]
         );
     }
 
@@ -884,7 +1734,10 @@ mod tests {
         let groups = group_methods_by_prefix(&functions);
         assert_eq!(
             groups,
-            vec![("get_", vec!["GetUserData", "GetUserProfile"])]
+            vec![expected_group(
+                "get_",
+                vec!["GetUserData", "GetUserProfile"]
+            )]
         );
     }
 

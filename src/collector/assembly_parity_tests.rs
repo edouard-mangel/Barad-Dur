@@ -616,3 +616,85 @@ fn provenance_fields_follow_the_reader() {
     // two readers' wall-clock stamps here would only make this test flaky.
     let _: HashMap<PathBuf, Vec<PathBuf>> = live.import_graph;
 }
+
+#[test]
+fn live_and_historical_ast_preserve_function_test_context() {
+    let tree: &[(&str, &[u8])] = &[
+        ("src/lib.rs", b"fn render_prod() {} #[test] fn render_case() { fn render_helper() {} }"),
+        ("src/mixed.py", b"import unittest as u\nclass Checks(u.TestCase):\n def render_helper(self): pass\ndef render_prod(): pass\n"),
+        ("src/mixed.ts", b"import {test as check} from 'vitest'; check('case', () => { function render_helper() {} }); function render_prod() {}"),
+        ("src/mixed.java", b"import org.junit.Test; class Mixed { @Test void renderCase() {} void renderProd() {} }"),
+        ("src/mixed.cs", b"using Xunit; class Mixed { [Fact] void RenderCase() {} void RenderProd() {} }"),
+        ("src/mixed.kt", b"import kotlin.test.Test\n@Test fun renderCase() {}\nfun renderProd() {}\n"),
+        ("src/mixed.php", b"<?php use PHPUnit\\Framework\\Attributes\\Test; class Fixture { #[Test] function renderCase() {} function renderProd() {} }"),
+        ("src/mixed_test.go", b"package sample\nfunc RenderHelper() {}\n"),
+        ("src/mixed.go", b"package sample\nfunc TestRender() {}\n"),
+    ];
+    let (dir, sha) = repository(tree);
+    let live = live(dir.path(), true);
+    let historical = historical(dir.path(), &sha);
+    assert_eq!(live.file_metrics, historical.file_metrics);
+    crate::cache::save(&live, dir.path()).unwrap();
+    let cached = crate::cache::load(dir.path()).unwrap().unwrap();
+    assert_eq!(live.file_metrics, cached.file_metrics);
+    for (path, content) in tree {
+        let standalone = crate::metrics::complexity::analyse_file(
+            Path::new(path),
+            std::str::from_utf8(content).unwrap(),
+        );
+        let metrics = &live.file_metrics[Path::new(path)];
+        assert_eq!(metrics, &standalone, "{path}");
+        assert!(!metrics.functions.is_empty(), "{path}");
+        if *path == "src/mixed.go" {
+            assert!(metrics.functions.iter().all(|f| !f.is_test));
+        } else {
+            assert!(metrics.functions.iter().any(|f| f.is_test), "{path}");
+        }
+        if *path != "src/mixed_test.go" {
+            assert!(metrics.functions.iter().any(|f| !f.is_test), "{path}");
+        }
+    }
+}
+
+#[test]
+fn responsibility_provenance_matches_live_historical_standalone_and_cache() {
+    let source = b"struct State { ready: bool } impl State { fn check(&self) -> bool { true } fn is_ready(&self) -> bool { self.ready && self.check() } fn is_active(&self) -> bool { self.ready } }";
+    let (dir, sha) = repository(&[("src/lib.rs", source)]);
+    let live = live(dir.path(), true);
+    let historical = historical(dir.path(), &sha);
+    let standalone = crate::metrics::complexity::analyse_file(
+        Path::new("src/lib.rs"),
+        std::str::from_utf8(source).unwrap(),
+    );
+    assert_eq!(live.file_metrics, historical.file_metrics);
+    assert_eq!(live.file_metrics[Path::new("src/lib.rs")], standalone);
+    let functions = &standalone.functions;
+    assert_eq!(functions.len(), 3);
+    let ready = functions
+        .iter()
+        .find(|f| f.name == "is_ready")
+        .unwrap()
+        .responsibility
+        .as_ref()
+        .unwrap();
+    let active = functions
+        .iter()
+        .find(|f| f.name == "is_active")
+        .unwrap()
+        .responsibility
+        .as_ref()
+        .unwrap();
+    assert_eq!(ready.owner_id, active.owner_id);
+    assert!(ready
+        .dependencies
+        .iter()
+        .any(|d| active.dependencies.contains(d)));
+    crate::cache::save(&live, dir.path()).unwrap();
+    assert_eq!(
+        crate::cache::load(dir.path())
+            .unwrap()
+            .unwrap()
+            .file_metrics,
+        live.file_metrics
+    );
+}

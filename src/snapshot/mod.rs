@@ -127,8 +127,30 @@ pub fn compress_blame(lines: Vec<BlameLine>) -> Vec<BlameLine> {
     compressed
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// File-local structural evidence used only by responsibility advice.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResponsibilityProvenance {
+    pub owner_id: String,
+    pub owner_label: String,
+    /// Sorted, deduplicated direct dependencies; never transitive.
+    pub dependencies: Vec<ResponsibilityDependency>,
+}
+
+/// Field and callee identities occupy distinct namespaces. IDs are file-local.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum ResponsibilityDependency {
+    Field { identity: String, label: String },
+    Callee { identity: String, label: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct FunctionMetrics {
+    /// None means ownership could not be established safely.
+    #[serde(default)]
+    pub responsibility: Option<ResponsibilityProvenance>,
+    /// Recognized test evidence from this file or lexical scope. False includes unknown contexts.
+    #[serde(default)]
+    pub is_test: bool,
     pub name: String,
     pub loc: usize,
     pub cyclomatic_complexity: u32,

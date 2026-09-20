@@ -277,6 +277,7 @@ pub(super) fn extract_functions(
     grammar: &tree_sitter::Language,
     lang: Language,
     ext: &str,
+    context: &super::test_context::TestContext,
 ) -> Vec<FunctionMetrics> {
     let func_query_src = match function_query(lang, ext) {
         Some(q) => q,
@@ -299,6 +300,8 @@ pub(super) fn extract_functions(
     let mut cursor = tree_sitter::QueryCursor::new();
     let mut stream = cursor.matches(&func_query, tree.root_node(), source);
 
+    let responsibility =
+        super::responsibility::ResponsibilityIndex::build(tree.root_node(), source, lang, context);
     let mut functions = Vec::new();
     while let Some(m) = stream.next() {
         let func_node = m
@@ -339,6 +342,8 @@ pub(super) fn extract_functions(
         let max_nesting = compute_max_nesting(tree, source, nest_query.as_ref(), &func_node);
 
         functions.push(FunctionMetrics {
+            responsibility: responsibility.provenance(func_node),
+            is_test: context.contains(func_node.byte_range()),
             name,
             loc,
             cyclomatic_complexity: cc,

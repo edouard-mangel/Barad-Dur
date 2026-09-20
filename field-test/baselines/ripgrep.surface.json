@@ -216,23 +216,23 @@
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] crates/core/flags/defs.rs — 6915 loc — consider splitting by responsibility: is_* (108)"
+      "text": "[Health] crates/globset/src/glob.rs — 1276 loc — consider splitting by responsibility: Parser<'a> (line 818): parse_* (4)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] crates/globset/src/lib.rs — 876 loc — consider splitting by responsibility: is_* (12), set_* (2)"
+      "text": "[Health] crates/ignore/src/incremental.rs — 883 loc — consider splitting by responsibility: IncrementalMatch (line 455): is_* (3) shared field mat"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] crates/ignore/src/gitignore.rs — 549 loc — consider splitting by responsibility: is_* (3), parse_* (6)"
+      "text": "[Health] crates/ignore/src/walk.rs — 1780 loc — consider splitting by responsibility: DirEntry (line 36): is_* (2) shared field dent | WalkBuilder (line 545): build_* (3) | Work (line 1576): is_* (2) shared field dent"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] crates/ignore/src/walk.rs — 1780 loc — consider splitting by responsibility: build_* (3), get_* (2), is_* (10)"
+      "text": "[Health] crates/index/src/literal.rs — 852 loc — consider splitting by responsibility: GramQueryBuilder (line 643): build_* (2)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] crates/index/src/literal.rs — 852 loc — consider splitting by responsibility: build_* (2), has_* (2), is_* (7)"
+      "text": "[Health] crates/regex/src/literal.rs — 682 loc — consider splitting by responsibility: TSeq (line 446): is_* (4) shared field seq, is_* (2) shared callee len"
     },
     {
       "target_tab": "ownership",
