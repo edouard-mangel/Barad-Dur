@@ -188,23 +188,23 @@
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] src/cmd/analyze.rs — 510 loc; structural hub — 16 connections (threshold 11) — consider splitting by responsibility: build_* (6), compute_* (2)"
+      "text": "[Health] src/cmd/analyze.rs — 510 loc; structural hub — 16 connections (threshold 11) — consider splitting by responsibility: file: compute_* (2)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] src/config/mod.rs — 677 loc; structural hub — 17 connections (threshold 11) — consider splitting by responsibility: validate_* (22)"
+      "text": "[Health] src/renderer/cli/mod.rs — 642 loc — consider splitting by responsibility: file: render_* (8)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] src/renderer/cli/mod.rs — 642 loc — consider splitting by responsibility: render_* (22)"
+      "text": "[Health] src/scorer.rs — 694 loc; structural hub — 17 connections (threshold 11) — consider splitting by responsibility: file: build_* (2)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] src/scorer.rs — 694 loc; structural hub — 17 connections (threshold 11) — consider splitting by responsibility: build_* (14)"
+      "text": "[Health] src/scorer/audit.rs — 648 loc — consider splitting by responsibility: file: build_* (5)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] src/scorer/audit.rs — 648 loc — consider splitting by responsibility: build_* (5)"
+      "text": "[Health] src/snapshot/mod.rs — structural hub — 52 connections (threshold 11) — consider splitting by responsibility: RepoSnapshot (line 327): build_* (4)"
     },
     {
       "target_tab": "ownership",

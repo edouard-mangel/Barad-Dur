@@ -232,23 +232,23 @@
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] eShopLegacyMVCSolution/eShopPorted/wwwroot/Scripts/bootstrap.bundle.js — 4413 loc — consider splitting by responsibility: compute_* (2), get_* (25), is_* (7), set_* (3)"
+      "text": "[Health] eShopLegacyMVCSolution/eShopPorted/wwwroot/Scripts/bootstrap.bundle.js — 4413 loc — consider splitting by responsibility: anonymous function (line 10): compute_* (2), get_* (25), set_* (3)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] eShopLegacyMVCSolution/src/eShopLegacyMVC/Scripts/bootstrap.bundle.js — 4413 loc — consider splitting by responsibility: compute_* (2), get_* (25), is_* (7), set_* (3)"
+      "text": "[Health] eShopLegacyMVCSolution/src/eShopLegacyMVC/Scripts/bootstrap.bundle.js — 4413 loc — consider splitting by responsibility: anonymous function (line 10): compute_* (2), get_* (25), set_* (3)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] eShopLegacyWebFormsSolution/src/eShopLegacyWebForms/Scripts/bootstrap.bundle.js — 4413 loc — consider splitting by responsibility: compute_* (2), get_* (25), is_* (7), set_* (3)"
+      "text": "[Health] eShopLegacyWebFormsSolution/src/eShopLegacyWebForms/Scripts/bootstrap.bundle.js — 4413 loc — consider splitting by responsibility: anonymous function (line 10): compute_* (2), get_* (25), set_* (3)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] eShopModernizedMVCSolution/src/eShopModernizedMVC/Scripts/bootstrap.bundle.js — 4413 loc — consider splitting by responsibility: compute_* (2), get_* (25), is_* (7), set_* (3)"
+      "text": "[Health] eShopModernizedMVCSolution/src/eShopModernizedMVC/Scripts/bootstrap.bundle.js — 4413 loc — consider splitting by responsibility: anonymous function (line 10): compute_* (2), get_* (25), set_* (3)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] eShopModernizedWebFormsSolution/src/eShopModernizedWebForms/Scripts/bootstrap.bundle.js — 4413 loc — consider splitting by responsibility: compute_* (2), get_* (25), is_* (7), set_* (3)"
+      "text": "[Health] eShopModernizedWebFormsSolution/src/eShopModernizedWebForms/Scripts/bootstrap.bundle.js — 4413 loc — consider splitting by responsibility: anonymous function (line 10): compute_* (2), get_* (25), set_* (3)"
     }
   ],
   "top_hotspots": [

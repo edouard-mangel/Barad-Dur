@@ -5,7 +5,11 @@ mod inheritance;
 mod lang_dispatch;
 mod pressman;
 mod queries;
+mod responsibility;
 mod rust_calls;
+#[cfg(test)]
+mod scaling_tests;
+mod test_context;
 mod treesitter;
 
 use std::path::Path;
@@ -43,7 +47,7 @@ pub fn analyse_source(path: &Path, content: &str) -> SourceAnalysis {
         .and_then(|grammar| treesitter::parse(content, &grammar).map(|tree| (tree, grammar)));
     match parsed {
         Some((tree, grammar)) => SourceAnalysis {
-            metrics: treesitter::analyse_tree(&tree, content, lang, ext, &grammar),
+            metrics: treesitter::analyse_tree(&tree, content, lang, ext, &grammar, Some(path)),
             imports: treesitter::imports_from_tree(&tree, content, lang, ext, &grammar),
             coupling_findings: pressman::findings_from_tree(tree.root_node(), content, path, lang),
             class_records: match lang {
@@ -81,7 +85,7 @@ pub fn extract_file_imports(path: &Path, content: &str) -> Vec<String> {
 pub fn analyse_file(path: &Path, content: &str) -> FileComplexity {
     let lang = detect_language(&path.to_string_lossy());
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    treesitter::analyse(content, lang, ext)
+    treesitter::analyse(content, lang, ext, Some(path))
         .unwrap_or_else(|| fallback::analyse_content(content, lang))
 }
 
@@ -93,7 +97,7 @@ pub fn analyse_content(content: &str, lang: Language) -> FileComplexity {
         Language::JsTs => "js",
         _ => "",
     };
-    treesitter::analyse(content, lang, default_ext)
+    treesitter::analyse(content, lang, default_ext, None)
         .unwrap_or_else(|| fallback::analyse_content(content, lang))
 }
 

@@ -513,12 +513,24 @@ mod tests {
                 properties: 2,
                 functions: vec![
                     crate::snapshot::FunctionMetrics {
+                        responsibility: Some(crate::snapshot::ResponsibilityProvenance {
+                            owner_id: "module:0".into(),
+                            owner_label: "module".into(),
+                            dependencies: Vec::new(),
+                        }),
+                        is_test: false,
                         name: "handle_a".into(),
                         loc: 10,
                         cyclomatic_complexity: 2,
                         max_nesting_depth: 1,
                     },
                     crate::snapshot::FunctionMetrics {
+                        responsibility: Some(crate::snapshot::ResponsibilityProvenance {
+                            owner_id: "module:0".into(),
+                            owner_label: "module".into(),
+                            dependencies: Vec::new(),
+                        }),
+                        is_test: false,
                         name: "handle_b".into(),
                         loc: 10,
                         cyclomatic_complexity: 2,

@@ -39,6 +39,49 @@ All notable changes to this project will be documented here.
   `.repository-analysis/trends.json` holding older entries is archived to
   `trends.json.bak` and a fresh series starts. Run `barad-dur backfill` to
   rebuild the trend line.
+- Responsibility advice now separates lexical owners, including separate Rust
+  implementation blocks. `has_*` and `is_*` groups require a shared direct
+  receiver field or uniquely resolved local callee. Unknown ownership and
+  dependencies cannot create advice.
+- **Responsibility advice text changes format.** Each owner gets one segment,
+  `Owner (line N): get_* (3), is_* (2) shared field state`, and segments are
+  joined with ` | ` in the order of each owner's first function. At most the
+  five owners with the most grouped names are shown, followed by
+  `+N more groups` (`+1 more group` for one). Unnamed owners read `anonymous function`, `object literal`,
+  `companion object`, `anonymous class` or `block` instead of grammar node names.
+- Methods sharing a name within one owner (overloads, platform-specific
+  duplicates, accessor pairs) count once. Callee evidence requires the call's
+  argument count to match the declaration; defaults, variadics, spreads and
+  tagged templates are undecidable and give none. A function's call to itself is
+  not evidence. Go methods whose receiver type is declared in another file are
+  grouped under the type's name; a malformed local declaration or a local type
+  alias leaves them without an owner. In every language, a function an `ERROR`
+  node encloses has no owner and takes no part in advice: a parse the grammar
+  failed on says nothing about structure.
+- The per-MR mutation gate refuses a diff it cannot measure instead of timing
+  out: above `MUTATION_CAPACITY` in-diff mutants (default 100) the shards skip
+  and `mutation-gate` asks the merge request description for a
+  `Mutation gate override` section documenting a local
+  `scripts/mutation-campaign.sh` run. `main` falls back to the nightly sweep.
+- **Breaking:** `FunctionMetrics` adds optional `responsibility` provenance;
+  downstream literals must supply it or use `..Default::default()`, which
+  leaves it `None`: such functions never take part in responsibility advice.
+  Missing map-based Serde input defaults to `None`. This ships with #8 in the next minor
+  release. Snapshot cache version 10 recollects older snapshots;
+  report/history schemas and numeric measurements are unchanged.
+- Responsibility suggestions exclude recognized tests and lexically nested helpers
+  in Rust, JS/TS (including JSX/TSX), Python, Go, Java, C#, Kotlin/KTS, and PHP.
+  Counts and ranking now use eligible production functions; measurements, scores,
+  god-object eligibility, and history schemas remain unchanged.
+- **Breaking:** `FunctionMetrics` adds public `is_test: bool` and implements
+  `Default`. Downstream struct literals must supply the field or use struct update
+  syntax. Missing Serde fields default to false (unknown evidence).
+
+Detection requires existing test-file context or a resolved framework marker.
+The supported catalog and conservative limits are documented in
+[the implementation plan](docs/superpowers/plans/2026-09-14-production-responsibility-clusters.md).
+Custom wrappers, indirect test bases, dynamic/wildcard-only imports and compound
+Rust cfg expressions are not inferred; test-like names alone remain eligible.
 
 ### Fixed
 - **The HTML report states the Long Methods rule it actually applied.** The

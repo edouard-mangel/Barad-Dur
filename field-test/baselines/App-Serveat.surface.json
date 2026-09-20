@@ -212,15 +212,15 @@
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] templates/dotnet-clean-architecture/BlazorClient/BlazorClient/wwwroot/lib/bootstrap/dist/js/bootstrap.bundle.js — 4976 loc — consider splitting by responsibility: compute_* (3), get_* (43), is_* (11), set_* (2)"
+      "text": "[Health] templates/dotnet-clean-architecture/BlazorClient/BlazorClient/wwwroot/lib/bootstrap/dist/js/bootstrap.bundle.js — 4976 loc — consider splitting by responsibility: anonymous function (line 10): compute_* (3), get_* (34), is_* (3) shared callee getWindow | object literal (line 560): get_* (2) | BaseComponent (line 656): get_* (2) | object literal (line 735): get_* (3)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] templates/dotnet-clean-architecture/BlazorClient/BlazorClient/wwwroot/lib/bootstrap/dist/js/bootstrap.esm.js — 3547 loc — consider splitting by responsibility: get_* (11), is_* (3), set_* (2)"
+      "text": "[Health] templates/dotnet-clean-architecture/BlazorClient/BlazorClient/wwwroot/lib/bootstrap/dist/js/bootstrap.esm.js — 3547 loc — consider splitting by responsibility: file: get_* (2) | object literal (line 556): get_* (2) | BaseComponent (line 652): get_* (2) | object literal (line 731): get_* (3)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] templates/dotnet-clean-architecture/BlazorClient/BlazorClient/wwwroot/lib/bootstrap/dist/js/bootstrap.js — 3582 loc — consider splitting by responsibility: get_* (11), is_* (3), set_* (2)"
+      "text": "[Health] templates/dotnet-clean-architecture/BlazorClient/BlazorClient/wwwroot/lib/bootstrap/dist/js/bootstrap.js — 3582 loc — consider splitting by responsibility: anonymous function (line 10): get_* (2) | object literal (line 579): get_* (2) | BaseComponent (line 675): get_* (2) | object literal (line 754): get_* (3)"
     },
     {
       "target_tab": "trends",

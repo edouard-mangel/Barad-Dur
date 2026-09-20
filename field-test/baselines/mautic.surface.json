@@ -232,23 +232,23 @@
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] app/assets/js/libraries.js — 6692 loc — consider splitting by responsibility: build_* (11), compute_* (5), get_* (91), handle_* (7), has_* (5), is_* (44), parse_* (11), set_* (23)"
+      "text": "[Health] app/assets/js/libraries.js — 6692 loc — consider splitting by responsibility: anonymous function (line 138): build_* (2), get_* (5), set_* (2) | anonymous function (line 3001): build_* (6), compute_* (2), get_* (13), handle_* (3), has_* (2) shared callee removeChildrenAndAdd, set_* (9) | render (line 5468): get_* (4) | anonymous function (line 5882): get_* (6) | anonymous function (line 6031): compute_* (2), get_* (26), is_* (3) shared callee isUndefined, parse_* (4), set_* (6) | +11 more groups"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] app/bundles/CoreBundle/Assets/js/libraries/51.Chart.js — 11225 loc — consider splitting by responsibility: compute_* (2), get_* (35), has_* (2), is_* (21), parse_* (5), set_* (6)"
+      "text": "[Health] app/bundles/AssetBundle/Entity/Asset.php — 721 loc; structural hub — 15 connections (threshold 11) — consider splitting by responsibility: Asset (line 19): get_* (36), is_* (2) shared field storageLocation, set_* (26)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] app/bundles/EmailBundle/Entity/Email.php — 642 loc; structural hub — 75 connections (threshold 11) — consider splitting by responsibility: get_* (35), is_* (2), set_* (30)"
+      "text": "[Health] app/bundles/EmailBundle/Entity/Email.php — 642 loc; structural hub — 75 connections (threshold 11) — consider splitting by responsibility: Email (line 33): get_* (35), set_* (30)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] app/bundles/LeadBundle/Entity/Lead.php — 1135 loc; structural hub — 325 connections (threshold 11) — consider splitting by responsibility: get_* (49), is_* (3), set_* (34)"
+      "text": "[Health] app/bundles/LeadBundle/Entity/Lead.php — 1135 loc; structural hub — 325 connections (threshold 11) — consider splitting by responsibility: Lead (line 17): get_* (49), set_* (34)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] media/js/libraries.js — 6694 loc — consider splitting by responsibility: build_* (11), compute_* (5), get_* (91), handle_* (7), has_* (5), is_* (44), parse_* (11), set_* (23)"
+      "text": "[Health] media/js/libraries.js — 6694 loc — consider splitting by responsibility: anonymous function (line 138): build_* (2), get_* (5), set_* (2) | anonymous function (line 3001): build_* (6), compute_* (2), get_* (13), handle_* (3), has_* (2) shared callee removeChildrenAndAdd, set_* (9) | render (line 5468): get_* (4) | anonymous function (line 5884): get_* (6) | anonymous function (line 6033): compute_* (2), get_* (26), is_* (3) shared callee isUndefined, parse_* (4), set_* (6) | +11 more groups"
     }
   ],
   "top_hotspots": [

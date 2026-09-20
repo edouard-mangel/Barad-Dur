@@ -137,6 +137,21 @@ mutation-gate-selftest:
     - if: $CI_MERGE_REQUEST_IID
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
+# The campaign script is the evidence an over-capacity merge request stands on,
+# so its harness has to run somewhere other than a reviewer's memory. It needs
+# git (it builds a throwaway repository) and supplies its own fake cargo on
+# PATH, which is why it runs on the Rust image rather than the gate's slim one.
+campaign-script-selftest:
+  stage: lint
+  image: rust:1.98.1
+  cache: []
+  before_script: []
+  script:
+    - sh scripts/mutation-campaign.test.sh
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
 
 # ── Build ─────────────────────────────────────
 
@@ -320,6 +335,9 @@ mutation:
   timeout: 4 hours
   script:
     - |
+      # How many shards the gate must hear from. Written by every child, so
+      # `parallel:` above stays the only place the count is stated.
+      echo "MUTATION_SHARDS=${CI_NODE_TOTAL}" > shards.env
       if [ -n "$CI_MERGE_REQUEST_DIFF_BASE_SHA" ]; then
         git diff "$CI_MERGE_REQUEST_DIFF_BASE_SHA"..HEAD > recent.diff
       else
@@ -330,6 +348,25 @@ mutation:
         exit 0
       fi
       cargo binstall --no-confirm --locked cargo-mutants cargo-nextest
+      # Capacity, in mutants the six shards can actually test: each repeats the
+      # ~30min unmutated baseline inside its own 4h wall, and measured
+      # throughput on !145/!146/!149 was 4-11 mutants per shard in 25min-2h.
+      # That is 19 mutants per shard at the slow end of what was measured, so
+      # 100 for six, not the 150 this started at: a 120-mutant diff sat under
+      # the old bound and still lost all six shards to the wall, which is the
+      # failure this branch exists to remove, not a case to leave inside it.
+      # Pipelines 130487, 130553, 130615 and 130953 each lost all six that way.
+      # Say so once instead, and let the gate ask the author for the local
+      # campaign's evidence (scripts/mutation-campaign.sh).
+      CAPACITY=${MUTATION_CAPACITY:-100}
+      MUTANTS=$(cargo mutants --list --in-diff recent.diff | wc -l)
+      if [ "$MUTANTS" -gt "$CAPACITY" ]; then
+        # tee, not a plain redirect: the gate reads the artifact, and whoever
+        # opens the job needs to see why it did nothing.
+        echo "MUTATION OVER CAPACITY: ${MUTANTS} in-diff mutants exceed the per-MR capacity of ${CAPACITY}" \
+          | tee mutants-${CI_NODE_INDEX}.log
+        exit 0
+      fi
       # cargo-mutants shards are 0-based; CI_NODE_INDEX is 1-based. An
       # off-by-one here silently drops a slice of the codebase instead of
       # erroring, so it is computed once, here, and nowhere else.
@@ -341,7 +378,7 @@ mutation:
       # the only edit a reshard needs.
       # || true: shard exit codes (missed/timeout mutants) must not fail the job —
       # the mutation-gate aggregates all shards and is the single blocking decision.
-      BARAD_DUR_TEST_REPO=${CI_PROJECT_DIR} cargo mutants \
+      NEXTEST_PROFILE=mutation BARAD_DUR_TEST_REPO=${CI_PROJECT_DIR} cargo mutants \
         --in-diff recent.diff \
         --shard ${SHARD}/${CI_NODE_TOTAL} \
         --test-tool nextest \
@@ -352,6 +389,8 @@ mutation:
     paths:
       - mutants-${CI_NODE_INDEX}.log
       - mutants-out-${CI_NODE_INDEX}/
+    reports:
+      dotenv: shards.env
     when: always
     expire_in: 1 week
   rules:
@@ -369,7 +408,21 @@ mutation-gate:
     - job: mutation
       artifacts: true
   script:
-    - python3 scripts/mutation_gate.py 'mutants-*.log'
+    - |
+      # --require-override only on a merge request: it is the description that
+      # carries the override section, and main has none. An over-capacity run
+      # on main falls back to the nightly sweep.
+      if [ -n "$CI_MERGE_REQUEST_IID" ]; then
+        # GitLab keeps only the first 2700 characters of the description in
+        # CI_MERGE_REQUEST_DESCRIPTION and reports the cut separately, so the
+        # gate can tell a missing override section from an invisible one.
+        MUTATION_OVERRIDE_TEXT="$CI_MERGE_REQUEST_DESCRIPTION" \
+        MUTATION_OVERRIDE_TRUNCATED="$CI_MERGE_REQUEST_DESCRIPTION_IS_TRUNCATED" \
+          python3 scripts/mutation_gate.py --require-override \
+            --shards "${MUTATION_SHARDS:-0}" 'mutants-*.log'
+      else
+        python3 scripts/mutation_gate.py --shards "${MUTATION_SHARDS:-0}" 'mutants-*.log'
+      fi
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
@@ -484,7 +537,7 @@ mutation-nightly:
       SHARD_TOTAL=$(( NIGHTLY_SLICES * CI_NODE_TOTAL ))
       # --test-tool nextest matches the per-MR shards; the unsharded nightly
       # omitted it and paid for the slower runner on every mutant.
-      BARAD_DUR_TEST_REPO=${CI_PROJECT_DIR} cargo mutants \
+      NEXTEST_PROFILE=mutation BARAD_DUR_TEST_REPO=${CI_PROJECT_DIR} cargo mutants \
         --shard ${SHARD}/${SHARD_TOTAL} \
         --test-tool nextest \
         --timeout-multiplier 3 --jobs 4 \

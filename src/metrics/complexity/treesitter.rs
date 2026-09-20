@@ -69,10 +69,15 @@ pub(super) fn imports_from_tree(
 
 /// Analyse source content using tree-sitter AST parsing.
 /// Returns `None` for unsupported languages or complete parse failures.
-pub fn analyse(content: &str, lang: Language, ext: &str) -> Option<FileComplexity> {
+pub fn analyse(
+    content: &str,
+    lang: Language,
+    ext: &str,
+    path: Option<&std::path::Path>,
+) -> Option<FileComplexity> {
     let grammar = grammar_for(lang, ext)?;
     let tree = parse(content, &grammar)?;
-    Some(analyse_tree(&tree, content, lang, ext, &grammar))
+    Some(analyse_tree(&tree, content, lang, ext, &grammar, path))
 }
 
 /// Tree-level core of [`analyse`], for callers that already hold a parsed
@@ -83,13 +88,24 @@ pub(super) fn analyse_tree(
     lang: Language,
     ext: &str,
     grammar: &tree_sitter::Language,
+    path: Option<&std::path::Path>,
 ) -> FileComplexity {
     let total_lines = content.lines().count();
     let loc = count_loc(content, tree, grammar, lang, ext);
     let cyclomatic_complexity = count_complexity(tree, content.as_bytes(), grammar, lang, ext);
     let public_methods = count_public_methods(tree, content.as_bytes(), grammar, lang, ext);
     let properties = count_properties(tree, content.as_bytes(), grammar, lang, ext);
-    let functions = extract_functions(tree, content.as_bytes(), content, grammar, lang, ext);
+    let context =
+        super::test_context::TestContext::build(tree.root_node(), content.as_bytes(), lang, path);
+    let functions = extract_functions(
+        tree,
+        content.as_bytes(),
+        content,
+        grammar,
+        lang,
+        ext,
+        &context,
+    );
     let (max_nesting_depth, nesting_variance) =
         compute_nesting_biomarkers(tree, content.as_bytes(), grammar, lang, ext, total_lines);
 
@@ -167,7 +183,7 @@ mod tests {
     #[test]
     fn rust_public_methods() {
         let content = "pub fn foo() {}\nfn bar() {}\npub fn baz() {}\n";
-        let result = analyse(content, Language::Rust, "rs").unwrap();
+        let result = analyse(content, Language::Rust, "rs", None).unwrap();
         assert_eq!(result.public_methods, 2);
     }
 
@@ -175,7 +191,7 @@ mod tests {
     fn rust_cyclomatic_complexity() {
         let content =
             "fn f() {\n  if x {}\n  for i in v {}\n  while z {}\n  match a { _ => {} }\n}\n";
-        let result = analyse(content, Language::Rust, "rs").unwrap();
+        let result = analyse(content, Language::Rust, "rs", None).unwrap();
         assert!(
             result.cyclomatic_complexity >= 4,
             "expected >= 4, got {}",
@@ -186,7 +202,7 @@ mod tests {
     #[test]
     fn rust_complexity_with_logical_operators() {
         let content = "fn f() { if a && b || c {} }\n";
-        let result = analyse(content, Language::Rust, "rs").unwrap();
+        let result = analyse(content, Language::Rust, "rs", None).unwrap();
         assert!(
             result.cyclomatic_complexity >= 3,
             "expected >= 3, got {}",
@@ -197,21 +213,21 @@ mod tests {
     #[test]
     fn rust_properties() {
         let content = "pub struct Foo {\n    pub x: i32,\n    pub y: String,\n    z: bool,\n}\n";
-        let result = analyse(content, Language::Rust, "rs").unwrap();
+        let result = analyse(content, Language::Rust, "rs", None).unwrap();
         assert_eq!(result.properties, 2);
     }
 
     #[test]
     fn rust_loc_excludes_comments() {
         let content = "// comment\n\nfn main() {}\n    // indented\nlet x = 1;\n";
-        let result = analyse(content, Language::Rust, "rs").unwrap();
+        let result = analyse(content, Language::Rust, "rs", None).unwrap();
         assert_eq!(result.loc, 2);
     }
 
     #[test]
     fn rust_loc_excludes_block_comments() {
         let content = "/* multi\n   line\n   comment */\nfn main() {}\n";
-        let result = analyse(content, Language::Rust, "rs").unwrap();
+        let result = analyse(content, Language::Rust, "rs", None).unwrap();
         assert_eq!(result.loc, 1);
     }
 
@@ -220,14 +236,14 @@ mod tests {
     #[test]
     fn js_public_methods() {
         let content = "export function foo() {}\nfunction bar() {}\nexport const baz = () => {}\n";
-        let result = analyse(content, Language::JsTs, "js").unwrap();
+        let result = analyse(content, Language::JsTs, "js", None).unwrap();
         assert_eq!(result.public_methods, 2);
     }
 
     #[test]
     fn js_complexity() {
         let content = "if (x) {} for (;;) {} while (y) {} switch (z) {}\n";
-        let result = analyse(content, Language::JsTs, "js").unwrap();
+        let result = analyse(content, Language::JsTs, "js", None).unwrap();
         assert!(
             result.cyclomatic_complexity >= 4,
             "expected >= 4, got {}",
@@ -240,7 +256,7 @@ mod tests {
     #[test]
     fn ts_parses_type_annotations() {
         let content = "export function greet(name: string): void {}\n";
-        let result = analyse(content, Language::JsTs, "ts").unwrap();
+        let result = analyse(content, Language::JsTs, "ts", None).unwrap();
         assert_eq!(result.public_methods, 1);
     }
 
@@ -248,28 +264,28 @@ mod tests {
     fn ts_interface_properties() {
         // property_signature nodes only exist in the TS grammar, not JS
         let content = "interface Foo {\n  name: string;\n  age: number;\n}\n";
-        let result = analyse(content, Language::JsTs, "ts").unwrap();
+        let result = analyse(content, Language::JsTs, "ts", None).unwrap();
         assert_eq!(result.properties, 2);
     }
 
     #[test]
     fn tsx_parses_jsx_with_types() {
         let content = "export function App(props: { name: string }) { return <div/>; }\n";
-        let result = analyse(content, Language::JsTs, "tsx").unwrap();
+        let result = analyse(content, Language::JsTs, "tsx", None).unwrap();
         assert_eq!(result.public_methods, 1);
     }
 
     #[test]
     fn ts_loc_excludes_comments() {
         let content = "// comment\nconst x: number = 1;\n";
-        let result = analyse(content, Language::JsTs, "ts").unwrap();
+        let result = analyse(content, Language::JsTs, "ts", None).unwrap();
         assert_eq!(result.loc, 1);
     }
 
     #[test]
     fn ts_complexity() {
         let content = "function f(x: number): void { if (x > 0) {} while (x) {} }\n";
-        let result = analyse(content, Language::JsTs, "ts").unwrap();
+        let result = analyse(content, Language::JsTs, "ts", None).unwrap();
         assert!(result.cyclomatic_complexity >= 2);
     }
 
@@ -278,7 +294,7 @@ mod tests {
     #[test]
     fn python_public_methods() {
         let content = "def foo():\n    pass\ndef _bar():\n    pass\ndef baz():\n    pass\n";
-        let result = analyse(content, Language::Python, "py").unwrap();
+        let result = analyse(content, Language::Python, "py", None).unwrap();
         assert_eq!(result.public_methods, 2);
     }
 
@@ -286,7 +302,7 @@ mod tests {
     fn python_complexity() {
         let content =
             "if x:\n    pass\nelif y:\n    pass\nfor i in v:\n    pass\nwhile z:\n    pass\n";
-        let result = analyse(content, Language::Python, "py").unwrap();
+        let result = analyse(content, Language::Python, "py", None).unwrap();
         assert!(
             result.cyclomatic_complexity >= 4,
             "expected >= 4, got {}",
@@ -299,14 +315,14 @@ mod tests {
     #[test]
     fn go_public_methods() {
         let content = "package main\nfunc Foo() {}\nfunc bar() {}\n";
-        let result = analyse(content, Language::Go, "go").unwrap();
+        let result = analyse(content, Language::Go, "go", None).unwrap();
         assert_eq!(result.public_methods, 1);
     }
 
     #[test]
     fn go_properties() {
         let content = "package main\ntype Foo struct {\n\tName string\n\tage int\n}\n";
-        let result = analyse(content, Language::Go, "go").unwrap();
+        let result = analyse(content, Language::Go, "go", None).unwrap();
         assert_eq!(result.properties, 1);
     }
 
@@ -315,14 +331,14 @@ mod tests {
     #[test]
     fn java_public_methods() {
         let content = "class Foo {\n  public void bar() {}\n  private void baz() {}\n  public void qux() {}\n}\n";
-        let result = analyse(content, Language::Java, "java").unwrap();
+        let result = analyse(content, Language::Java, "java", None).unwrap();
         assert_eq!(result.public_methods, 2);
     }
 
     #[test]
     fn java_complexity() {
         let content = "class Foo {\n  void f() {\n    if (x) {}\n    for (int i=0;;) {}\n    while (y) {}\n  }\n}\n";
-        let result = analyse(content, Language::Java, "java").unwrap();
+        let result = analyse(content, Language::Java, "java", None).unwrap();
         assert!(
             result.cyclomatic_complexity >= 3,
             "expected >= 3, got {}",
@@ -335,7 +351,7 @@ mod tests {
     #[test]
     fn csharp_public_methods() {
         let content = "class Foo {\n  public void Bar() {}\n  private void Baz() {}\n  public void Qux() {}\n}\n";
-        let result = analyse(content, Language::CSharp, "cs").unwrap();
+        let result = analyse(content, Language::CSharp, "cs", None).unwrap();
         assert_eq!(result.public_methods, 2);
     }
 
@@ -343,19 +359,19 @@ mod tests {
 
     #[test]
     fn generic_returns_none() {
-        assert!(analyse("hello world", Language::Generic, "txt").is_none());
+        assert!(analyse("hello world", Language::Generic, "txt", None).is_none());
     }
 
     #[test]
     fn kotlin_parses_basic_function() {
-        let result = analyse("fun main() {}", Language::Kotlin, "kt");
+        let result = analyse("fun main() {}", Language::Kotlin, "kt", None);
         assert!(result.is_some(), "Kotlin should parse with tree-sitter");
     }
 
     #[test]
     fn syntax_error_returns_best_effort() {
         let content = "pub fn foo() { if x {} }\npub fn bar() {{{{{";
-        let result = analyse(content, Language::Rust, "rs");
+        let result = analyse(content, Language::Rust, "rs", None);
         assert!(result.is_some(), "should parse despite syntax errors");
         assert!(result.unwrap().public_methods >= 1);
     }
@@ -364,14 +380,14 @@ mod tests {
     fn loc_counts_only_nonblank_nonccomment_lines() {
         // Tests the fallback branch inside count_loc (blank line filtering)
         let content = "\n\n// comment\nfn foo() {}\n\n";
-        let result = analyse(content, Language::Rust, "rs").unwrap();
+        let result = analyse(content, Language::Rust, "rs", None).unwrap();
         assert_eq!(result.loc, 1);
         assert_eq!(result.total_lines, 5);
     }
 
     #[test]
     fn empty_content() {
-        let result = analyse("", Language::Rust, "rs").unwrap();
+        let result = analyse("", Language::Rust, "rs", None).unwrap();
         assert_eq!(result.total_lines, 0);
         assert_eq!(result.loc, 0);
         assert_eq!(result.cyclomatic_complexity, 0);
@@ -523,7 +539,7 @@ mod tests {
                    class C {\n\
                      public function method($b) { if ($b) { return 1; } return 0; }\n\
                    }\n";
-        let m = analyse(src, Language::Php, "php").expect("php must parse");
+        let m = analyse(src, Language::Php, "php", None).expect("php must parse");
         let names: Vec<&str> = m.functions.iter().map(|f| f.name.as_str()).collect();
         assert!(
             names.contains(&"standalone"),
@@ -544,7 +560,7 @@ mod tests {
                      public function shown() {}\n\
                      private function unshown() {}\n\
                    }\n";
-        let m = analyse(src, Language::Php, "php").expect("php must parse");
+        let m = analyse(src, Language::Php, "php", None).expect("php must parse");
         assert_eq!(m.public_methods, 1, "only the public method counts");
         assert_eq!(m.properties, 1, "only the public property counts");
     }
@@ -559,7 +575,7 @@ mod tests {
                      foreach ([1,2] as $x) { if ($x) { return 2; } }\n\
                      return 0;\n\
                    }\n";
-        let m = analyse(src, Language::Php, "php").expect("php must parse");
+        let m = analyse(src, Language::Php, "php", None).expect("php must parse");
         assert!(
             m.cyclomatic_complexity >= 3,
             "three branches expected, got {}",
@@ -597,7 +613,7 @@ mod tests {
     #[test]
     fn rust_extracts_function_metrics() {
         let content = "fn short() { 1 }\nfn long() {\n    if x {\n        if y {\n            for z in v {\n                match a {\n                    _ => {}\n                }\n            }\n        }\n    }\n}\n";
-        let result = analyse(content, Language::Rust, "rs").unwrap();
+        let result = analyse(content, Language::Rust, "rs", None).unwrap();
         assert_eq!(result.functions.len(), 2);
         let short = result.functions.iter().find(|f| f.name == "short").unwrap();
         assert_eq!(short.loc, 1);
@@ -610,7 +626,7 @@ mod tests {
     #[test]
     fn js_extracts_function_metrics() {
         let content = "function short() { return 1; }\nfunction long() {\n    if (x) {\n        for (let i = 0; i < 10; i++) {\n            console.log(i);\n        }\n    }\n}\n";
-        let result = analyse(content, Language::JsTs, "js").unwrap();
+        let result = analyse(content, Language::JsTs, "js", None).unwrap();
         assert!(
             result.functions.len() >= 2,
             "got {} functions",
@@ -623,7 +639,7 @@ mod tests {
     #[test]
     fn python_extracts_function_metrics() {
         let content = "def short():\n    return 1\ndef long():\n    if x:\n        for i in v:\n            pass\n";
-        let result = analyse(content, Language::Python, "py").unwrap();
+        let result = analyse(content, Language::Python, "py", None).unwrap();
         assert!(
             result.functions.len() >= 2,
             "got {} functions",
@@ -634,7 +650,7 @@ mod tests {
     #[test]
     fn go_extracts_function_metrics() {
         let content = "package main\nfunc Short() int { return 1 }\nfunc Long() {\n    if x {\n        for i := range v {\n            _ = i\n        }\n    }\n}\n";
-        let result = analyse(content, Language::Go, "go").unwrap();
+        let result = analyse(content, Language::Go, "go", None).unwrap();
         assert!(
             result.functions.len() >= 2,
             "got {} functions",
@@ -645,7 +661,7 @@ mod tests {
     #[test]
     fn java_extracts_function_metrics() {
         let content = "class Foo {\n    void shortMethod() { return; }\n    void longMethod() {\n        if (x) {\n            for (int i = 0; i < 10; i++) {\n                System.out.println(i);\n            }\n        }\n    }\n}\n";
-        let result = analyse(content, Language::Java, "java").unwrap();
+        let result = analyse(content, Language::Java, "java", None).unwrap();
         assert!(
             result.functions.len() >= 2,
             "got {} functions",
@@ -656,7 +672,7 @@ mod tests {
     #[test]
     fn csharp_extracts_function_metrics() {
         let content = "class Foo {\n    void ShortMethod() { return; }\n    void LongMethod() {\n        if (x) {\n            for (int i = 0; i < 10; i++) {\n                Console.WriteLine(i);\n            }\n        }\n    }\n}\n";
-        let result = analyse(content, Language::CSharp, "cs").unwrap();
+        let result = analyse(content, Language::CSharp, "cs", None).unwrap();
         assert!(
             result.functions.len() >= 2,
             "got {} functions",
@@ -667,7 +683,7 @@ mod tests {
     #[test]
     fn rust_nesting_biomarkers() {
         let content = "fn deep() {\n    if x {\n        for i in v {\n            match a {\n                _ => {\n                    if y {\n                        loop {\n                        }\n                    }\n                }\n            }\n        }\n    }\n}\nfn shallow() { let x = 1; }\n";
-        let result = analyse(content, Language::Rust, "rs").unwrap();
+        let result = analyse(content, Language::Rust, "rs", None).unwrap();
         assert!(
             result.max_nesting_depth >= 5,
             "expected depth >= 5, got {}",
@@ -679,7 +695,7 @@ mod tests {
     #[test]
     fn flat_file_has_zero_nesting() {
         let content = "fn a() {}\nfn b() {}\nfn c() {}\n";
-        let result = analyse(content, Language::Rust, "rs").unwrap();
+        let result = analyse(content, Language::Rust, "rs", None).unwrap();
         assert_eq!(result.max_nesting_depth, 0);
         assert!((result.nesting_variance - 0.0).abs() < f64::EPSILON);
     }
@@ -687,7 +703,7 @@ mod tests {
     #[test]
     fn no_functions_returns_empty() {
         let content = "let x = 1;\nlet y = 2;\n";
-        let result = analyse(content, Language::Rust, "rs").unwrap();
+        let result = analyse(content, Language::Rust, "rs", None).unwrap();
         assert!(result.functions.is_empty());
     }
 }

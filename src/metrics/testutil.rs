@@ -38,6 +38,8 @@ pub fn make_file(name: &str) -> FileEntry {
 
 pub fn normal_function(name: &str) -> FunctionMetrics {
     FunctionMetrics {
+        responsibility: None,
+        is_test: false,
         name: name.to_string(),
         loc: 20,
         cyclomatic_complexity: 3,

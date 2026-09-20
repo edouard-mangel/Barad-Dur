@@ -204,23 +204,23 @@
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] src/context/mod.rs — 951 loc; structural hub — 26 connections (threshold 8) — consider splitting by responsibility: get_* (11), has_* (11), is_* (2), parse_* (3), set_* (8)"
+      "text": "[Health] src/config.rs — 847 loc; structural hub — 23 connections (threshold 8) — consider splitting by responsibility: StarshipConfig (line 125): get_* (5) | file: parse_* (2)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] src/modules/aws.rs — 1081 loc — consider splitting by responsibility: get_* (10), has_* (3)"
+      "text": "[Health] src/context/mod.rs — 951 loc; structural hub — 26 connections (threshold 8) — consider splitting by responsibility: Context<'a> (line 103): get_* (8) | file: get_* (3), parse_* (3) | ScanDir<'a> (line 747): set_* (3) | ScanAncestors<'a> (line 790): set_* (2)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] src/modules/git_status.rs — 1912 loc; structural hub — 8 connections (threshold 8) — consider splitting by responsibility: get_* (21), is_* (8), set_* (2)"
+      "text": "[Health] src/modules/aws.rs — 1081 loc — consider splitting by responsibility: file: get_* (10), has_* (2) shared callee get_config"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] src/modules/package.rs — 1466 loc — consider splitting by responsibility: get_* (26), parse_* (3)"
+      "text": "[Health] src/modules/git_status.rs — 1912 loc; structural hub — 8 connections (threshold 8) — consider splitting by responsibility: file: get_* (3) | GitStatusInfo<'a> (line 200): get_* (18) | RepoStatus (line 627): set_* (2)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] src/utils/mod.rs — 990 loc; structural hub — 50 connections (threshold 8); generic name suggests broad responsibility — consider splitting by responsibility: render_* (9)"
+      "text": "[Health] src/modules/package.rs — 1466 loc — consider splitting by responsibility: file: get_* (26), parse_* (3)"
     },
     {
       "target_tab": "ownership",

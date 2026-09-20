@@ -137,6 +137,8 @@ mod tests {
             &mut snapshot,
             "src/big.rs",
             vec![FunctionMetrics {
+                responsibility: None,
+                is_test: false,
                 name: "huge_fn".to_string(),
                 loc: 85,
                 cyclomatic_complexity: 6,
@@ -164,6 +166,8 @@ mod tests {
             &mut snapshot,
             "src/complex.rs",
             vec![FunctionMetrics {
+                responsibility: None,
+                is_test: false,
                 name: "spaghetti".to_string(),
                 loc: 30,
                 cyclomatic_complexity: 12,
@@ -192,6 +196,8 @@ mod tests {
             &mut snapshot,
             "tests/coupling_milestone_1.rs",
             vec![FunctionMetrics {
+                responsibility: None,
+                is_test: false,
                 name: "end_to_end".to_string(),
                 loc: 120,
                 cyclomatic_complexity: 2,
@@ -210,6 +216,8 @@ mod tests {
         add_normal_functions(&mut snapshot, 17);
         let bad_fns: Vec<FunctionMetrics> = (0..3)
             .map(|i| FunctionMetrics {
+                responsibility: None,
+                is_test: false,
                 name: format!("bad_{i}"),
                 loc: 60,
                 cyclomatic_complexity: 6,
@@ -228,6 +236,8 @@ mod tests {
         add_normal_functions(&mut snapshot, 16);
         let bad_fns: Vec<FunctionMetrics> = (0..4)
             .map(|i| FunctionMetrics {
+                responsibility: None,
+                is_test: false,
                 name: format!("bad_{i}"),
                 loc: 60,
                 cyclomatic_complexity: 6,
@@ -270,6 +280,8 @@ mod tests {
             &mut snapshot,
             "src/lib.rs",
             vec![FunctionMetrics {
+                responsibility: None,
+                is_test: false,
                 name: "boundary".to_string(),
                 loc: 40,
                 cyclomatic_complexity: 5,
@@ -287,6 +299,8 @@ mod tests {
             &mut snapshot,
             "src/lib.rs",
             vec![FunctionMetrics {
+                responsibility: None,
+                is_test: false,
                 name: "boundary".to_string(),
                 loc: 30,
                 cyclomatic_complexity: 10,
@@ -305,24 +319,32 @@ mod tests {
             "src/view.tsx",
             vec![
                 FunctionMetrics {
+                    responsibility: None,
+                    is_test: false,
                     name: "loc_boundary".into(),
                     loc: 80,
                     cyclomatic_complexity: 6,
                     max_nesting_depth: 2,
                 },
                 FunctionMetrics {
+                    responsibility: None,
+                    is_test: false,
                     name: "cc_floor".into(),
                     loc: 200,
                     cyclomatic_complexity: 5,
                     max_nesting_depth: 2,
                 },
                 FunctionMetrics {
+                    responsibility: None,
+                    is_test: false,
                     name: "moderately_complex_and_long".into(),
                     loc: 81,
                     cyclomatic_complexity: 6,
                     max_nesting_depth: 2,
                 },
                 FunctionMetrics {
+                    responsibility: None,
+                    is_test: false,
                     name: "short_but_highly_complex".into(),
                     loc: 20,
                     cyclomatic_complexity: 11,
@@ -362,6 +384,8 @@ mod tests {
                 &mut snapshot,
                 path,
                 vec![FunctionMetrics {
+                    responsibility: None,
+                    is_test: false,
                     name: name.into(),
                     loc: 60,
                     cyclomatic_complexity: 6,
@@ -374,6 +398,8 @@ mod tests {
                 &mut snapshot,
                 path,
                 vec![FunctionMetrics {
+                    responsibility: None,
+                    is_test: false,
                     name: name.into(),
                     loc: 60,
                     cyclomatic_complexity: 6,
@@ -414,12 +440,16 @@ mod tests {
             "src/lib.rs",
             vec![
                 FunctionMetrics {
+                    responsibility: None,
+                    is_test: false,
                     name: "moderate".into(),
                     loc: 41,
                     cyclomatic_complexity: 6,
                     max_nesting_depth: 2,
                 },
                 FunctionMetrics {
+                    responsibility: None,
+                    is_test: false,
                     name: "long_declarative".into(),
                     loc: 200,
                     cyclomatic_complexity: 5,
@@ -448,6 +478,8 @@ mod tests {
             vec![
                 // 31 > long_method_loc 30, CC 4 > floor 3 -> flagged
                 FunctionMetrics {
+                    responsibility: None,
+                    is_test: false,
                     name: "rust_over_loc".into(),
                     loc: 31,
                     cyclomatic_complexity: 4,
@@ -455,6 +487,8 @@ mod tests {
                 },
                 // very long but CC 3 is not above the floor -> not flagged
                 FunctionMetrics {
+                    responsibility: None,
+                    is_test: false,
                     name: "rust_under_cc_floor".into(),
                     loc: 100,
                     cyclomatic_complexity: 3,
@@ -469,6 +503,8 @@ mod tests {
                 // 40 is above long_method_loc 30 but NOT above ui_loc 50:
                 // this is the fixture that pins the .tsx tier.
                 FunctionMetrics {
+                    responsibility: None,
+                    is_test: false,
                     name: "ui_between_loc_and_ui_loc".into(),
                     loc: 40,
                     cyclomatic_complexity: 4,
@@ -476,6 +512,8 @@ mod tests {
                 },
                 // 51 > ui_loc 50 -> flagged
                 FunctionMetrics {
+                    responsibility: None,
+                    is_test: false,
                     name: "ui_over_ui_loc".into(),
                     loc: 51,
                     cyclomatic_complexity: 4,
@@ -483,6 +521,8 @@ mod tests {
                 },
                 // CC 8 > long_method_cc 7 -> flagged regardless of LOC
                 FunctionMetrics {
+                    responsibility: None,
+                    is_test: false,
                     name: "cc_over_ceiling".into(),
                     loc: 10,
                     cyclomatic_complexity: 8,

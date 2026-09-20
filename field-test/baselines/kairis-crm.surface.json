@@ -192,23 +192,23 @@
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] app/campagnes/[id]/page.tsx — 673 loc — consider splitting by responsibility: handle_* (7)"
+      "text": "[Health] app/campagnes/[id]/page.tsx — 673 loc — consider splitting by responsibility: CampagneDetailPage (line 68): handle_* (7)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] app/contacts/[id]/page.tsx — 1821 loc — consider splitting by responsibility: handle_* (15)"
+      "text": "[Health] app/contacts/[id]/page.tsx — 1821 loc — consider splitting by responsibility: ContactDetailPage (line 160): handle_* (15)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] app/contacts/page.tsx — 1938 loc — consider splitting by responsibility: handle_* (14)"
+      "text": "[Health] app/contacts/page.tsx — 1938 loc — consider splitting by responsibility: ContactsPage (line 120): handle_* (14)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] app/pipeline/page.tsx — 1614 loc — consider splitting by responsibility: handle_* (7), is_* (5)"
+      "text": "[Health] app/pipeline/page.tsx — 1614 loc — consider splitting by responsibility: file: is_* (3) shared callee isActiveDeal | PipelinePage (line 188): handle_* (7)"
     },
     {
       "target_tab": "hotspots",
-      "text": "[Health] app/taches/page.tsx — 858 loc — consider splitting by responsibility: handle_* (5), is_* (2)"
+      "text": "[Health] app/taches/page.tsx — 858 loc — consider splitting by responsibility: file: is_* (2) shared callee startOfToday | TachesPage (line 116): handle_* (5)"
     },
     {
       "target_tab": "ownership",
