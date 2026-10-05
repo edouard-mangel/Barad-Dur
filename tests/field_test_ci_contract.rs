@@ -51,3 +51,29 @@ fn corpus_directory_is_selected_from_the_checked_out_manifest_at_runtime() {
         "GitLab hashes cache-key files before the merge-result checkout"
     );
 }
+
+/// Seconds tarpaulin waits for a test to respond before giving up.
+const COVERAGE_TIMEOUT_FLOOR: u64 = 600;
+
+#[test]
+fn coverage_allows_instrumented_dogfood_tests_to_finish() {
+    let coverage = CI.split_once("\ncoverage:\n").unwrap().1;
+    let coverage = coverage.split_once("\n\n").unwrap().0;
+
+    let seconds: u64 = coverage
+        .split("--timeout ")
+        .nth(1)
+        .and_then(|rest| rest.split_whitespace().next())
+        .and_then(|n| n.parse().ok())
+        .expect("the coverage job passes `--timeout <seconds>` to tarpaulin");
+
+    // The dogfood tests snapshot this whole repository: ~170 CPU-seconds in a
+    // debug build, which took ~305s per test in the uninstrumented `test` job
+    // on shared runners. Instrumentation only adds to that, so 60s (the
+    // default) and 180s both killed the job with "Timed out waiting for test
+    // response".
+    assert!(
+        seconds >= COVERAGE_TIMEOUT_FLOOR,
+        "--timeout {seconds} is shorter than the {COVERAGE_TIMEOUT_FLOOR}s an instrumented repository analysis needs"
+    );
+}

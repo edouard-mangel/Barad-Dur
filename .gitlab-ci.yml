@@ -245,7 +245,11 @@ coverage:
   script:
     - cargo binstall --no-confirm cargo-tarpaulin
     - rustup component add llvm-tools-preview
-    - cargo tarpaulin --engine llvm --out xml --output-dir coverage/ --fail-under 80
+    # The dogfood tests snapshot this whole repository (~170 CPU-seconds in a
+    # debug build; ~305s per test uninstrumented on shared runners), so they
+    # outlast tarpaulin's 60-second no-response default and even 180s. They
+    # finish normally; field_test_ci_contract pins the floor.
+    - cargo tarpaulin --engine llvm --timeout 600 --out xml --output-dir coverage/ --fail-under 80
   coverage: '/^\d+.\d+% coverage/'
   artifacts:
     reports:
