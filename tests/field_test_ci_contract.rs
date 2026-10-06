@@ -52,28 +52,35 @@ fn corpus_directory_is_selected_from_the_checked_out_manifest_at_runtime() {
     );
 }
 
-/// Seconds tarpaulin waits for a test to respond before giving up.
-const COVERAGE_TIMEOUT_FLOOR: u64 = 600;
+/// Seconds tarpaulin lets one whole test binary run before it kills it.
+const COVERAGE_TIMEOUT_FLOOR: u64 = 1500;
 
 #[test]
 fn coverage_allows_instrumented_dogfood_tests_to_finish() {
     let coverage = CI.split_once("\ncoverage:\n").unwrap().1;
     let coverage = coverage.split_once("\n\n").unwrap().0;
 
-    let seconds: u64 = coverage
+    // Read the flag off the command itself: comments above it mention
+    // `--timeout` too, and must not be mistaken for its value.
+    let command = coverage
+        .lines()
+        .find(|line| line.trim_start().starts_with("- cargo tarpaulin"))
+        .expect("the coverage job runs `cargo tarpaulin`");
+
+    let seconds: u64 = command
         .split("--timeout ")
         .nth(1)
         .and_then(|rest| rest.split_whitespace().next())
         .and_then(|n| n.parse().ok())
         .expect("the coverage job passes `--timeout <seconds>` to tarpaulin");
 
-    // The dogfood tests snapshot this whole repository: ~170 CPU-seconds in a
-    // debug build, which took ~305s per test in the uninstrumented `test` job
-    // on shared runners. Instrumentation only adds to that, so 60s (the
-    // default) and 180s both killed the job with "Timed out waiting for test
-    // response".
+    // tarpaulin's llvm engine applies --timeout to each test BINARY, not to a
+    // single test: the 1739-test lib binary alone took 553.75s instrumented in
+    // the one run that passed (pipeline 141995) and did not finish within 600s
+    // in the next (142039), and 60s / 180s died at exactly 60s / 180s on the
+    // dogfood binary. The floor leaves ~2.7x headroom over the best case.
     assert!(
         seconds >= COVERAGE_TIMEOUT_FLOOR,
-        "--timeout {seconds} is shorter than the {COVERAGE_TIMEOUT_FLOOR}s an instrumented repository analysis needs"
+        "--timeout {seconds} is shorter than the {COVERAGE_TIMEOUT_FLOOR}s an instrumented test binary needs"
     );
 }
