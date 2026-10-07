@@ -209,16 +209,39 @@ pub struct RemoteMeta {
     pub open_issues: Option<u64>,
 }
 
+/// The report tab an action links to. Serialized as the lowercase word the
+/// HTML report capitalises and looks up among its tab names, so a variant
+/// here must name a tab that exists there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
+#[serde(rename_all = "lowercase")]
+pub enum ReportTab {
+    Hotspots,
+    Coupling,
+    Ownership,
+    Trends,
+    Age,
+}
+
+/// The column an action asks the target tab to sort by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
+#[serde(rename_all = "lowercase")]
+pub enum SortKey {
+    Authors,
+    Complexity,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "export-types", derive(ts_rs::TS))]
 pub struct ActionItem {
     pub text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "export-types", ts(optional))]
-    pub target_tab: Option<String>,
+    pub target_tab: Option<ReportTab>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "export-types", ts(optional))]
-    pub sort_by: Option<String>,
+    pub sort_by: Option<SortKey>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -267,6 +290,47 @@ pub struct AnalysisReport {
     /// renders the rule that was actually applied instead of restating the
     /// defaults — same contract as `score_thresholds`.
     pub long_method_thresholds: LongMethodThresholds,
+}
+
+#[cfg(test)]
+impl AnalysisReport {
+    /// A report with nothing in it: every list empty, every option `None`,
+    /// every count zero, default thresholds. A fixture names the fields it
+    /// tests and takes the rest from here (`..AnalysisReport::blank()`), so a
+    /// new report field is added in one place instead of in every renderer's
+    /// tests. `report_contract.rs` deliberately stays explicit: the wire
+    /// contract should make a new field a conscious decision.
+    pub(crate) fn blank() -> Self {
+        Self {
+            repo_name: String::new(),
+            branch: String::new(),
+            time_window_months: 0,
+            total_commits: 0,
+            total_authors: 0,
+            total_files: 0,
+            overall_score: None,
+            categories: Vec::new(),
+            top_actions: Vec::new(),
+            coupling_actions: Vec::new(),
+            remote_meta: None,
+            file_hotspots: Vec::new(),
+            coupling_pairs: Vec::new(),
+            author_ownership: Vec::new(),
+            file_ages: Vec::new(),
+            author_cards: Vec::new(),
+            history: Vec::new(),
+            dep_ecosystem_reports: Vec::new(),
+            audit: None,
+            per_file_coupling: Vec::new(),
+            import_edges: Vec::new(),
+            import_cycles: Vec::new(),
+            coupling_finding_counts: None,
+            call_graph: None,
+            churn_timeline: None,
+            score_thresholds: Default::default(),
+            long_method_thresholds: Default::default(),
+        }
+    }
 }
 
 /// The four thresholds the Long Methods predicate reads, as applied to this run.
@@ -374,6 +438,83 @@ pub struct HistoryEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_blank_report_has_no_content_to_leak_into_fixtures() {
+        // Fixtures inherit everything they do not name; any list, text, or
+        // count that is not empty here would sit silently in every one of them.
+        use serde_json::Value;
+        let json = serde_json::to_value(AnalysisReport::blank()).unwrap();
+        let with_content: Vec<&String> = json
+            .as_object()
+            .unwrap()
+            .iter()
+            .filter(|(_, value)| match value {
+                Value::Array(items) => !items.is_empty(),
+                Value::String(text) => !text.is_empty(),
+                Value::Number(n) => n.as_f64() != Some(0.0),
+                Value::Bool(flag) => *flag,
+                Value::Null | Value::Object(_) => false,
+            })
+            .map(|(key, _)| key)
+            .collect();
+        assert!(
+            with_content.is_empty(),
+            "blank report has: {with_content:?}"
+        );
+    }
+
+    #[test]
+    fn report_tabs_serialize_as_the_lowercase_words_the_html_report_switches_on() {
+        // The HTML report capitalises the first letter and looks the word up
+        // among its tab names; the JSON wording is a contract, not a detail.
+        let words: Vec<serde_json::Value> = [
+            ReportTab::Hotspots,
+            ReportTab::Coupling,
+            ReportTab::Ownership,
+            ReportTab::Trends,
+            ReportTab::Age,
+        ]
+        .iter()
+        .map(|tab| serde_json::to_value(tab).unwrap())
+        .collect();
+        assert_eq!(
+            words,
+            ["hotspots", "coupling", "ownership", "trends", "age"]
+        );
+    }
+
+    #[test]
+    fn sort_keys_serialize_as_lowercase_words() {
+        let words: Vec<serde_json::Value> = [SortKey::Authors, SortKey::Complexity]
+            .iter()
+            .map(|key| serde_json::to_value(key).unwrap())
+            .collect();
+        assert_eq!(words, ["authors", "complexity"]);
+    }
+
+    #[test]
+    fn an_action_without_a_target_omits_both_keys() {
+        let action = ActionItem {
+            text: "t".into(),
+            target_tab: None,
+            sort_by: None,
+        };
+        let json = serde_json::to_value(&action).unwrap();
+        assert!(json.get("target_tab").is_none() && json.get("sort_by").is_none());
+    }
+
+    #[test]
+    fn an_action_with_a_target_serializes_the_words() {
+        let action = ActionItem {
+            text: "t".into(),
+            target_tab: Some(ReportTab::Ownership),
+            sort_by: Some(SortKey::Authors),
+        };
+        let json = serde_json::to_value(&action).unwrap();
+        assert_eq!(json["target_tab"], "ownership");
+        assert_eq!(json["sort_by"], "authors");
+    }
 
     #[test]
     fn history_counts_omit_absent_coupling_fields() {

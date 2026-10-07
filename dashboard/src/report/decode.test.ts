@@ -96,7 +96,54 @@ describe('decodeReport', () => {
 
     const malformedOptional = clone()
     ;(malformedOptional.top_actions as Record<string, unknown>[])[1].target_tab = 3
-    expectDecodeError(malformedOptional, 'report.top_actions[1].target_tab: expected string when present')
+    expectDecodeError(
+      malformedOptional,
+      'report.top_actions[1].target_tab: expected one of hotspots, coupling, ownership, trends, age',
+    )
+  })
+
+  describe('action targets', () => {
+    const actionAt = (input: Record<string, unknown>, index: number): Record<string, unknown> =>
+      (input.top_actions as Record<string, unknown>[])[index]
+
+    it.each(['hotspots', 'coupling', 'ownership', 'trends', 'age'])(
+      'accepts the producer tab word %s',
+      word => {
+        const input = clone()
+        actionAt(input, 1).target_tab = word
+        expect(decodeReport(input).top_actions[1].target_tab).toBe(word)
+      },
+    )
+
+    it.each(['authors', 'complexity'])('accepts the producer sort word %s', word => {
+      const input = clone()
+      actionAt(input, 1).sort_by = word
+      expect(decodeReport(input).top_actions[1].sort_by).toBe(word)
+    })
+
+    it('rejects a tab the report has no view for, naming the path and the accepted words', () => {
+      const input = clone()
+      actionAt(input, 1).target_tab = 'dependencies'
+      expectDecodeError(
+        input,
+        'report.top_actions[1].target_tab: expected one of hotspots, coupling, ownership, trends, age',
+      )
+    })
+
+    it('rejects a sort key the producer does not emit', () => {
+      const input = clone()
+      actionAt(input, 1).sort_by = 'churn'
+      expectDecodeError(input, 'report.top_actions[1].sort_by: expected one of authors, complexity')
+    })
+
+    it('keeps an action without a target decodable', () => {
+      const input = clone()
+      delete actionAt(input, 1).target_tab
+      delete actionAt(input, 1).sort_by
+      const action = decodeReport(input).top_actions[1]
+      expect(action.target_tab).toBeUndefined()
+      expect(action.sort_by).toBeUndefined()
+    })
   })
 
   it('requires valid report thresholds with warn below good', () => {

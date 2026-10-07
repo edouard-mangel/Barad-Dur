@@ -737,3 +737,230 @@ fn gate_rejects_invalid_weights_before_scoring() {
         .failure()
         .stderr(predicate::str::contains("Category weights must sum to 100"));
 }
+
+// ---------------------------------------------------------------------------
+// gate — the verdict lines themselves. CI logs and humans read these lines, so
+// the wording and the order are part of the contract, not only the exit code.
+// Expected scores come from `analyze`, never from the gate under test.
+// ---------------------------------------------------------------------------
+
+/// Exit code and stdout lines of one `gate` run.
+fn gate_lines(dir: &Path, flags: &[&str]) -> (Option<i32>, Vec<String>) {
+    let out = barad_dur()
+        .arg("gate")
+        .arg(dir)
+        .args(flags)
+        .output()
+        .unwrap();
+    let lines = String::from_utf8(out.stdout)
+        .unwrap()
+        .lines()
+        .map(String::from)
+        .collect();
+    (out.status.code(), lines)
+}
+
+#[test]
+fn gate_overall_verdict_line_states_score_and_threshold() {
+    let dir = fixture();
+    let overall = analyze_json(dir.path(), &[])["overall_score"]
+        .as_u64()
+        .expect("fixture scores");
+
+    let (code, lines) = gate_lines(dir.path(), &["--min-score", &overall.to_string()]);
+    assert_eq!(code, Some(0));
+    assert_eq!(
+        lines,
+        [format!(
+            "PASS: overall score {overall} >= threshold {overall}"
+        )]
+    );
+
+    let above = overall + 1;
+    let (code, lines) = gate_lines(dir.path(), &["--min-score", &above.to_string()]);
+    assert_eq!(code, Some(1));
+    assert_eq!(
+        lines,
+        [format!("FAIL: overall score {overall} < threshold {above}")]
+    );
+}
+
+#[test]
+fn gate_unknown_category_line_names_the_category_and_does_not_fail() {
+    let dir = fixture();
+    let (code, lines) = gate_lines(
+        dir.path(),
+        &["--category", "Dependencies", "--min-score", "100"],
+    );
+    assert_eq!(code, Some(0));
+    assert_eq!(
+        lines,
+        ["WARN: unknown category 'Dependencies', skipping".to_string()]
+    );
+}
+
+#[test]
+fn gate_category_lines_follow_argument_order_and_any_failure_fails() {
+    let dir = fixture();
+    let (code, lines) = gate_lines(
+        dir.path(),
+        &[
+            "--category",
+            "Health",
+            "--category",
+            "Dependencies",
+            "--category",
+            "Coupling",
+            "--min-score",
+            "100",
+        ],
+    );
+    assert_eq!(code, Some(1));
+    assert_eq!(lines.len(), 3, "one line per --category: {lines:?}");
+    assert!(lines[0].starts_with("FAIL: Health score "), "{lines:?}");
+    assert_eq!(lines[1], "WARN: unknown category 'Dependencies', skipping");
+    assert!(lines[2].starts_with("FAIL: Coupling score "), "{lines:?}");
+
+    let (_, reversed) = gate_lines(
+        dir.path(),
+        &[
+            "--category",
+            "Coupling",
+            "--category",
+            "Dependencies",
+            "--category",
+            "Health",
+            "--min-score",
+            "100",
+        ],
+    );
+    assert!(
+        reversed[0].starts_with("FAIL: Coupling score "),
+        "{reversed:?}"
+    );
+    assert!(
+        reversed[2].starts_with("FAIL: Health score "),
+        "{reversed:?}"
+    );
+}
+
+#[test]
+fn gate_failure_in_an_early_category_is_not_forgotten_by_a_later_one() {
+    // The last line is a WARN that cannot fail; the exit code still has to
+    // carry the Health failure printed above it.
+    let dir = fixture();
+    let (code, lines) = gate_lines(
+        dir.path(),
+        &[
+            "--category",
+            "Health",
+            "--category",
+            "Dependencies",
+            "--min-score",
+            "100",
+        ],
+    );
+    assert_eq!(code, Some(1), "{lines:?}");
+}
+
+#[test]
+fn gate_trend_line_on_a_first_run_says_there_is_no_history() {
+    let dir = fixture();
+    let (code, lines) = gate_lines(dir.path(), &["--min-score", "0", "--max-decline", "0"]);
+    assert_eq!(code, Some(0));
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert!(lines[0].starts_with("PASS: overall score "), "{lines:?}");
+    assert_eq!(
+        lines[1],
+        "TREND: no prior history on this branch — skipping trend check"
+    );
+}
+
+/// Rewrite `trends.json` as `entries`, one JSON document per line.
+fn seed_history(dir: &Path, entries: &[Value]) {
+    let lines: Vec<String> = entries.iter().map(Value::to_string).collect();
+    std::fs::write(
+        dir.join(".repository-analysis/trends.json"),
+        lines.join("\n") + "\n",
+    )
+    .unwrap();
+}
+
+/// `analyze`'s own entry cloned `n` times, oldest first, each a distinct head
+/// and a distinct day so the history reads as `n` separate runs.
+fn history_like_analyze(dir: &Path, n: i64, tweak: impl Fn(&mut Value)) -> Vec<Value> {
+    analyze_json(dir, &[]);
+    let own = read_trends_entries(dir).remove(0);
+    (0..n)
+        .map(|i| {
+            let mut entry = own.clone();
+            entry["head"] = Value::String(format!("{i:040x}"));
+            entry["timestamp"] = Value::String((Utc::now() - Duration::days(30 - i)).to_rfc3339());
+            tweak(&mut entry);
+            entry
+        })
+        .collect()
+}
+
+#[test]
+fn gate_trend_line_says_velocity_is_not_computable_when_the_oldest_run_was_unscored() {
+    let dir = fixture();
+    let mut entries = history_like_analyze(dir.path(), 2, |_| {});
+    entries[0]["overall_score"] = Value::Null;
+    seed_history(dir.path(), &entries);
+    let (code, lines) = gate_lines(dir.path(), &["--min-score", "0", "--max-decline", "0"]);
+    assert_eq!(code, Some(0));
+    assert_eq!(
+        lines.last().map(String::as_str),
+        Some("TREND: not enough history to compute velocity"),
+        "{lines:?}"
+    );
+}
+
+#[test]
+fn gate_trend_line_on_stable_history_reports_direction_and_rate() {
+    let dir = fixture();
+    let entries = history_like_analyze(dir.path(), 4, |_| {});
+    seed_history(dir.path(), &entries);
+    let (code, lines) = gate_lines(dir.path(), &["--min-score", "0", "--max-decline", "0"]);
+    assert_eq!(code, Some(0));
+    assert_eq!(
+        lines.last().map(String::as_str),
+        Some("PASS: score trend Stable (+0.0 points/run)"),
+        "{lines:?}"
+    );
+}
+
+#[test]
+fn gate_trend_warns_before_its_verdict_when_the_newest_run_is_on_another_branch() {
+    let dir = fixture();
+    let mut entries = history_like_analyze(dir.path(), 4, |_| {});
+    entries[3]["branch"] = Value::String("some-other-branch".into());
+    seed_history(dir.path(), &entries);
+    let (code, lines) = gate_lines(dir.path(), &["--min-score", "0", "--max-decline", "0"]);
+    assert_eq!(code, Some(0));
+    assert_eq!(lines.len(), 3, "{lines:?}");
+    assert_eq!(
+        lines[1],
+        "TREND WARN: prior history is from a different branch"
+    );
+    assert!(lines[2].starts_with("PASS: score trend "), "{lines:?}");
+}
+
+#[test]
+fn gate_trend_ignores_history_that_is_only_from_other_branches_without_warning() {
+    // Characterization of a quirk: `compute_trend` flags the mismatch, but
+    // `gate` reports "no prior history" first and never shows the warning.
+    let dir = fixture();
+    let entries = history_like_analyze(dir.path(), 3, |entry| {
+        entry["branch"] = Value::String("some-other-branch".into());
+    });
+    seed_history(dir.path(), &entries);
+    let (code, lines) = gate_lines(dir.path(), &["--min-score", "0", "--max-decline", "0"]);
+    assert_eq!(code, Some(0));
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert_eq!(
+        lines[1],
+        "TREND: no prior history on this branch — skipping trend check"
+    );
+}

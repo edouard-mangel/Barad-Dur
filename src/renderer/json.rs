@@ -108,27 +108,10 @@ mod tests {
             }],
             top_actions: vec![ActionItem {
                 text: "Fix bus factor".into(),
-                target_tab: Some("ownership".into()),
+                target_tab: Some(crate::scorer::ReportTab::Ownership),
                 sort_by: None,
             }],
-            coupling_actions: vec![],
-            remote_meta: None,
-            file_hotspots: vec![],
-            coupling_pairs: vec![],
-            author_ownership: vec![],
-            file_ages: vec![],
-            author_cards: vec![],
-            history: vec![],
-            dep_ecosystem_reports: vec![],
-            audit: None,
-            per_file_coupling: vec![],
-            import_edges: vec![],
-            import_cycles: vec![],
-            coupling_finding_counts: None,
-            call_graph: None,
-            churn_timeline: None,
-            score_thresholds: Default::default(),
-            long_method_thresholds: Default::default(),
+            ..AnalysisReport::blank()
         }
     }
 

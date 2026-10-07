@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 use crate::analysis::{self, AnalysisInputs, AnalysisResult, CategorySelection};
@@ -64,7 +65,7 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
         coupling_reach: &coupling_reach,
     });
     let threshold = args.min_score;
-    let score_failed = check_gate_categories(&analysis, &args, threshold);
+    let score_failed = check_gate_categories(&analysis, &args.category, threshold);
 
     let trend_failed = match args.max_decline {
         Some(max_decline) => check_trend_gate_against_history(
@@ -78,12 +79,11 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
         None => false,
     };
 
-    let ratchet_failed = if args.no_new_coupling || args.max_new_coupling.is_some() {
-        let baseline_ref = args
-            .baseline_ref
-            .as_deref()
-            .expect("clap `requires` guarantees baseline_ref");
-        let max_new = args.max_new_coupling.unwrap_or(0);
+    let ratchet_failed = if let Some(RatchetSpec {
+        baseline_ref,
+        max_new,
+    }) = ratchet_spec(&args)?
+    {
         let sha = resolve_baseline_ref(&local_path, baseline_ref)?;
         let ignore = crate::collector::BaradDurIgnore::load(&local_path)?;
         let base_snapshot = Collector::collect_snapshot_at_with_ast(
@@ -96,24 +96,8 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
         // the finding set (new-finding diff) cannot disagree about what
         // "content coupling" means, barrel toggle included.
         let base_evidence = CouplingEvidence::derive(&base_snapshot, &cfg.thresholds.coupling);
-        let base_counts = base_evidence
-            .finding_counts()
-            .unwrap_or(CouplingFindingCounts {
-                content: 0,
-                common: 0,
-                inheritance: 0,
-                control: 0,
-            });
-        let head_counts =
-            analysis
-                .coupling_evidence
-                .finding_counts()
-                .unwrap_or(CouplingFindingCounts {
-                    content: 0,
-                    common: 0,
-                    inheritance: 0,
-                    control: 0,
-                });
+        let base_counts = counts_or_clean(&base_evidence);
+        let head_counts = counts_or_clean(&analysis.coupling_evidence);
         let verdict = ratchet_verdict(
             &base_counts,
             &head_counts,
@@ -128,6 +112,42 @@ pub fn run_gate(args: GateArgs) -> Result<i32> {
     };
 
     Ok(gate_exit_code(score_failed, trend_failed, ratchet_failed))
+}
+
+/// The coupling ratchet the arguments ask for: compare HEAD against
+/// `baseline_ref`, allowing up to `max_new` new findings.
+#[derive(Debug, PartialEq, Eq)]
+struct RatchetSpec<'a> {
+    baseline_ref: &'a str,
+    max_new: usize,
+}
+
+/// Parse the ratchet flags once. `--no-new-coupling` and `--max-new-coupling`
+/// each need `--baseline-ref`; clap enforces that on the command line, and
+/// this keeps the requirement in the value rather than in an assumption.
+fn ratchet_spec(args: &GateArgs) -> Result<Option<RatchetSpec<'_>>> {
+    if !(args.no_new_coupling || args.max_new_coupling.is_some()) {
+        return Ok(None);
+    }
+    let baseline_ref = args
+        .baseline_ref
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("the coupling ratchet requires --baseline-ref"))?;
+    Ok(Some(RatchetSpec {
+        baseline_ref,
+        max_new: args.max_new_coupling.unwrap_or(0),
+    }))
+}
+
+/// Finding counts of `evidence`, reading "detection did not run" as clean:
+/// the gate compares totals and has nothing to flag without findings.
+fn counts_or_clean(evidence: &CouplingEvidence) -> CouplingFindingCounts {
+    evidence.finding_counts().unwrap_or(CouplingFindingCounts {
+        content: 0,
+        common: 0,
+        inheritance: 0,
+        control: 0,
+    })
 }
 
 /// Resolve a baseline ref (branch, tag, or SHA) to a full commit SHA, in the
@@ -209,64 +229,196 @@ fn check_trend_gate_against_history(
     check_trend_gate(&summary, max_decline)
 }
 
-fn check_trend_gate(summary: &trend::TrendSummary, max_decline: f64) -> bool {
-    if summary.delta.is_first {
-        println!("TREND: no prior history on this branch — skipping trend check");
-        return false;
-    }
+/// What the trend check concluded. `NoPriorHistory` carries no branch-mismatch
+/// flag because a first run never reports one; the other variants do.
+#[derive(Debug, PartialEq)]
+enum TrendVerdict {
+    NoPriorHistory,
+    Compared {
+        branch_mismatch: bool,
+        outcome: TrendOutcome,
+    },
+}
 
-    if summary.branch_mismatch_warning {
-        println!("TREND WARN: prior history is from a different branch");
-    }
+#[derive(Debug, PartialEq)]
+enum TrendOutcome {
+    NoVelocity,
+    /// Improving or stable: nothing to hold against the limit.
+    Steady {
+        direction: VelocityDirection,
+        points_per_run: f64,
+    },
+    DeclineWithinLimit {
+        rate: f64,
+        limit: f64,
+    },
+    DeclineBeyondLimit {
+        rate: f64,
+        limit: f64,
+    },
+}
 
-    match &summary.velocity {
-        Some(v) if v.direction == VelocityDirection::Declining => {
-            let rate = v.points_per_run.abs();
-            if rate > max_decline {
-                println!(
-                    "FAIL: score declining at {:.1} points/run (limit: {:.1})",
-                    rate, max_decline
-                );
-                true
-            } else {
-                println!(
-                    "PASS: score declining at {:.1} points/run (within limit {:.1})",
-                    rate, max_decline
-                );
-                false
+impl TrendVerdict {
+    fn failed(&self) -> bool {
+        matches!(
+            self,
+            Self::Compared {
+                outcome: TrendOutcome::DeclineBeyondLimit { .. },
+                ..
             }
-        }
-        Some(v) => {
-            println!(
-                "PASS: score trend {:?} ({:+.1} points/run)",
-                v.direction, v.points_per_run
-            );
-            false
-        }
-        None => {
-            println!("TREND: not enough history to compute velocity");
-            false
+        )
+    }
+
+    /// The lines the gate prints, mismatch warning first.
+    fn lines(&self) -> Vec<String> {
+        match self {
+            Self::NoPriorHistory => {
+                vec!["TREND: no prior history on this branch — skipping trend check".to_string()]
+            }
+            Self::Compared {
+                branch_mismatch,
+                outcome,
+            } => branch_mismatch
+                .then(|| "TREND WARN: prior history is from a different branch".to_string())
+                .into_iter()
+                .chain(std::iter::once(outcome.to_string()))
+                .collect(),
         }
     }
 }
 
-/// Verdict for one score against the threshold: `(failed, line to print)`.
-/// An unscored value is not a failure — there is no evidence either way —
-/// but it is reported as such, distinct from a category that does not exist.
-fn score_verdict(label: &str, score: Option<u32>, threshold: u32) -> (bool, String) {
+impl fmt::Display for TrendOutcome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoVelocity => write!(f, "TREND: not enough history to compute velocity"),
+            Self::Steady {
+                direction,
+                points_per_run,
+            } => write!(
+                f,
+                "PASS: score trend {direction:?} ({points_per_run:+.1} points/run)"
+            ),
+            Self::DeclineWithinLimit { rate, limit } => write!(
+                f,
+                "PASS: score declining at {rate:.1} points/run (within limit {limit:.1})"
+            ),
+            Self::DeclineBeyondLimit { rate, limit } => write!(
+                f,
+                "FAIL: score declining at {rate:.1} points/run (limit: {limit:.1})"
+            ),
+        }
+    }
+}
+
+fn trend_verdict(summary: &trend::TrendSummary, max_decline: f64) -> TrendVerdict {
+    if summary.delta.is_first {
+        return TrendVerdict::NoPriorHistory;
+    }
+
+    let outcome = match &summary.velocity {
+        Some(v) if v.direction == VelocityDirection::Declining => {
+            let rate = v.points_per_run.abs();
+            if rate > max_decline {
+                TrendOutcome::DeclineBeyondLimit {
+                    rate,
+                    limit: max_decline,
+                }
+            } else {
+                TrendOutcome::DeclineWithinLimit {
+                    rate,
+                    limit: max_decline,
+                }
+            }
+        }
+        Some(v) => TrendOutcome::Steady {
+            direction: v.direction.clone(),
+            points_per_run: v.points_per_run,
+        },
+        None => TrendOutcome::NoVelocity,
+    };
+
+    TrendVerdict::Compared {
+        branch_mismatch: summary.branch_mismatch_warning,
+        outcome,
+    }
+}
+
+/// Print the trend verdict; `true` when it fails the gate.
+fn check_trend_gate(summary: &trend::TrendSummary, max_decline: f64) -> bool {
+    let verdict = trend_verdict(summary, max_decline);
+    verdict.lines().iter().for_each(|line| println!("{line}"));
+    verdict.failed()
+}
+
+/// What one score check concluded. The variant is the single source of both
+/// the failure flag and the printed line, so a `PASS` line can never travel
+/// with a failure. An unscored value is not a failure — there is no evidence
+/// either way — but it is reported as such, distinct from a category that
+/// does not exist.
+#[derive(Debug, PartialEq)]
+enum ScoreVerdict {
+    Met {
+        label: String,
+        score: u32,
+        threshold: u32,
+    },
+    Below {
+        label: String,
+        score: u32,
+        threshold: u32,
+    },
+    Unscored {
+        label: String,
+    },
+    UnknownCategory {
+        name: String,
+    },
+}
+
+impl ScoreVerdict {
+    fn failed(&self) -> bool {
+        matches!(self, Self::Below { .. })
+    }
+}
+
+impl fmt::Display for ScoreVerdict {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Met {
+                label,
+                score,
+                threshold,
+            } => write!(f, "PASS: {label} score {score} >= threshold {threshold}"),
+            Self::Below {
+                label,
+                score,
+                threshold,
+            } => write!(f, "FAIL: {label} score {score} < threshold {threshold}"),
+            Self::Unscored { label } => write!(
+                f,
+                "WARN: {label} has no scored metric (insufficient data), not gated"
+            ),
+            Self::UnknownCategory { name } => {
+                write!(f, "WARN: unknown category '{name}', skipping")
+            }
+        }
+    }
+}
+
+fn score_verdict(label: &str, score: Option<u32>, threshold: u32) -> ScoreVerdict {
+    let label = label.to_string();
     match score {
-        Some(score) if score < threshold => (
-            true,
-            format!("FAIL: {label} score {score} < threshold {threshold}"),
-        ),
-        Some(score) => (
-            false,
-            format!("PASS: {label} score {score} >= threshold {threshold}"),
-        ),
-        None => (
-            false,
-            format!("WARN: {label} has no scored metric (insufficient data), not gated"),
-        ),
+        Some(score) if score < threshold => ScoreVerdict::Below {
+            label,
+            score,
+            threshold,
+        },
+        Some(score) => ScoreVerdict::Met {
+            label,
+            score,
+            threshold,
+        },
+        None => ScoreVerdict::Unscored { label },
     }
 }
 
@@ -278,38 +430,38 @@ fn find_category<'a>(analysis: &'a AnalysisResult, cat_name: &str) -> Option<&'a
     })
 }
 
-/// `(failed, line)` for a `--category` argument; unknown names never fail.
-fn category_verdict(analysis: &AnalysisResult, cat_name: &str, threshold: u32) -> (bool, String) {
+/// The verdict for a `--category` argument; unknown names never fail.
+fn category_verdict(analysis: &AnalysisResult, cat_name: &str, threshold: u32) -> ScoreVerdict {
     match find_category(analysis, cat_name) {
         Some(cat) => score_verdict(&cat.name, cat.score, threshold),
-        None => (
-            false,
-            format!("WARN: unknown category '{cat_name}', skipping"),
-        ),
+        None => ScoreVerdict::UnknownCategory {
+            name: cat_name.to_string(),
+        },
     }
 }
 
-#[cfg(test)]
-fn explain_category_gate(analysis: &AnalysisResult, cat_name: &str, threshold: u32) -> String {
-    category_verdict(analysis, cat_name, threshold).1
-}
-
-fn check_gate_categories(analysis: &AnalysisResult, args: &GateArgs, threshold: u32) -> bool {
-    let mut failed = false;
-
-    if args.category.is_empty() {
-        let (overall_failed, line) = score_verdict("overall", analysis.overall_score, threshold);
-        println!("{line}");
-        failed = overall_failed;
+/// One verdict per requested category, in argument order; the overall score
+/// when none was requested.
+fn score_verdicts(
+    analysis: &AnalysisResult,
+    categories: &[String],
+    threshold: u32,
+) -> Vec<ScoreVerdict> {
+    if categories.is_empty() {
+        vec![score_verdict("overall", analysis.overall_score, threshold)]
     } else {
-        for cat_name in &args.category {
-            let (cat_failed, line) = category_verdict(analysis, cat_name, threshold);
-            println!("{line}");
-            failed |= cat_failed;
-        }
+        categories
+            .iter()
+            .map(|name| category_verdict(analysis, name, threshold))
+            .collect()
     }
+}
 
-    failed
+/// Print the score verdicts; `true` when any of them fails the gate.
+fn check_gate_categories(analysis: &AnalysisResult, categories: &[String], threshold: u32) -> bool {
+    let verdicts = score_verdicts(analysis, categories, threshold);
+    verdicts.iter().for_each(|verdict| println!("{verdict}"));
+    verdicts.iter().any(ScoreVerdict::failed)
 }
 
 pub(crate) struct RatchetVerdict {
@@ -462,67 +614,6 @@ mod tests {
         }
     }
 
-    // ── check_gate_categories ────────────────────────────────────────
-
-    #[test]
-    fn overall_pass() {
-        let report = make_analysis(75, &[]);
-        let args = make_gate_args(60, vec![]);
-        assert!(!check_gate_categories(&report, &args, 60));
-    }
-
-    #[test]
-    fn overall_fail() {
-        let report = make_analysis(50, &[]);
-        let args = make_gate_args(60, vec![]);
-        assert!(check_gate_categories(&report, &args, 60));
-    }
-
-    #[test]
-    fn category_pass() {
-        let report = make_analysis(80, &[("Health", 75)]);
-        let args = make_gate_args(60, vec!["health".into()]);
-        assert!(!check_gate_categories(&report, &args, 60));
-    }
-
-    #[test]
-    fn category_fail() {
-        let report = make_analysis(80, &[("Health", 40)]);
-        let args = make_gate_args(60, vec!["health".into()]);
-        assert!(check_gate_categories(&report, &args, 60));
-    }
-
-    #[test]
-    fn unscored_category_is_reported_as_not_measurable_and_does_not_fail() {
-        let mut report = make_analysis(80, &[("Health", 80)]);
-        report.categories.push(CategoryResult {
-            name: "Team".into(),
-            score: None,
-            metrics: vec![],
-        });
-        let args = make_gate_args(60, vec!["team".into()]);
-        assert!(!check_gate_categories(&report, &args, 60));
-        assert_eq!(
-            explain_category_gate(&report, "team", 60),
-            "WARN: Team has no scored metric (insufficient data), not gated"
-        );
-    }
-
-    #[test]
-    fn unscored_overall_is_reported_as_not_measurable_and_does_not_fail() {
-        let mut report = make_analysis(80, &[]);
-        report.overall_score = None;
-        let args = make_gate_args(60, vec![]);
-        assert!(!check_gate_categories(&report, &args, 60));
-    }
-
-    #[test]
-    fn unknown_category_skipped() {
-        let report = make_analysis(80, &[("Health", 80)]);
-        let args = make_gate_args(60, vec!["nonexistent".into()]);
-        assert!(!check_gate_categories(&report, &args, 60));
-    }
-
     // ── run_gate (end-to-end exit code) ──────────────────────────────
 
     /// A throwaway git repo with one commit, so `run_gate` can analyze it.
@@ -657,49 +748,278 @@ mod tests {
         );
     }
 
-    // ── check_trend_gate ────────────────────────────────────────────
+    // ── score_verdicts: the decision is a value, the wording is derived ──
 
-    #[test]
-    fn trend_first_run_passes() {
-        assert!(!check_trend_gate(&first_summary(), 2.0));
+    /// `(failed, printed line)` for every verdict, in order.
+    fn rendered(verdicts: &[ScoreVerdict]) -> Vec<(bool, String)> {
+        verdicts
+            .iter()
+            .map(|v| (v.failed(), v.to_string()))
+            .collect()
     }
 
     #[test]
-    fn trend_declining_above_limit_fails() {
-        let s = summary_with_velocity(VelocityDirection::Declining, -5.0);
-        assert!(check_trend_gate(&s, 2.0));
+    fn overall_at_or_above_threshold_is_met() {
+        let report = make_analysis(75, &[]);
+        assert_eq!(
+            rendered(&score_verdicts(&report, &[], 60)),
+            [(false, "PASS: overall score 75 >= threshold 60".to_string())]
+        );
     }
 
     #[test]
-    fn trend_declining_below_limit_passes() {
-        let s = summary_with_velocity(VelocityDirection::Declining, -1.0);
-        assert!(!check_trend_gate(&s, 2.0));
+    fn overall_exactly_at_threshold_is_met() {
+        let report = make_analysis(60, &[]);
+        assert_eq!(
+            rendered(&score_verdicts(&report, &[], 60)),
+            [(false, "PASS: overall score 60 >= threshold 60".to_string())]
+        );
     }
 
     #[test]
-    fn trend_improving_passes() {
-        let s = summary_with_velocity(VelocityDirection::Improving, 3.0);
-        assert!(!check_trend_gate(&s, 2.0));
+    fn overall_below_threshold_fails() {
+        let report = make_analysis(50, &[]);
+        assert_eq!(
+            rendered(&score_verdicts(&report, &[], 60)),
+            [(true, "FAIL: overall score 50 < threshold 60".to_string())]
+        );
     }
 
     #[test]
-    fn trend_stable_passes() {
-        let s = summary_with_velocity(VelocityDirection::Stable, 0.1);
-        assert!(!check_trend_gate(&s, 2.0));
+    fn unscored_overall_warns_and_does_not_fail() {
+        let mut report = make_analysis(80, &[]);
+        report.overall_score = None;
+        assert_eq!(
+            rendered(&score_verdicts(&report, &[], 60)),
+            [(
+                false,
+                "WARN: overall has no scored metric (insufficient data), not gated".to_string()
+            )]
+        );
     }
 
     #[test]
-    fn trend_no_velocity_passes() {
+    fn named_category_is_matched_case_insensitively_and_replaces_the_overall() {
+        let report = make_analysis(10, &[("Health", 75)]);
+        assert_eq!(
+            rendered(&score_verdicts(&report, &["health".to_string()], 60)),
+            [(false, "PASS: Health score 75 >= threshold 60".to_string())]
+        );
+    }
+
+    #[test]
+    fn named_category_below_threshold_fails() {
+        let report = make_analysis(80, &[("Health", 40)]);
+        assert_eq!(
+            rendered(&score_verdicts(&report, &["health".to_string()], 60)),
+            [(true, "FAIL: Health score 40 < threshold 60".to_string())]
+        );
+    }
+
+    #[test]
+    fn unscored_category_warns_and_does_not_fail() {
+        let mut report = make_analysis(80, &[("Health", 80)]);
+        report.categories.push(CategoryResult {
+            name: "Team".into(),
+            score: None,
+            metrics: vec![],
+        });
+        assert_eq!(
+            rendered(&score_verdicts(&report, &["team".to_string()], 60)),
+            [(
+                false,
+                "WARN: Team has no scored metric (insufficient data), not gated".to_string()
+            )]
+        );
+    }
+
+    #[test]
+    fn unknown_category_warns_and_does_not_fail() {
+        let report = make_analysis(80, &[("Health", 80)]);
+        assert_eq!(
+            rendered(&score_verdicts(&report, &["nonexistent".to_string()], 60)),
+            [(
+                false,
+                "WARN: unknown category 'nonexistent', skipping".to_string()
+            )]
+        );
+    }
+
+    #[test]
+    fn one_verdict_per_requested_category_in_argument_order() {
+        let report = make_analysis(80, &[("Health", 40), ("Coupling", 90)]);
+        let requested = ["coupling", "nope", "health"].map(String::from);
+        assert_eq!(
+            rendered(&score_verdicts(&report, &requested, 60)),
+            [
+                (false, "PASS: Coupling score 90 >= threshold 60".to_string()),
+                (false, "WARN: unknown category 'nope', skipping".to_string()),
+                (true, "FAIL: Health score 40 < threshold 60".to_string()),
+            ]
+        );
+    }
+
+    // ── trend_verdict ────────────────────────────────────────────────
+
+    /// `(failed, printed lines)`.
+    fn trend(summary: &TrendSummary, max_decline: f64) -> (bool, Vec<String>) {
+        let verdict = trend_verdict(summary, max_decline);
+        (verdict.failed(), verdict.lines())
+    }
+
+    #[test]
+    fn trend_first_run_skips_the_check() {
+        assert_eq!(
+            trend(&first_summary(), 2.0),
+            (
+                false,
+                vec!["TREND: no prior history on this branch — skipping trend check".to_string()]
+            )
+        );
+    }
+
+    #[test]
+    fn trend_first_run_never_shows_the_branch_mismatch_warning() {
+        // Characterized quirk: `is_first` is decided before the mismatch flag
+        // is looked at, so the warning is unreachable on a first run.
         let mut s = first_summary();
-        s.delta.is_first = false; // not first, but no velocity computed
-        assert!(!check_trend_gate(&s, 2.0));
+        s.branch_mismatch_warning = true;
+        assert_eq!(
+            trend(&s, 2.0).1,
+            ["TREND: no prior history on this branch — skipping trend check"]
+        );
     }
 
     #[test]
-    fn trend_branch_mismatch_warning_does_not_fail() {
+    fn trend_decline_beyond_the_limit_fails_and_names_both_numbers() {
+        let s = summary_with_velocity(VelocityDirection::Declining, -5.0);
+        assert_eq!(
+            trend(&s, 2.0),
+            (
+                true,
+                vec!["FAIL: score declining at 5.0 points/run (limit: 2.0)".to_string()]
+            )
+        );
+    }
+
+    #[test]
+    fn trend_decline_exactly_at_the_limit_is_within_it() {
+        let s = summary_with_velocity(VelocityDirection::Declining, -2.0);
+        assert_eq!(
+            trend(&s, 2.0),
+            (
+                false,
+                vec!["PASS: score declining at 2.0 points/run (within limit 2.0)".to_string()]
+            )
+        );
+    }
+
+    #[test]
+    fn trend_decline_inside_the_limit_passes() {
+        let s = summary_with_velocity(VelocityDirection::Declining, -1.0);
+        assert_eq!(
+            trend(&s, 2.0),
+            (
+                false,
+                vec!["PASS: score declining at 1.0 points/run (within limit 2.0)".to_string()]
+            )
+        );
+    }
+
+    #[test]
+    fn trend_improving_and_stable_report_direction_and_signed_rate() {
+        assert_eq!(
+            trend(
+                &summary_with_velocity(VelocityDirection::Improving, 3.0),
+                2.0
+            ),
+            (
+                false,
+                vec!["PASS: score trend Improving (+3.0 points/run)".to_string()]
+            )
+        );
+        assert_eq!(
+            trend(&summary_with_velocity(VelocityDirection::Stable, 0.1), 2.0),
+            (
+                false,
+                vec!["PASS: score trend Stable (+0.1 points/run)".to_string()]
+            )
+        );
+    }
+
+    #[test]
+    fn trend_without_a_velocity_says_so_and_does_not_fail() {
+        let mut s = first_summary();
+        s.delta.is_first = false;
+        assert_eq!(
+            trend(&s, 2.0),
+            (
+                false,
+                vec!["TREND: not enough history to compute velocity".to_string()]
+            )
+        );
+    }
+
+    #[test]
+    fn trend_branch_mismatch_warns_before_the_verdict_without_failing() {
         let mut s = summary_with_velocity(VelocityDirection::Stable, 0.1);
         s.branch_mismatch_warning = true;
-        assert!(!check_trend_gate(&s, 2.0));
+        assert_eq!(
+            trend(&s, 2.0),
+            (
+                false,
+                vec![
+                    "TREND WARN: prior history is from a different branch".to_string(),
+                    "PASS: score trend Stable (+0.1 points/run)".to_string(),
+                ]
+            )
+        );
+    }
+
+    // ── ratchet_spec: the flags are parsed once, into a value ────────
+
+    #[test]
+    fn no_ratchet_flag_means_no_ratchet() {
+        let args = make_gate_args(60, vec![]);
+        assert_eq!(ratchet_spec(&args).unwrap(), None);
+    }
+
+    #[test]
+    fn no_new_coupling_allows_zero_new_findings_against_the_baseline() {
+        let mut args = make_gate_args(60, vec![]);
+        args.no_new_coupling = true;
+        args.baseline_ref = Some("main".into());
+        assert_eq!(
+            ratchet_spec(&args).unwrap(),
+            Some(RatchetSpec {
+                baseline_ref: "main",
+                max_new: 0
+            })
+        );
+    }
+
+    #[test]
+    fn max_new_coupling_sets_the_allowance() {
+        let mut args = make_gate_args(60, vec![]);
+        args.max_new_coupling = Some(3);
+        args.baseline_ref = Some("abc123".into());
+        assert_eq!(
+            ratchet_spec(&args).unwrap(),
+            Some(RatchetSpec {
+                baseline_ref: "abc123",
+                max_new: 3
+            })
+        );
+    }
+
+    #[test]
+    fn a_ratchet_flag_without_a_baseline_is_an_error_not_a_panic() {
+        // clap's `requires` makes this unreachable from the command line; the
+        // type must not depend on that.
+        let mut args = make_gate_args(60, vec![]);
+        args.no_new_coupling = true;
+        let err = ratchet_spec(&args).unwrap_err().to_string();
+        assert!(err.contains("--baseline-ref"), "{err}");
     }
 
     // ── ratchet_verdict ────────────────────────────────────────────
