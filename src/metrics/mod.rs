@@ -1,5 +1,6 @@
 pub(crate) mod callgraph;
 pub(crate) mod churn;
+pub mod commit_quality;
 pub mod complexity;
 pub mod coupling;
 pub mod deps;

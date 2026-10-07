@@ -5,8 +5,8 @@ use std::collections::HashMap;
 
 use crate::snapshot::RepoSnapshot;
 
-use super::super::actions::score_commit_message;
 use super::super::types::{AuthorCard, AuthorShare, FileOwnership};
+use crate::metrics::commit_quality::score_commit_message;
 
 pub(crate) fn build_author_ownership(snapshot: &RepoSnapshot) -> Vec<FileOwnership> {
     snapshot

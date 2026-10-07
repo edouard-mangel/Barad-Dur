@@ -179,8 +179,8 @@
   ],
   "actions": [
     {
-      "target_tab": "",
-      "text": "[Coupling] Common coupling (score: 25) — Review and improve this metric"
+      "target_tab": "coupling",
+      "text": "[Coupling] Common coupling (score: 25) — Shared mutable global state — replace it with explicitly passed or injected state."
     },
     {
       "target_tab": "coupling",

@@ -160,8 +160,8 @@ fn report_fixture() -> AnalysisReport {
         top_actions: vec![
             ActionItem {
                 text: "[Health] integer (score: 90) — Inspect the hotspot".into(),
-                target_tab: Some("hotspots".into()),
-                sort_by: Some("complexity".into()),
+                target_tab: Some(crate::scorer::ReportTab::Hotspots),
+                sort_by: Some(crate::scorer::SortKey::Complexity),
             },
             ActionItem {
                 text: "[Health] list (score: 50) — Split responsibilities".into(),
@@ -171,7 +171,7 @@ fn report_fixture() -> AnalysisReport {
         ],
         coupling_actions: vec![ActionItem {
             text: "Reduce cross-boundary coupling".into(),
-            target_tab: Some("coupling".into()),
+            target_tab: Some(crate::scorer::ReportTab::Coupling),
             sort_by: None,
         }],
         remote_meta: Some(RemoteMeta {

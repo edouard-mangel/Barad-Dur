@@ -364,27 +364,10 @@ mod tests {
             }],
             top_actions: vec![ActionItem {
                 text: "[Health] Bus factor (score: 50) — Improve".into(),
-                target_tab: Some("ownership".into()),
+                target_tab: Some(crate::scorer::ReportTab::Ownership),
                 sort_by: None,
             }],
-            coupling_actions: vec![],
-            remote_meta: None,
-            file_hotspots: vec![],
-            coupling_pairs: vec![],
-            author_ownership: vec![],
-            file_ages: vec![],
-            author_cards: vec![],
-            history: vec![],
-            dep_ecosystem_reports: vec![],
-            audit: None,
-            per_file_coupling: vec![],
-            import_edges: vec![],
-            import_cycles: vec![],
-            coupling_finding_counts: None,
-            call_graph: None,
-            churn_timeline: None,
-            score_thresholds: Default::default(),
-            long_method_thresholds: Default::default(),
+            ..AnalysisReport::blank()
         }
     }
 
@@ -472,7 +455,7 @@ mod tests {
         let mut report = make_report();
         report.coupling_actions = vec![ActionItem {
             text: "[Coupling] src/a.rs — 1 finding(s) (worst: common) — Shared mutable global state: replace it with explicitly passed or injected state.".to_string(),
-            target_tab: Some("coupling".to_string()),
+            target_tab: Some(crate::scorer::ReportTab::Coupling),
             sort_by: None,
         }];
         let out = render_actions_and_footer(&report);

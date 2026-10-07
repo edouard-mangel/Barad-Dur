@@ -60,16 +60,24 @@ export const scoreAt = (value: unknown, path: string): number | null => {
   return value
 }
 
-export const optionalStringAt = (
+/**
+ * An optional field whose value must be one of `words`, absent otherwise. The
+ * words are the keys of a `Record<T, true>`, so a type with a new variant
+ * cannot be listed here without naming it.
+ */
+export const optionalWordAt = <T extends string>(
   object: Record<string, unknown>,
   key: string,
   path: string,
-): string | undefined => {
+  words: Readonly<Record<T, true>>,
+): T | undefined => {
   if (!Object.prototype.hasOwnProperty.call(object, key)) return undefined
-  if (typeof object[key] !== 'string') {
-    throw new ReportDecodeError(`${path}.${key}`, 'expected string when present')
+  const value = object[key]
+  const accepted = Object.keys(words)
+  if (typeof value !== 'string' || !accepted.includes(value)) {
+    throw new ReportDecodeError(`${path}.${key}`, `expected one of ${accepted.join(', ')}`)
   }
-  return object[key]
+  return value as T
 }
 
 export const nullableStringAt = (value: unknown, path: string): string | null => {

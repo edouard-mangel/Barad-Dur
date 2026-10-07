@@ -179,16 +179,12 @@
   ],
   "actions": [
     {
-      "target_tab": "",
-      "text": "[Coupling] Co-change reach trend (advisory) — Review and improve this metric"
+      "target_tab": "coupling",
+      "text": "[Coupling] Common coupling (score: 25) — Shared mutable global state — replace it with explicitly passed or injected state."
     },
     {
-      "target_tab": "",
-      "text": "[Coupling] Common coupling (score: 25) — Review and improve this metric"
-    },
-    {
-      "target_tab": "",
-      "text": "[Coupling] Inheritance coupling (score: 40) — Review and improve this metric"
+      "target_tab": "coupling",
+      "text": "[Coupling] Inheritance coupling (score: 40) — Deep inheritance chain — favor composition over inheritance, or flatten the hierarchy."
     },
     {
       "target_tab": "coupling",
@@ -209,6 +205,10 @@
     {
       "target_tab": "coupling",
       "text": "[Coupling] templates/dotnet-clean-architecture/BlazorClient/BlazorClient/wwwroot/lib/bootstrap/dist/js/bootstrap.js — 13 finding(s) (worst: common) — Shared mutable global state — replace it with explicitly passed or injected state."
+    },
+    {
+      "target_tab": "hotspots",
+      "text": "[Coupling] Co-change reach trend (advisory) — Review the files whose co-change partners keep growing — their responsibilities are spreading; split them along those seams"
     },
     {
       "target_tab": "hotspots",

@@ -1,3 +1,5 @@
+import type { ReportTab } from './generated/ReportTab'
+import type { SortKey } from './generated/SortKey'
 import type {
   ActionItem,
   AuthorShare,
@@ -21,7 +23,7 @@ import {
   nullableCountAt,
   nullableStringAt,
   objectAt,
-  optionalStringAt,
+  optionalWordAt,
   scoreAt,
   stringAt,
   usableDateAt,
@@ -72,12 +74,23 @@ const decodeCategory = (value: unknown, path: string): CategoryResult => {
   }
 }
 
+// Records, not arrays: a variant the producer adds to `ReportTab`/`SortKey`
+// is a compile error here until it is listed.
+const TAB_WORDS: Record<ReportTab, true> = {
+  hotspots: true,
+  coupling: true,
+  ownership: true,
+  trends: true,
+  age: true,
+}
+const SORT_WORDS: Record<SortKey, true> = { authors: true, complexity: true }
+
 const decodeAction = (value: unknown, path: string): ActionItem => {
   const action = objectAt(value, path)
   return {
     text: stringAt(action.text, `${path}.text`),
-    target_tab: optionalStringAt(action, 'target_tab', path),
-    sort_by: optionalStringAt(action, 'sort_by', path),
+    target_tab: optionalWordAt(action, 'target_tab', path, TAB_WORDS),
+    sort_by: optionalWordAt(action, 'sort_by', path, SORT_WORDS),
   }
 }
 
